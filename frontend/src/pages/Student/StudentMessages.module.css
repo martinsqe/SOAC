@@ -1,0 +1,589 @@
+/* ════════════════════════════════════════════════════════════
+   SHELL — fills the student content area (topbar = 52px)
+════════════════════════════════════════════════════════════ */
+.shell {
+  display: flex;
+  height: calc(100vh - 52px);
+  overflow: hidden;
+  position: relative;        /* positioning context for mobile panels */
+  background: #f0f2f5;
+}
+
+/* ════════════════════════════════════════════════════════════
+   LEFT SIDEBAR
+════════════════════════════════════════════════════════════ */
+.sidebar {
+  width: 360px;
+  min-width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-right: 1px solid #e5e7eb;
+  overflow: hidden;
+  z-index: 1;
+}
+
+/* ── Sidebar header ── */
+.sideHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 12px;
+  background: #f0f2f5;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+.sideTitle {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 900;
+  color: #111827;
+  flex: 1;
+}
+
+/* ── Icon button (compose / back) ── */
+.iconBtn {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: #555;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .13s, color .13s;
+  flex-shrink: 0;
+}
+.iconBtn:hover { background: rgba(0,0,0,.07); color: #111; }
+
+/* ── Search bar ── */
+.searchWrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #f0f2f5;
+  flex-shrink: 0;
+}
+.searchIco { width: 15px; height: 15px; color: #9ca3af; flex-shrink: 0; }
+.searchInput {
+  flex: 1;
+  border: none;
+  background: #fff;
+  border-radius: 20px;
+  padding: 7px 14px;
+  font-size: .85rem;
+  font-family: 'DM Sans', sans-serif;
+  outline: none;
+  color: #111827;
+}
+.searchInput::placeholder { color: #9ca3af; }
+
+/* ── Section label ── */
+.sectionLabel {
+  padding: 10px 16px 4px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .9px;
+  color: #9ca3af;
+  text-transform: uppercase;
+}
+
+/* ── Scrollable list ── */
+.convList {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #e5e7eb transparent;
+}
+.convList::-webkit-scrollbar       { width: 4px; }
+.convList::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 4px; }
+
+/* loader / empty */
+.centreSpinner {
+  display: flex;
+  justify-content: center;
+  padding: 40px;
+}
+.listEmpty {
+  padding: 36px 20px;
+  text-align: center;
+  font-size: .83rem;
+  color: #9ca3af;
+  white-space: pre-line;
+  line-height: 1.7;
+}
+
+/* ── Conversation row ── */
+.convRow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  border-bottom: 1px solid #f5f5f5;
+  transition: background .1s;
+}
+.convRow:hover      { background: #f5f6f6; }
+.convRowActive      { background: #f0f2f5 !important; }
+
+.convMeta { flex: 1; min-width: 0; }
+.convTop  {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.convName {
+  font-size: .9rem;
+  font-weight: 700;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.convTime { font-size: .68rem; color: #9ca3af; flex-shrink: 0; }
+.convBottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.convSub  {
+  font-size: .78rem;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.convSub em { color: #d1d5db; font-style: normal; }
+.convSub b  { font-weight: 600; color: #374151; }
+
+/* Unread state */
+.convRowUnread  { background: #f9feff; }
+.convNameUnread { font-weight: 900; color: #064e3b; }
+
+/* Unread count badge */
+.unreadBadge {
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: #25D366;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  flex-shrink: 0;
+}
+
+/* Coordinator / admin role badge (in sender name + compose) */
+.coordBadge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 800;
+  background: rgba(99,91,255,.13);
+  color: #635BFF;
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 5px;
+  vertical-align: middle;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+
+/* Read receipt ticks in DM bubbles */
+.tick     { color: #9ca3af; }
+.tickRead { color: #53bdeb; }
+
+/* ════════════════════════════════════════════════════════════
+   RIGHT PANEL
+════════════════════════════════════════════════════════════ */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  background: #f7f8fc;
+}
+
+/* ── Welcome screen (desktop) ── */
+.welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 40px;
+  text-align: center;
+  background: #f7f8fc;
+}
+.welcomeRing {
+  width: 88px; height: 88px;
+  border-radius: 50%;
+  background: rgba(18,140,126,.08);
+  display: flex; align-items: center; justify-content: center;
+}
+.welcomeTitle {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 1.2rem;
+  font-weight: 900;
+  color: #374151;
+}
+.welcomeSub {
+  font-size: .875rem;
+  color: #9ca3af;
+  line-height: 1.7;
+  max-width: 300px;
+}
+.welcomeNew {
+  margin-top: 4px;
+  padding: 10px 24px;
+  border-radius: 24px;
+  border: none;
+  background: #128C7E;
+  color: #fff;
+  font-size: .875rem;
+  font-weight: 700;
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+  transition: background .14s, transform .1s;
+}
+.welcomeNew:hover { background: #0d7a6c; transform: translateY(-1px); }
+
+/* ── Chat pane ── */
+.chatPane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Chat header ── */
+.chatHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #f0f2f5;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+.chatHeadInfo { flex: 1; min-width: 0; }
+.chatHeadName {
+  font-size: .95rem;
+  font-weight: 800;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chatHeadSub { font-size: .72rem; color: #6b7280; margin-top: 1px; }
+
+/* mobile back button — hidden on desktop */
+.mobileBack {
+  display: none;
+  width: 36px; height: 36px;
+  border: none;
+  background: transparent;
+  color: #555;
+  cursor: pointer;
+  align-items: center; justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background .12s;
+}
+.mobileBack:hover { background: rgba(0,0,0,.07); }
+
+/* ── Messages area — WhatsApp beige background ── */
+.chatBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 20px 8px;
+  display: flex;
+  flex-direction: column;
+  background: #efeae2;
+  scrollbar-width: thin;
+  scrollbar-color: #c9c9c9 transparent;
+}
+.chatBody::-webkit-scrollbar       { width: 5px; }
+.chatBody::-webkit-scrollbar-thumb { background: #c9c9c9; border-radius: 5px; }
+
+/* day divider */
+.daySep {
+  display: flex;
+  justify-content: center;
+  margin: 12px 0 8px;
+}
+.daySep span {
+  background: rgba(255,255,255,.9);
+  color: #6b7280;
+  font-size: .68rem;
+  font-weight: 600;
+  padding: 4px 14px;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.07);
+}
+
+/* loading / empty */
+.chatLoading {
+  display: flex; justify-content: center; padding: 60px 0;
+}
+.chatEmpty {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 10px; padding: 60px 0;
+  color: #9ca3af; font-size: .875rem; font-weight: 600;
+}
+.chatEmpty span { font-size: 2.2rem; }
+
+/* error stripe */
+.chatErr {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  background: #fef2f2;
+  border-top: 1px solid #fecaca;
+  color: #dc2626;
+  font-size: .8rem;
+  font-weight: 600;
+}
+
+/* ── Message rows ── */
+.msgRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.msgRow + .msgRow:not(.grouped) { margin-top: 10px; }
+.me     { flex-direction: row-reverse; }
+.msgAv  { flex-shrink: 0; width: 32px; }
+.msgCol { display: flex; flex-direction: column; max-width: 68%; }
+.me .msgCol { align-items: flex-end; }
+
+/* sender name — tap to DM */
+.senderName {
+  font-size: .72rem;
+  font-weight: 700;
+  margin-bottom: 3px;
+  padding-left: 4px;
+  cursor: pointer;
+  display: inline-block;
+  transition: opacity .12s;
+}
+.senderName:hover { opacity: .65; }
+
+/* ── Bubbles ── */
+.bubble {
+  position: relative;
+  padding: 7px 66px 7px 12px;
+  border-radius: 8px;
+  font-size: .9rem;
+  line-height: 1.5;
+  word-break: break-word;
+  max-width: 100%;
+  box-shadow: 0 1px 1px rgba(0,0,0,.08);
+}
+.bubbleOther {
+  background: #fff;
+  color: #111827;
+  border-top-left-radius: 0;
+}
+.bubbleMe {
+  background: #d9fdd3;
+  color: #111827;
+  border-top-right-radius: 0;
+}
+.grouped .bubbleOther { border-top-left-radius: 8px; }
+.grouped .bubbleMe    { border-top-right-radius: 8px; }
+
+/* timestamp inside bubble */
+.ts {
+  position: absolute;
+  bottom: 5px; right: 8px;
+  font-size: .62rem;
+  color: #9ca3af;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ── Input bar ── */
+.inputBar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #f0f2f5;
+  border-top: 1px solid #e5e7eb;
+}
+.inputField {
+  flex: 1;
+  padding: 10px 18px;
+  border-radius: 24px;
+  border: none;
+  background: #fff;
+  font-size: .9rem;
+  font-family: 'DM Sans', sans-serif;
+  outline: none;
+  color: #111827;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.inputField::placeholder { color: #9ca3af; }
+.sendBtn {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: #128C7E;
+  color: #fff;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .14s, transform .12s;
+  flex-shrink: 0;
+}
+.sendBtn:hover:not(:disabled) { background: #0d7a6c; transform: scale(1.06); }
+.sendBtn:disabled { background: #9ca3af; cursor: default; transform: none; }
+
+/* ── Spinners ── */
+.spinner {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: 3px solid #e5e7eb;
+  border-top-color: #128C7E;
+  animation: spin .7s linear infinite;
+}
+.spinnerSm {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(255,255,255,.35);
+  border-top-color: #fff;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ════════════════════════════════════════════════════════════
+   MOBILE  ≤ 680 px — WhatsApp phone layout
+   • Sidebar and chat panel each take full screen
+   • Only one is visible at a time; slide animation on switch
+════════════════════════════════════════════════════════════ */
+@media (max-width: 680px) {
+
+  /* ── Shell becomes a positioning container ── */
+  .shell {
+    height: calc(100vh - 52px);
+    overflow: hidden;
+  }
+
+  /* ── Both panels fill the shell absolutely ── */
+  .sidebar,
+  .main {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    min-width: unset;
+    transition: transform .24s cubic-bezier(.4, 0, .2, 1);
+    will-change: transform;
+  }
+
+  /* Default: sidebar visible, chat off-screen to the right */
+  .sidebar { transform: translateX(0);     z-index: 2; border-right: none; }
+  .main    { transform: translateX(100%);  z-index: 3; }
+
+  /* When chat is open: slide chat in, push sidebar left */
+  .chatOpen .sidebar { transform: translateX(-30%); }
+  .chatOpen .main    { transform: translateX(0); }
+
+  /* ── Mobile sidebar tweaks ── */
+  .sideHead {
+    background: #128C7E;     /* WhatsApp-style green header */
+    padding: 14px 16px 12px;
+    border-bottom: none;
+  }
+  .sideTitle { color: #fff; font-size: 1.15rem; }
+  .iconBtn   { color: rgba(255,255,255,.85); }
+  .iconBtn:hover { background: rgba(255,255,255,.12); color: #fff; }
+
+  .searchWrap {
+    background: #128C7E;
+    padding: 6px 12px 10px;
+  }
+  .searchInput {
+    background: rgba(255,255,255,.15);
+    color: #fff;
+    border-radius: 24px;
+    padding: 8px 14px;
+    font-size: .875rem;
+  }
+  .searchInput::placeholder { color: rgba(255,255,255,.6); }
+  .searchIco { color: rgba(255,255,255,.7); }
+
+  .convRow   { padding: 12px 16px; border-bottom: 1px solid #f0f0f0; }
+  .convName  { font-size: .9rem; }
+  .convSub   { font-size: .8rem; }
+  .convTime  { font-size: .72rem; }
+
+  .sectionLabel { font-size: 9.5px; padding: 12px 16px 4px; }
+
+  /* ── Mobile chat header ── */
+  .chatHead {
+    background: #128C7E;   /* green header like WhatsApp */
+    border-bottom: none;
+    padding: 10px 14px;
+    min-height: 58px;
+  }
+  .chatHeadName { color: #fff; font-size: 1rem; }
+  .chatHeadSub  { color: rgba(255,255,255,.72); }
+
+  /* show back arrow on mobile */
+  .mobileBack {
+    display: flex;
+    color: #fff;
+    width: 32px; height: 32px;
+  }
+  .mobileBack:hover { background: rgba(255,255,255,.12); }
+
+  /* ── Mobile chat body ── */
+  .chatBody {
+    padding: 10px 12px 6px;
+  }
+
+  /* ── Bubbles slightly smaller on mobile ── */
+  .bubble       { font-size: .875rem; padding: 7px 62px 7px 10px; }
+  .msgCol       { max-width: 80%; }
+
+  /* ── Mobile input bar ── */
+  .inputBar {
+    padding: 8px 10px;
+    background: #f0f2f5;
+  }
+  .inputField {
+    padding: 9px 16px;
+    font-size: .875rem;
+  }
+  .sendBtn { width: 42px; height: 42px; }
+
+  /* hide desktop welcome (never shown on mobile since sidebar covers it) */
+  .welcome { display: none; }
+}
+
+/* ════════════════════════════════════════════════════════════
+   VERY SMALL  ≤ 380 px
+════════════════════════════════════════════════════════════ */
+@media (max-width: 380px) {
+  .convRow    { padding: 10px 12px; }
+  .chatHead   { padding: 8px 12px; }
+  .chatBody   { padding: 8px 10px 4px; }
+  .inputField { padding: 8px 14px; }
+}

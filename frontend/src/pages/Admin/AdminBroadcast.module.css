@@ -1,0 +1,874 @@
+/* ── Page layout ───────────────────────────────────────────── */
+.page {
+  padding: 28px 32px 48px;
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.pageHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+
+.pageTitle {
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 4px;
+}
+
+.pageSub {
+  font-size: .875rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+/* ── Toast ───────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #111827;
+  color: #fff;
+  padding: 10px 22px;
+  border-radius: 8px;
+  font-size: .875rem;
+  z-index: 9999;
+  box-shadow: 0 4px 20px #0003;
+  pointer-events: none;
+  animation: fadeUp .25s ease;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ── Tab bar ─────────────────────────────────────────────── */
+.tabBar {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 28px;
+}
+
+.tab {
+  padding: 9px 20px;
+  border: none;
+  background: none;
+  font-size: .9rem;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  border-radius: 6px 6px 0 0;
+  transition: color .15s, border-color .15s, background .15s;
+}
+
+.tab:hover {
+  color: #374151;
+  background: #f3f4f6;
+}
+
+.tabActive {
+  color: #635BFF;
+  border-bottom-color: #635BFF;
+  font-weight: 600;
+}
+
+/* ── Section header ──────────────────────────────────────── */
+.sectionHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.sectionTitle {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 3px;
+}
+
+.sectionSub {
+  font-size: .83rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+/* ── Error box ───────────────────────────────────────────── */
+.errBox {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: .875rem;
+  margin-bottom: 16px;
+}
+
+/* ── Buttons ─────────────────────────────────────────────── */
+.btnPrimary {
+  padding: 9px 20px;
+  background: #635BFF;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: .875rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, opacity .15s;
+}
+.btnPrimary:hover   { background: #4f46e5; }
+.btnPrimary:disabled { opacity: .55; cursor: not-allowed; }
+
+.btnOutline {
+  padding: 9px 20px;
+  background: #fff;
+  color: #374151;
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  font-size: .875rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s;
+}
+.btnOutline:hover { background: #f3f4f6; }
+
+.btnDanger {
+  padding: 9px 20px;
+  background: #fff;
+  color: #ef4444;
+  border: 1.5px solid #fca5a5;
+  border-radius: 8px;
+  font-size: .875rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s;
+}
+.btnDanger:hover { background: #fef2f2; }
+
+.btnDel {
+  padding: 4px 12px;
+  background: none;
+  color: #ef4444;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  font-size: .78rem;
+  cursor: pointer;
+  transition: background .12s;
+}
+.btnDel:hover { background: #fef2f2; }
+
+.btnAddSmall {
+  padding: 4px 12px;
+  background: #f5f3ff;
+  color: #635BFF;
+  border: 1px solid #c4b5fd;
+  border-radius: 6px;
+  font-size: .78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .12s;
+}
+.btnAddSmall:hover { background: #ede9fe; }
+
+/* ── Form fields ─────────────────────────────────────────── */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 14px;
+}
+
+.field label {
+  font-size: .8rem;
+  font-weight: 600;
+  color: #374151;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+
+.field input,
+.field select,
+.field textarea {
+  padding: 9px 12px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: .875rem;
+  color: #111827;
+  background: #fff;
+  outline: none;
+  transition: border-color .15s;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: #635BFF;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.checkRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 22px;
+  font-size: .875rem;
+  color: #374151;
+}
+.checkRow input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+
+/* ── Colour picker row ───────────────────────────────────── */
+.colorRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.colorPicker {
+  width: 44px;
+  height: 36px;
+  padding: 2px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 6px;
+  cursor: pointer;
+  background: #fff;
+}
+
+/* ── Type grid (planner) ─────────────────────────────────── */
+.typeGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.typeBtn {
+  padding: 6px 14px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 20px;
+  font-size: .8rem;
+  font-weight: 500;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.typeBtn:hover { background: #f3f4f6; }
+.typeBtnActive { font-weight: 600; }
+
+/* ── Announcements list ───────────────────────────────────── */
+.shimList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.shimmer {
+  height: 72px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #f3f4f6 25%, #e9eaec 50%, #f3f4f6 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.annoList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.annoCard {
+  display: flex;
+  gap: 14px;
+  background: #fff;
+  border: 1px solid #f0f0f5;
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 4px #0001;
+  transition: box-shadow .15s;
+}
+.annoCard:hover { box-shadow: 0 3px 12px #0002; }
+
+.annoIcon {
+  font-size: 1.4rem;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.annoBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.annoTop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.annoTitle {
+  font-weight: 600;
+  color: #111827;
+  font-size: .9rem;
+}
+
+.annoTag {
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: .72rem;
+  font-weight: 600;
+}
+
+.annoText {
+  font-size: .85rem;
+  color: #4b5563;
+  margin: 0 0 8px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.annoFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.annoMeta {
+  font-size: .75rem;
+  color: #9ca3af;
+}
+
+/* ── Empty state ─────────────────────────────────────────── */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 56px 24px;
+  text-align: center;
+  background: #fafafa;
+  border-radius: 16px;
+  border: 1.5px dashed #e5e7eb;
+}
+
+.emptyIco {
+  font-size: 2.4rem;
+  margin-bottom: 14px;
+}
+
+.emptyTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #374151;
+  margin: 0 0 6px;
+}
+
+.emptySub {
+  font-size: .875rem;
+  color: #9ca3af;
+  margin: 0;
+  max-width: 340px;
+}
+
+/* ── Calendar: header ────────────────────────────────────── */
+.calHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.calNav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.calNavBtn {
+  width: 34px;
+  height: 34px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 1.1rem;
+  color: #374151;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .12s;
+}
+.calNavBtn:hover { background: #f3f4f6; }
+
+.calMonthLabel {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #111827;
+  min-width: 160px;
+  text-align: center;
+}
+
+.calHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ── Calendar: legend ────────────────────────────────────── */
+.calLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  background: #fafafa;
+  border-radius: 10px;
+  border: 1px solid #f0f0f0;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .8rem;
+  font-weight: 500;
+}
+
+.legendDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Calendar: grid ──────────────────────────────────────── */
+.calWrap {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 1px 6px #0001;
+}
+
+.calDayHeaders {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.calDayHdr {
+  padding: 9px 0;
+  text-align: center;
+  font-size: .75rem;
+  font-weight: 700;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.calLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #635BFF;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.calGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.calCell {
+  height: 120px;
+  min-height: 120px;
+  overflow: hidden;
+  border-right: 1px solid #f0f0f0;
+  border-bottom: 1px solid #f0f0f0;
+  padding: 6px 8px;
+  cursor: pointer;
+  transition: background .12s;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+.calCell:nth-child(7n) { border-right: none; }
+.calCell:hover { background: #fafafe; }
+
+.calCellOff {
+  background: #f9fafb;
+  cursor: default;
+  pointer-events: none;
+}
+.calCellOff:hover { background: #f9fafb; }
+
+.calCellToday {
+  background: #f5f3ff;
+}
+
+.calDayNum {
+  font-size: .82rem;
+  font-weight: 500;
+  color: #6b7280;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  margin-bottom: 2px;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
+.calDayNumToday {
+  background: #635BFF;
+  color: #fff;
+  font-weight: 700;
+}
+
+.calCellEvents {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+  min-width: 0;
+  flex: 1;
+}
+
+.calChip {
+  font-size: .7rem;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border-left: 3px solid currentColor;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  line-height: 1.6;
+  transition: opacity .12s;
+  min-width: 0;
+  width: 100%;
+  display: block;
+  box-sizing: border-box;
+}
+.calChip:hover { opacity: .8; }
+
+.calChipMore {
+  font-size: .68rem;
+  color: #9ca3af;
+  padding: 1px 4px;
+  font-style: italic;
+}
+
+/* ── Planner: header ─────────────────────────────────────── */
+.planHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.planYearNav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.planHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.filterSelect {
+  padding: 7px 12px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: .85rem;
+  color: #374151;
+  background: #fff;
+  outline: none;
+  cursor: pointer;
+  transition: border-color .15s;
+}
+.filterSelect:focus { border-color: #635BFF; }
+
+/* ── Planner: year overview strip ────────────────────────── */
+.yearStrip {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 8px;
+  margin-bottom: 28px;
+}
+
+@media (max-width: 900px) {
+  .yearStrip { grid-template-columns: repeat(6, 1fr); }
+}
+@media (max-width: 560px) {
+  .yearStrip { grid-template-columns: repeat(4, 1fr); }
+}
+
+.yearMonth {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 6px;
+  border-radius: 10px;
+  border: 1.5px solid #e5e7eb;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.yearMonth:hover { border-color: #635BFF; background: #f5f3ff; }
+
+.yearMonthToday {
+  border-color: #635BFF;
+  background: #f5f3ff;
+}
+
+.yearMonthName {
+  font-size: .75rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.yearMonthCount {
+  background: #635BFF;
+  color: #fff;
+  font-size: .65rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+}
+
+/* ── Planner: items list ─────────────────────────────────── */
+.plannerList {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.plannerMonth {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px #0001;
+}
+
+.plannerMonthHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.plannerMonthName {
+  font-size: .95rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.plannerItems {
+  display: flex;
+  flex-direction: column;
+}
+
+.plannerItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 18px;
+  border-bottom: 1px solid #f0f0f0;
+  border-left: 4px solid transparent;
+  cursor: pointer;
+  transition: background .12s;
+}
+.plannerItem:last-child { border-bottom: none; }
+.plannerItem:hover { background: #fafafe; }
+
+.plannerItemLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.plannerItemRight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.plannerItemType {
+  font-size: .7rem;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 12px;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  flex-shrink: 0;
+}
+
+.plannerItemTitle {
+  font-size: .88rem;
+  font-weight: 600;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plannerItemDate {
+  font-size: .78rem;
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+.plannerItemDesc {
+  font-size: .75rem;
+  color: #9ca3af;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Modal overlay & container ───────────────────────────── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: #0007;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+  animation: fadeBg .2s ease;
+}
+
+@keyframes fadeBg {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.modal {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px #0004;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slideUp .2s ease;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.modalHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+
+.modalTitle {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.modalClose {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  color: #9ca3af;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .12s, color .12s;
+}
+.modalClose:hover { background: #f3f4f6; color: #374151; }
+
+.modalBody {
+  padding: 20px 22px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modalFoot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 6px;
+}

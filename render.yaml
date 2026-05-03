@@ -1,0 +1,61 @@
+# ══════════════════════════════════════════════════════════
+#  SOAC RKU — Render.com Deployment Config
+#  Docs: https://render.com/docs/blueprint-spec
+#
+#  Services:
+#    1. soac-api    — Node.js backend (Express + Socket.IO)
+#    2. soac-web    — Static frontend (Vite build)
+#
+#  Required env vars (set in Render dashboard, not here):
+#    PG_HOST, PG_PORT, PG_DB, PG_USER, PG_PASSWORD
+#    JWT_SECRET, REFRESH_TOKEN_SECRET
+#    SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM
+#    CLIENT_URL (= https://soac-web.onrender.com or your custom domain)
+#    NEWS_API_KEY, YOUTUBE_API_KEY
+#    REDIS_URL (optional — use Upstash free tier)
+# ══════════════════════════════════════════════════════════
+
+services:
+  # ── Backend API ──────────────────────────────────────────
+  - type: web
+    name: soac-api
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      # Set the remaining secrets in the Render dashboard:
+      # PG_HOST, PG_USER, PG_PASSWORD, PG_DB, PG_PORT
+      # JWT_SECRET, REFRESH_TOKEN_SECRET
+      # SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM
+      # CLIENT_URL  ← set to the static site URL below
+      # NEWS_API_KEY, YOUTUBE_API_KEY
+      # REDIS_URL   ← optional
+
+  # ── Frontend Static Site ──────────────────────────────────
+  - type: web
+    name: soac-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    plan: free
+    routes:
+      # Send all routes to index.html for client-side routing
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      # Cache hashed assets forever, never cache HTML
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /*
+        name: Cache-Control
+        value: no-cache

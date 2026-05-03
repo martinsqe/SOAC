@@ -1,0 +1,124 @@
+.home {
+  width: 100%;
+}
+
+.cprev {
+  padding: 100px 0;
+  background: #fff;
+}
+
+.cpHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 40px;
+}
+
+.cpgrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+.ctaband {
+  padding: 120px 0;
+  background: var(--dark);
+}
+
+.ctainner {
+  background: linear-gradient(135deg, var(--red) 0%, #b01a1a 100%);
+  border-radius: 32px;
+  padding: 80px 60px;
+  text-align: center;
+  box-shadow: 0 42px 80px rgba(211, 47, 47, 0.25);
+}
+
+.ctainner h2 {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: clamp(28px, 4vw, 48px);
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: -1.5px;
+  line-height: 1.1;
+  margin-bottom: 32px;
+}
+
+.ctabtns {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+.btwh {
+  padding: 14px 32px;
+  border-radius: 12px;
+  border: none;
+  background: #fff;
+  color: var(--red);
+  font-size: 16px;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  transition: 0.25s;
+}
+
+.btwh:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+  background: #fffafa;
+}
+
+.btwho {
+  padding: 14px 32px;
+  border-radius: 12px;
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  background: transparent;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  transition: 0.25s;
+}
+
+.btwho:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: #fff;
+}
+
+@media (max-width: 900px) {
+  .cpgrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .cpHeader {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 24px;
+  }
+
+  .ctainner {
+    padding: 60px 32px;
+  }
+}
+
+@media (max-width: 600px) {
+  .cpgrid {
+    grid-template-columns: 1fr;
+  }
+  .ctaband { padding: 72px 0; }
+}
+
+@media (max-width: 480px) {
+  .ctainner {
+    padding: 48px 24px;
+    border-radius: 20px;
+  }
+  .ctabtns {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .btwh, .btwho {
+    width: 100%;
+    text-align: center;
+  }
+}

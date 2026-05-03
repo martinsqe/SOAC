@@ -1,0 +1,30 @@
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes hzoom {
+  from { transform: scale(1.06); }
+  to { transform: scale(1.0); }
+}
+
+@keyframes bl {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .2; }
+}
+
+.fade {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity .55s, transform .55s;
+}
+
+.fade.in {
+  opacity: 1;
+  transform: none;
+}
+
+.delay-1 { transition-delay: .1s; }
+.delay-2 { transition-delay: .2s; }
+.delay-3 { transition-delay: .3s; }
+.delay-4 { transition-delay: .4s; }

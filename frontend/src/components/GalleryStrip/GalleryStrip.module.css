@@ -1,0 +1,57 @@
+.gstrip {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  height: 180px;
+  gap: 3px;
+  background: var(--dark);
+}
+
+.gi {
+  overflow: hidden;
+  position: relative;
+}
+
+.gi img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.42s;
+}
+
+.gi:hover img {
+  transform: scale(1.08);
+}
+
+.giov {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(211, 47, 47, 0.8) 0%, transparent 55%);
+  opacity: 0;
+  transition: opacity 0.28s;
+  display: flex;
+  align-items: flex-end;
+  padding: 10px;
+}
+
+.gi:hover .giov {
+  opacity: 1;
+}
+
+.giov span {
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+@media (max-width: 900px) {
+  .gstrip {
+    grid-template-columns: repeat(3, 1fr);
+    height: auto;
+  }
+  
+  .gi {
+    aspect-ratio: 1/1;
+  }
+}

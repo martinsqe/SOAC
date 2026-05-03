@@ -1,0 +1,518 @@
+/* ── Page shell ── */
+.page { padding: 24px 28px 56px; max-width: 1100px; margin: 0 auto; }
+
+/* ── Spinner ── */
+.spinner {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 3px solid #e5e7eb; border-top-color: #635BFF;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Loading ── */
+.loadWrap {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 80px 0; gap: 14px; color: #9ca3af;
+}
+.loadWrap p { font-weight: 600; font-size: .875rem; margin: 0; }
+
+/* ── Empty / not found ── */
+.empty { text-align: center; padding: 80px 0; color: #9ca3af; }
+.emptyIcon { font-size: 2.5rem; margin-bottom: 12px; }
+.empty p { font-weight: 700; color: #374151; font-size: 1.1rem; margin: 0 0 16px; }
+.backBtn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 18px; border-radius: 9px;
+  border: 1.5px solid #e5e7eb; background: transparent;
+  font-size: 13px; font-weight: 700; color: #6b7280;
+  cursor: pointer; font-family: 'DM Sans', sans-serif;
+  transition: border-color .14s, color .14s;
+}
+.backBtn:hover { border-color: #9ca3af; color: #374151; }
+
+/* ── Empty card ── */
+.emptyCard {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 10px; padding: 64px 24px; text-align: center;
+  background: #fff; border: 1px solid #ebebf0; border-radius: 16px;
+  max-width: 420px;
+}
+.emptyCardTitle { font-size: 1rem; font-weight: 800; color: #374151; margin: 0; }
+.emptyCardSub   { font-size: .8rem; color: #9ca3af; margin: 0; line-height: 1.6; }
+
+/* ── Back link ── */
+.backLink {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 700; color: #6b7280;
+  background: none; border: none; cursor: pointer; padding: 0 0 16px;
+  font-family: 'DM Sans', sans-serif; transition: color .14s;
+}
+.backLink:hover { color: #374151; }
+
+/* ════════════════════════════ HERO ════════════════════════════ */
+.hero {
+  border: 1px solid; border-radius: 20px;
+  padding: 24px 28px 28px; margin-bottom: 8px;
+}
+.heroBody {
+  display: grid; grid-template-columns: auto 1fr auto;
+  gap: 20px; align-items: flex-start;
+}
+@media (max-width: 700px) {
+  .heroBody { grid-template-columns: auto 1fr; }
+  .heroStats { grid-column: 1 / -1; }
+}
+
+.heroLogo {
+  width: 80px; height: 80px; border-radius: 18px;
+  border: 2px solid; overflow: hidden;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.heroLogo img { width: 100%; height: 100%; object-fit: contain; }
+.heroLogoFb {
+  width: 100%; height: 100%;
+  align-items: center; justify-content: center;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 2rem; font-weight: 900; color: #fff;
+}
+
+.heroInfo { min-width: 0; }
+.heroCat {
+  display: inline-block; font-size: 10px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .8px;
+  padding: 3px 10px; border-radius: 6px; margin-bottom: 6px;
+}
+.heroName {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 1.6rem; font-weight: 900; color: #0f0a2e;
+  margin: 0 0 6px; letter-spacing: -0.5px; line-height: 1.2;
+}
+.heroDesc {
+  font-size: .875rem; color: #6b7280; line-height: 1.6;
+  margin: 0 0 10px; max-width: 560px;
+}
+.heroMeta {
+  display: flex; gap: 12px; flex-wrap: wrap;
+  font-size: .78rem; color: #9ca3af; font-weight: 500;
+  align-items: center;
+}
+.memberBadge {
+  font-size: 10px; font-weight: 800; padding: 2px 9px; border-radius: 6px;
+}
+
+.heroStats {
+  display: flex; align-items: center;
+  background: rgba(255,255,255,.75); border: 1px solid rgba(0,0,0,.07);
+  border-radius: 14px; padding: 14px 20px; flex-shrink: 0; min-width: 200px;
+}
+.stat { text-align: center; flex: 1; padding: 0 12px; }
+.statN {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 1.4rem; font-weight: 900; line-height: 1;
+}
+.statL {
+  font-size: 10px; font-weight: 600; color: #9ca3af;
+  text-transform: uppercase; letter-spacing: .5px; margin-top: 4px;
+}
+.statDiv { width: 1px; height: 36px; background: #e5e7eb; flex-shrink: 0; }
+
+/* ════════════════════════════ TAB BAR ════════════════════════════ */
+.tabBar {
+  display: flex; border-bottom: 2px solid #f0f0f5;
+  margin-bottom: 24px; overflow-x: auto; gap: 0;
+  scrollbar-width: none;
+}
+.tabBar::-webkit-scrollbar { display: none; }
+.tabBtn {
+  padding: 12px 16px; border: none; background: none;
+  font-size: .85rem; font-weight: 600; color: #9ca3af;
+  cursor: pointer; font-family: 'DM Sans', sans-serif;
+  border-bottom: 3px solid transparent; margin-bottom: -2px;
+  white-space: nowrap; transition: color .14s;
+  display: flex; align-items: center; gap: 6px;
+}
+.tabBtn:hover { color: #374151; }
+.tabBtnOn { color: #0f0a2e; font-weight: 800; }
+.tabCount {
+  font-size: 10px; font-weight: 800;
+  padding: 2px 7px; border-radius: 10px;
+}
+.tabLock { font-size: 10px; opacity: .6; }
+
+/* ── Tab content ── */
+.tabContent { min-height: 320px; }
+
+/* ════════════════════════════ SHARED CARD ════════════════════════════ */
+.card {
+  background: #fff; border: 1px solid #ebebf0;
+  border-radius: 16px; padding: 20px 22px;
+}
+.cardHead {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+}
+.cardIcon {
+  width: 32px; height: 32px; border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700; flex-shrink: 0;
+}
+.cardTitle { font-size: .875rem; font-weight: 800; color: #0f0a2e; }
+.cardText { font-size: .875rem; color: #6b7280; line-height: 1.7; margin: 0; }
+
+/* ════════════════════════════ OVERVIEW ════════════════════════════ */
+.overviewGrid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
+}
+@media (max-width: 720px) { .overviewGrid { grid-template-columns: 1fr; } }
+
+.tagWrap { display: flex; flex-wrap: wrap; gap: 8px; }
+.valueTag {
+  font-size: 11px; font-weight: 700;
+  padding: 5px 13px; border-radius: 20px;
+  border: 1.5px solid; letter-spacing: .2px;
+}
+
+.coordCard { display: flex; align-items: center; gap: 14px; }
+.coordAv {
+  width: 48px; height: 48px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 1.2rem; font-weight: 900; color: #fff; flex-shrink: 0;
+}
+.coordName { font-size: .9rem; font-weight: 800; color: #0f0a2e; margin-bottom: 2px; }
+.coordRole { font-size: .75rem; color: #9ca3af; margin-bottom: 5px; }
+.coordBadge {
+  display: inline-block; font-size: 10px; font-weight: 700;
+  padding: 2px 9px; border-radius: 7px;
+}
+
+.infoList { display: flex; flex-direction: column; gap: 10px; }
+.infoRow { display: flex; justify-content: space-between; align-items: center; }
+.infoLabel { font-size: .8rem; color: #9ca3af; font-weight: 600; }
+.infoVal   { font-size: .8rem; color: #374151; font-weight: 700; }
+
+/* ════════════════════════════ SCHEDULE ════════════════════════════ */
+.scheduleWrap { max-width: 720px; }
+
+/* Day-of-week pill row */
+.weekRow {
+  display: flex; gap: 8px; margin-bottom: 22px; flex-wrap: nowrap;
+}
+.dayCell {
+  flex: 1; border: 1.5px solid #e5e7eb; border-radius: 12px;
+  padding: 10px 4px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  transition: all .14s; color: #d1d5db;
+}
+.dayCellOn { border-width: 2px; }
+.dayShort  { font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; }
+.dayDot    { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+/* Schedule item cards */
+.schedItems { display: flex; flex-direction: column; gap: 12px; }
+.schedItem  {
+  display: flex; gap: 14px; align-items: flex-start;
+  background: #fff; border: 1px solid #ebebf0;
+  border-radius: 14px; padding: 16px 18px;
+  transition: box-shadow .2s;
+}
+.schedItem:hover { box-shadow: 0 4px 16px rgba(0,0,0,.07); }
+.schedIconWrap {
+  width: 42px; height: 42px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.schedIcon { font-size: 1.15rem; }
+.schedBody { flex: 1; min-width: 0; }
+.schedType {
+  display: inline-block; font-size: 10px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .6px;
+  padding: 2px 9px; border-radius: 6px; margin-bottom: 7px;
+}
+.schedText { font-size: .875rem; color: #4b5563; line-height: 1.65; margin: 0; }
+
+/* ════════════════════════════ MEMBERS ════════════════════════════ */
+.membersBar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 18px; flex-wrap: wrap;
+}
+.membersCount { font-size: .8rem; font-weight: 700; color: #9ca3af; }
+.membersSearch {
+  padding: 8px 14px; border-radius: 9px; border: 1.5px solid #e5e7eb;
+  font-size: .8rem; outline: none; width: 240px;
+  font-family: 'DM Sans', sans-serif; transition: border-color .14s;
+}
+.membersSearch:focus { border-color: #635BFF; box-shadow: 0 0 0 3px rgba(99,91,255,.1); }
+
+.membersGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+.memberCard {
+  display: flex; align-items: center; gap: 12px;
+  background: #fff; border: 1px solid #ebebf0;
+  border-radius: 14px; padding: 14px 16px; transition: box-shadow .2s;
+}
+.memberCard:hover { box-shadow: 0 4px 16px rgba(0,0,0,.07); }
+.memberAv {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1rem; font-weight: 800; color: #fff; flex-shrink: 0;
+}
+.memberInfo { flex: 1; min-width: 0; }
+.memberName {
+  font-size: .875rem; font-weight: 700; color: #0f0a2e;
+  margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.memberMeta   { font-size: .75rem; color: #6b7280; }
+.memberEnroll { font-size: .7rem; color: #9ca3af; margin-top: 2px; font-family: monospace; }
+.memberJoined { font-size: .7rem; color: #9ca3af; flex-shrink: 0; white-space: nowrap; }
+
+/* ════════════════════════════ RULES ════════════════════════════ */
+.rulesWrap { display: flex; flex-direction: column; gap: 18px; }
+.ruleList {
+  list-style: none; padding: 0; margin: 0;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.ruleItem {
+  display: flex; align-items: flex-start; gap: 10px;
+  font-size: .85rem; color: #4b5563; line-height: 1.55;
+}
+.ruleNum {
+  width: 22px; height: 22px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 800; flex-shrink: 0;
+}
+
+/* ════════════════════════════ LEADERSHIP ════════════════════════════ */
+.leaderGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 16px;
+}
+.leaderCard {
+  background: #fff; border: 2px solid #ebebf0;
+  border-radius: 18px; padding: 24px 20px;
+  text-align: center; transition: box-shadow .2s, transform .2s;
+}
+.leaderCard:hover { box-shadow: 0 8px 28px rgba(0,0,0,.08); transform: translateY(-2px); }
+.leaderCardOpen { opacity: .5; }
+.leaderAv {
+  width: 60px; height: 60px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 12px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 1.5rem; font-weight: 900;
+  overflow: hidden; flex-shrink: 0;
+}
+.leaderRole {
+  display: inline-block; font-size: 10px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .6px;
+  padding: 3px 10px; border-radius: 6px; margin-bottom: 8px;
+}
+.leaderName { font-size: .875rem; font-weight: 800; color: #0f0a2e; margin-bottom: 4px; }
+.leaderEmail { font-size: .72rem; color: #9ca3af; margin-bottom: 4px; word-break: break-all; }
+.leaderDesc { font-size: .75rem; color: #9ca3af; line-height: 1.5; }
+
+/* ════════════════════════════ GATE (locked) ════════════════════════════ */
+.gateWrap {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; padding: 80px 24px; text-align: center;
+}
+.gateIcon  { font-size: 2.5rem; }
+.gateTitle { font-size: 1.1rem; font-weight: 800; color: #374151; }
+.gateSub   { font-size: .875rem; color: #9ca3af; max-width: 320px; line-height: 1.6; }
+
+/* ════════════════════════════ CHAT ════════════════════════════ */
+.chatOuter { display: flex; flex-direction: column; height: calc(100vh - 320px); min-height: 400px; }
+
+.chatWrap {
+  display: flex; flex-direction: column; flex: 1;
+  background: #fff; border: 1px solid #ebebf0; border-radius: 18px; overflow: hidden;
+}
+
+/* Message list */
+.chatMessages {
+  flex: 1; overflow-y: auto; padding: 20px 16px;
+  display: flex; flex-direction: column; gap: 2px;
+  scroll-behavior: smooth;
+}
+.chatMessages::-webkit-scrollbar { width: 4px; }
+.chatMessages::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 4px; }
+
+.chatLoading {
+  display: flex; justify-content: center; padding: 40px 0;
+}
+.chatEmpty {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 10px; padding: 60px 0; color: #9ca3af; font-size: .875rem; font-weight: 600;
+}
+.chatEmpty span { font-size: 2rem; }
+
+/* Message rows */
+.msgRow {
+  display: flex; align-items: flex-end; gap: 8px;
+  margin-bottom: 2px;
+}
+.msgRow.msgGrouped { margin-top: 0; }
+.msgRow + .msgRow:not(.msgGrouped) { margin-top: 10px; }
+
+.msgRowMe { flex-direction: row-reverse; }
+
+.msgAvatarCol { flex-shrink: 0; }
+
+.msgBody { display: flex; flex-direction: column; max-width: 72%; }
+.msgRowMe .msgBody { align-items: flex-end; }
+
+.msgSender {
+  font-size: .72rem; font-weight: 700; color: #6b7280;
+  margin-bottom: 3px; padding-left: 2px;
+}
+
+.msgBubble {
+  padding: 9px 14px; border-radius: 18px;
+  font-size: .875rem; line-height: 1.5; word-break: break-word;
+  max-width: 100%;
+}
+.msgBubbleOther {
+  background: #f3f4f6; color: #111827;
+  border-bottom-left-radius: 5px;
+}
+.msgBubbleMe {
+  color: #fff;
+  border-bottom-right-radius: 5px;
+}
+.msgGrouped .msgBubbleOther { border-top-left-radius: 5px; }
+.msgGrouped .msgBubbleMe    { border-top-right-radius: 5px; }
+
+.msgTime {
+  font-size: .68rem; color: #9ca3af; margin-top: 3px;
+  padding-left: 4px;
+}
+.msgTimeRight { padding-left: 0; padding-right: 4px; }
+
+/* Error */
+.chatErr {
+  background: #fef2f2; border-top: 1px solid #fecaca;
+  color: #dc2626; font-size: .8rem; font-weight: 600;
+  padding: 8px 16px;
+}
+
+/* Input bar */
+.chatInputRow {
+  display: flex; gap: 8px; padding: 12px 14px;
+  border-top: 1px solid #f0f0f5; background: #fafafa;
+}
+.chatInputField {
+  flex: 1; padding: 10px 14px; border-radius: 12px;
+  border: 1.5px solid #e5e7eb; font-size: .875rem;
+  font-family: 'DM Sans', sans-serif; outline: none;
+  transition: border-color .14s; resize: none;
+  background: #fff;
+}
+.chatInputField:focus { border-color: #635BFF; box-shadow: 0 0 0 3px rgba(99,91,255,.1); }
+.chatSendBtn {
+  padding: 10px 20px; border-radius: 12px; border: none;
+  color: #fff; font-size: .875rem; font-weight: 700;
+  font-family: 'DM Sans', sans-serif; cursor: pointer;
+  transition: opacity .14s; flex-shrink: 0;
+}
+.chatSendBtn:disabled { opacity: .45; cursor: default; }
+
+/* ════════════════════════════ TASKS (Kanban) ════════════════════════════ */
+.kanban {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+}
+@media (max-width: 760px) { .kanban { grid-template-columns: 1fr; } }
+
+.kanbanCol {
+  background: #f9fafb; border-radius: 16px;
+  border: 1px solid #ebebf0; overflow: hidden;
+}
+.kanbanHeader {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-top: 3px solid;
+  background: #fff; border-bottom: 1px solid #f0f0f5;
+}
+.kanbanLabel { font-size: .8rem; font-weight: 800; }
+.kanbanCount {
+  font-size: 11px; font-weight: 800;
+  padding: 2px 8px; border-radius: 8px;
+}
+
+.kanbanCards { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.kanbanEmpty {
+  padding: 20px 12px; text-align: center;
+  font-size: .8rem; color: #9ca3af; font-style: italic;
+}
+
+.taskCard {
+  background: #fff; border: 1px solid #ebebf0;
+  border-radius: 12px; padding: 14px 14px 12px;
+  display: flex; flex-direction: column; gap: 7px;
+  transition: box-shadow .2s;
+}
+.taskCard:hover { box-shadow: 0 4px 14px rgba(0,0,0,.07); }
+
+.taskTop { display: flex; align-items: center; justify-content: space-between; }
+.taskPriority {
+  font-size: 10px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .5px; padding: 2px 8px; border-radius: 6px;
+}
+.taskTitle {
+  font-size: .875rem; font-weight: 700; color: #111827; line-height: 1.4;
+}
+.taskDesc {
+  font-size: .78rem; color: #6b7280; line-height: 1.55;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.taskMeta {
+  display: flex; gap: 10px; flex-wrap: wrap;
+  font-size: .72rem; color: #9ca3af; font-weight: 500;
+}
+.taskDue { color: #6b7280; }
+.taskBy  { color: #9ca3af; }
+
+/* ════════════════════════════ DAY SCHEDULE (structured) ════════════════════════════ */
+.daySchedList {
+  display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px;
+}
+.daySchedRow {
+  display: flex; align-items: flex-start; gap: 14px;
+  background: #fff; border: 1px solid #ebebf0;
+  border-radius: 12px; padding: 13px 16px;
+  transition: box-shadow .18s;
+}
+.daySchedRow:hover { box-shadow: 0 4px 14px rgba(0,0,0,.07); }
+.daySchedName {
+  font-size: .7rem; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .5px; padding: 4px 12px; border-radius: 7px;
+  flex-shrink: 0; min-width: 76px; text-align: center; white-space: nowrap;
+}
+.daySchedContent {
+  font-size: .875rem; color: #374151; font-weight: 500;
+  line-height: 1.55; padding-top: 2px;
+}
+
+/* ════════════════════════════ VALUES & STANDARDS (Rules tab) ════════════════════════════ */
+.ruleStandardsList {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.ruleStandardItem {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 14px; border-radius: 10px;
+  border-left: 3px solid;
+}
+.ruleStandardDot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 5px;
+}
+.ruleStandardText { font-size: .85rem; color: #374151; font-weight: 600; line-height: 1.5; }
+
+/* ── Responsive ── */
+@media (max-width: 600px) {
+  .page { padding: 16px 14px 48px; }
+  .hero { padding: 16px; }
+  .heroName { font-size: 1.3rem; }
+  .heroStats { min-width: unset; width: 100%; }
+  .membersSearch { width: 100%; }
+  .chatOuter { height: calc(100vh - 280px); }
+}
