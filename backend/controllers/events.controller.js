@@ -56,31 +56,46 @@ const withImageUrl = (event) => {
 };
 
 /* GET /api/events  (public)
-   Supports ?page=&limit=&status=&category=&club=
+   Supports ?page=&limit=&status=&category=&club=&clubId=
+   ?clubId= (preferred) filters by club ID via a join — exact, no name-matching issues.
+   ?club=   (legacy) filters by club name via ILIKE for backward compatibility.
    COUNT(*) OVER() gives total without a second query.
    Cache-aside: events:<hash> → 60 s */
 const getAll = async (req, res, next) => {
   try {
     await ensureSoacTables();
-    const { status, category, club } = req.query;
-    const { page, limit, offset }    = parsePage(req.query);
+    const { status, category, club, clubId } = req.query;
+    const { page, limit, offset }            = parsePage(req.query);
 
-    const cacheKey = cache.hashKey('events', { status, category, club, page, limit });
+    const cacheKey = cache.hashKey('events', { status, category, club, clubId, page, limit });
     const cached   = await cache.get(cacheKey);
     if (cached) return res.json(cached);
 
     const values  = [];
-    const clauses = ['is_active = true'];
-    if (status   && status   !== 'all') { values.push(status);        clauses.push(`status   = $${values.length}`); }
-    if (category && category !== 'all') { values.push(category);      clauses.push(`category = $${values.length}`); }
-    if (club)                           { values.push(`%${club}%`);   clauses.push(`club ILIKE $${values.length}`); }
+    const clauses = ['e.is_active = true'];
+
+    if (status   && status   !== 'all') { values.push(status);        clauses.push(`e.status   = $${values.length}`); }
+    if (category && category !== 'all') { values.push(category);      clauses.push(`e.category = $${values.length}`); }
+
+    // clubId (preferred): join clubs table for exact match by primary key
+    let joinClubs = '';
+    if (clubId) {
+      joinClubs = 'JOIN clubs c ON c.name ILIKE e.club AND c.is_active = true';
+      values.push(clubId);
+      clauses.push(`c.id = $${values.length}::bigint`);
+    } else if (club) {
+      // Legacy: filter by club name substring
+      values.push(`%${club}%`);
+      clauses.push(`e.club ILIKE $${values.length}`);
+    }
 
     values.push(limit, offset);
     const { rows } = await pgPool.query(
-      `SELECT ${EVENT_COLS}, COUNT(*) OVER() AS total_count
-       FROM events
+      `SELECT ${EVENT_COLS.split(', ').map(c => `e.${c}`).join(', ')}, COUNT(*) OVER() AS total_count
+       FROM events e
+       ${joinClubs}
        WHERE ${clauses.join(' AND ')}
-       ORDER BY start_date ASC NULLS LAST, created_at DESC
+       ORDER BY e.start_date ASC NULLS LAST, e.created_at DESC
        LIMIT $${values.length - 1} OFFSET $${values.length}`,
       values
     );

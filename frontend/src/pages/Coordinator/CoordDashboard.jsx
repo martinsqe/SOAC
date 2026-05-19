@@ -61,7 +61,8 @@ export default function CoordDashboard() {
     Promise.all([
       api.get(`/clubs/${clubId}/members`).catch(() => ({ members: [] })),
       api.get(`/requests?clubId=${clubId}&status=pending`).catch(() => ({ requests: [] })),
-      api.get(`/events?club=${encodeURIComponent(club.name)}`).catch(() => ({ events: [] })),
+      // Use clubId param (not club name) to avoid mismatches with special chars
+      api.get(`/events?clubId=${clubId}`).catch(() => api.get(`/events?club=${encodeURIComponent(club.name)}`).catch(() => ({ events: [] }))),
     ]).then(([mRes, rRes, eRes]) => {
       setMembers(mRes.members || []);
       setRequests(rRes.requests || []);
@@ -180,10 +181,12 @@ export default function CoordDashboard() {
             </div>
           </div>
           <div className={`${s.sc} ${s.fu} ${s.d4}`}>
-            <div className={s.scVal} style={{ color:'#06D6A0' }}>{loading ? '—' : (club?.memberCount ?? members.length)}</div>
-            <div className={s.scName}>Club Size</div>
+            <div className={s.scVal} style={{ color:'#06D6A0' }}>
+              {loading ? '—' : (club?.foundedYear || '—')}
+            </div>
+            <div className={s.scName}>Founded Year</div>
             <div className={s.scBadge} style={{ background:'#06d6a014', color:'#047a5a' }}>
-              Est. {club?.foundedYear || '—'}
+              {club?.category ? club.category.charAt(0).toUpperCase() + club.category.slice(1) : 'Club'}
             </div>
           </div>
         </div>

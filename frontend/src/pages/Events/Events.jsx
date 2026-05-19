@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import styles from './Events.module.css';
-import api from '../../api/client';
-import { getSocket } from '../../realtime/socket';
 import { useAuth } from '../../context/AuthContext';
+import {
+  SPORT_CFG, SPORTS_LIST, winner, fmtDate, fetchPublicJson,
+} from '../../lib/sportsScores';
 
 /* ── Event data ──────────────────────────────────────── */
 const EVENTS = [
@@ -300,29 +301,15 @@ const normaliseEvent = (e) => ({
 const DEPTS = ['SOE', 'SOM', 'SPT', 'FOT', 'SDS', 'SOS'];
 const EMPTY_FORM = { name: '', enrollmentNo: '', dept: '', course: '', phone: '', email: '' };
 
-/* ── Live score helpers ── */
-const SPORT_CFG = {
-  basketball: { color: '#f97316', bg: '#fff7ed', label: 'Basketball' },
-  cricket: { color: '#16a34a', bg: '#f0fdf4', label: 'Cricket' },
-  football: { color: '#2563eb', bg: '#eff6ff', label: 'Football' },
-  volleyball: { color: '#ca8a04', bg: '#fefce8', label: 'Volleyball' },
-  badminton: { color: '#7c3aed', bg: '#f5f3ff', label: 'Badminton' },
-};
-const teamAbbr = (name = '') =>
-  name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 3) || '??';
-
-const SPORTS_LIST = ['all', 'basketball', 'football', 'cricket', 'volleyball', 'badminton'];
-
 const Events = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [filter, setFilter] = useState('all');
   const [events, setEvents] = useState(EVENTS); // start with static data
-  const [liveScores, setLiveScores] = useState([]);
-  const [conn, setConn] = useState('connecting');
-  const [lastUpdated, setLastUpdated] = useState(null);
+  const [liveCount, setLiveCount]         = useState(0);
 
-  /* ── Past records state ── */
+  /* ── Past records (collapsed until opened) ── */
+  const [pastOpen, setPastOpen]           = useState(false);
   const [pastScores, setPastScores]       = useState([]);
   const [pastTotal, setPastTotal]         = useState(0);
   const [pastPage, setPastPage]           = useState(1);
@@ -330,7 +317,7 @@ const Events = () => {
   const [pastSport, setPastSport]         = useState('all');
   const [pastLoading, setPastLoading]     = useState(false);
   const [pastSearchInput, setPastSearchInput] = useState('');
-  const [statsModal, setStatsModal]       = useState(null); // game object | null
+  const [statsModal, setStatsModal]       = useState(null);
 
   /* ── Registration modal state ── */
   const [regModal, setRegModal] = useState(null);   // null | { id, title }
@@ -403,65 +390,48 @@ const Events = () => {
       .catch(() => { }); // silently fall back to static data
   }, []);
 
+  /* Light poll: live count badge on the trigger button only */
   useEffect(() => {
-    const socket = getSocket();
-    const onConnect = () => setConn('connected');
-    const onDisconnect = () => setConn('disconnected');
-    const onLive = () => {
-      setConn(socket.connected ? 'connected' : 'connecting');
-      setLastUpdated(new Date().toISOString());
-      api.get('/events/live-scores').then((d) => setLiveScores(d.liveScores || [])).catch(() => { });
+    const refreshCount = () => {
+      fetchPublicJson('/events/live-scores')
+        .then((d) => {
+          const n = (d.liveScores || []).filter((x) => x.status === 'live').length;
+          setLiveCount(n);
+        })
+        .catch(() => setLiveCount(0));
     };
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
-    socket.on('basketball:live:update', onLive);
-    setConn(socket.connected ? 'connected' : 'connecting');
-    return () => {
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
-      socket.off('basketball:live:update', onLive);
-    };
-  }, []);
-
-  useEffect(() => {
-    const loadLive = async () => {
-      try {
-        const data = await api.get('/events/live-scores');
-        setLiveScores(data.liveScores || []);
-      } catch {
-        setLiveScores([]);
-      }
-    };
-    loadLive();
-    const t = setInterval(loadLive, 15000);
+    refreshCount();
+    const t = setInterval(refreshCount, 30000);
     return () => clearInterval(t);
   }, []);
 
-  /* Tick live timers every second so the clock updates in real-time */
+  /* Past total for closed-state label */
   useEffect(() => {
-    const t = setInterval(() => {
-      setLiveScores(prev => prev.map(sc =>
-        sc.timerRunning && Number(sc.timeRemainingSeconds || 0) > 0
-          ? { ...sc, timeRemainingSeconds: Math.max(0, Number(sc.timeRemainingSeconds || 0) - 1) }
-          : sc
-      ));
-    }, 1000);
-    return () => clearInterval(t);
+    fetchPublicJson('/events/past-scores?limit=1')
+      .then((d) => setPastTotal(d.total || 0))
+      .catch(() => {});
   }, []);
 
-  /* Load past scores whenever search / sport / page changes */
+  /* Load past scores only when dropdown is open */
   useEffect(() => {
+    if (!pastOpen) return undefined;
     const controller = new AbortController();
     setPastLoading(true);
     const params = new URLSearchParams({ page: pastPage, limit: 20 });
     if (pastSearch) params.set('q', pastSearch);
     if (pastSport !== 'all') params.set('sport', pastSport);
-    api.get(`/events/past-scores?${params}`)
-      .then(d => { if (!controller.signal.aborted) { setPastScores(d.pastScores || []); setPastTotal(d.total || 0); } })
+    fetch(`/api/events/past-scores?${params}`, { signal: controller.signal })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!controller.signal.aborted) {
+          setPastScores(d.pastScores || []);
+          setPastTotal(d.total || 0);
+        }
+      })
       .catch(() => {})
       .finally(() => { if (!controller.signal.aborted) setPastLoading(false); });
     return () => controller.abort();
-  }, [pastSearch, pastSport, pastPage]);
+  }, [pastOpen, pastSearch, pastSport, pastPage]);
 
   /* Debounce search input → pastSearch */
   useEffect(() => {
@@ -478,23 +448,6 @@ const Events = () => {
 
   const featured = upcoming[0] || null;
   const otherUpcoming = upcoming.slice(1);
-  const fmtClock = (sec) => {
-    const n = Math.max(0, Number(sec || 0));
-    const m = String(Math.floor(n / 60)).padStart(2, '0');
-    const s = String(n % 60).padStart(2, '0');
-    return `${m}:${s}`;
-  };
-  const playerSummary = (players = []) => {
-    if (!players.length) return 'No player stats yet';
-    const p = players[0] || {};
-    const entries = Object.entries(p.stats || {}).filter(([, v]) => String(v || '').trim()).slice(0, 2);
-    return `${p.name || 'Player'}${entries.length ? ` (${entries.map(([k, v]) => `${k}:${v}`).join(', ')})` : ''}`;
-  };
-  const topPerformer = (playerStats = {}) => {
-    const rows = Object.entries(playerStats).map(([name, s]) => ({ name, ...s }));
-    rows.sort((a, b) => (b.points || 0) - (a.points || 0));
-    return rows[0] || null;
-  };
 
   useEffect(() => {
     const obs = new IntersectionObserver(entries => {
@@ -503,21 +456,6 @@ const Events = () => {
     document.querySelectorAll('.fade').forEach(el => obs.observe(el));
     return () => obs.disconnect();
   }, [filter]);
-
-  const ongoingGames = liveScores.filter(x => x.status === 'live');
-
-  /* Return 'home' | 'away' | 'draw' */
-  const winner = (g) => {
-    if (g.teamScore > g.opponentScore) return 'home';
-    if (g.opponentScore > g.teamScore) return 'away';
-    return 'draw';
-  };
-
-  /* Format a past date nicely */
-  const fmtDate = (iso) => {
-    if (!iso) return '';
-    return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-  };
 
   return (
     <div className={styles.events}>
@@ -673,261 +611,144 @@ const Events = () => {
       </div>
 
       {/* ══════════════════════════════════════════
-          LIVE SCOREBOARD
+          LIVE SCOREBOARD — dedicated page
       ══════════════════════════════════════════ */}
-      <div className={styles.section}>
+      <div className={`${styles.section} ${styles.sportsPanelSection}`}>
         <div className="wrap">
-          <div className={styles.sectionHead}>
-            <div>
+          <Link to="/events/live" className={`${styles.sportsPanelTrigger} ${styles.sportsPanelTriggerLive}`}>
+            <div className={styles.sportsPanelTriggerMain}>
               <div className={styles.sectionPill} style={{ background: '#ecfdf5', color: '#059669' }}>
                 <span className={styles.liveDot} /> Ongoing Games
               </div>
-              <h2 className={styles.sectionTitle}>Live Game Scores.</h2>
-              <p className={styles.sectionCount} style={{ marginTop: 6, color: conn === 'connected' ? '#059669' : '#d97706' }}>
-                {conn}{lastUpdated ? ` · Updated ${new Date(lastUpdated).toLocaleTimeString('en-IN')}` : ''}
+              <h2 className={styles.sportsPanelTitle}>Live Game Scores.</h2>
+              <p className={styles.sportsPanelHint}>
+                {liveCount > 0
+                  ? `${liveCount} game${liveCount !== 1 ? 's' : ''} in progress — tap to watch live`
+                  : 'Real-time scores from sports coordinators'}
               </p>
             </div>
-            {ongoingGames.length > 0 && (
-              <p className={styles.sectionCount}>{ongoingGames.length} live game{ongoingGames.length !== 1 ? 's' : ''}</p>
-            )}
-          </div>
-
-          {ongoingGames.length === 0 ? (
-            <div className={styles.empty}>
-              <div className={styles.emptyIcon}>📡</div>
-              <p>No live games right now. Check back during events!</p>
+            <div className={styles.sportsPanelTriggerEnd}>
+              {liveCount > 0 && (
+                <span className={styles.sportsPanelBadgeLive}>{liveCount} LIVE</span>
+              )}
+              <span className={styles.sportsPanelChevron} aria-hidden="true">→</span>
             </div>
-          ) : (
-            <div className={styles.liveScoresList}>
-              {[...ongoingGames]
-                .sort((a, b) => new Date(a.startedAt || a.createdAt) - new Date(b.startedAt || b.createdAt))
-                .map(ls => {
-                  const cfg = SPORT_CFG[ls.sport] || { color: '#6b7280', bg: '#f3f4f6', label: ls.sport };
-                  const clockStr = fmtClock(ls.timeRemainingSeconds);
-                  const homeN = Number(ls.teamScore ?? 0);
-                  const awayN = Number(ls.opponentScore ?? 0);
-                  const homeLeads = homeN > awayN;
-                  const awayLeads = awayN > homeN;
-
-                  /* ── Sport-specific display values ── */
-                  let homeDisp = String(homeN);
-                  let awayDisp = String(awayN);
-                  let homeSub = null;
-                  let awaySub = null;
-                  let clockLabel = clockStr;
-                  let centerExtra = null;
-
-                  if (ls.sport === 'basketball') {
-                    const q = ls.scoreData?.quarter || ls.gameClock || 'Q1';
-                    clockLabel = `${q} · ${clockStr}`;
-                    const hFouls = ls.teamFouls?.home ?? ls.scoreData?.home?.fouls ?? 0;
-                    const aFouls = ls.teamFouls?.away ?? ls.scoreData?.away?.fouls ?? 0;
-                    homeSub = `Fouls: ${hFouls}`;
-                    awaySub = `Fouls: ${aFouls}`;
-                    const qOrder = ['Q1', 'Q2', 'Q3', 'Q4', 'OT'];
-                    const curQIdx = qOrder.indexOf(q);
-                    centerExtra = (
-                      <div className={styles.lsPeriodRow}>
-                        {['Q1', 'Q2', 'Q3', 'Q4'].map((qq, qi) => (
-                          <span key={qq} className={styles.lsPDot}
-                            style={{ background: qi < curQIdx ? `${cfg.color}60` : qi === curQIdx ? cfg.color : '#e5e7eb' }}
-                          />
-                        ))}
-                      </div>
-                    );
-
-                  } else if (ls.sport === 'cricket') {
-                    const hWkt = ls.scoreData?.home?.wickets;
-                    const aWkt = ls.scoreData?.away?.wickets;
-                    homeDisp = hWkt != null ? `${homeN}/${hWkt}` : String(homeN);
-                    awayDisp = aWkt != null ? `${awayN}/${aWkt}` : String(awayN);
-                    homeSub = ls.scoreData?.home?.overs ? `${ls.scoreData.home.overs} ov` : null;
-                    awaySub = ls.scoreData?.away?.overs ? `${ls.scoreData.away.overs} ov` : null;
-                    clockLabel = ls.gameClock || 'LIVE';
-                    if (ls.scoreData?.home?.target)
-                      centerExtra = <div className={styles.lsCtxLine}>Target: {ls.scoreData.home.target}</div>;
-
-                  } else if (ls.sport === 'football') {
-                    const half = ls.scoreData?.home?.half;
-                    clockLabel = half ? `Half ${half} · ${clockStr}` : (ls.gameClock || clockStr);
-                    const poss = ls.scoreData?.home?.possession;
-                    if (poss) centerExtra = <div className={styles.lsCtxLine}>Poss {poss}%</div>;
-
-                  } else if (ls.sport === 'volleyball') {
-                    const hSets = ls.scoreData?.home?.setsWon;
-                    const aSets = ls.scoreData?.away?.setsWon;
-                    if (hSets != null) { homeDisp = String(hSets); homeSub = `${homeN} pts`; }
-                    if (aSets != null) { awayDisp = String(aSets); awaySub = `${awayN} pts`; }
-                    const setNum = ls.scoreData?.home?.set || ls.gameClock || '—';
-                    clockLabel = `Set ${setNum}`;
-
-                  } else if (ls.sport === 'badminton') {
-                    const hGames = ls.scoreData?.home?.gamesWon;
-                    const aGames = ls.scoreData?.away?.gamesWon;
-                    if (hGames != null) { homeDisp = String(hGames); homeSub = `${homeN} pts`; }
-                    if (aGames != null) { awayDisp = String(aGames); awaySub = `${awayN} pts`; }
-                    const gameNum = ls.scoreData?.home?.game || ls.gameClock || '—';
-                    clockLabel = `Game ${gameNum}`;
-
-                  } else {
-                    clockLabel = ls.gameClock || clockStr;
-                  }
-
-                  const homeName  = ls.homeTeam || ls.clubName || 'Home Team';
-                  const homeAbbr  = teamAbbr(homeName);
-                  const awayAbbr  = teamAbbr(ls.opponentName || 'AWAY');
-                  const lastPlay  = ls.playByPlay?.[0];
-
-                  return (
-                    <div key={ls.id} className={styles.lsCard}>
-                      <div className={styles.lsHeader}>
-                        <div className={styles.lsHeaderLeft}>
-                          <span className={styles.lsHeaderTitle}>
-                            {ls.matchTitle || `${homeName} vs ${ls.opponentName || 'Away'}`}
-                          </span>
-                          <div className={styles.lsHeaderMeta}>
-                            <span className={styles.lsSportBadge} style={{ background: cfg.bg, color: cfg.color }}>{cfg.label}</span>
-                            {ls.venue && <span className={styles.lsVenueTxt}>{ls.venue}</span>}
-                          </div>
-                        </div>
-                        <div className={styles.lsHeaderRight}>
-                          <span className={styles.lsClockBadge} style={{ color: cfg.color }}>{clockLabel}</span>
-                          <span className={styles.lsLiveDot} />
-                        </div>
-                      </div>
-                      <div className={styles.lsBody}>
-                        <div className={styles.lsTeamSide}>
-                          <div className={styles.lsAvatar} style={{ background: cfg.color }}>{homeAbbr}</div>
-                          <div className={styles.lsTeamName}>{homeName}</div>
-                          {homeSub && <div className={styles.lsTeamSub}>{homeSub}</div>}
-                        </div>
-                        <div className={styles.lsScoreArea}>
-                          <div className={styles.lsScoreRow}>
-                            <span className={`${styles.lsBigScore} ${homeLeads ? styles.lsBigScoreLead : ''}`}>{homeDisp}</span>
-                            <span className={styles.lsDash}>-</span>
-                            <span className={`${styles.lsBigScore} ${awayLeads ? styles.lsBigScoreLead : ''}`}>{awayDisp}</span>
-                          </div>
-                          {centerExtra}
-                        </div>
-                        <div className={`${styles.lsTeamSide} ${styles.lsTeamSideRight}`}>
-                          <div className={styles.lsAvatar} style={{ background: '#374151' }}>{awayAbbr}</div>
-                          <div className={styles.lsTeamName}>{ls.opponentName || 'Away Team'}</div>
-                          {awaySub && <div className={styles.lsTeamSub}>{awaySub}</div>}
-                        </div>
-                      </div>
-                      <div className={styles.lsFooter}>
-                        <span className={styles.lsFooterLeft}>{cfg.label} · {ls.venue || 'Venue TBA'}</span>
-                        {lastPlay
-                          ? <span className={styles.lsLastPlay}>{lastPlay.player_name || 'Team'} · {String(lastPlay.event_type || '').replace(/_/g, ' ')}{lastPlay.points > 0 ? ` +${lastPlay.points}` : ''}</span>
-                          : <span className={styles.lsFooterLeft}>Ongoing</span>}
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          )}
+          </Link>
         </div>
       </div>
 
-
-
       {/* ══════════════════════════════════════════
-          PAST SPORTS RECORDS
+          PAST SPORTS RECORDS — collapsible dropdown
       ══════════════════════════════════════════ */}
-      <div className={styles.section}>
+      <div className={`${styles.section} ${styles.sportsPanelSection}`}>
         <div className="wrap">
-          <div className={styles.sectionHead}>
-            <div>
-              <div className={styles.sectionPill} style={{ background: '#eff6ff', color: '#1d4ed8' }}>📊 Sports History</div>
-              <h2 className={styles.sectionTitle}>Past Sports Records</h2>
-              <p className={styles.sectionCount} style={{ marginTop: 6 }}>Search and filter all completed games</p>
-            </div>
-            {pastTotal > 0 && <p className={styles.sectionCount}>{pastTotal} game{pastTotal !== 1 ? 's' : ''} found</p>}
-          </div>
-
-          {/* ── Search + sport filter ── */}
-          <div className={styles.pastFilterBar}>
-            <div className={styles.pastSearchWrap}>
-              <span className={styles.pastSearchIcon}>🔍</span>
-              <input
-                className={styles.pastSearchInput}
-                placeholder="Search by team name or match title…"
-                value={pastSearchInput}
-                onChange={e => setPastSearchInput(e.target.value)}
-              />
-              {pastSearchInput && (
-                <button className={styles.pastSearchClear} onClick={() => { setPastSearchInput(''); setPastPage(1); }}>✕</button>
-              )}
-            </div>
-            <div className={styles.pastSportPills}>
-              {SPORTS_LIST.map(sp => (
-                <button
-                  key={sp}
-                  className={`${styles.pastSportPill} ${pastSport === sp ? styles.pastSportPillOn : ''}`}
-                  onClick={() => { setPastSport(sp); setPastPage(1); }}
-                  style={pastSport === sp && sp !== 'all' ? { background: (SPORT_CFG[sp] || {}).color || '#1d4ed8', color: '#fff', borderColor: 'transparent' } : {}}
-                >
-                  {sp === 'all' ? 'All Sports' : sp.charAt(0).toUpperCase() + sp.slice(1)}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* ── Results ── */}
-          {pastLoading ? (
-            <div className={styles.empty}><div className={styles.emptyIcon}>⏳</div><p>Loading records…</p></div>
-          ) : pastScores.length === 0 ? (
-            <div className={styles.empty}>
-              <div className={styles.emptyIcon}>🏆</div>
-              <p>{pastSearch || pastSport !== 'all' ? 'No games match your search.' : 'No completed games yet. Records will appear here after games are played.'}</p>
-            </div>
-          ) : (
-            <>
-              <div className={styles.scoreRowList}>
-                {pastScores.map(g => {
-                  const cfg = SPORT_CFG[g.sport] || { color: '#6b7280', bg: '#f3f4f6', label: g.sport };
-                  const w   = winner(g);
-                  const homeName = g.homeTeam || g.clubName || 'Home';
-                  const hasStats = (g.homePlayers?.length > 0) || (g.awayPlayers?.length > 0);
-                  return (
-                    <div key={g.id} className={styles.scoreRow} style={{ borderLeftColor: cfg.color }}>
-                      <div className={styles.srLeft}>
-                        <span className={styles.srSportBadge} style={{ background: cfg.bg, color: cfg.color }}>{cfg.label}</span>
-                        <div className={styles.srTitle}>{g.matchTitle || `${homeName} vs ${g.opponentName || 'Away'}`}</div>
-                        {g.venue && <div className={styles.srMeta}>📍 {g.venue}</div>}
-                      </div>
-                      <div className={styles.srCenter}>
-                        <div className={`${styles.srTeam} ${w === 'home' ? styles.srWinner : w !== 'draw' ? styles.srLoser : ''}`}>
-                          <span className={styles.srTeamName}>{homeName}</span>
-                          {w === 'home' && <span className={styles.srTrophy}>🏆</span>}
-                        </div>
-                        <div className={styles.srScores}>
-                          <span className={w === 'home' ? styles.srScoreWin : styles.srScoreDim}>{g.teamScore}</span>
-                          <span className={styles.srDash}>–</span>
-                          <span className={w === 'away' ? styles.srScoreWin : styles.srScoreDim}>{g.opponentScore}</span>
-                        </div>
-                        <div className={`${styles.srTeam} ${styles.srTeamRight} ${w === 'away' ? styles.srWinner : w !== 'draw' ? styles.srLoser : ''}`}>
-                          {w === 'away' && <span className={styles.srTrophy}>🏆</span>}
-                          <span className={styles.srTeamName}>{g.opponentName || 'Away'}</span>
-                        </div>
-                      </div>
-                      <div className={styles.srRight}>
-                        <span className={styles.srDate}>{fmtDate(g.endedAt || g.updatedAt)}</span>
-                        {w === 'draw' && <span className={styles.srDrawTag}>Draw</span>}
-                        {hasStats && <button className={styles.srStatsBtn} onClick={() => setStatsModal(g)}>View Stats →</button>}
-                      </div>
-                    </div>
-                  );
-                })}
+          <button
+            type="button"
+            className={`${styles.sportsPanelTrigger} ${styles.sportsPanelTriggerPast} ${pastOpen ? styles.sportsPanelTriggerOpen : ''}`}
+            onClick={() => setPastOpen((o) => !o)}
+            aria-expanded={pastOpen}
+          >
+            <div className={styles.sportsPanelTriggerMain}>
+              <div className={styles.sectionPill} style={{ background: '#eff6ff', color: '#1d4ed8' }}>
+                📊 Sports History
               </div>
-              {pastTotal > 20 && (
-                <div className={styles.pastPagination}>
-                  <button className={styles.pastPageBtn} disabled={pastPage === 1} onClick={() => setPastPage(p => p - 1)}>← Prev</button>
-                  <span className={styles.pastPageInfo}>Page {pastPage} of {Math.ceil(pastTotal / 20)}</span>
-                  <button className={styles.pastPageBtn} disabled={pastPage >= Math.ceil(pastTotal / 20)} onClick={() => setPastPage(p => p + 1)}>Next →</button>
+              <h2 className={styles.sportsPanelTitle}>Past Sports Records</h2>
+              <p className={styles.sportsPanelHint}>
+                {pastTotal > 0
+                  ? `${pastTotal} completed match${pastTotal !== 1 ? 'es' : ''} — tap to browse`
+                  : 'Search results & match history'}
+              </p>
+            </div>
+            <div className={styles.sportsPanelTriggerEnd}>
+              {pastTotal > 0 && !pastOpen && (
+                <span className={styles.sportsPanelBadgePast}>{pastTotal}</span>
+              )}
+              <span className={styles.sportsPanelChevron} aria-hidden="true">{pastOpen ? '▲' : '▼'}</span>
+            </div>
+          </button>
+
+          {pastOpen && (
+            <div className={styles.sportsDropdown}>
+              <div className={styles.pastFilterBar}>
+                <div className={styles.pastSearchWrap}>
+                  <span className={styles.pastSearchIcon}>🔍</span>
+                  <input
+                    className={styles.pastSearchInput}
+                    placeholder="Search by team or match…"
+                    value={pastSearchInput}
+                    onChange={(e) => setPastSearchInput(e.target.value)}
+                  />
+                  {pastSearchInput && (
+                    <button type="button" className={styles.pastSearchClear} onClick={() => { setPastSearchInput(''); setPastPage(1); }}>✕</button>
+                  )}
+                </div>
+                <div className={styles.pastSportPills}>
+                  {SPORTS_LIST.map((sp) => (
+                    <button
+                      key={sp}
+                      type="button"
+                      className={`${styles.pastSportPill} ${pastSport === sp ? styles.pastSportPillOn : ''}`}
+                      onClick={() => { setPastSport(sp); setPastPage(1); }}
+                      style={pastSport === sp && sp !== 'all' ? { background: (SPORT_CFG[sp] || {}).color || '#1d4ed8', color: '#fff', borderColor: 'transparent' } : {}}
+                    >
+                      {sp === 'all' ? 'All' : sp.charAt(0).toUpperCase() + sp.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {pastLoading ? (
+                <div className={styles.sportsDropdownEmpty}>Loading records…</div>
+              ) : pastScores.length === 0 ? (
+                <div className={styles.sportsDropdownEmpty}>
+                  {pastSearch || pastSport !== 'all' ? 'No games match your search.' : 'No completed games yet.'}
+                </div>
+              ) : (
+                <div className={styles.pastAccordion}>
+                  {pastScores.map((g) => {
+                    const cfg = SPORT_CFG[g.sport] || { color: '#6b7280', bg: '#f3f4f6', label: g.sport };
+                    const w = winner(g);
+                    const homeName = g.homeTeam || g.clubName || 'Home';
+                    const hasStats = (g.homePlayers?.length > 0) || (g.awayPlayers?.length > 0);
+                    return (
+                      <details key={g.id} className={styles.pastAccordionItem} style={{ borderLeftColor: cfg.color }}>
+                        <summary className={styles.pastAccordionSummary}>
+                          <span className={styles.pastAccSport} style={{ background: cfg.bg, color: cfg.color }}>{cfg.label}</span>
+                          <span className={styles.pastAccTitle}>{g.matchTitle || `${homeName} vs ${g.opponentName || 'Away'}`}</span>
+                          <span className={styles.pastAccScore}>
+                            <strong>{g.teamScore}</strong> – <strong>{g.opponentScore}</strong>
+                          </span>
+                          <span className={styles.pastAccDate}>{fmtDate(g.endedAt || g.updatedAt)}</span>
+                        </summary>
+                        <div className={styles.pastAccordionBody}>
+                          {g.venue && <p className={styles.pastAccVenue}>📍 {g.venue}</p>}
+                          {g.clubName && <p className={styles.pastAccClub}>Club: {g.clubName}</p>}
+                          <div className={styles.pastAccTeams}>
+                            <span className={w === 'home' ? styles.pastAccWin : ''}>{homeName}: {g.teamScore}{w === 'home' ? ' 🏆' : ''}</span>
+                            <span>vs</span>
+                            <span className={w === 'away' ? styles.pastAccWin : ''}>{g.opponentName || 'Away'}: {g.opponentScore}{w === 'away' ? ' 🏆' : ''}</span>
+                          </div>
+                          {w === 'draw' && <span className={styles.srDrawTag}>Draw</span>}
+                          {hasStats && (
+                            <button type="button" className={styles.srStatsBtn} onClick={() => setStatsModal(g)}>
+                              View player stats →
+                            </button>
+                          )}
+                        </div>
+                      </details>
+                    );
+                  })}
                 </div>
               )}
-            </>
+
+              {pastTotal > 20 && (
+                <div className={styles.pastPagination}>
+                  <button type="button" className={styles.pastPageBtn} disabled={pastPage === 1} onClick={() => setPastPage((p) => p - 1)}>← Prev</button>
+                  <span className={styles.pastPageInfo}>Page {pastPage} of {Math.ceil(pastTotal / 20)}</span>
+                  <button type="button" className={styles.pastPageBtn} disabled={pastPage >= Math.ceil(pastTotal / 20)} onClick={() => setPastPage((p) => p + 1)}>Next →</button>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -1194,3 +1015,5 @@ const Events = () => {
 };
 
 export default Events;
+
+

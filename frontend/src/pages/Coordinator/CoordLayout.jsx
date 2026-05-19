@@ -26,24 +26,61 @@ const NAV = [
 
 /* Renders page content or a gate screen if the coordinator has no club assigned */
 function ClubGatedContent() {
-  const { clubs, selectedClub, clubLoading, clubError } = useCoordClub();
+  const { clubs, selectedClub, clubLoading, clubError, refetchClub } = useCoordClub();
+  const [retrying, setRetrying] = useState(false);
 
-  if (clubLoading) return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', minHeight:300, color:'#9ca3af', fontSize:15 }}>
-      Loading club data…
+  const handleRetry = async () => {
+    setRetrying(true);
+    await refetchClub();
+    setRetrying(false);
+  };
+
+  if (clubLoading || retrying) return (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:300, gap:12, color:'#9ca3af', fontSize:15 }}>
+      <div style={{ width:32, height:32, border:'3px solid #e5e7eb', borderTopColor:'#635BFF', borderRadius:'50%', animation:'spin 0.8s linear infinite' }} />
+      <span>{retrying ? 'Retrying…' : 'Loading club data…'}</span>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 
   if (clubError || (!clubLoading && !selectedClub && clubs.length === 0)) return (
     <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:400, gap:16, padding:32, textAlign:'center' }}>
-      <div style={{ fontSize:48 }}>🏛️</div>
-      <h2 style={{ margin:0, color:'#1a1040', fontSize:'1.35rem' }}>No Club Assigned</h2>
-      <p style={{ margin:0, color:'#6b7280', maxWidth:380, lineHeight:1.6 }}>
+      <div style={{ width:56, height:56, borderRadius:16, background:'#f3f4f6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28 }}>🏛</div>
+      <h2 style={{ margin:0, color:'#1a1040', fontSize:'1.35rem', fontWeight:800 }}>No Club Assigned</h2>
+      <p style={{ margin:0, color:'#6b7280', maxWidth:400, lineHeight:1.65, fontSize:14 }}>
         Your coordinator account is not yet linked to a club.<br />
-        Please ask an <strong>admin</strong> to assign your club from the Admin → Clubs panel.
+        Ask an <strong>admin</strong> to assign your club from <strong>Admin → Clubs</strong>.
       </p>
-      <div style={{ background:'#f3f4f6', borderRadius:10, padding:'10px 20px', color:'#9ca3af', fontSize:13 }}>
-        Once assigned, refresh the page to continue.
+      {clubError && clubError !== 'No club assigned. Ask an admin to assign your club from Admin → Clubs.' && (
+        <div style={{ background:'#fff0f0', border:'1px solid #fca5a5', borderRadius:8, padding:'8px 16px', color:'#b91c1c', fontSize:13, maxWidth:400 }}>
+          {clubError}
+        </div>
+      )}
+      <div style={{ display:'flex', gap:10, flexWrap:'wrap', justifyContent:'center' }}>
+        <button
+          onClick={handleRetry}
+          style={{
+            padding:'9px 22px', borderRadius:8, border:'none',
+            background:'#635BFF', color:'#fff', fontWeight:700,
+            fontSize:14, cursor:'pointer', fontFamily:'inherit',
+          }}
+        >
+          Retry
+        </button>
+        <button
+          onClick={() => window.location.reload()}
+          style={{
+            padding:'9px 22px', borderRadius:8,
+            border:'1.5px solid #e5e7eb', background:'#fff',
+            color:'#374151', fontWeight:600,
+            fontSize:14, cursor:'pointer', fontFamily:'inherit',
+          }}
+        >
+          Refresh Page
+        </button>
+      </div>
+      <div style={{ color:'#9ca3af', fontSize:12, marginTop:4 }}>
+        Once assigned by admin, click Retry — no full page reload needed.
       </div>
     </div>
   );

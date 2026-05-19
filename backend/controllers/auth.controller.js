@@ -5,8 +5,8 @@ const { pgPool } = require('../config/db');
 const { sendPasswordReset } = require('../config/email');
 const cache = require('../services/cache');
 const tokenBlacklist = require('../services/tokenBlacklist');
+const { getCoordClubIds } = require('../services/coordAuth');
 
-const RKU_DOMAIN = '@rku.ac.in';
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MINUTES = 30;
 
@@ -85,9 +85,6 @@ const login = async (req, res, next) => {
       return res.status(400).json({ message: 'Email and password are required.' });
     }
     const normalizedEmail = email.toLowerCase();
-    if (!normalizedEmail.endsWith(RKU_DOMAIN)) {
-      return res.status(400).json({ message: 'Only @rku.ac.in email addresses are allowed.' });
-    }
 
     // Check account lockout
     const locked = await isAccountLocked(normalizedEmail);
@@ -122,6 +119,18 @@ const login = async (req, res, next) => {
     // Successful login — reset failed attempts
     await resetFailedLogins(normalizedEmail);
     await pgPool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
+
+    // Coordinators: resolve club assignments (auto-repair legacy rows) before responding
+    if (user.role === 'coordinator') {
+      const clubIds = await getCoordClubIds(user.id);
+      if (clubIds.length && !user.managed_club_id) {
+        await pgPool.query(
+          `UPDATE users SET managed_club_id = $1 WHERE id = $2`,
+          [clubIds[0], user.id]
+        );
+        user.managed_club_id = clubIds[0];
+      }
+    }
 
     const accessToken  = signAccess(user);
     const refreshToken = signRefresh(user);
@@ -203,7 +212,19 @@ const me = async (req, res, next) => {
       return res.status(401).json({ message: 'User not found or inactive.' });
     }
 
-    const result = { user: toUserResponse(rows[0]) };
+    const dbUser = rows[0];
+    if (dbUser.role === 'coordinator') {
+      const clubIds = await getCoordClubIds(dbUser.id);
+      if (clubIds.length && !dbUser.managed_club_id) {
+        await pgPool.query(
+          `UPDATE users SET managed_club_id = $1 WHERE id = $2`,
+          [clubIds[0], dbUser.id]
+        );
+        dbUser.managed_club_id = clubIds[0];
+      }
+    }
+
+    const result = { user: toUserResponse(dbUser) };
     await cache.set(cacheKey, result, cache.TTL.SESSION);
     res.json(result);
   } catch (err) { next(err); }
@@ -340,8 +361,8 @@ const refresh = async (req, res, next) => {
 const forgotPassword = async (req, res, next) => {
   try {
     const email = String(req.body?.email || '').trim().toLowerCase();
-    if (!email || !email.endsWith(RKU_DOMAIN)) {
-      return res.status(400).json({ message: 'Enter a valid @rku.ac.in email address.' });
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({ message: 'Enter a valid email address.' });
     }
 
     const { rows } = await pgPool.query(

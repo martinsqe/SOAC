@@ -51,11 +51,12 @@ async function getCoordClubIds(userId) {
 
   // ── Fallback 1: legacy managed_club_id ──
   const { rows: uRows } = await pgPool.query(
-    `SELECT managed_club_id, name FROM users WHERE id = $1`,
+    `SELECT managed_club_id, name, email FROM users WHERE id = $1`,
     [userId]
   );
   const legacyId  = uRows[0]?.managed_club_id;
-  const coordName = uRows[0]?.name || '';
+  const coordName = (uRows[0]?.name || '').trim();
+  const coordEmail = (uRows[0]?.email || '').trim().toLowerCase();
 
   if (legacyId) {
     const { rows: check } = await pgPool.query(
@@ -67,10 +68,16 @@ async function getCoordClubIds(userId) {
     }
   }
 
-  // ── Fallback 2: clubs.coordinator name match ──
+  // ── Fallback 2: clubs.coordinator name match (trimmed / partial) ──
   if (coordName) {
     const { rows: nameMatch } = await pgPool.query(
-      `SELECT id FROM clubs WHERE coordinator ILIKE $1 AND is_active = true`,
+      `SELECT id FROM clubs
+       WHERE is_active = true
+         AND (
+           trim(coordinator) ILIKE trim($1)
+           OR coordinator ILIKE '%' || trim($1) || '%'
+         )
+       ORDER BY created_at ASC`,
       [coordName]
     );
     if (nameMatch.length) {
@@ -78,6 +85,35 @@ async function getCoordClubIds(userId) {
       ids.forEach(clubId => autoRepair(userId, clubId));
       console.info(`[coordAuth] Auto-repaired ${ids.length} assignment(s) for coordinator ${userId} (${coordName}).`);
       return ids;
+    }
+  }
+
+  // ── Fallback 3: legacy coordinator_accounts table (pre-users migration) ──
+  if (coordEmail) {
+    try {
+      const { rows: legacyAccts } = await pgPool.query(
+        `SELECT managed_club_id FROM coordinator_accounts
+         WHERE lower(email) = $1 AND is_active = true`,
+        [coordEmail]
+      );
+      const ids = [];
+      for (const row of legacyAccts) {
+        const clubId = row.managed_club_id;
+        const { rows: check } = await pgPool.query(
+          `SELECT id FROM clubs WHERE id::text = $1::text AND is_active = true`,
+          [String(clubId)]
+        );
+        if (check.length) {
+          ids.push(String(check[0].id));
+          autoRepair(userId, check[0].id);
+        }
+      }
+      if (ids.length) {
+        console.info(`[coordAuth] Migrated ${ids.length} legacy coordinator_account(s) for user ${userId}.`);
+        return ids;
+      }
+    } catch (err) {
+      if (err.code !== '42P01') throw err; // table missing on fresh installs
     }
   }
 
@@ -111,10 +147,15 @@ async function assertCoordOwnsClub(userId, clubId) {
   }
 
   // Fallback 2: clubs.coordinator name match
-  const coordName = uRows[0]?.name || '';
+  const coordName = (uRows[0]?.name || '').trim();
   if (coordName) {
     const { rows: nameMatch } = await pgPool.query(
-      `SELECT id FROM clubs WHERE id = $1 AND coordinator ILIKE $2 AND is_active = true`,
+      `SELECT id FROM clubs
+       WHERE id = $1 AND is_active = true
+         AND (
+           trim(coordinator) ILIKE trim($2)
+           OR coordinator ILIKE '%' || trim($2) || '%'
+         )`,
       [clubId, coordName]
     );
     if (nameMatch.length) {

@@ -19,7 +19,8 @@ const CoordRoute = ({ children }) => {
     return <Navigate to="/admin" replace />;
   }
 
-  if (!user || user.role !== 'coordinator') {
+  const role = String(user?.role || '').toLowerCase();
+  if (!user || role !== 'coordinator') {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 

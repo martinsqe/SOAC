@@ -1,8 +1,8 @@
 const bcrypt   = require('bcryptjs');
 const crypto   = require('crypto');
 const { pgPool } = require('../config/db');
-const { sendCredentials } = require('../config/email');
 const { ensureSoacTables } = require('../services/soacData');
+const { sendCredentials } = require('../config/email');
 const cache = require('../services/cache');
 
 const RKU_DOMAIN = '@rku.ac.in';
@@ -257,20 +257,48 @@ const updateProfile = async (req, res, next) => {
 /* PUT /api/users/:id/assign-club  (admin) */
 const assignClub = async (req, res, next) => {
   try {
+    await ensureSoacTables();
+
     const { clubId } = req.body;
+    const userId = req.params.id;
+
     const { rows } = await pgPool.query(
       `UPDATE users SET managed_club_id = $1
        WHERE id = $2 AND role = 'coordinator'
        RETURNING id, email, name, role, managed_club_id`,
-      [clubId || null, req.params.id]
+      [clubId || null, userId]
     );
     if (!rows.length) return res.status(404).json({ message: 'Coordinator not found.' });
+
+    if (clubId) {
+      await pgPool.query(
+        `UPDATE coordinator_club_assignments
+         SET is_active = false, updated_at = NOW()
+         WHERE club_id = $1 AND user_id != $2`,
+        [clubId, userId]
+      );
+      await pgPool.query(
+        `INSERT INTO coordinator_club_assignments (user_id, club_id, is_active)
+         VALUES ($1, $2, true)
+         ON CONFLICT (user_id, club_id) DO UPDATE
+           SET is_active = true, updated_at = NOW()`,
+        [userId, clubId]
+      );
+    } else {
+      await pgPool.query(
+        `UPDATE coordinator_club_assignments
+         SET is_active = false, updated_at = NOW()
+         WHERE user_id = $1`,
+        [userId]
+      );
+    }
+
     await pgPool.query(
       `INSERT INTO audit_log (user_id, user_name, action, entity_type, entity_id, meta)
        VALUES ($1, $2, 'ASSIGN_CLUB', 'user', $3, $4)`,
-      [req.user.id, req.user.name, String(req.params.id), JSON.stringify({ clubId })]
+      [req.user.id, req.user.name, String(userId), JSON.stringify({ clubId })]
     );
-    await cache.del(`session:user:${req.params.id}`);
+    await cache.del(`session:user:${userId}`);
     res.json({ user: rows[0] });
   } catch (err) { next(err); }
 };

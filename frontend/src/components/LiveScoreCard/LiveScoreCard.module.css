@@ -1,0 +1,124 @@
+.lsCard {
+  background: #fff;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.09);
+  transition: box-shadow 0.2s;
+}
+.lsCard:hover { box-shadow: 0 8px 36px rgba(0, 0, 0, 0.14); }
+
+.lsHeader {
+  background: #111827;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.lsHeaderLeft { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
+.lsHeaderTitle {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #fff;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lsHeaderMeta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lsSportBadge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  padding: 2px 10px;
+  border-radius: 999px;
+}
+.lsClubTxt { font-size: 11px; color: rgba(255, 255, 255, 0.5); }
+.lsVenueTxt { font-size: 12px; color: rgba(255, 255, 255, 0.38); }
+.lsHeaderRight { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.lsClockBadge { font-size: 0.875rem; font-weight: 800; white-space: nowrap; }
+.lsLiveDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25);
+  animation: livePulse 1.8s infinite;
+}
+@keyframes livePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.lsBody {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 28px;
+  gap: 12px;
+}
+.lsTeamSide { display: flex; flex-direction: column; align-items: center; gap: 7px; flex: 1; min-width: 0; }
+.lsTeamSideRight { align-items: center; }
+.lsAvatar {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 900;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+.lsTeamName {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 0.875rem;
+  font-weight: 800;
+  color: #111827;
+  text-align: center;
+  margin: 0;
+  line-height: 1.2;
+}
+.lsTeamSub { font-size: 0.72rem; color: #6b7280; font-weight: 600; margin: 0; text-align: center; }
+.lsScoreArea { display: flex; flex-direction: column; align-items: center; gap: 6px; flex-shrink: 0; padding: 0 8px; }
+.lsScoreRow { display: flex; align-items: center; gap: 2px; }
+.lsBigScore {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: clamp(2.2rem, 6vw, 3.6rem);
+  font-weight: 900;
+  color: #111827;
+  min-width: 48px;
+  text-align: center;
+  line-height: 1;
+  letter-spacing: -2px;
+}
+.lsBigScoreLead { color: #0f0a2e; }
+.lsDash { font-size: 2rem; font-weight: 300; color: #9ca3af; padding: 0 10px; line-height: 1; }
+.lsPeriodRow { display: flex; gap: 5px; }
+.lsPDot { width: 9px; height: 9px; border-radius: 50%; }
+.lsCtxLine { font-size: 0.72rem; color: #6b7280; font-weight: 600; text-align: center; margin: 0; }
+.lsFooter {
+  background: #f9fafb;
+  border-top: 1px solid #f0f0f5;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.lsFooterLeft { font-size: 0.78rem; color: #6b7280; font-weight: 600; text-transform: capitalize; }
+.lsLastPlay { font-size: 0.78rem; color: #374151; font-weight: 700; text-transform: capitalize; }
+
+@media (max-width: 560px) {
+  .lsBody { padding: 16px 14px; gap: 6px; }
+  .lsBigScore { font-size: 2rem; min-width: 36px; }
+  .lsAvatar { width: 42px; height: 42px; font-size: 0.68rem; }
+  .lsHeader { padding: 12px 14px; }
+}

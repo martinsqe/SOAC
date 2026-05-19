@@ -6,7 +6,7 @@ const slugify = require('slugify');
 const { pgPool } = require('../config/db');
 const { sendCoordinatorCredentials, sendCoordinatorAssignment } = require('../config/email');
 const { ensureSoacTables, asClub } = require('../services/soacData');
-const { assertCoordOwnsClub } = require('../services/coordAuth');
+const { assertCoordOwnsClub, getCoordClubIds } = require('../services/coordAuth');
 const cache = require('../services/cache');
 
 /* ── Column list (every column asClub() reads) ─────────────────────────────
@@ -303,80 +303,27 @@ const seed = async (req, res, next) => {
 };
 
 /* GET /api/clubs/mine  (coordinator) — returns all clubs assigned to this coordinator.
-   Three-tier lookup with auto-repair:
-   1. coordinator_club_assignments table (fast path)
-   2. users.managed_club_id (legacy FK)
-   3. clubs.coordinator display-name match (rescue for early assignments) */
+   Uses coordAuth.getCoordClubIds (assignments + legacy managed_club_id + name + auto-repair). */
 const mine = async (req, res, next) => {
   try {
-    // Guarantee the assignments table exists before querying it
     await ensureSoacTables();
+
+    const clubIds = await getCoordClubIds(req.user.id);
+    if (!clubIds.length) {
+      return res.status(404).json({ message: 'No club assigned to this coordinator. Ask an admin to assign your club.' });
+    }
 
     const MINE_COLS = `${CLUB_COLS},
       (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = clubs.id) AS real_member_count,
       (SELECT COUNT(*)::int FROM events WHERE club = clubs.name AND is_active = true) AS real_event_count`;
 
-    /* ── Fast path: coordinator_club_assignments ── */
-    let { rows } = await pgPool.query(
+    const { rows } = await pgPool.query(
       `SELECT ${MINE_COLS}
        FROM clubs
-       JOIN coordinator_club_assignments cca ON cca.club_id = clubs.id
-       WHERE cca.user_id = $1 AND cca.is_active = true AND clubs.is_active = true
-       ORDER BY cca.created_at ASC`,
-      [req.user.id]
+       WHERE id = ANY($1::bigint[]) AND is_active = true
+       ORDER BY array_position($1::bigint[], id)`,
+      [clubIds.map(id => Number(id) || id)]
     );
-
-    /* ── Fallback 1: legacy users.managed_club_id ── */
-    if (!rows.length) {
-      const { rows: userRows } = await pgPool.query(
-        `SELECT managed_club_id, name FROM users WHERE id = $1`,
-        [req.user.id]
-      );
-      const legacyClubId = userRows[0]?.managed_club_id;
-      const coordName    = userRows[0]?.name || '';
-
-      if (legacyClubId) {
-        ({ rows } = await pgPool.query(
-          `SELECT ${MINE_COLS} FROM clubs WHERE id = $1 AND is_active = true`,
-          [legacyClubId]
-        ));
-        if (rows.length) {
-          // Auto-repair: create the assignment row so future calls use the fast path
-          pgPool.query(
-            `INSERT INTO coordinator_club_assignments (user_id, club_id, is_active)
-             VALUES ($1, $2, true)
-             ON CONFLICT (user_id, club_id) DO UPDATE SET is_active = true, updated_at = NOW()`,
-            [req.user.id, legacyClubId]
-          ).catch(err => console.warn('[mine] auto-repair (managed_club_id) failed:', err.message));
-        }
-      }
-
-      /* ── Fallback 2: clubs.coordinator display-name match ──
-         Rescues coordinators assigned via admin panel before assignment rows
-         were properly persisted. Matches on the name stored in clubs.coordinator. */
-      if (!rows.length && coordName) {
-        ({ rows } = await pgPool.query(
-          `SELECT ${MINE_COLS}
-           FROM clubs
-           WHERE coordinator ILIKE $1 AND is_active = true
-           ORDER BY created_at ASC`,
-          [coordName]
-        ));
-        if (rows.length) {
-          // Auto-repair: create assignment rows so future calls use the fast path
-          const clubIds = rows.map(r => r.id);
-          for (const clubId of clubIds) {
-            pgPool.query(
-              `INSERT INTO coordinator_club_assignments (user_id, club_id, is_active)
-               VALUES ($1, $2, true)
-               ON CONFLICT (user_id, club_id) DO UPDATE SET is_active = true, updated_at = NOW()`,
-              [req.user.id, clubId]
-            ).catch(err => console.warn('[mine] auto-repair (name match) failed:', err.message));
-          }
-          console.info(`[mine] Auto-repaired ${clubIds.length} assignment(s) for coordinator ${req.user.id} (${coordName}) via name match.`);
-        }
-      }
-    }
 
     if (!rows.length) {
       return res.status(404).json({ message: 'No club assigned to this coordinator. Ask an admin to assign your club.' });
@@ -593,9 +540,6 @@ const assignCoordinator = async (req, res, next) => {
       return res.status(400).json({ message: 'Coordinator email is required.' });
     }
     const emailLower = email.trim().toLowerCase();
-    if (!emailLower.endsWith('@rku.ac.in')) {
-      return res.status(400).json({ message: 'Only @rku.ac.in email addresses are allowed.' });
-    }
 
     /* Verify the club exists */
     const { rows: clubRows } = await pgPool.query(
@@ -660,6 +604,12 @@ const assignCoordinator = async (req, res, next) => {
        ON CONFLICT (user_id, club_id) DO UPDATE
          SET is_active = true, updated_at = NOW()`,
       [userId, clubId]
+    );
+
+    /* Legacy FK + frontend fallback: primary club on user row */
+    await pgPool.query(
+      `UPDATE users SET managed_club_id = $1 WHERE id = $2`,
+      [clubId, userId]
     );
 
     /* Keep the club's coordinator display name in sync */

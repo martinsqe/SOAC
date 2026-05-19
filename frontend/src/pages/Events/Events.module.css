@@ -913,6 +913,253 @@
 }
 
 /* ══════════════════════════════════════════════════
+   Sports panels (Events page — compact triggers)
+══════════════════════════════════════════════════ */
+.sportsPanelSection {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.sportsPanelTrigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 18px 20px;
+  border-radius: 14px;
+  border: 1.5px solid var(--border);
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+a.sportsPanelTrigger:hover,
+button.sportsPanelTrigger:hover {
+  border-color: #c7d2fe;
+  box-shadow: 0 8px 28px rgba(15, 10, 46, 0.08);
+  transform: translateY(-1px);
+}
+
+.sportsPanelTriggerLive {
+  border-color: rgba(5, 150, 105, 0.25);
+  background: linear-gradient(135deg, #f0fdf4 0%, #fff 55%);
+}
+
+.sportsPanelTriggerPast {
+  border-color: rgba(29, 78, 216, 0.18);
+  background: linear-gradient(135deg, #eff6ff 0%, #fff 55%);
+}
+
+.sportsPanelTriggerOpen {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.sportsPanelTriggerMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.sportsPanelTitle {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: clamp(1.15rem, 3vw, 1.45rem);
+  font-weight: 800;
+  color: #0f0a2e;
+  margin: 8px 0 4px;
+  line-height: 1.2;
+}
+
+.sportsPanelHint {
+  font-size: 13px;
+  color: #6b7280;
+  margin: 0;
+  line-height: 1.45;
+}
+
+.sportsPanelTriggerEnd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.sportsPanelBadgeLive {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #059669;
+  color: #fff;
+  animation: pulse 1.8s infinite;
+}
+
+.sportsPanelBadgePast {
+  font-size: 12px;
+  font-weight: 800;
+  min-width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.sportsPanelChevron {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #f3f4f6;
+  font-size: 14px;
+  font-weight: 700;
+  color: #374151;
+}
+
+.sportsDropdown {
+  border: 1.5px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 14px 14px;
+  background: #fafbfc;
+  padding: 16px;
+  margin-top: -1px;
+}
+
+.sportsDropdownEmpty {
+  text-align: center;
+  padding: 24px 16px;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.pastAccordion {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+}
+
+.pastAccordionItem {
+  border: 1px solid #e5e7eb;
+  border-left-width: 4px;
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.pastAccordionItem[open] {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.pastAccordionSummary {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.pastAccordionSummary::-webkit-details-marker { display: none; }
+
+.pastAccSport {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.pastAccTitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111827;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pastAccScore {
+  font-size: 14px;
+  color: #374151;
+  white-space: nowrap;
+}
+
+.pastAccDate {
+  font-size: 11px;
+  color: #9ca3af;
+  white-space: nowrap;
+}
+
+.pastAccordionBody {
+  padding: 0 14px 14px;
+  border-top: 1px solid #f0f0f5;
+  font-size: 13px;
+}
+
+.pastAccVenue,
+.pastAccClub {
+  margin: 10px 0 6px;
+  color: #6b7280;
+}
+
+.pastAccTeams {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 8px 0;
+  font-weight: 600;
+  color: #374151;
+}
+
+.pastAccWin {
+  color: #059669;
+  font-weight: 800;
+}
+
+@media (max-width: 640px) {
+  .sportsPanelTrigger {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px;
+  }
+
+  .sportsPanelTriggerEnd {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .pastAccordionSummary {
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+  }
+
+  .pastAccSport { grid-column: 1; }
+  .pastAccTitle { grid-column: 1 / -1; white-space: normal; }
+  .pastAccScore { grid-column: 2; grid-row: 1; }
+  .pastAccDate { grid-column: 2; grid-row: 2; font-size: 10px; }
+}
+
+/* ══════════════════════════════════════════════════
    Professional Live Score Cards
 ══════════════════════════════════════════════════ */
 .liveScoresList {

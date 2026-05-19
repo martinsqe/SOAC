@@ -54,9 +54,9 @@ export default function Login() {
   const validateLogin = () => {
     const e = {};
     if (!login.identifier.trim()) {
-      e.identifier = 'Enter your RKU email address.';
-    } else if (!login.identifier.trim().endsWith('@rku.ac.in')) {
-      e.identifier = 'Use your @rku.ac.in email address.';
+      e.identifier = 'Enter your email address.';
+    } else if (!login.identifier.trim().includes('@')) {
+      e.identifier = 'Enter a valid email address.';
     }
     if (!login.password)          e.password   = 'Enter your password.';
     else if (login.password.length < 6) e.password = 'Password must be at least 6 characters.';
@@ -105,7 +105,6 @@ export default function Login() {
     setForgotMsg('');
     const email = forgotEmail.trim().toLowerCase();
     if (!email) return setForgotErr('Please enter your email address.');
-    if (!email.endsWith('@rku.ac.in')) return setForgotErr('Please use your @rku.ac.in email.');
 
     setForgotSending(true);
     try {
