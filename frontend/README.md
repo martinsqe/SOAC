@@ -14,3 +14,25 @@ The React Compiler is not enabled on this template because of its impact on dev 
 ## Expanding the ESLint configuration
 
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+
+
+
+
+
+git branch branchname
+git checkout branchname
+# create branch and move to that branch
+git checkout -b branchname
+
+# go back to main branch
+git checkout main
+
+git add .
+git commit -m "changes in readme"
+# publish the newly created branch to the remote repo
+git -set-upstream origin branchname
+OR
+git push -u origin branchname
+
+AFTER PUBLISHING THE BRANCH
+use git push to push the code to the new branch
