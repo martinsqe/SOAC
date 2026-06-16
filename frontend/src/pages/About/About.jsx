@@ -313,24 +313,22 @@ const About = () => {
             <div className="tag" style={{ justifyContent: 'center' }}>Consultation Hierarchy</div>
             <h2 className="h2" style={{ textAlign: 'center', marginBottom: '10px' }}>Who to Approach at SOAC</h2>
             <p style={{ fontSize: '15px', color: 'var(--muted)', textAlign: 'center', maxWidth: '520px', margin: '0 auto', lineHeight: 1.7 }}>
-              Every student has a clear path to get support. Here's the hierarchy for one club — the same structure applies across all 40 SOAC clubs.
+              Every student has a clear path to get support. Here's the hierarchy for one club — the same structure applies across all 30+ SOAC clubs.
             </p>
           </div>
           <div className={styles.htree}>
             <div className={styles.hspine} />
             <div className={styles.hlevel}>
               <div className={`${styles.hcard} ${styles.hcardRed}`}>
-                <div className={`${styles.hav} ${styles.havRed}`}>🏆</div>
                 <div className={styles.hcardTitle}>Head of SOAC</div>
                 <div className={`${styles.hcardRole} ${styles.hroleRed}`}>Highest Authority</div>
-                <p className={styles.hcardDesc}>Final escalation point for all club-related matters. Oversees all 40 clubs and SOAC operations at RKU.</p>
-                <div className={styles.hcardLoc}>📍 Admin Block, Room 101</div>
+                <p className={styles.hcardDesc}>Final escalation point for all club-related matters. Oversees all 30+ clubs and SOAC operations at RKU.</p>
+                <div className={styles.hcardLoc}>SOE Building Next to Admission Cell.</div>
               </div>
             </div>
             <div className={styles.hconnector} />
             <div className={styles.hlevel}>
               <div className={`${styles.hcard} ${styles.hcardGreen}`}>
-                <div className={`${styles.hav} ${styles.havGreen}`}>📋</div>
                 <div className={styles.hcardTitle}>Club Coordinator</div>
                 <div className={`${styles.hcardRole} ${styles.hroleGreen}`}>e.g. Android Development Club</div>
                 <p className={styles.hcardDesc}>Your primary contact for club activities, event planning, attendance, task assignments and day-to-day club operations.</p>
@@ -344,7 +342,6 @@ const About = () => {
             <div className={styles.hconnector} />
             <div className={styles.hlevel3}>
               <div className={`${styles.hcard} ${styles.hcardPurple}`}>
-                <div className={`${styles.hav} ${styles.havPurple}`}>💰</div>
                 <div className={styles.hcardTitle}>Club Treasurer</div>
                 <div className={`${styles.hcardRole} ${styles.hrolePurple}`}>Finance & Budget</div>
                 <p className={styles.hcardDesc}>Manages club funds, budgets for events, handles registration fees and financial records.</p>
@@ -355,7 +352,6 @@ const About = () => {
                 </div>
               </div>
               <div className={`${styles.hcard} ${styles.hcardBlue}`}>
-                <div className={`${styles.hav} ${styles.havBlue}`}>🤝</div>
                 <div className={styles.hcardTitle}>Co-coordinator</div>
                 <div className={`${styles.hcardRole} ${styles.hroleBlue}`}>Operations Support</div>
                 <p className={styles.hcardDesc}>Assists the coordinator with member management, event logistics and communication.</p>
@@ -369,10 +365,9 @@ const About = () => {
             <div className={styles.hconnector} />
             <div className={styles.hlevel}>
               <div className={`${styles.hcard} ${styles.hcardDark}`}>
-                <div className={`${styles.hav} ${styles.havDark}`}>🎓</div>
                 <div className={styles.hcardTitle}>Club Members</div>
                 <div className={`${styles.hcardRole} ${styles.hroleDark}`}>You</div>
-                <p className={styles.hcardDesc}>Attend sessions, earn XP & coins, participate in events, and grow through the club experience.</p>
+                <p className={styles.hcardDesc}>Attend sessions, participate in events, and grow through the club experience.</p>
                 <div className={styles.hcardTags}>
                   {['Attend', 'Earn XP', 'Compete', 'Grow'].map(t => (
                     <span key={t} className={`${styles.htag} ${styles.htagDark}`}>{t}</span>
