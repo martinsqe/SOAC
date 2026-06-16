@@ -5,9 +5,9 @@ import styles from './Steps.module.css';
 const Steps = () => {
   const navigate = useNavigate();
   const steps = [
-    { num: 1, title: 'Sign Up', desc: 'Create your account with your RKU student email in under 2 minutes.' },
-    { num: 2, title: 'Browse Clubs', desc: 'Explore all 40 clubs across technology, sports, culture, health, and community.' },
-    { num: 3, title: 'Request to Join', desc: 'Submit a join request. Your coordinator reviews and approves your membership.' },
+    { num: 1, title: 'Send Join Request', desc: 'Create your account with your RKU student email in under 2 minutes.' },
+    { num: 2, title: 'Browse Clubs', desc: 'Explore all 30+ clubs across technology, sports, culture, health, and community.' },
+    { num: 3, title: 'Request to Join', desc: 'Your coordinator reviews and approves your membership.' },
     { num: 4, title: 'Attend & Earn', desc: 'Show up, earn XP and SOAC Coins. Climb the leaderboard.' },
   ];
 
