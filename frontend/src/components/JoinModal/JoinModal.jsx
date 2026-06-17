@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import s from './JoinModal.module.css';
 
-const DEPTS = ['Computer Science','Information Technology','Electronics','Mechanical','Civil','Chemical','Pharmacy','MBA','Other'];
-const YEARS = ['1st Year','2nd Year','3rd Year','4th Year','5th Year'];
+const DEPTS = ['Engineering','Pharmacy','Physiotherapy','Science'];
+const YEARS = ['1st Year','2nd Year','3rd Year','4th Year','5th Year', '6th Year'];
 
 export default function JoinModal({ club, onClose }) {
   const [form, setForm] = useState({ name:'', email:'', phone:'', enrollmentNo:'', dept:'', year:'', message:'' });
@@ -77,7 +77,7 @@ export default function JoinModal({ club, onClose }) {
               </div>
               <div>
                 <label className={s.mlbl}>Email Address <span className={s.mreq}>*</span></label>
-                <input className={s.minp} type="email" placeholder="your@email.com" value={form.email} onChange={e => set('email', e.target.value)} />
+                <input className={s.minp} type="email" placeholder="name@rku.ac.in" value={form.email} onChange={e => set('email', e.target.value)} />
               </div>
             </div>
             <div className={s.mg2}>
