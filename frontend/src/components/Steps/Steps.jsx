@@ -7,8 +7,8 @@ const Steps = () => {
   const steps = [
     { num: 1, title: 'Send Join Request', desc: 'Create your account with your RKU student email in under 2 minutes.' },
     { num: 2, title: 'Get Login Credentials', desc: 'You will receive your credentials as soon as coordinator accepts your request.' },
-    { num: 3, title: 'Login', desc: 'Explore club Schedule, Events, Leadership and more.' },
-    { num: 4, title: 'Browse More Clubs', desc: 'In your dashboard, explore more clubs of your interest.You can join Maximum 3 clubs for best experience.' },
+    { num: 3, title: 'Login', desc: 'Explore club Schedule and Structure, Events, Leadership and more.' },
+    { num: 4, title: 'Browse More Clubs', desc: 'In your dashboard, explore more clubs of your interest. You can join Maximum 3 clubs for best experience.' },
   ];
 
   return (
