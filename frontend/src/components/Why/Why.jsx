@@ -5,33 +5,27 @@ const Why = ({ clubCount = 40 }) => {
   const features = [
     {
       title: 'Learn Beyond Class',
-      desc: 'Build skills — from coding Android apps to leading NCC drills — that employers actually value.',
-      icon: '🎓'
+      desc: 'Build skills — from coding Android apps to leading NCC drills — that employers actually value.'
     },
     {
       title: 'Find Your People',
-      desc: `${clubCount} clubs across 6 categories. There is a community for every student.`,
-      icon: '🤝'
+      desc: `${clubCount} clubs across 6 categories. There is a community for every student.`
     },
     {
       title: 'Real Rewards',
-      desc: 'Earn XP, SOAC Coins and badges. Top 3 coin holders per club get free annual re-registration.',
-      icon: '🏆'
+      desc: 'Earn XP, SOAC Coins and badges. Top 3 coin holders per club get free annual re-registration.'
     },
     {
       title: 'Structured Growth',
-      desc: 'Weekly schedules, assigned tasks, event calendars — so you always know your next step.',
-      icon: '🗓️'
+      desc: 'Weekly schedules, assigned tasks, event calendars — so you always know your next step.'
     },
     {
       title: 'Stay Connected',
-      desc: 'Group chats, DMs, club news feeds and SOAC updates — all in one place.',
-      icon: '💬'
+      desc: 'Group chats, DMs, club news feeds and SOAC updates — all in one place.'
     },
     {
       title: 'Campus Legacy',
-      desc: 'The Wall of Fame is permanent. Your contributions recorded forever at RKU.',
-      icon: '🌎'
+      desc: 'The Wall of Fame is permanent. Your contributions recorded forever at RKU.'
     }
   ];
 
