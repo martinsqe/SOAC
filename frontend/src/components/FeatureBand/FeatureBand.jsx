@@ -27,7 +27,7 @@ const FeatureBand = () => {
             <div className={styles.fbic}>⚡</div>
             <div className={styles.fbtx}>
               <h4>XP &amp; Leveling System</h4>
-              <p>5 levels from Recruit to Legend.</p>
+              <p>Complete Tasks, Compete, witness real Growth.</p>
             </div>
           </div>
           <div className={styles.fbrow}>
