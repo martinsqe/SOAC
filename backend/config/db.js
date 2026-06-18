@@ -1,11 +1,16 @@
 const { Pool } = require('pg');
 
-// Railway provides DATABASE_URL; local dev uses individual PG_* vars.
+const usingPooler = (process.env.DATABASE_URL || '').includes('pgbouncer=true');
+
+// PgBouncer (Supabase pooler) runs in transaction mode and rejects session-level
+// settings like statement_timeout — only apply them for direct connections.
+const sessionSettings = usingPooler ? {} : {
+  statement_timeout:                    parseInt(process.env.PG_QUERY_TIMEOUT || '30000', 10),
+  idle_in_transaction_session_timeout:  60000,
+};
+
 const baseConfig = process.env.DATABASE_URL
-  ? {
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false }, // Railway DB uses self-signed TLS cert
-    }
+  ? { connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } }
   : {
       host:     process.env.PG_HOST,
       port:     parseInt(process.env.PG_PORT, 10),
@@ -16,11 +21,10 @@ const baseConfig = process.env.DATABASE_URL
 
 const pgPool = new Pool({
   ...baseConfig,
+  ...sessionSettings,
   max:                     parseInt(process.env.PG_POOL_MAX     || '20',    10),
   idleTimeoutMillis:       parseInt(process.env.PG_IDLE_TIMEOUT || '10000', 10),
   connectionTimeoutMillis: parseInt(process.env.PG_CONN_TIMEOUT || '3000',  10),
-  statement_timeout:       parseInt(process.env.PG_QUERY_TIMEOUT || '30000', 10),
-  idle_in_transaction_session_timeout: 60000,
 });
 
 pgPool.on('error', (err) => {
