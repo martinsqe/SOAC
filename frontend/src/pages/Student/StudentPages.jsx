@@ -73,21 +73,10 @@ export function StudentSOACUpdates() {
       .finally(() => setLoading(false));
   }, []);
 
-  /* ── Loading ── */
-  if (loading) {
-    return (
-      <div className={su.page}>
-        <div className={su.skelList}>
-          {[1,2,3].map(i => <div key={i} className={su.skel} />)}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className={su.page}>
 
-      {/* ── Page header ── */}
+      {/* ── Page header — shown immediately ── */}
       <div className={su.header}>
         <div className={su.headerTop}>
           <div className={su.headerIcon}>🏛️</div>
@@ -113,7 +102,11 @@ export function StudentSOACUpdates() {
             </span>
           </div>
 
-          {announcements.length === 0 ? (
+          {loading ? (
+            <div className={su.skelList}>
+              {[1,2,3].map(i => <div key={i} className={su.skel} />)}
+            </div>
+          ) : announcements.length === 0 ? (
             <div className={su.empty}>
               <div className={su.emptyIcon}>📢</div>
               <p className={su.emptyTitle}>No announcements yet</p>
@@ -175,7 +168,11 @@ export function StudentSOACUpdates() {
             <span className={su.secTitle}>📅 College Events Calendar</span>
           </div>
 
-          {events.length === 0 ? (
+          {loading ? (
+            <div className={su.skelList}>
+              {[1,2].map(i => <div key={i} className={su.skel} />)}
+            </div>
+          ) : events.length === 0 ? (
             <div className={su.empty} style={{ padding: '32px 16px' }}>
               <div className={su.emptyIcon}>📅</div>
               <p className={su.emptyTitle}>No upcoming events</p>

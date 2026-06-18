@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
-const DEFAULTS = { clubs: 40, members: 1200, events: 50 };
+const DEFAULTS = { clubs: 0, members: 0, events: 0, byCategory: {} };
 
 const StatsContext = createContext(DEFAULTS);
 

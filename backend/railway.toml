@@ -1,0 +1,7 @@
+[deploy]
+startCommand = "node --tls-min-v1.2 --tls-max-v1.2 server.js"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 300
+
+[build]
+builder = "NIXPACKS"

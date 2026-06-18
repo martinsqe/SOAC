@@ -1,73 +1,71 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useStats } from '../../context/StatsContext';
 import styles from './Clubs.module.css';
 import JoinModal from '../../components/JoinModal/JoinModal';
 
 /* ── Club data (all 40 logos mapped) ─────────────────── */
 const ALL_CLUBS = [
-  // Technology
-  { logo: 'ANDROID DEVLOPMENT CLUB.png',       name: 'Android Development Club',          cat: 'tech',      color: '#3DDC84', members: 98,  events: 4, coord: 'Prof. Anita Mehta',    yr: '2019' },
-  { logo: 'WEBIFY.png',                         name: 'Webify Club',                       cat: 'tech',      color: '#635BFF', members: 74,  events: 3, coord: 'Dr. Rajesh Pillai',    yr: '2020' },
-  { logo: 'iOS DEVLOPMENT CLUB.png',            name: 'iOS Development Club',              cat: 'tech',      color: '#007AFF', members: 52,  events: 2, coord: 'Prof. Sneha Mehta',    yr: '2021' },
-  { logo: 'MOZILLA.png',                        name: 'Mozilla Club',                      cat: 'tech',      color: '#FF6611', members: 61,  events: 3, coord: 'Dr. Vinod Rao',        yr: '2018' },
-  { logo: 'IOT Club logo.png',                  name: 'IoT Club',                          cat: 'tech',      color: '#00B5A3', members: 57,  events: 3, coord: 'Prof. Arun Kumar',      yr: '2020' },
-  { logo: 'IMAGINATION TO IMPLEMENTATION.png', name: 'Imagination to Implementation',     cat: 'tech',      color: '#A259FF', members: 45,  events: 2, coord: 'Prof. Divya Nair',     yr: '2022' },
-  { logo: 'CHANGE MAKERS E-CELL.png',          name: 'Change Makers E-Cell',              cat: 'tech',      color: '#FF9500', members: 87,  events: 5, coord: 'Dr. Kiran Sharma',     yr: '2017' },
   // Sports
-  { logo: 'ZERO VIOLATION BASKETBALL CLUB.png', name: 'IRONCREED',                        cat: 'sports',    color: '#FF4757', members: 72,  events: 3, coord: 'Coach Ramesh Iyer',    yr: '2015' },
-  { logo: 'RKU RANGERS.png',                    name: 'RKU Rangers FC',                   cat: 'sports',    color: '#00C896', members: 84,  events: 4, coord: 'Coach Devraj Singh',   yr: '2013' },
-  { logo: 'RKU SHUTTLE SMASHERS.png',           name: 'RKU Shuttle Smashers',             cat: 'sports',    color: '#00AADD', members: 60,  events: 3, coord: 'Prof. Ritesh Patel',   yr: '2016' },
-  { logo: 'RKU VOLLEY AVENGERS.png',            name: 'RKU Volley Avengers',              cat: 'sports',    color: '#E25600', members: 55,  events: 3, coord: 'Coach Ravi Bose',      yr: '2018' },
-  { logo: 'Kabaddi Warriors Club logo.png',     name: 'Kabaddi Warriors',                 cat: 'sports',    color: '#9B2335', members: 48,  events: 2, coord: 'Prof. Sunil Desai',    yr: '2019' },
-  { logo: 'Powerhouse Club logo.png',           name: 'Powerhouse Fitness Club',          cat: 'sports',    color: '#06D6A0', members: 63,  events: 4, coord: 'Dr. Kavya Iyer',      yr: '2022' },
-  { logo: 'RISING STAR.png',                    name: 'Rising Star Cricket Club',         cat: 'sports',    color: '#C7522A', members: 76,  events: 4, coord: 'Coach Navin Shah',     yr: '2014' },
+  { logo: 'ZERO VIOLATION BASKETBALL CLUB.png', name: 'IRONCREED',                        cat: 'sports',   color: '#FF4757', members: 72,  events: 3, coord: 'Coach Ramesh Iyer',    yr: '2015' },
+  { logo: 'RKU RANGERS.png',                    name: 'RKU Rangers FC',                   cat: 'sports',   color: '#00C896', members: 84,  events: 4, coord: 'Coach Devraj Singh',   yr: '2013' },
+  { logo: 'RKU SHUTTLE SMASHERS.png',           name: 'RKU Shuttle Smashers',             cat: 'sports',   color: '#00AADD', members: 60,  events: 3, coord: 'Prof. Ritesh Patel',   yr: '2016' },
+  { logo: 'RKU VOLLEY AVENGERS.png',            name: 'RKU Volley Avengers',              cat: 'sports',   color: '#E25600', members: 55,  events: 3, coord: 'Coach Ravi Bose',      yr: '2018' },
+  { logo: 'Kabaddi Warriors Club logo.png',     name: 'Kabaddi Warriors',                 cat: 'sports',   color: '#9B2335', members: 48,  events: 2, coord: 'Prof. Sunil Desai',    yr: '2019' },
+  { logo: 'Powerhouse Club logo.png',           name: 'Powerhouse Fitness Club',          cat: 'sports',   color: '#06D6A0', members: 63,  events: 4, coord: 'Dr. Kavya Iyer',       yr: '2022' },
+  { logo: 'RISING STAR.png',                    name: 'Rising Star Cricket Club',         cat: 'sports',   color: '#C7522A', members: 76,  events: 4, coord: 'Coach Navin Shah',     yr: '2014' },
+  { logo: 'THE KING OF 64.png',                 name: 'The King of 64 — Chess',           cat: 'sports',   color: '#9CA3AF', members: 48,  events: 3, coord: 'Prof. Mohan Rao',      yr: '2014' },
   // Cultural
-  { logo: 'BUMBLEBEEZ.png',                     name: 'Bumblebeez',                       cat: 'cultural',  color: '#FFD166', members: 39,  events: 3, coord: 'Prof. Kavya Menon',    yr: '2018' },
-  { logo: 'SOUL OF MUSIC.png',                  name: 'Soul of Music',                    cat: 'cultural',  color: '#FF9500', members: 68,  events: 4, coord: 'Dr. Arjun Pillai',    yr: '2015' },
-  { logo: 'KALARAW.png',                        name: 'Kalaraw Club',                     cat: 'cultural',  color: '#FF6B9D', members: 53,  events: 3, coord: 'Dr. Leela Krishnan',  yr: '2017' },
-  { logo: 'BHASHA.png',                         name: 'BHASHA Club',                      cat: 'cultural',  color: '#635BFF', members: 44,  events: 2, coord: 'Prof. Bharat Rao',    yr: '2018' },
-  { logo: 'BREATHS & BEATS.png',               name: 'Breaths & Beats',                  cat: 'cultural',  color: '#FF6B9D', members: 41,  events: 3, coord: 'Prof. Nisha Menon',   yr: '2019' },
-  { logo: 'GOBBLER\'S GANG.png',               name: "Gobbler's Gang",                   cat: 'cultural',  color: '#F0A500', members: 35,  events: 2, coord: 'Prof. Rahul Joshi',   yr: '2020' },
-  { logo: 'RANG MANCH.png',                     name: 'Rang Manch',                       cat: 'cultural',  color: '#D32F2F', members: 50,  events: 3, coord: 'Dr. Pooja Sharma',    yr: '2016' },
-  { logo: 'SHWET THE RISE OF HUMANITY.png',    name: 'SHWET — Rise of Humanity',         cat: 'cultural',  color: '#FF6B9D', members: 56,  events: 4, coord: 'Dr. Ananya Roy',      yr: '2016' },
-  { logo: 'AERO MODELLING.png',                name: 'Aero Modelling Club',              cat: 'cultural',  color: '#00C8FF', members: 34,  events: 2, coord: 'Prof. Suresh Iyer',   yr: '2019' },
-  { logo: 'NIRMAAN.png',                        name: 'Club Nirmaan',                     cat: 'cultural',  color: '#FF9500', members: 61,  events: 2, coord: 'Dr. Rahul Verma',     yr: '2016' },
-  { logo: 'PRODUCT DESIGN.png',                name: 'Product Design Club',              cat: 'cultural',  color: '#A259FF', members: 42,  events: 2, coord: 'Prof. Riya Das',      yr: '2020' },
-  { logo: 'PICTZA.png',                         name: 'Pictza Club',                      cat: 'cultural',  color: '#A259FF', members: 47,  events: 2, coord: 'Prof. Meera Singh',   yr: '2019' },
-  // Health
-  { logo: 'PHARMA HEALTH CLUB.png',            name: 'Pharma Health Club',               cat: 'health',    color: '#00C896', members: 55,  events: 3, coord: 'Dr. Preethi Nair',   yr: '2018' },
-  { logo: 'PARKINSON DISEASE SUPPORT GROUP.png', name: 'Parkinson Disease Support',      cat: 'health',    color: '#635BFF', members: 31,  events: 2, coord: 'Dr. Sunita Kumar',   yr: '2020' },
-  { logo: 'RAJKOT KNEE CLUB.png',              name: 'Rajkot Knee Club',                 cat: 'health',    color: '#FF6B9D', members: 28,  events: 2, coord: 'Dr. Anil Mehta',     yr: '2021' },
-  { logo: 'MICROBIOLOGIST CLUB.png',           name: 'Microbiologist Club',              cat: 'health',    color: '#635BFF', members: 43,  events: 2, coord: 'Prof. Kavitha Bose', yr: '2019' },
-  { logo: 'MEDICINAL PLANTS CLUB.png',         name: 'Medicinal Plants Club',            cat: 'health',    color: '#00C896', members: 38,  events: 2, coord: 'Prof. Sneha Rao',    yr: '2020' },
-  { logo: 'AYUSHAMRIT.png',                    name: 'Ayushamrit Club',                  cat: 'health',    color: '#4B6E2E', members: 35,  events: 2, coord: 'Dr. Vijay Pillai',   yr: '2021' },
-  // Community
-  { logo: 'GSG Club Logo.png',                 name: 'GSG Club',                         cat: 'community', color: '#4B6E2E', members: 120, events: 6, coord: 'Lt. Col. V. Desai',  yr: '2010' },
-  { logo: 'SAPIENS THE HR CLUB.png',           name: 'Sapiens — The HR Club',            cat: 'community', color: '#A259FF', members: 57,  events: 3, coord: 'Prof. Aditi Sharma', yr: '2019' },
-  { logo: 'UNITE.png',                          name: 'Unite Club',                       cat: 'community', color: '#FF6B9D', members: 49,  events: 3, coord: 'Dr. Priya Menon',    yr: '2020' },
-  { logo: 'SETU - MUN.png',                    name: 'SETU — MUN',                       cat: 'community', color: '#635BFF', members: 66,  events: 4, coord: 'Prof. Sanjay Ghosh', yr: '2018' },
-  { logo: 'WOMEN WONDERS.png',                 name: 'Women Wonders',                    cat: 'community', color: '#FF6B9D', members: 74,  events: 4, coord: 'Dr. Rekha Iyer',     yr: '2017' },
-  { logo: 'KNOW YOUR FINANCE.png',             name: 'Know Your Finance',                cat: 'community', color: '#FF9500', members: 66,  events: 4, coord: 'Dr. Rohan Shah',     yr: '2017' },
-  { logo: 'MATHEMAGICIANS.png',               name: 'Mathemagicians',                   cat: 'community', color: '#635BFF', members: 52,  events: 3, coord: 'Prof. Anika Joshi',  yr: '2018' },
-  { logo: 'THE KING OF 64.png',               name: 'The King of 64 — Chess',           cat: 'community', color: '#9CA3AF', members: 48,  events: 3, coord: 'Prof. Mohan Rao',    yr: '2014' },
+  { logo: 'BUMBLEBEEZ.png',                     name: 'Bumblebeez',                       cat: 'cultural', color: '#FFD166', members: 39,  events: 3, coord: 'Prof. Kavya Menon',    yr: '2018' },
+  { logo: 'SOUL OF MUSIC.png',                  name: 'Soul of Music',                    cat: 'cultural', color: '#FF9500', members: 68,  events: 4, coord: 'Dr. Arjun Pillai',     yr: '2015' },
+  { logo: 'KALARAW.png',                        name: 'Kalaraw Club',                     cat: 'cultural', color: '#FF6B9D', members: 53,  events: 3, coord: 'Dr. Leela Krishnan',   yr: '2017' },
+  { logo: 'PICTZA.png',                         name: 'Pictza Club',                      cat: 'cultural', color: '#A259FF', members: 47,  events: 2, coord: 'Prof. Meera Singh',    yr: '2019' },
+  // Social
+  { logo: 'SHWET THE RISE OF HUMANITY.png',    name: 'SHWET — Rise of Humanity',         cat: 'social',   color: '#FF6B9D', members: 56,  events: 4, coord: 'Dr. Ananya Roy',       yr: '2016' },
+  // Academic
+  { logo: 'ANDROID DEVLOPMENT CLUB.png',        name: 'Android Development Club',         cat: 'academic', color: '#3DDC84', members: 98,  events: 4, coord: 'Prof. Anita Mehta',    yr: '2019' },
+  { logo: 'WEBIFY.png',                         name: 'Webify Club',                      cat: 'academic', color: '#635BFF', members: 74,  events: 3, coord: 'Dr. Rajesh Pillai',    yr: '2020' },
+  { logo: 'iOS DEVLOPMENT CLUB.png',            name: 'iOS Development Club',             cat: 'academic', color: '#007AFF', members: 52,  events: 2, coord: 'Prof. Sneha Mehta',    yr: '2021' },
+  { logo: 'MOZILLA.png',                        name: 'Mozilla Club',                     cat: 'academic', color: '#FF6611', members: 61,  events: 3, coord: 'Dr. Vinod Rao',        yr: '2018' },
+  { logo: 'IOT Club logo.png',                  name: 'IoT Club',                         cat: 'academic', color: '#00B5A3', members: 57,  events: 3, coord: 'Prof. Arun Kumar',      yr: '2020' },
+  { logo: 'IMAGINATION TO IMPLEMENTATION.png',  name: 'Imagination to Implementation',   cat: 'academic', color: '#A259FF', members: 45,  events: 2, coord: 'Prof. Divya Nair',     yr: '2022' },
+  { logo: 'CHANGE MAKERS E-CELL.png',           name: 'Change Makers E-Cell',             cat: 'academic', color: '#FF9500', members: 87,  events: 5, coord: 'Dr. Kiran Sharma',     yr: '2017' },
+  { logo: 'BHASHA.png',                         name: 'BHASHA Club',                      cat: 'academic', color: '#635BFF', members: 44,  events: 2, coord: 'Prof. Bharat Rao',     yr: '2018' },
+  { logo: 'BREATHS & BEATS.png',                name: 'Breaths & Beats',                  cat: 'academic', color: '#FF6B9D', members: 41,  events: 3, coord: 'Prof. Nisha Menon',    yr: '2019' },
+  { logo: 'GOBBLER\'S GANG.png',                name: "Gobbler's Gang",                   cat: 'academic', color: '#F0A500', members: 35,  events: 2, coord: 'Prof. Rahul Joshi',    yr: '2020' },
+  { logo: 'RANG MANCH.png',                     name: 'Rang Manch',                       cat: 'academic', color: '#D32F2F', members: 50,  events: 3, coord: 'Dr. Pooja Sharma',     yr: '2016' },
+  { logo: 'AERO MODELLING.png',                 name: 'Aero Modelling Club',              cat: 'academic', color: '#00C8FF', members: 34,  events: 2, coord: 'Prof. Suresh Iyer',    yr: '2019' },
+  { logo: 'NIRMAAN.png',                        name: 'Club Nirmaan',                     cat: 'academic', color: '#FF9500', members: 61,  events: 2, coord: 'Dr. Rahul Verma',      yr: '2016' },
+  { logo: 'PRODUCT DESIGN.png',                 name: 'Product Design Club',              cat: 'academic', color: '#A259FF', members: 42,  events: 2, coord: 'Prof. Riya Das',       yr: '2020' },
+  { logo: 'PHARMA HEALTH CLUB.png',             name: 'Pharma Health Club',               cat: 'academic', color: '#00C896', members: 55,  events: 3, coord: 'Dr. Preethi Nair',    yr: '2018' },
+  { logo: 'PARKINSON DISEASE SUPPORT GROUP.png', name: 'Parkinson Disease Support',       cat: 'academic', color: '#635BFF', members: 31,  events: 2, coord: 'Dr. Sunita Kumar',    yr: '2020' },
+  { logo: 'RAJKOT KNEE CLUB.png',               name: 'Rajkot Knee Club',                cat: 'academic', color: '#FF6B9D', members: 28,  events: 2, coord: 'Dr. Anil Mehta',      yr: '2021' },
+  { logo: 'MICROBIOLOGIST CLUB.png',            name: 'Microbiologist Club',              cat: 'academic', color: '#635BFF', members: 43,  events: 2, coord: 'Prof. Kavitha Bose',  yr: '2019' },
+  { logo: 'MEDICINAL PLANTS CLUB.png',          name: 'Medicinal Plants Club',            cat: 'academic', color: '#00C896', members: 38,  events: 2, coord: 'Prof. Sneha Rao',     yr: '2020' },
+  { logo: 'AYUSHAMRIT.png',                     name: 'Ayushamrit Club',                  cat: 'academic', color: '#4B6E2E', members: 35,  events: 2, coord: 'Dr. Vijay Pillai',    yr: '2021' },
+  { logo: 'GSG Club Logo.png',                  name: 'GSG Club',                         cat: 'academic', color: '#4B6E2E', members: 120, events: 6, coord: 'Lt. Col. V. Desai',   yr: '2010' },
+  { logo: 'SAPIENS THE HR CLUB.png',            name: 'Sapiens — The HR Club',            cat: 'academic', color: '#A259FF', members: 57,  events: 3, coord: 'Prof. Aditi Sharma',  yr: '2019' },
+  { logo: 'UNITE.png',                          name: 'Unite Club',                       cat: 'academic', color: '#FF6B9D', members: 49,  events: 3, coord: 'Dr. Priya Menon',     yr: '2020' },
+  { logo: 'SETU - MUN.png',                     name: 'SETU — MUN',                       cat: 'academic', color: '#635BFF', members: 66,  events: 4, coord: 'Prof. Sanjay Ghosh',  yr: '2018' },
+  { logo: 'WOMEN WONDERS.png',                  name: 'Women Wonders',                    cat: 'academic', color: '#FF6B9D', members: 74,  events: 4, coord: 'Dr. Rekha Iyer',      yr: '2017' },
+  { logo: 'KNOW YOUR FINANCE.png',              name: 'Know Your Finance',                cat: 'academic', color: '#FF9500', members: 66,  events: 4, coord: 'Dr. Rohan Shah',      yr: '2017' },
+  { logo: 'MATHEMAGICIANS.png',                 name: 'Mathemagicians',                   cat: 'academic', color: '#635BFF', members: 52,  events: 3, coord: 'Prof. Anika Joshi',   yr: '2018' },
 ];
 
 const CAT_LABELS = {
-  all:       'All',
-  tech:      '💻 Technology',
-  sports:    '⚽ Sports',
-  cultural:  '🎭 Cultural',
-  health:    '💊 Health',
-  community: '🤝 Community',
+  all:      'All',
+  sports:   '⚽ Sports',
+  cultural: '🎭 Cultural',
+  social:   '🤝 Social',
+  academic: '🎓 Academic',
 };
 
 const CAT_COLORS = {
-  tech:      '#635BFF',
-  sports:    '#FF4757',
-  cultural:  '#FF6B9D',
-  health:    '#00C896',
-  community: '#4B6E2E',
+  sports:   '#FF4757',
+  cultural: '#FF6B9D',
+  social:   '#06D6A0',
+  academic: '#635BFF',
 };
 
 /* ── Propose Club Modal (5-step) ─────────────────────── */
@@ -200,8 +198,8 @@ const ProposeModal = ({ onClose }) => {
                     <select className={styles.minp} value={form.orgType} onChange={e => set('orgType', e.target.value)}>
                       <option value="">Select type</option>
                       <option>Academic</option>
-                      <option>Cultural & Recreational</option>
-                      <option>Social & Humanitarian</option>
+                      <option>Cultural</option>
+                      <option>Social</option>
                       <option>Sports</option>
                     </select>
                   </div>
@@ -315,8 +313,8 @@ const ProposeModal = ({ onClose }) => {
                     <select className={styles.minp} value={form.clubCategory} onChange={e => set('clubCategory', e.target.value)}>
                       <option value="">Select category</option>
                       <option>Academic</option>
-                      <option>Cultural & Recreational</option>
-                      <option>Social & Humanitarian</option>
+                      <option>Cultural</option>
+                      <option>Social</option>
                       <option>Sports</option>
                     </select>
                   </div>
@@ -423,17 +421,18 @@ const normalise = (c) => ({
 const Clubs = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { clubs: totalFromStats } = useStats();
   const [filter,    setFilter]    = useState('all');
   const [search,    setSearch]    = useState('');
   const [showModal,    setShowModal]    = useState(false);
   const [joiningClub,  setJoiningClub]  = useState(null);
-  const [clubs,     setClubs]     = useState(ALL_CLUBS); // start with static; replace when API responds
+  const [clubs, setClubs] = useState(ALL_CLUBS); // static shown instantly; replaced when API responds
 
   useEffect(() => {
     fetch('/api/clubs')
       .then(r => r.json())
       .then(d => { if (d.clubs?.length) setClubs(d.clubs.map(normalise)); })
-      .catch(() => {}); // silently fall back to static data
+      .catch(() => {}); // silently keep static fallback on error
   }, []);
 
   const matchesSearch = (c) => {
@@ -465,9 +464,9 @@ const Clubs = () => {
       {/* ── HERO / TOP ── */}
       <div className={styles.clubsTop}>
         <div className="wrap">
-          <div className="tag">30+ Active Clubs</div>
+          <div className="tag">{clubs.length || totalFromStats} Active Clubs</div>
           <h1 className={`${styles.clubsTitle} fade`}>Find Your<br />Community</h1>
-          <p className={`${styles.clubsSub} fade`}>Browse all 40 SOAC-recognised clubs across 5 categories.</p>
+          <p className={`${styles.clubsSub} fade`}>Browse all {clubs.length || totalFromStats} SOAC-recognised clubs across 4 categories.</p>
 
           <div className={styles.filterRow}>
             <div className={styles.filterBtns}>

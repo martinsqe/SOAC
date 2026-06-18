@@ -5,60 +5,59 @@ import api from '../../api/client';
 import s from './StudentClubs.module.css';
 
 const CAT_LABELS = {
-  tech:      'Technology',
-  sports:    'Sports',
-  cultural:  'Cultural',
-  health:    'Health',
-  community: 'Community',
+  sports:   'Sports',
+  cultural: 'Cultural',
+  social:   'Social',
+  academic: 'Academic',
 };
 const CAT_SHORT = {
-  tech:'TECH', sports:'SPORTS', cultural:'CULTURAL', health:'HEALTH', community:'COMMUNITY',
+  sports:'SPORTS', cultural:'CULTURAL', social:'SOCIAL', academic:'ACADEMIC',
 };
 const DEPTS = ['SOE','SOM','SPT','FOT','SDS','SOS'];
 const YEARS = ['1st Year','2nd Year','3rd Year','4th Year'];
 
 /* Static fallback — shown instantly while API loads, or if API is down */
 const STATIC_CLUBS = [
-  { name:'Android Development Club',      category:'tech',      color:'#3DDC84', logo:'ANDROID DEVLOPMENT CLUB.png',       memberCount:98,  eventCount:4, coordinator:'Prof. Anita Mehta',    foundedYear:'2019' },
-  { name:'Webify Club',                   category:'tech',      color:'#635BFF', logo:'WEBIFY.png',                        memberCount:74,  eventCount:3, coordinator:'Dr. Rajesh Pillai',    foundedYear:'2020' },
-  { name:'iOS Development Club',          category:'tech',      color:'#007AFF', logo:'iOS DEVLOPMENT CLUB.png',           memberCount:52,  eventCount:2, coordinator:'Prof. Sneha Mehta',    foundedYear:'2021' },
-  { name:'Mozilla Club',                  category:'tech',      color:'#FF6611', logo:'MOZILLA.png',                       memberCount:61,  eventCount:3, coordinator:'Dr. Vinod Rao',        foundedYear:'2018' },
-  { name:'IoT Club',                      category:'tech',      color:'#00B5A3', logo:'IOT Club logo.png',                  memberCount:57,  eventCount:3, coordinator:'Prof. Arun Kumar',     foundedYear:'2020' },
-  { name:'Imagination to Implementation', category:'tech',      color:'#A259FF', logo:'IMAGINATION TO IMPLEMENTATION.png', memberCount:45,  eventCount:2, coordinator:'Prof. Divya Nair',     foundedYear:'2022' },
-  { name:'Change Makers E-Cell',          category:'tech',      color:'#FF9500', logo:'CHANGE MAKERS E-CELL.png',          memberCount:87,  eventCount:5, coordinator:'Dr. Kiran Sharma',     foundedYear:'2017' },
-  { name:'IRONCREED',                     category:'sports',    color:'#FF4757', logo:'ZERO VIOLATION BASKETBALL CLUB.png',memberCount:72,  eventCount:3, coordinator:'Coach Ramesh Iyer',    foundedYear:'2015' },
-  { name:'RKU Rangers FC',                category:'sports',    color:'#00C896', logo:'RKU RANGERS.png',                   memberCount:84,  eventCount:4, coordinator:'Coach Devraj Singh',   foundedYear:'2013' },
-  { name:'RKU Shuttle Smashers',          category:'sports',    color:'#00AADD', logo:'RKU SHUTTLE SMASHERS.png',          memberCount:60,  eventCount:3, coordinator:'Prof. Ritesh Patel',   foundedYear:'2016' },
-  { name:'RKU Volley Avengers',           category:'sports',    color:'#E25600', logo:'RKU VOLLEY AVENGERS.png',           memberCount:55,  eventCount:3, coordinator:'Coach Ravi Bose',      foundedYear:'2018' },
-  { name:'Kabaddi Warriors',              category:'sports',    color:'#9B2335', logo:'Kabaddi Warriors Club logo.png',    memberCount:48,  eventCount:2, coordinator:'Prof. Sunil Desai',    foundedYear:'2019' },
-  { name:'Powerhouse Fitness Club',       category:'sports',    color:'#06D6A0', logo:'Powerhouse Club logo.png',          memberCount:63,  eventCount:4, coordinator:'Dr. Kavya Iyer',       foundedYear:'2022' },
-  { name:'Rising Star Cricket Club',      category:'sports',    color:'#C7522A', logo:'RISING STAR.png',                   memberCount:76,  eventCount:4, coordinator:'Coach Navin Shah',     foundedYear:'2014' },
-  { name:'Bumblebeez',                    category:'cultural',  color:'#FFD166', logo:'BUMBLEBEEZ.png',                    memberCount:39,  eventCount:3, coordinator:'Prof. Kavya Menon',    foundedYear:'2018' },
-  { name:'Soul of Music',                 category:'cultural',  color:'#FF9500', logo:'SOUL OF MUSIC.png',                 memberCount:68,  eventCount:4, coordinator:'Dr. Arjun Pillai',     foundedYear:'2015' },
-  { name:'Kalaraw Club',                  category:'cultural',  color:'#FF6B9D', logo:'KALARAW.png',                       memberCount:53,  eventCount:3, coordinator:'Dr. Leela Krishnan',   foundedYear:'2017' },
-  { name:'BHASHA Club',                   category:'cultural',  color:'#635BFF', logo:'BHASHA.png',                        memberCount:44,  eventCount:2, coordinator:'Prof. Bharat Rao',     foundedYear:'2018' },
-  { name:'Breaths & Beats',               category:'cultural',  color:'#FF6B9D', logo:'BREATHS & BEATS.png',               memberCount:41,  eventCount:3, coordinator:'Prof. Nisha Menon',    foundedYear:'2019' },
-  { name:"Gobbler's Gang",                category:'cultural',  color:'#F0A500', logo:"GOBBLER'S GANG.png",                memberCount:35,  eventCount:2, coordinator:'Prof. Rahul Joshi',    foundedYear:'2020' },
-  { name:'Rang Manch',                    category:'cultural',  color:'#D32F2F', logo:'RANG MANCH.png',                    memberCount:50,  eventCount:3, coordinator:'Dr. Pooja Sharma',     foundedYear:'2016' },
-  { name:'SHWET — Rise of Humanity',      category:'cultural',  color:'#FF6B9D', logo:'SHWET THE RISE OF HUMANITY.png',    memberCount:56,  eventCount:4, coordinator:'Dr. Ananya Roy',       foundedYear:'2016' },
-  { name:'Aero Modelling Club',           category:'cultural',  color:'#00C8FF', logo:'AERO MODELLING.png',                memberCount:34,  eventCount:2, coordinator:'Prof. Suresh Iyer',    foundedYear:'2019' },
-  { name:'Club Nirmaan',                  category:'cultural',  color:'#FF9500', logo:'NIRMAAN.png',                       memberCount:61,  eventCount:2, coordinator:'Dr. Rahul Verma',      foundedYear:'2016' },
-  { name:'Product Design Club',           category:'cultural',  color:'#A259FF', logo:'PRODUCT DESIGN.png',                memberCount:42,  eventCount:2, coordinator:'Prof. Riya Das',       foundedYear:'2020' },
-  { name:'Pictza Club',                   category:'cultural',  color:'#A259FF', logo:'PICTZA.png',                        memberCount:47,  eventCount:2, coordinator:'Prof. Meera Singh',    foundedYear:'2019' },
-  { name:'Pharma Health Club',            category:'health',    color:'#00C896', logo:'PHARMA HEALTH CLUB.png',            memberCount:55,  eventCount:3, coordinator:'Dr. Preethi Nair',     foundedYear:'2018' },
-  { name:'Parkinson Disease Support',     category:'health',    color:'#635BFF', logo:'PARKINSON DISEASE SUPPORT GROUP.png',memberCount:31, eventCount:2, coordinator:'Dr. Sunita Kumar',     foundedYear:'2020' },
-  { name:'Rajkot Knee Club',              category:'health',    color:'#FF6B9D', logo:'RAJKOT KNEE CLUB.png',              memberCount:28,  eventCount:2, coordinator:'Dr. Anil Mehta',       foundedYear:'2021' },
-  { name:'Microbiologist Club',           category:'health',    color:'#635BFF', logo:'MICROBIOLOGIST CLUB.png',           memberCount:43,  eventCount:2, coordinator:'Prof. Kavitha Bose',   foundedYear:'2019' },
-  { name:'Medicinal Plants Club',         category:'health',    color:'#00C896', logo:'MEDICINAL PLANTS CLUB.png',         memberCount:38,  eventCount:2, coordinator:'Prof. Sneha Rao',      foundedYear:'2020' },
-  { name:'Ayushamrit Club',               category:'health',    color:'#4B6E2E', logo:'AYUSHAMRIT.png',                    memberCount:35,  eventCount:2, coordinator:'Dr. Vijay Pillai',     foundedYear:'2021' },
-  { name:'GSG Club',                      category:'community', color:'#4B6E2E', logo:'GSG Club Logo.png',                 memberCount:120, eventCount:6, coordinator:'Lt. Col. V. Desai',    foundedYear:'2010' },
-  { name:'Sapiens — The HR Club',         category:'community', color:'#A259FF', logo:'SAPIENS THE HR CLUB.png',           memberCount:57,  eventCount:3, coordinator:'Prof. Aditi Sharma',   foundedYear:'2019' },
-  { name:'Unite Club',                    category:'community', color:'#FF6B9D', logo:'UNITE.png',                         memberCount:49,  eventCount:3, coordinator:'Dr. Priya Menon',      foundedYear:'2020' },
-  { name:'SETU — MUN',                    category:'community', color:'#635BFF', logo:'SETU - MUN.png',                    memberCount:66,  eventCount:4, coordinator:'Prof. Sanjay Ghosh',   foundedYear:'2018' },
-  { name:'Women Wonders',                 category:'community', color:'#FF6B9D', logo:'WOMEN WONDERS.png',                 memberCount:74,  eventCount:4, coordinator:'Dr. Rekha Iyer',       foundedYear:'2017' },
-  { name:'Know Your Finance',             category:'community', color:'#FF9500', logo:'KNOW YOUR FINANCE.png',             memberCount:66,  eventCount:4, coordinator:'Dr. Rohan Shah',       foundedYear:'2017' },
-  { name:'Mathemagicians',                category:'community', color:'#635BFF', logo:'MATHEMAGICIANS.png',                memberCount:52,  eventCount:3, coordinator:'Prof. Anika Joshi',    foundedYear:'2018' },
-  { name:'The King of 64 — Chess',        category:'community', color:'#9CA3AF', logo:'THE KING OF 64.png',                memberCount:48,  eventCount:3, coordinator:'Prof. Mohan Rao',      foundedYear:'2014' },
+  { name:'IRONCREED',                     category:'sports',   color:'#FF4757', logo:'ZERO VIOLATION BASKETBALL CLUB.png', memberCount:72,  eventCount:3, coordinator:'Coach Ramesh Iyer',    foundedYear:'2015' },
+  { name:'RKU Rangers FC',                category:'sports',   color:'#00C896', logo:'RKU RANGERS.png',                    memberCount:84,  eventCount:4, coordinator:'Coach Devraj Singh',   foundedYear:'2013' },
+  { name:'RKU Shuttle Smashers',          category:'sports',   color:'#00AADD', logo:'RKU SHUTTLE SMASHERS.png',           memberCount:60,  eventCount:3, coordinator:'Prof. Ritesh Patel',   foundedYear:'2016' },
+  { name:'RKU Volley Avengers',           category:'sports',   color:'#E25600', logo:'RKU VOLLEY AVENGERS.png',            memberCount:55,  eventCount:3, coordinator:'Coach Ravi Bose',      foundedYear:'2018' },
+  { name:'Kabaddi Warriors',              category:'sports',   color:'#9B2335', logo:'Kabaddi Warriors Club logo.png',     memberCount:48,  eventCount:2, coordinator:'Prof. Sunil Desai',    foundedYear:'2019' },
+  { name:'Powerhouse Fitness Club',       category:'sports',   color:'#06D6A0', logo:'Powerhouse Club logo.png',           memberCount:63,  eventCount:4, coordinator:'Dr. Kavya Iyer',       foundedYear:'2022' },
+  { name:'Rising Star Cricket Club',      category:'sports',   color:'#C7522A', logo:'RISING STAR.png',                    memberCount:76,  eventCount:4, coordinator:'Coach Navin Shah',     foundedYear:'2014' },
+  { name:'The King of 64 — Chess',        category:'sports',   color:'#9CA3AF', logo:'THE KING OF 64.png',                 memberCount:48,  eventCount:3, coordinator:'Prof. Mohan Rao',      foundedYear:'2014' },
+  { name:'Bumblebeez',                    category:'cultural', color:'#FFD166', logo:'BUMBLEBEEZ.png',                     memberCount:39,  eventCount:3, coordinator:'Prof. Kavya Menon',    foundedYear:'2018' },
+  { name:'Soul of Music',                 category:'cultural', color:'#FF9500', logo:'SOUL OF MUSIC.png',                  memberCount:68,  eventCount:4, coordinator:'Dr. Arjun Pillai',     foundedYear:'2015' },
+  { name:'Kalaraw Club',                  category:'cultural', color:'#FF6B9D', logo:'KALARAW.png',                        memberCount:53,  eventCount:3, coordinator:'Dr. Leela Krishnan',   foundedYear:'2017' },
+  { name:'Pictza Club',                   category:'cultural', color:'#A259FF', logo:'PICTZA.png',                         memberCount:47,  eventCount:2, coordinator:'Prof. Meera Singh',    foundedYear:'2019' },
+  { name:'SHWET — Rise of Humanity',      category:'social',   color:'#FF6B9D', logo:'SHWET THE RISE OF HUMANITY.png',     memberCount:56,  eventCount:4, coordinator:'Dr. Ananya Roy',       foundedYear:'2016' },
+  { name:'Android Development Club',      category:'academic', color:'#3DDC84', logo:'ANDROID DEVLOPMENT CLUB.png',        memberCount:98,  eventCount:4, coordinator:'Prof. Anita Mehta',    foundedYear:'2019' },
+  { name:'Webify Club',                   category:'academic', color:'#635BFF', logo:'WEBIFY.png',                         memberCount:74,  eventCount:3, coordinator:'Dr. Rajesh Pillai',    foundedYear:'2020' },
+  { name:'iOS Development Club',          category:'academic', color:'#007AFF', logo:'iOS DEVLOPMENT CLUB.png',            memberCount:52,  eventCount:2, coordinator:'Prof. Sneha Mehta',    foundedYear:'2021' },
+  { name:'Mozilla Club',                  category:'academic', color:'#FF6611', logo:'MOZILLA.png',                        memberCount:61,  eventCount:3, coordinator:'Dr. Vinod Rao',        foundedYear:'2018' },
+  { name:'IoT Club',                      category:'academic', color:'#00B5A3', logo:'IOT Club logo.png',                  memberCount:57,  eventCount:3, coordinator:'Prof. Arun Kumar',     foundedYear:'2020' },
+  { name:'Imagination to Implementation', category:'academic', color:'#A259FF', logo:'IMAGINATION TO IMPLEMENTATION.png', memberCount:45,  eventCount:2, coordinator:'Prof. Divya Nair',     foundedYear:'2022' },
+  { name:'Change Makers E-Cell',          category:'academic', color:'#FF9500', logo:'CHANGE MAKERS E-CELL.png',           memberCount:87,  eventCount:5, coordinator:'Dr. Kiran Sharma',     foundedYear:'2017' },
+  { name:'BHASHA Club',                   category:'academic', color:'#635BFF', logo:'BHASHA.png',                         memberCount:44,  eventCount:2, coordinator:'Prof. Bharat Rao',     foundedYear:'2018' },
+  { name:'Breaths & Beats',               category:'academic', color:'#FF6B9D', logo:'BREATHS & BEATS.png',                memberCount:41,  eventCount:3, coordinator:'Prof. Nisha Menon',    foundedYear:'2019' },
+  { name:"Gobbler's Gang",                category:'academic', color:'#F0A500', logo:"GOBBLER'S GANG.png",                 memberCount:35,  eventCount:2, coordinator:'Prof. Rahul Joshi',    foundedYear:'2020' },
+  { name:'Rang Manch',                    category:'academic', color:'#D32F2F', logo:'RANG MANCH.png',                     memberCount:50,  eventCount:3, coordinator:'Dr. Pooja Sharma',     foundedYear:'2016' },
+  { name:'Aero Modelling Club',           category:'academic', color:'#00C8FF', logo:'AERO MODELLING.png',                 memberCount:34,  eventCount:2, coordinator:'Prof. Suresh Iyer',    foundedYear:'2019' },
+  { name:'Club Nirmaan',                  category:'academic', color:'#FF9500', logo:'NIRMAAN.png',                        memberCount:61,  eventCount:2, coordinator:'Dr. Rahul Verma',      foundedYear:'2016' },
+  { name:'Product Design Club',           category:'academic', color:'#A259FF', logo:'PRODUCT DESIGN.png',                 memberCount:42,  eventCount:2, coordinator:'Prof. Riya Das',       foundedYear:'2020' },
+  { name:'Pharma Health Club',            category:'academic', color:'#00C896', logo:'PHARMA HEALTH CLUB.png',             memberCount:55,  eventCount:3, coordinator:'Dr. Preethi Nair',     foundedYear:'2018' },
+  { name:'Parkinson Disease Support',     category:'academic', color:'#635BFF', logo:'PARKINSON DISEASE SUPPORT GROUP.png',memberCount:31,  eventCount:2, coordinator:'Dr. Sunita Kumar',     foundedYear:'2020' },
+  { name:'Rajkot Knee Club',              category:'academic', color:'#FF6B9D', logo:'RAJKOT KNEE CLUB.png',               memberCount:28,  eventCount:2, coordinator:'Dr. Anil Mehta',       foundedYear:'2021' },
+  { name:'Microbiologist Club',           category:'academic', color:'#635BFF', logo:'MICROBIOLOGIST CLUB.png',            memberCount:43,  eventCount:2, coordinator:'Prof. Kavitha Bose',   foundedYear:'2019' },
+  { name:'Medicinal Plants Club',         category:'academic', color:'#00C896', logo:'MEDICINAL PLANTS CLUB.png',          memberCount:38,  eventCount:2, coordinator:'Prof. Sneha Rao',      foundedYear:'2020' },
+  { name:'Ayushamrit Club',               category:'academic', color:'#4B6E2E', logo:'AYUSHAMRIT.png',                     memberCount:35,  eventCount:2, coordinator:'Dr. Vijay Pillai',     foundedYear:'2021' },
+  { name:'GSG Club',                      category:'academic', color:'#4B6E2E', logo:'GSG Club Logo.png',                  memberCount:120, eventCount:6, coordinator:'Lt. Col. V. Desai',    foundedYear:'2010' },
+  { name:'Sapiens — The HR Club',         category:'academic', color:'#A259FF', logo:'SAPIENS THE HR CLUB.png',            memberCount:57,  eventCount:3, coordinator:'Prof. Aditi Sharma',   foundedYear:'2019' },
+  { name:'Unite Club',                    category:'academic', color:'#FF6B9D', logo:'UNITE.png',                          memberCount:49,  eventCount:3, coordinator:'Dr. Priya Menon',      foundedYear:'2020' },
+  { name:'SETU — MUN',                    category:'academic', color:'#635BFF', logo:'SETU - MUN.png',                     memberCount:66,  eventCount:4, coordinator:'Prof. Sanjay Ghosh',   foundedYear:'2018' },
+  { name:'Women Wonders',                 category:'academic', color:'#FF6B9D', logo:'WOMEN WONDERS.png',                  memberCount:74,  eventCount:4, coordinator:'Dr. Rekha Iyer',       foundedYear:'2017' },
+  { name:'Know Your Finance',             category:'academic', color:'#FF9500', logo:'KNOW YOUR FINANCE.png',              memberCount:66,  eventCount:4, coordinator:'Dr. Rohan Shah',       foundedYear:'2017' },
+  { name:'Mathemagicians',                category:'academic', color:'#635BFF', logo:'MATHEMAGICIANS.png',                 memberCount:52,  eventCount:3, coordinator:'Prof. Anika Joshi',    foundedYear:'2018' },
 ];
 
 function ClubCard({ club, clubId, enrolled, maxReached, onJoin }) {
@@ -132,12 +131,12 @@ function ClubCard({ club, clubId, enrolled, maxReached, onJoin }) {
   );
 }
 
-const CATS = ['tech', 'sports', 'cultural', 'health', 'community'];
+const CATS = ['sports', 'cultural', 'social', 'academic'];
 
 const EMPTY_FORM = { name: '', email: '', phone: '', enrollmentNo: '', dept: '', year: '', message: '' };
 
 const EMPTY_PROPOSAL = {
-  club_name: '', category: 'tech', color: '#635BFF',
+  club_name: '', category: 'academic', color: '#635BFF',
   description: '', vision: '', reason: '',
   tags: '', rules: '', schedule: '', founded_year: '',
 };
@@ -357,7 +356,7 @@ export default function StudentClubs() {
       {/* Filters */}
       <div className={s.filterRow}>
         <div className={s.fbwrap}>
-          {['all', 'tech', 'sports', 'cultural', 'health', 'community'].map(cat => (
+          {['all', 'sports', 'cultural', 'social', 'academic'].map(cat => (
             <button
               key={cat}
               className={`${s.fb} ${filter === cat ? s.fbOn : ''}`}

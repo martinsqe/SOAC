@@ -11,7 +11,7 @@ const { ensureSoacTables } = require('../services/soacData');
 const CLUBS = [
   /* ── Technology ──────────────────────────────────────────────────────────── */
   {
-    logo: 'ANDROID DEVLOPMENT CLUB.png', name: 'Android Development Club', category: 'tech',
+    logo: 'ANDROID DEVLOPMENT CLUB.png', name: 'Android Development Club', category: 'academic',
     color: '#3DDC84', coordinator: 'Prof. Anita Mehta', foundedYear: '2019', memberCount: 98, eventCount: 4,
     description: 'A hands-on club dedicated to Android app development. Members build real-world Android apps, explore Kotlin and Java, and compete in national mobile hackathons.',
     tags: ['Android', 'Mobile Dev', 'Kotlin', 'Java', 'Hackathon'],
@@ -26,7 +26,7 @@ const CLUBS = [
     schedule: 'Weekly sessions every Wednesday, 4:00 PM – 6:00 PM in CS Lab 3.\nMonthly hackathons on the last Saturday of each month.\nProject showcases at the end of each semester.',
   },
   {
-    logo: 'WEBIFY.png', name: 'Webify Club', category: 'tech',
+    logo: 'WEBIFY.png', name: 'Webify Club', category: 'academic',
     color: '#635BFF', coordinator: 'Dr. Rajesh Pillai', foundedYear: '2020', memberCount: 74, eventCount: 3,
     description: 'Webify is the hub for web development enthusiasts at RKU. From HTML/CSS to full-stack React and Node.js, members build portfolio sites to production web apps.',
     tags: ['Web Dev', 'React', 'Node.js', 'UI/UX', 'Full Stack'],
@@ -41,7 +41,7 @@ const CLUBS = [
     schedule: 'Meetings every Tuesday & Thursday, 5:00 PM – 7:00 PM in IT Lab 2.\nWorkshops on alternate Saturdays.\nAnnual web-fest at end of the academic year.',
   },
   {
-    logo: 'iOS DEVLOPMENT CLUB.png', name: 'iOS Development Club', category: 'tech',
+    logo: 'iOS DEVLOPMENT CLUB.png', name: 'iOS Development Club', category: 'academic',
     color: '#007AFF', coordinator: 'Prof. Sneha Mehta', foundedYear: '2021', memberCount: 52, eventCount: 2,
     description: 'The iOS Development Club explores the Apple ecosystem — from Swift and SwiftUI to ARKit and CoreML. Members build apps for iPhone, iPad, and Apple Watch.',
     tags: ['iOS', 'Swift', 'SwiftUI', 'Apple', 'Mobile'],
@@ -56,7 +56,7 @@ const CLUBS = [
     schedule: 'Sessions every Monday, 4:00 PM – 6:00 PM in CS Lab 4.\nDesign sprints every other Friday.\nApp demos at the end of each semester.',
   },
   {
-    logo: 'MOZILLA.png', name: 'Mozilla Club', category: 'tech',
+    logo: 'MOZILLA.png', name: 'Mozilla Club', category: 'academic',
     color: '#FF6611', coordinator: 'Dr. Vinod Rao', foundedYear: '2018', memberCount: 61, eventCount: 3,
     description: 'The Mozilla Club at RKU promotes open-source culture, web literacy, and internet health. Members contribute to Firefox, MDN, and other Mozilla projects while learning web standards and privacy technologies.',
     tags: ['Open Source', 'Web Literacy', 'Firefox', 'Privacy', 'Mozilla'],
@@ -71,7 +71,7 @@ const CLUBS = [
     schedule: 'Open-source sprints every Saturday, 10:00 AM – 1:00 PM in CS Lab 1.\nMonthly speaker sessions on web technologies.\nAnnual Mozilla Festival participation.',
   },
   {
-    logo: 'IOT Club logo.png', name: 'IoT Club', category: 'tech',
+    logo: 'IOT Club logo.png', name: 'IoT Club', category: 'academic',
     color: '#00B5A3', coordinator: 'Prof. Arun Kumar', foundedYear: '2020', memberCount: 57, eventCount: 3,
     description: 'The IoT Club bridges hardware and software, building connected devices using Arduino, Raspberry Pi, and cloud platforms. From smart campus solutions to industrial IoT projects, members learn by building.',
     tags: ['IoT', 'Arduino', 'Raspberry Pi', 'Embedded', 'Smart Systems'],
@@ -86,7 +86,7 @@ const CLUBS = [
     schedule: 'Build sessions every Friday, 4:00 PM – 7:00 PM in Electronics Lab.\nPrototype showcases monthly.\nAnnual IoT Exhibition at end of year.',
   },
   {
-    logo: 'IMAGINATION TO IMPLEMENTATION.png', name: 'Imagination to Implementation', category: 'tech',
+    logo: 'IMAGINATION TO IMPLEMENTATION.png', name: 'Imagination to Implementation', category: 'academic',
     color: '#A259FF', coordinator: 'Prof. Divya Nair', foundedYear: '2022', memberCount: 45, eventCount: 2,
     description: 'I2I is an innovation incubator where ideas become prototypes. From concept sketches to working MVPs, the club supports student entrepreneurs through design thinking, rapid prototyping, and mentorship.',
     tags: ['Innovation', 'Startup', 'Design Thinking', 'Prototyping', 'MVP'],
@@ -101,7 +101,7 @@ const CLUBS = [
     schedule: 'Innovation sprints every Tuesday, 5:00 PM – 7:30 PM in Innovation Lab.\nMentor sessions on 1st and 3rd Saturday of each month.\nDemoDay at end of each semester.',
   },
   {
-    logo: 'CHANGE MAKERS E-CELL.png', name: 'Change Makers E-Cell', category: 'tech',
+    logo: 'CHANGE MAKERS E-CELL.png', name: 'Change Makers E-Cell', category: 'academic',
     color: '#FF9500', coordinator: 'Dr. Kiran Sharma', foundedYear: '2017', memberCount: 87, eventCount: 5,
     description: 'The Entrepreneurship Cell at RKU is the launchpad for student startups. E-Cell runs incubation programs, investor pitch events, business plan competitions, and connects members with industry mentors.',
     tags: ['Entrepreneurship', 'Startup', 'Business', 'Innovation', 'Pitch'],
@@ -270,7 +270,7 @@ const CLUBS = [
     schedule: 'Classical dance practice: Monday & Wednesday, 5:00 PM – 7:00 PM in the Cultural Hall.\nTheatre rehearsals: Friday evenings, 5:00 PM – 7:30 PM.\nPerformances at Galore, cultural festivals, and national programs.',
   },
   {
-    logo: 'BHASHA.png', name: 'BHASHA Club', category: 'cultural',
+    logo: 'BHASHA.png', name: 'BHASHA Club', category: 'academic',
     color: '#635BFF', coordinator: 'Prof. Bharat Rao', foundedYear: '2018', memberCount: 44, eventCount: 2,
     description: 'BHASHA is RKU\'s language and literature club. Through debates, storytelling, creative writing, and spoken-word poetry, BHASHA celebrates the power of language — in Hindi, English, Gujarati, and beyond.',
     tags: ['Literature', 'Debate', 'Creative Writing', 'Poetry', 'Languages'],
@@ -285,7 +285,7 @@ const CLUBS = [
     schedule: 'Writing workshops: Tuesday, 5:00 PM – 7:00 PM.\nDebate practice: Thursday, 5:00 PM – 6:30 PM.\nPoetry open mic: last Saturday of each month, 4:00 PM.',
   },
   {
-    logo: 'BREATHS & BEATS.png', name: 'Breaths & Beats', category: 'cultural',
+    logo: 'BREATHS & BEATS.png', name: 'Breaths & Beats', category: 'academic',
     color: '#FF6B9D', coordinator: 'Prof. Nisha Menon', foundedYear: '2019', memberCount: 41, eventCount: 3,
     description: 'Breaths & Beats is RKU\'s fusion performing-arts club. Members combine music, dance, and spoken word to create original multi-media performances that blur the lines between art forms.',
     tags: ['Fusion Arts', 'Performance', 'Dance', 'Music', 'Spoken Word'],
@@ -300,7 +300,7 @@ const CLUBS = [
     schedule: 'Collaborative sessions: Monday & Thursday, 5:00 PM – 7:30 PM in the Arts Hall.\nProduction rehearsals intensify two weeks before any show.\nAnnual showcase performance in March.',
   },
   {
-    logo: "GOBBLER'S GANG.png", name: "Gobbler's Gang", category: 'cultural',
+    logo: "GOBBLER'S GANG.png", name: "Gobbler's Gang", category: 'academic',
     color: '#F0A500', coordinator: 'Prof. Rahul Joshi', foundedYear: '2020', memberCount: 35, eventCount: 2,
     description: 'Gobbler\'s Gang is RKU\'s culinary arts club. Members explore global cuisines, host cook-offs, run food stalls at campus festivals, and conduct food-literacy workshops teaching sustainable and nutritious cooking.',
     tags: ['Culinary Arts', 'Cooking', 'Food', 'Cultural Exchange', 'Sustainability'],
@@ -315,7 +315,7 @@ const CLUBS = [
     schedule: 'Cooking sessions: Saturday, 10:00 AM – 1:00 PM in the Home Science lab.\nMonthly cook-off competitions on the 2nd Sunday.\nFood stalls at all major campus events.',
   },
   {
-    logo: 'RANG MANCH.png', name: 'Rang Manch', category: 'cultural',
+    logo: 'RANG MANCH.png', name: 'Rang Manch', category: 'academic',
     color: '#D32F2F', coordinator: 'Dr. Pooja Sharma', foundedYear: '2016', memberCount: 50, eventCount: 3,
     description: 'Rang Manch is RKU\'s drama and theatre club. From street plays on social issues to full-scale theatrical productions, the club develops actors, directors, and backstage crew with professional-level training.',
     tags: ['Theatre', 'Drama', 'Street Play', 'Acting', 'Performance'],
@@ -330,7 +330,7 @@ const CLUBS = [
     schedule: 'Script readings & workshops: Monday & Wednesday, 5:00 PM – 7:00 PM.\nFull rehearsals: Friday & Saturday, 4:00 PM – 8:00 PM (production period).\nAnnual play in February; street-play season in August–September.',
   },
   {
-    logo: 'SHWET THE RISE OF HUMANITY.png', name: 'SHWET — Rise of Humanity', category: 'cultural',
+    logo: 'SHWET THE RISE OF HUMANITY.png', name: 'SHWET — Rise of Humanity', category: 'social',
     color: '#FF6B9D', coordinator: 'Dr. Ananya Roy', foundedYear: '2016', memberCount: 56, eventCount: 4,
     description: 'SHWET blends art and social advocacy. Through visual art campaigns, documentary film, and community storytelling, SHWET amplifies voices for justice, empathy, and positive social change.',
     tags: ['Social Art', 'Advocacy', 'Visual Art', 'Documentary', 'Community'],
@@ -345,7 +345,7 @@ const CLUBS = [
     schedule: 'Art and media sessions: Wednesday, 4:00 PM – 6:30 PM.\nCommunity outreach: one Saturday per month.\nAnnual art exhibition and documentary screening in November.',
   },
   {
-    logo: 'AERO MODELLING.png', name: 'Aero Modelling Club', category: 'cultural',
+    logo: 'AERO MODELLING.png', name: 'Aero Modelling Club', category: 'academic',
     color: '#00C8FF', coordinator: 'Prof. Suresh Iyer', foundedYear: '2019', memberCount: 34, eventCount: 2,
     description: 'The Aero Modelling Club designs, builds, and flies model aircraft — from balsa wood gliders to GPS-guided drones. Members compete in national aeromodelling contests and advance into UAV research.',
     tags: ['Aeromodelling', 'Drones', 'RC Aircraft', 'Engineering', 'Aviation'],
@@ -360,7 +360,7 @@ const CLUBS = [
     schedule: 'Build sessions: Tuesday & Thursday, 4:00 PM – 6:00 PM in the Aeromodelling Workshop.\nFlying sessions: Sunday mornings, 7:00 AM – 10:00 AM at the flying field.\nIntensive weekends before national competitions.',
   },
   {
-    logo: 'NIRMAAN.png', name: 'Club Nirmaan', category: 'cultural',
+    logo: 'NIRMAAN.png', name: 'Club Nirmaan', category: 'academic',
     color: '#FF9500', coordinator: 'Dr. Rahul Verma', foundedYear: '2016', memberCount: 61, eventCount: 2,
     description: 'Club Nirmaan is RKU\'s social construction club. Members build low-cost infrastructure for rural communities — benches, shelters, water-collection units — combining engineering skills with community service.',
     tags: ['Social Construction', 'Community', 'Rural Development', 'Engineering', 'Service'],
@@ -375,7 +375,7 @@ const CLUBS = [
     schedule: 'Planning & design sessions: Saturday, 10:00 AM – 12:00 PM.\nCommunity construction drives: quarterly weekend trips.\nProject review meetings: second Thursday of each month.',
   },
   {
-    logo: 'PRODUCT DESIGN.png', name: 'Product Design Club', category: 'cultural',
+    logo: 'PRODUCT DESIGN.png', name: 'Product Design Club', category: 'academic',
     color: '#A259FF', coordinator: 'Prof. Riya Das', foundedYear: '2020', memberCount: 42, eventCount: 2,
     description: 'The Product Design Club at RKU bridges creativity and functionality. Members design physical and digital products using CAD, 3D printing, and UX research — creating prototypes that solve real user problems.',
     tags: ['Product Design', 'UX', 'CAD', '3D Printing', 'Prototyping'],
@@ -407,7 +407,7 @@ const CLUBS = [
 
   /* ── Health ───────────────────────────────────────────────────────────────── */
   {
-    logo: 'PHARMA HEALTH CLUB.png', name: 'Pharma Health Club', category: 'health',
+    logo: 'PHARMA HEALTH CLUB.png', name: 'Pharma Health Club', category: 'academic',
     color: '#00C896', coordinator: 'Dr. Preethi Nair', foundedYear: '2018', memberCount: 55, eventCount: 3,
     description: 'The Pharma Health Club educates students and the community about pharmaceuticals, drug safety, and preventive healthcare. Members run awareness camps, medication literacy workshops, and assist in public health drives.',
     tags: ['Pharmacy', 'Health Education', 'Drug Safety', 'Public Health', 'Awareness'],
@@ -422,7 +422,7 @@ const CLUBS = [
     schedule: 'Monthly health camps: second Saturday of each month.\nWeekly study circle: Wednesday, 5:00 PM – 6:30 PM.\nNational Pharmacy Week events in November.',
   },
   {
-    logo: 'PARKINSON DISEASE SUPPORT GROUP.png', name: 'Parkinson Disease Support', category: 'health',
+    logo: 'PARKINSON DISEASE SUPPORT GROUP.png', name: 'Parkinson Disease Support', category: 'academic',
     color: '#635BFF', coordinator: 'Dr. Sunita Kumar', foundedYear: '2020', memberCount: 31, eventCount: 2,
     description: 'This club raises awareness about Parkinson\'s disease and supports patients and caregivers in the Rajkot community. Members organise support groups, physiotherapy awareness sessions, and fundraising events.',
     tags: ["Parkinson's", 'Neurology', 'Patient Support', 'Awareness', 'Community Health'],
@@ -437,7 +437,7 @@ const CLUBS = [
     schedule: 'Support group visits: one Saturday per month at partnered care centres.\nAwareness workshops: last Thursday of each month, 5:00 PM – 7:00 PM.\nFundraising events: twice yearly.',
   },
   {
-    logo: 'RAJKOT KNEE CLUB.png', name: 'Rajkot Knee Club', category: 'health',
+    logo: 'RAJKOT KNEE CLUB.png', name: 'Rajkot Knee Club', category: 'academic',
     color: '#FF6B9D', coordinator: 'Dr. Anil Mehta', foundedYear: '2021', memberCount: 28, eventCount: 2,
     description: 'The Rajkot Knee Club focuses on orthopaedic health and knee rehabilitation. Run by physiotherapy and sports medicine students, the club offers free movement assessments, rehabilitation workshops, and injury-prevention programmes.',
     tags: ['Orthopaedics', 'Physiotherapy', 'Rehabilitation', 'Sports Medicine', 'Injury Prevention'],
@@ -452,7 +452,7 @@ const CLUBS = [
     schedule: 'Clinic sessions: Saturday mornings, 9:00 AM – 12:00 PM in the Physiotherapy lab.\nMovement workshops: bi-weekly, Wednesday 5:00 PM – 6:30 PM.\nOutreach camps: quarterly in local communities.',
   },
   {
-    logo: 'MICROBIOLOGIST CLUB.png', name: 'Microbiologist Club', category: 'health',
+    logo: 'MICROBIOLOGIST CLUB.png', name: 'Microbiologist Club', category: 'academic',
     color: '#635BFF', coordinator: 'Prof. Kavitha Bose', foundedYear: '2019', memberCount: 43, eventCount: 2,
     description: 'The Microbiologist Club explores the microscopic world. Members conduct experiments in microbiology, virology, and immunology labs — and run public education drives on antibiotic resistance, sanitation, and infectious disease prevention.',
     tags: ['Microbiology', 'Laboratory', 'Virology', 'Immunology', 'Public Health'],
@@ -467,7 +467,7 @@ const CLUBS = [
     schedule: 'Lab sessions: Tuesday & Thursday, 3:00 PM – 5:30 PM in Microbiology Lab.\nPublic education drive: one weekend per month.\nAnnual Microbiology Olympiad in September.',
   },
   {
-    logo: 'MEDICINAL PLANTS CLUB.png', name: 'Medicinal Plants Club', category: 'health',
+    logo: 'MEDICINAL PLANTS CLUB.png', name: 'Medicinal Plants Club', category: 'academic',
     color: '#00C896', coordinator: 'Prof. Sneha Rao', foundedYear: '2020', memberCount: 38, eventCount: 2,
     description: 'The Medicinal Plants Club studies the therapeutic properties of plants. Members maintain a campus herbal garden, conduct ethnobotanical research, and educate the community on traditional and modern phytotherapy.',
     tags: ['Herbal Medicine', 'Botany', 'Ethnobotany', 'Ayurveda', 'Plant Science'],
@@ -482,7 +482,7 @@ const CLUBS = [
     schedule: 'Garden maintenance: Monday & Friday, 7:00 AM – 8:00 AM.\nResearch sessions: Wednesday, 4:00 PM – 6:00 PM.\nHerbal Walk with experts: first Saturday of each month.',
   },
   {
-    logo: 'AYUSHAMRIT.png', name: 'Ayushamrit Club', category: 'health',
+    logo: 'AYUSHAMRIT.png', name: 'Ayushamrit Club', category: 'academic',
     color: '#4B6E2E', coordinator: 'Dr. Vijay Pillai', foundedYear: '2021', memberCount: 35, eventCount: 2,
     description: 'Ayushamrit promotes Ayurvedic sciences and holistic wellness. Members study ancient Ayurvedic texts, conduct wellness workshops on dinacharya (daily routine), and run Panchkarma awareness drives.',
     tags: ['Ayurveda', 'Holistic Health', 'Wellness', 'Yoga', 'Traditional Medicine'],
@@ -499,7 +499,7 @@ const CLUBS = [
 
   /* ── Community ────────────────────────────────────────────────────────────── */
   {
-    logo: 'GSG Club Logo.png', name: 'GSG Club', category: 'community',
+    logo: 'GSG Club Logo.png', name: 'GSG Club', category: 'academic',
     color: '#4B6E2E', coordinator: 'Lt. Col. V. Desai', foundedYear: '2010', memberCount: 120, eventCount: 6,
     description: 'GSG Club is RKU\'s national service and community leadership club, guided by military professionals. Members undergo leadership training, community service projects, and disaster-preparedness programmes.',
     tags: ['Service', 'Leadership', 'Community', 'Discipline', 'National Service'],
@@ -514,7 +514,7 @@ const CLUBS = [
     schedule: 'Weekly drill and training: Saturday, 7:00 AM – 9:00 AM on the parade ground.\nCommunity service drives: one Sunday per month.\nAnnual Leadership Camp: April.',
   },
   {
-    logo: 'SAPIENS THE HR CLUB.png', name: 'Sapiens — The HR Club', category: 'community',
+    logo: 'SAPIENS THE HR CLUB.png', name: 'Sapiens — The HR Club', category: 'academic',
     color: '#A259FF', coordinator: 'Prof. Aditi Sharma', foundedYear: '2019', memberCount: 57, eventCount: 3,
     description: 'Sapiens is RKU\'s Human Resources and management club. Through mock HR simulations, case competitions, industrial visits, and talks by HR professionals, the club prepares students for careers in people management.',
     tags: ['HR', 'Management', 'Recruitment', 'Organisation Behaviour', 'Career'],
@@ -529,7 +529,7 @@ const CLUBS = [
     schedule: 'Sessions: Tuesday & Thursday, 5:00 PM – 7:00 PM.\nIndustrial visit: once per semester.\nAnnual HR Summit: January.',
   },
   {
-    logo: 'UNITE.png', name: 'Unite Club', category: 'community',
+    logo: 'UNITE.png', name: 'Unite Club', category: 'academic',
     color: '#FF6B9D', coordinator: 'Dr. Priya Menon', foundedYear: '2020', memberCount: 49, eventCount: 3,
     description: 'Unite Club works to bridge gaps — between departments, between senior and junior students, and between RKU and the local community. Through social events, buddy programmes, and intercultural exchanges, Unite builds belonging.',
     tags: ['Community Building', 'Inclusion', 'Social Events', 'Cultural Exchange', 'Networking'],
@@ -544,7 +544,7 @@ const CLUBS = [
     schedule: 'Community events: bi-weekly, Saturday afternoons.\nBuddy programme orientation: start of each semester.\nAnnual Unity Festival: March.',
   },
   {
-    logo: 'SETU - MUN.png', name: 'SETU — MUN', category: 'community',
+    logo: 'SETU - MUN.png', name: 'SETU — MUN', category: 'academic',
     color: '#635BFF', coordinator: 'Prof. Sanjay Ghosh', foundedYear: '2018', memberCount: 66, eventCount: 4,
     description: 'SETU is RKU\'s Model United Nations club. Members debate global issues, develop diplomatic skills, and represent countries in simulated UN committees — preparing for national and international MUN conferences.',
     tags: ['MUN', 'Diplomacy', 'Global Affairs', 'Debate', 'Public Speaking'],
@@ -559,7 +559,7 @@ const CLUBS = [
     schedule: 'Training sessions: Monday & Wednesday, 5:00 PM – 7:00 PM.\nInternal MUN simulation: monthly.\nExternal MUN conferences: 3–4 per year.',
   },
   {
-    logo: 'WOMEN WONDERS.png', name: 'Women Wonders', category: 'community',
+    logo: 'WOMEN WONDERS.png', name: 'Women Wonders', category: 'academic',
     color: '#FF6B9D', coordinator: 'Dr. Rekha Iyer', foundedYear: '2017', memberCount: 74, eventCount: 4,
     description: "Women Wonders is RKU's women's empowerment club. Through workshops on self-defence, financial literacy, leadership, and mental health, the club supports women students in reaching their full potential.",
     tags: ['Women Empowerment', 'Leadership', 'Mental Health', 'Self-Defence', 'Finance'],
@@ -574,7 +574,7 @@ const CLUBS = [
     schedule: "Weekly circles: Thursday, 5:00 PM – 7:00 PM.\nWorkshops: bi-weekly Saturday sessions on various topics.\nAnnual Women's Day event: 8th March.",
   },
   {
-    logo: 'KNOW YOUR FINANCE.png', name: 'Know Your Finance', category: 'community',
+    logo: 'KNOW YOUR FINANCE.png', name: 'Know Your Finance', category: 'academic',
     color: '#FF9500', coordinator: 'Dr. Rohan Shah', foundedYear: '2017', memberCount: 66, eventCount: 4,
     description: 'Know Your Finance demystifies personal finance for students. Through workshops on budgeting, investment basics, stock markets, insurance, and fintech, KYF equips students to make informed financial decisions.',
     tags: ['Finance', 'Investment', 'Stock Market', 'Personal Finance', 'Fintech'],
@@ -589,7 +589,7 @@ const CLUBS = [
     schedule: 'Weekly seminars: Wednesday, 5:00 PM – 7:00 PM.\nStock market simulation: runs throughout the semester.\nAnnual finance fair: December.',
   },
   {
-    logo: 'MATHEMAGICIANS.png', name: 'Mathemagicians', category: 'community',
+    logo: 'MATHEMAGICIANS.png', name: 'Mathemagicians', category: 'academic',
     color: '#635BFF', coordinator: 'Prof. Anika Joshi', foundedYear: '2018', memberCount: 52, eventCount: 3,
     description: 'Mathemagicians makes mathematics fun, competitive, and community-building. From olympiad training and puzzle-solving sessions to math outreach in local schools, the club proves that everyone is a mathematician.',
     tags: ['Mathematics', 'Olympiad', 'Problem Solving', 'Competitive Math', 'Education'],
@@ -604,7 +604,7 @@ const CLUBS = [
     schedule: 'Problem-solving sessions: Tuesday & Thursday, 5:00 PM – 7:00 PM.\nOlympiad prep: Saturday mornings, 10:00 AM – 12:00 PM.\nMath Olympiad (internal): each semester; external competitions as announced.',
   },
   {
-    logo: 'THE KING OF 64.png', name: 'The King of 64 — Chess', category: 'community',
+    logo: 'THE KING OF 64.png', name: 'The King of 64 — Chess', category: 'sports',
     color: '#9CA3AF', coordinator: 'Prof. Mohan Rao', foundedYear: '2014', memberCount: 48, eventCount: 3,
     description: 'The King of 64 is RKU\'s chess club. Members develop strategic thinking through regular tournaments, grandmaster game analysis, and online rated play — competing in inter-university and national chess championships.',
     tags: ['Chess', 'Strategy', 'Competition', 'Tournaments', 'Critical Thinking'],
@@ -624,7 +624,7 @@ const EVENTS = [
   { title: 'Galore 2027 — Annual Mega Fest', club: 'SOAC · RK University',   category: 'annual-fest', status: 'upcoming', date: 'Feb 2–8, 2027',   startDate: new Date('2027-02-02'), time: '9:00 AM onwards', venue: 'RKU Main Campus',      description: '7-day inter-college festival with 40+ clubs, 1,400+ participants. Music, dance, sports, tech, and cultural competitions under one roof.', tags: ['Mega Fest','7 Days','All Clubs'], seats: 'Open Registration', image: 'i20.png' },
   { title: 'RKU Sports Fiesta 2026',         club: 'Sports Division · SOAC', category: 'sports',      status: 'upcoming', date: 'Nov 14–17, 2026', startDate: new Date('2026-11-14'), time: '8:00 AM',          venue: 'RKU Sports Ground',    description: 'Four-day multi-sport championship featuring cricket, football, badminton, volleyball, kabaddi, and athletics.', tags: ['Sports','4 Days','Inter-College'], seats: '240 seats left', image: 'asset-6.png' },
   { title: 'Rhythm & Soul — Music Night',    club: 'Soul of Music · SOAC',   category: 'cultural',    status: 'upcoming', date: 'Oct 4, 2026',     startDate: new Date('2026-10-04'), time: '6:30 PM',          venue: 'Amphitheatre, RKU',    description: 'An acoustic evening with live performances by the Soul of Music club — solos, bands, and surprise guests.', tags: ['Music','Live','Cultural'], seats: '180 seats left', image: 'asset-8.png' },
-  { title: 'Code Sprint — 24-Hour Hackathon',club: 'Change Makers E-Cell',   category: 'tech',        status: 'upcoming', date: 'Sep 20–21, 2026', startDate: new Date('2026-09-20'), time: '10:00 AM (24hr)',  venue: 'CS Lab Block, RKU',    description: 'Build real solutions in 24 hours. Open to all RKU students. Prizes worth ₹1 Lakh. Food and mentors provided.', tags: ['Hackathon','Tech','24hr'], seats: '120 seats left', image: 'i23.png' },
+  { title: 'Code Sprint — 24-Hour Hackathon',club: 'Change Makers E-Cell',   category: 'academic',        status: 'upcoming', date: 'Sep 20–21, 2026', startDate: new Date('2026-09-20'), time: '10:00 AM (24hr)',  venue: 'CS Lab Block, RKU',    description: 'Build real solutions in 24 hours. Open to all RKU students. Prizes worth ₹1 Lakh. Food and mentors provided.', tags: ['Hackathon','Tech','24hr'], seats: '120 seats left', image: 'i23.png' },
   { title: 'Galore 2026 — Annual Mega Fest', club: 'SOAC · RK University',   category: 'annual-fest', status: 'past',     date: 'Feb 3–9, 2026',   startDate: new Date('2026-02-03'), time: '9:00 AM onwards', venue: 'RKU Main Campus',      description: '7-day mega fest — over 1,200 participants across 40 clubs. Featured headline performances, hackathons, and sports finals.', tags: ['Mega Fest','Annual'], seats: '', highlight: '🏆 Best Edition Yet — 1,200+ Students', image: 'i20.png' },
   { title: 'Guard of Honour — Galore 2026',  club: 'NCC Wing · SOAC',        category: 'cultural',    status: 'past',     date: 'Feb 3, 2026',     startDate: new Date('2026-02-03'), time: '10:00 AM',         venue: 'Main Auditorium, RKU', description: 'NCC cadets led the ceremonial guard of honour for the Galore 2026 inaugural ceremony — a proud tradition of discipline and service.', tags: ['Ceremony','NCC'], seats: '', image: 'i15.png' },
 ];
@@ -632,6 +632,30 @@ const EVENTS = [
 const autoSeed = async () => {
   try {
     await ensureSoacTables();
+
+    /* ── Migrate existing clubs to 4-category system ─────────────────────── */
+    await pgPool.query(`
+      UPDATE clubs SET category = 'academic'
+      WHERE category IN ('tech', 'health');
+    `);
+    await pgPool.query(`
+      UPDATE clubs SET category = 'academic'
+      WHERE category = 'community'
+        AND name != 'The King of 64 — Chess';
+    `);
+    await pgPool.query(`
+      UPDATE clubs SET category = 'sports'
+      WHERE name = 'The King of 64 — Chess';
+    `);
+    await pgPool.query(`
+      UPDATE clubs SET category = 'social'
+      WHERE name = 'SHWET — Rise of Humanity';
+    `);
+    await pgPool.query(`
+      UPDATE clubs SET category = 'academic'
+      WHERE category = 'cultural'
+        AND name NOT IN ('Bumblebeez', 'Soul of Music', 'Kalaraw Club', 'Pictza Club');
+    `);
 
     /* ── Upsert all clubs with rich data ─────────────────────────────────── */
     let upserted = 0;
@@ -647,6 +671,7 @@ const autoSeed = async () => {
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,true)
            ON CONFLICT (slug) DO UPDATE SET
              is_active    = true,
+             category     = EXCLUDED.category,
              color        = COALESCE(NULLIF(clubs.color, ''),        EXCLUDED.color),
              logo         = COALESCE(NULLIF(clubs.logo, ''),         EXCLUDED.logo),
              coordinator  = COALESCE(NULLIF(clubs.coordinator, ''),  EXCLUDED.coordinator),

@@ -275,18 +275,22 @@ const stats = async (req, res, next) => {
 };
 
 /* GET /api/clubs/public/stats (open)
-   Used for landing page hero counters */
+   Used for landing page hero counters and category counts */
 const publicStats = async (req, res, next) => {
   try {
-    const [cRes, mRes, eRes] = await Promise.all([
-      pgPool.query(`SELECT COUNT(*)::int AS count FROM clubs  WHERE is_active = true`),
+    const [cRes, mRes, eRes, catRes] = await Promise.all([
+      pgPool.query(`SELECT COUNT(*)::int AS count FROM clubs WHERE is_active = true`),
       pgPool.query(`SELECT COUNT(*)::int AS count FROM student_clubs`),
       pgPool.query(`SELECT COUNT(*)::int AS count FROM events WHERE is_active = true`),
+      pgPool.query(`SELECT category, COUNT(*)::int AS count FROM clubs WHERE is_active = true GROUP BY category ORDER BY category`),
     ]);
+    const byCategory = {};
+    catRes.rows.forEach(r => { byCategory[r.category] = r.count; });
     res.json({
-      clubs:    cRes.rows[0].count,
-      members:  mRes.rows[0].count,
-      events:   eRes.rows[0].count,
+      clubs:      cRes.rows[0].count,
+      members:    mRes.rows[0].count,
+      events:     eRes.rows[0].count,
+      byCategory,
     });
   } catch (err) { next(err); }
 };

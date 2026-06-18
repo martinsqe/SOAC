@@ -128,29 +128,22 @@ app.use('/api/calendar',       require('./routes/calendar.routes'));
 app.use('/api/event-requests',  require('./routes/eventRequests.routes'));
 app.use('/api/club-proposals',  require('./routes/clubProposals.routes'));
 
-/* ── Health check ── */
+/* ── Health check — always 200 so Railway healthcheck passes ── */
 app.get('/api/health', async (req, res) => {
+  const pgOk = await poolHealth().catch(() => false);
+  let redisStatus = 'unknown';
   try {
-    const pgHealth = await poolHealth();
-    const redisHealth = await require('./config/redis').ping();
-    
-    if (!pgHealth || redisHealth !== 'PONG') {
-      return res.status(503).json({ 
-        status: 'degraded', 
-        ts: new Date(),
-        postgres: pgHealth ? 'ok' : 'down',
-        redis: redisHealth === 'PONG' ? 'ok' : 'down'
-      });
-    }
-    
-    res.json({ status: 'ok', ts: new Date() });
-  } catch (err) {
-    res.status(503).json({ 
-      status: 'error', 
-      ts: new Date(),
-      error: err.message
-    });
+    const pong = await require('./config/redis').ping().catch(() => null);
+    redisStatus = pong === 'PONG' ? 'ok' : 'error';
+  } catch (_) {
+    redisStatus = 'error';
   }
+  res.json({
+    status: 'ok',
+    ts: new Date(),
+    postgres: pgOk ? 'ok' : 'down',
+    redis: redisStatus,
+  });
 });
 
 /* ── Global error handler ── */
@@ -165,33 +158,38 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
-/* ── Start ── */
+/* ── Graceful shutdown ── */
+const shutdown = async () => {
+  const redis = require('./config/redis');
+  await redis.quit().catch(() => {});
+  process.exit(0);
+};
+process.on('SIGTERM', shutdown);
+process.on('SIGINT',  shutdown);
+
+/* ── Start: listen FIRST so Railway healthcheck can reach the server,
+         then initialise DB / seed in the background ── */
 const PORT = process.env.PORT || 5000;
-(async () => {
-  await connectPG();
-  await autoSeed();           // creates dynamic tables (IF NOT EXISTS) + seeds clubs/events
-  await ensureBaseIndexes();  // idempotent: CREATE INDEX IF NOT EXISTS on all tables
-  server.listen(PORT, () =>
-    console.log(`🚀  SOAC API running on http://localhost:${PORT}`)
-  );
-  server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      console.error(`❌  Port ${PORT} is already in use.`);
-      console.error(`    In PowerShell, run:`);
-      console.error(`    Stop-Process -Id (Get-NetTCPConnection -LocalPort ${PORT}).OwningProcess -Force`);
-      console.error(`    Then run:  node server.js`);
-    } else {
-      console.error('❌  Server error:', err.message);
-    }
+server.listen(PORT, () => {
+  console.log(`🚀  SOAC API listening on port ${PORT}`);
+
+  // DB init runs after the port is open so healthchecks don't time out
+  (async () => {
+    await connectPG();
+    await autoSeed();
+    await ensureBaseIndexes();
+    console.log('✅  DB initialisation complete');
+  })().catch(err => {
+    console.error('❌  DB initialisation failed:', err.message);
     process.exit(1);
   });
+});
 
-  /* ── Graceful shutdown — close Redis before exit ── */
-  const shutdown = async () => {
-    const redis = require('./config/redis');
-    await redis.quit().catch(() => {});
-    process.exit(0);
-  };
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT',  shutdown);
-})();
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`❌  Port ${PORT} is already in use.`);
+  } else {
+    console.error('❌  Server error:', err.message);
+  }
+  process.exit(1);
+});

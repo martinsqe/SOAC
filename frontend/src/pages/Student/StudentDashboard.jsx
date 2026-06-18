@@ -44,10 +44,10 @@ function fmtEventDate(ev) {
 }
 
 const STATIC_CLUBS = [
-  { _id:'1', name:'Android Development Club',      category:'tech',      color:'#3DDC84', logo:'ANDROID DEVLOPMENT CLUB.png',       memberCount:98,  eventCount:4 },
-  { _id:'2', name:'Webify Club',                   category:'tech',      color:'#635BFF', logo:'WEBIFY.png',                        memberCount:74,  eventCount:3 },
-  { _id:'3', name:'iOS Development Club',          category:'tech',      color:'#007AFF', logo:'iOS DEVLOPMENT CLUB.png',           memberCount:52,  eventCount:2 },
-  { _id:'4', name:'RKU Rangers FC',                category:'sports',    color:'#00C896', logo:'RKU RANGERS.png',                   memberCount:84,  eventCount:4 },
+  { _id:'1', name:'Android Development Club',      category:'academic', color:'#3DDC84', logo:'ANDROID DEVLOPMENT CLUB.png',       memberCount:98,  eventCount:4 },
+  { _id:'2', name:'Webify Club',                   category:'academic', color:'#635BFF', logo:'WEBIFY.png',                        memberCount:74,  eventCount:3 },
+  { _id:'3', name:'iOS Development Club',          category:'academic', color:'#007AFF', logo:'iOS DEVLOPMENT CLUB.png',           memberCount:52,  eventCount:2 },
+  { _id:'4', name:'RKU Rangers FC',                category:'sports',   color:'#00C896', logo:'RKU RANGERS.png',                   memberCount:84,  eventCount:4 },
 ];
 
 const STATIC_EVENTS = [

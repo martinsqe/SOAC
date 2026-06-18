@@ -10,8 +10,8 @@ const AVS = [
   'linear-gradient(135deg,#FF6B9D,#FF9500)',
   'linear-gradient(135deg,#06D6A0,#00E5FF)',
 ];
-const CATS = ['tech', 'sports', 'cultural', 'health', 'community'];
-const CAT_COLORS = { tech:'#635bff', sports:'#ff4757', cultural:'#ff6b9d', health:'#00c896', community:'#4b6e2e' };
+const CATS = ['sports', 'cultural', 'social', 'academic'];
+const CAT_COLORS = { sports:'#ff4757', cultural:'#ff6b9d', social:'#06d6a0', academic:'#635bff' };
 
 function initials(name = '') {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -434,7 +434,7 @@ function AcceptModal({ proposal: p, onClose, onCreated }) {
   const fileRef = useRef();
   const [form, setForm] = useState({
     name:         p.club_name    || '',
-    category:     p.category     || 'tech',
+    category:     p.category     || 'academic',
     color:        p.color        || '#635BFF',
     description:  p.description  || '',
     vision:       p.vision       || '',

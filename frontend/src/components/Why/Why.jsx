@@ -10,7 +10,7 @@ const Why = ({ clubCount = 40 }) => {
     },
     {
       title: 'Find Your People',
-      desc: `${clubCount} clubs across 6 categories. There is a community for every student.`,
+      desc: `${clubCount} clubs across 4 categories. There is a community for every student.`,
       icon: '🤝'
     },
     {

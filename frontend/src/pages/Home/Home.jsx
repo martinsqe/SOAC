@@ -16,14 +16,14 @@ const normal = 'normal'; // used for fontStyle inline prop
 
 /* ── Static fallback (shown while API loads) ─────────── */
 const STATIC_PREVIEW = [
-  { logo: 'ZERO VIOLATION BASKETBALL CLUB.png', name: 'IRONCREED',             cat: 'sports',    color: '#FF4757', members: 72, events: 3, coord: 'Coach Ramesh Iyer',   yr: '2015' },
-  { logo: 'ANDROID DEVLOPMENT CLUB.png',        name: 'Android Dev Club',      cat: 'tech',      color: '#3DDC84', members: 98, events: 4, coord: 'Prof. Anita Mehta',   yr: '2019' },
-  { logo: 'BUMBLEBEEZ.png',                     name: 'Bumblebeez',            cat: 'cultural',  color: '#FFD166', members: 39, events: 3, coord: 'Prof. Kavya Menon',   yr: '2018' },
-  { logo: 'RKU SHUTTLE SMASHERS.png',           name: 'Shuttle Smashers',      cat: 'sports',    color: '#00AADD', members: 60, events: 3, coord: 'Prof. Ritesh Patel',  yr: '2016' },
-  { logo: 'RKU RANGERS.png',                    name: 'RKU Rangers FC',        cat: 'sports',    color: '#E25600', members: 84, events: 4, coord: 'Coach Devraj Singh',  yr: '2013' },
-  { logo: 'SOUL OF MUSIC.png',                  name: 'Soul of Music',         cat: 'cultural',  color: '#FF9500', members: 68, events: 4, coord: 'Dr. Arjun Pillai',   yr: '2015' },
-  { logo: 'CHANGE MAKERS E-CELL.png',           name: 'Change Makers E-Cell',  cat: 'tech',      color: '#FF9500', members: 87, events: 5, coord: 'Dr. Kiran Sharma',   yr: '2017' },
-  { logo: 'THE KING OF 64.png',                 name: 'The King of 64',        cat: 'community', color: '#9CA3AF', members: 48, events: 3, coord: 'Prof. Mohan Rao',    yr: '2014' },
+  { logo: 'ZERO VIOLATION BASKETBALL CLUB.png', name: 'IRONCREED',             cat: 'sports',   color: '#FF4757', members: 72, events: 3, coord: 'Coach Ramesh Iyer',   yr: '2015' },
+  { logo: 'ANDROID DEVLOPMENT CLUB.png',        name: 'Android Dev Club',      cat: 'academic', color: '#3DDC84', members: 98, events: 4, coord: 'Prof. Anita Mehta',   yr: '2019' },
+  { logo: 'BUMBLEBEEZ.png',                     name: 'Bumblebeez',            cat: 'cultural', color: '#FFD166', members: 39, events: 3, coord: 'Prof. Kavya Menon',   yr: '2018' },
+  { logo: 'RKU SHUTTLE SMASHERS.png',           name: 'Shuttle Smashers',      cat: 'sports',   color: '#00AADD', members: 60, events: 3, coord: 'Prof. Ritesh Patel',  yr: '2016' },
+  { logo: 'RKU RANGERS.png',                    name: 'RKU Rangers FC',        cat: 'sports',   color: '#E25600', members: 84, events: 4, coord: 'Coach Devraj Singh',  yr: '2013' },
+  { logo: 'SOUL OF MUSIC.png',                  name: 'Soul of Music',         cat: 'cultural', color: '#FF9500', members: 68, events: 4, coord: 'Dr. Arjun Pillai',   yr: '2015' },
+  { logo: 'CHANGE MAKERS E-CELL.png',           name: 'Change Makers E-Cell',  cat: 'academic', color: '#FF9500', members: 87, events: 5, coord: 'Dr. Kiran Sharma',   yr: '2017' },
+  { logo: 'THE KING OF 64.png',                 name: 'The King of 64',        cat: 'sports',   color: '#9CA3AF', members: 48, events: 3, coord: 'Prof. Mohan Rao',    yr: '2014' },
 ];
 
 const normalise = (c) => ({

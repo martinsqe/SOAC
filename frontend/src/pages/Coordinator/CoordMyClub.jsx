@@ -169,7 +169,7 @@ export default function CoordMyClub() {
   if (error)                  return <div style={{ padding: 32 }}><div className={s.errBox}>{error}</div></div>;
   if (!club)                  return null;
 
-  const catColors   = { tech:'#635BFF', sports:'#ef4444', cultural:'#a855f7', health:'#10b981', community:'#3b82f6' };
+  const catColors   = { sports:'#ef4444', cultural:'#a855f7', social:'#06d6a0', academic:'#635BFF' };
   const color       = club.color || catColors[club.category] || '#4c44e0';
   const isSportsClub = club.category === 'sports';
   const visibleTabs  = isSportsClub ? SPORTS_TABS : BASE_TABS;

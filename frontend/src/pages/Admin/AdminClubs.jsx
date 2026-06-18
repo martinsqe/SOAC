@@ -2,12 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import api from '../../api/client';
 import s from './AdminClubs.module.css';
 
-const CATS = ['tech', 'sports', 'cultural', 'health', 'community'];
-const CAT_LABELS = { tech: 'Tech', sports: 'Sports', cultural: 'Cultural', health: 'Health', community: 'Community' };
-const CAT_COLORS = { tech: '#635bff', sports: '#ff4757', cultural: '#ff6b9d', health: '#00c896', community: '#4b6e2e' };
+const CATS = ['sports', 'cultural', 'social', 'academic'];
+const CAT_LABELS = { sports: 'Sports', cultural: 'Cultural', social: 'Social', academic: 'Academic' };
+const CAT_COLORS = { sports: '#ff4757', cultural: '#ff6b9d', social: '#06d6a0', academic: '#635bff' };
 
 const EMPTY = {
-  name: '', category: 'tech', color: '#635BFF',
+  name: '', category: 'academic', color: '#635BFF',
   coordinator: '', foundedYear: '', memberCount: 0, eventCount: 0, description: '',
 };
 

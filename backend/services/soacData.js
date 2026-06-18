@@ -26,6 +26,22 @@ const ensureSoacTables = async () => {
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_clubs_active ON clubs(is_active)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_clubs_category_active ON clubs(category, is_active)`);
 
+  /* ── Drop old category CHECK constraint if it exists, add new one ──────── */
+  await pgPool.query(`
+    DO $$ BEGIN
+      ALTER TABLE clubs DROP CONSTRAINT IF EXISTS clubs_category_check;
+    EXCEPTION WHEN others THEN NULL;
+    END $$
+  `);
+  await pgPool.query(`
+    DO $$ BEGIN
+      ALTER TABLE clubs
+        ADD CONSTRAINT clubs_category_check
+        CHECK (category IN ('sports','cultural','social','academic'));
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$
+  `);
+
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS events (
       id BIGSERIAL PRIMARY KEY,
@@ -385,7 +401,7 @@ const ensureSoacTables = async () => {
       proposed_by_email   VARCHAR(255) NOT NULL DEFAULT '',
       proposed_by_role    VARCHAR(50)  NOT NULL DEFAULT 'student',
       club_name           VARCHAR(255) NOT NULL,
-      category            VARCHAR(32)  NOT NULL DEFAULT 'tech',
+      category            VARCHAR(32)  NOT NULL DEFAULT 'academic',
       color               VARCHAR(20)  NOT NULL DEFAULT '#635BFF',
       description         TEXT         NOT NULL DEFAULT '',
       vision              TEXT         NOT NULL DEFAULT '',

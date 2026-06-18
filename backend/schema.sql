@@ -113,7 +113,7 @@ CREATE TABLE IF NOT EXISTS clubs (
   name          VARCHAR(255) NOT NULL,
   slug          VARCHAR(255) UNIQUE NOT NULL,
   category      VARCHAR(32)  NOT NULL
-                  CHECK (category IN ('tech','sports','cultural','health','community')),
+                  CHECK (category IN ('sports','cultural','social','academic')),
   color         VARCHAR(20)  NOT NULL DEFAULT '#635BFF',
   logo          VARCHAR(255) NOT NULL DEFAULT '',   -- filename; resolved to URL by controller
   coordinator   VARCHAR(255) NOT NULL DEFAULT '',   -- display name; real account in users table
