@@ -1,6 +1,79 @@
 const { pgPool } = require('../config/db');
 
 const ensureSoacTables = async () => {
+  /* ── 1. Users ───────────────────────────────────────────────────────────────
+     Single table for all roles: admin | coordinator | student.
+     Must exist before any child table that carries a users(id) FK. */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id                   SERIAL PRIMARY KEY,
+      email                VARCHAR(255) UNIQUE NOT NULL
+                             CHECK (email LIKE '%@rku.ac.in'),
+      password_hash        VARCHAR(255)  NOT NULL,
+      name                 VARCHAR(255)  NOT NULL,
+      role                 VARCHAR(50)   NOT NULL DEFAULT 'admin'
+                             CHECK (role IN ('admin', 'coordinator', 'student')),
+      is_active            BOOLEAN       NOT NULL DEFAULT true,
+      must_change_password BOOLEAN       NOT NULL DEFAULT true,
+      managed_club_id      BIGINT,
+      created_by           INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at           TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+      last_login           TIMESTAMPTZ,
+      avatar               VARCHAR(255)
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_users_email_active ON users(email, is_active)`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_users_role_active  ON users(role,  is_active)`);
+
+  /* ── 2. Auth tokens ─────────────────────────────────────────────────────────
+     Hashed refresh tokens — revoked on logout, checked on /api/auth/refresh. */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS auth_tokens (
+      id          SERIAL PRIMARY KEY,
+      user_id     INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash  VARCHAR(255) NOT NULL,
+      expires_at  TIMESTAMPTZ  NOT NULL,
+      revoked     BOOLEAN      NOT NULL DEFAULT false,
+      created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_auth_tokens_user        ON auth_tokens(user_id)`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_auth_tokens_user_active ON auth_tokens(user_id, revoked, expires_at)`);
+
+  /* ── 3. Audit log ───────────────────────────────────────────────────────────
+     Every CREATE/UPDATE/DELETE action logs here. */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id          SERIAL PRIMARY KEY,
+      user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      user_name   VARCHAR(255),
+      action      VARCHAR(100) NOT NULL,
+      entity_type VARCHAR(50),
+      entity_id   VARCHAR(100),
+      meta        JSONB,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at DESC)`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_audit_log_user    ON audit_log(user_id)`);
+
+  /* ── 4. Coin transactions ───────────────────────────────────────────────────
+     Gamification economy — students earn coins for participation. */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS coin_transactions (
+      id            SERIAL PRIMARY KEY,
+      user_id       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      amount        INTEGER NOT NULL,
+      reason        VARCHAR(255),
+      entity_type   VARCHAR(50),
+      entity_id     VARCHAR(100),
+      academic_year VARCHAR(10),
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_coin_transactions_user ON coin_transactions(user_id)`);
+
+  /* ── 5. Clubs (and all subsequent tables) ───────────────────────────────── */
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS clubs (
       id BIGSERIAL PRIMARY KEY,
