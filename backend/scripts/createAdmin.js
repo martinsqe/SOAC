@@ -1,17 +1,21 @@
 /**
- * Creates the first admin user in PostgreSQL.
- * Run once:  npm run create-admin
- * Then edit the .env values below before running.
+ * Creates the first admin user.
+ *
+ * Interactive (local):      npm run create-admin
+ * Non-interactive (Railway): ADMIN_NAME="Your Name" ADMIN_EMAIL="you@rku.ac.in" ADMIN_PASS="secret" node scripts/createAdmin.js
  */
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const { Pool } = require('pg');
 const bcrypt   = require('bcryptjs');
 const readline = require('readline');
 
-const pool = new Pool({
-  host: process.env.PG_HOST, port: parseInt(process.env.PG_PORT,10),
-  database: process.env.PG_DB, user: process.env.PG_USER, password: process.env.PG_PASSWORD,
-});
+// Support DATABASE_URL (Supabase/Railway) or individual PG_* vars (local)
+const pool = process.env.DATABASE_URL
+  ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } })
+  : new Pool({
+      host: process.env.PG_HOST, port: parseInt(process.env.PG_PORT, 10),
+      database: process.env.PG_DB, user: process.env.PG_USER, password: process.env.PG_PASSWORD,
+    });
 
 const ask = (q) => new Promise(res => {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -20,25 +24,33 @@ const ask = (q) => new Promise(res => {
 
 (async () => {
   try {
-    console.log('\n── Create SOAC Admin Account ──\n');
-    const name     = await ask('Admin name: ');
-    const email    = await ask('Admin email (@rku.ac.in): ');
-    const password = await ask('Password (min 8 chars): ');
+    // Non-interactive mode: read from env vars
+    let name     = process.env.ADMIN_NAME;
+    let email    = process.env.ADMIN_EMAIL;
+    let password = process.env.ADMIN_PASS;
+
+    if (!name || !email || !password) {
+      console.log('\n── Create SOAC Admin Account ──\n');
+      name     = name     || await ask('Admin name: ');
+      email    = email    || await ask('Admin email (@rku.ac.in): ');
+      password = password || await ask('Password (min 8 chars): ');
+    }
+
+    email = email.toLowerCase().trim();
 
     if (!email.endsWith('@rku.ac.in')) {
       console.error('❌  Email must end in @rku.ac.in'); process.exit(1);
     }
     if (password.length < 8) {
-      console.error('❌  Password too short'); process.exit(1);
+      console.error('❌  Password too short (min 8 chars)'); process.exit(1);
     }
 
     const hash = await bcrypt.hash(password, 12);
 
-    // Ensure schema exists
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
-        email VARCHAR(255) UNIQUE NOT NULL CHECK (email LIKE '%@rku.ac.in'),
+        email VARCHAR(255) UNIQUE NOT NULL,
         password_hash VARCHAR(255) NOT NULL,
         name VARCHAR(255) NOT NULL,
         role VARCHAR(50) NOT NULL DEFAULT 'admin',
@@ -53,17 +65,17 @@ const ask = (q) => new Promise(res => {
     const { rows } = await pool.query(
       `INSERT INTO users (email, password_hash, name, role, must_change_password)
        VALUES ($1, $2, $3, 'admin', false)
-       ON CONFLICT (email) DO UPDATE SET password_hash = $2, is_active = true
+       ON CONFLICT (email) DO UPDATE SET password_hash = $2, name = $3, is_active = true
        RETURNING id, email, name`,
-      [email.toLowerCase(), hash, name]
+      [email, hash, name]
     );
 
     console.log(`\n✅  Admin created: ${rows[0].name} <${rows[0].email}> (id: ${rows[0].id})`);
-    console.log('   You can now start the server and log in at /login\n');
+    console.log('   You can now log in at /login\n');
     await pool.end();
     process.exit(0);
   } catch (err) {
-    console.error('Error:', err.message);
+    console.error('❌  Error:', err.message);
     process.exit(1);
   }
 })();
