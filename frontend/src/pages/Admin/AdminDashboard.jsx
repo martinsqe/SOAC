@@ -80,6 +80,52 @@ function QuickBtn({ icon, label, desc, accent, onClick }) {
   );
 }
 
+/* ── Test Email Button ── */
+function TestEmailBtn({ adminEmail }) {
+  const [state, setState] = useState('idle'); // idle | sending | ok | fail
+  const [msg,   setMsg]   = useState('');
+
+  const run = async () => {
+    setState('sending');
+    try {
+      const res = await api.post('/admin/test-email', { to: adminEmail });
+      if (res.ok) { setState('ok');   setMsg(`Sent via ${res.via} to ${res.sentTo}`); }
+      else        { setState('fail'); setMsg(res.error || 'Unknown error'); }
+    } catch (e) {
+      setState('fail');
+      setMsg(e.message || 'Request failed');
+    }
+    setTimeout(() => { setState('idle'); setMsg(''); }, 8000);
+  };
+
+  const colors = { idle: '#635BFF', sending: '#9ca3af', ok: '#16a34a', fail: '#dc2626' };
+  const labels = { idle: 'Test Email', sending: 'Sending…', ok: 'Email sent!', fail: 'Failed' };
+
+  return (
+    <div>
+      <button
+        onClick={run}
+        disabled={state === 'sending'}
+        style={{
+          padding: '7px 14px', borderRadius: 8, border: `1.5px solid ${colors[state]}`,
+          background: '#fff', color: colors[state], fontWeight: 700, fontSize: 12,
+          cursor: state === 'sending' ? 'not-allowed' : 'pointer',
+        }}
+      >
+        {labels[state]}
+      </button>
+      {msg && (
+        <div style={{
+          marginTop: 6, fontSize: 11, color: state === 'ok' ? '#16a34a' : '#dc2626',
+          maxWidth: 260, lineHeight: 1.4,
+        }}>
+          {msg}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ════════════════════════════════════════════ */
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -239,6 +285,13 @@ export default function AdminDashboard() {
           <div>
             <div className={s.overviewLabel}>Auth</div>
             <div className={s.overviewVal}>JWT · @rku.ac.in only</div>
+          </div>
+        </div>
+        <div className={s.overviewDivider} />
+        <div className={s.overviewItem}>
+          <div>
+            <div className={s.overviewLabel}>Email</div>
+            <TestEmailBtn adminEmail={user?.email} />
           </div>
         </div>
       </div>

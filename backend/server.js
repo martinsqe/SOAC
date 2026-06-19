@@ -131,6 +131,14 @@ app.use('/api/club-proposals',  require('./routes/clubProposals.routes'));
 
 
 
+/* ── Admin: test email (admin token required) ── */
+app.post('/api/admin/test-email', require('./middleware/auth').verifyToken, async (req, res) => {
+  if (req.user?.role !== 'admin') return res.status(403).json({ message: 'Admin only.' });
+  const to = req.body.to || req.user.email;
+  const result = await require('./config/email').sendTestEmail(to);
+  res.json({ ...result, sentTo: to });
+});
+
 /* ── Health check — always 200 so Railway healthcheck passes ── */
 app.get('/api/health', async (req, res) => {
   const pgOk = await poolHealth().catch(() => false);
