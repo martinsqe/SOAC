@@ -18,7 +18,8 @@ const requireCoordOrAdmin = (req, res, next) => {
   next();
 };
 
-router.post('/:id/approve', verifyToken, requireCoordOrAdmin, ctrl.approve);
-router.post('/:id/decline', verifyToken, requireCoordOrAdmin, ctrl.decline);
+router.post('/:id/approve',      verifyToken, requireCoordOrAdmin, ctrl.approve);
+router.post('/:id/decline',      verifyToken, requireCoordOrAdmin, ctrl.decline);
+router.post('/:id/resend-email', verifyToken, requireCoordOrAdmin, ctrl.resendEmail);
 
 module.exports = router;

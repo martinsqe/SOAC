@@ -71,6 +71,8 @@ function JoinRequestsPanel() {
   const [toast,     setToast]     = useState('');
   const [filter,    setFilter]    = useState('pending');
   const [creds,     setCreds]     = useState(null);
+  const [resendId,  setResendId]  = useState(null);
+  const [resendMsg, setResendMsg] = useState({});
 
   const loadRequests = useCallback(() => {
     setLoading(true);
@@ -104,6 +106,18 @@ function JoinRequestsPanel() {
       loadRequests();
     } catch (err) { showToast(`Error: ${err.message}`); }
     finally { setActionId(null); }
+  };
+
+  const handleResend = async (req) => {
+    setResendId(req._id);
+    try {
+      const res = await api.post(`/requests/${req._id}/resend-email`, {});
+      setResendMsg(prev => ({ ...prev, [req._id]: { ok: res.emailSent, text: res.message } }));
+    } catch (err) {
+      setResendMsg(prev => ({ ...prev, [req._id]: { ok: false, text: err.message } }));
+    } finally {
+      setResendId(null);
+    }
   };
 
   return (
@@ -210,6 +224,29 @@ function JoinRequestsPanel() {
                       color:'#ef4444', fontWeight:700, cursor:'pointer' }}>
                     {actionId === r._id ? '…' : 'Decline'}
                   </button>
+                </div>
+              )}
+              {r.status === 'approved' && (
+                <div style={{ marginTop: 12 }}>
+                  <button
+                    onClick={() => handleResend(r)}
+                    disabled={resendId === r._id}
+                    style={{
+                      padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                      border: '1.5px solid #635BFF', background: '#fff', color: '#635BFF',
+                      cursor: resendId === r._id ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {resendId === r._id ? 'Sending…' : 'Resend Login Email'}
+                  </button>
+                  {resendMsg[r._id] && (
+                    <div style={{
+                      marginTop: 5, fontSize: 11,
+                      color: resendMsg[r._id].ok ? '#16a34a' : '#dc2626',
+                    }}>
+                      {resendMsg[r._id].text}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -265,4 +265,61 @@ const decline = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, create, approve, decline };
+/* POST /api/requests/:id/resend-email  (coordinator/admin)
+   Re-sends a password-setup link to the student for an already-approved request.
+   Uses the same JWT mechanism as /api/auth/forgot-password. */
+const resendEmail = async (req, res, next) => {
+  try {
+    const { rows } = await pgPool.query(
+      `SELECT jr.id, jr.name, jr.email, jr.club_name, jr.club_id, jr.status,
+              u.id AS user_id, u.password_hash
+       FROM join_requests jr
+       LEFT JOIN users u ON lower(u.email) = lower(jr.email)
+       WHERE jr.id = $1`,
+      [req.params.id]
+    );
+    const jr = rows[0];
+    if (!jr) return res.status(404).json({ message: 'Request not found.' });
+    if (jr.status !== 'approved') return res.status(400).json({ message: 'Can only resend email for approved requests.' });
+
+    if (req.user?.role === 'coordinator') {
+      const ok = await assertCoordOwnsClub(req.user.id, jr.club_id);
+      if (!ok) return res.status(403).json({ message: 'Not your club.' });
+    }
+
+    if (!jr.user_id || !jr.password_hash) {
+      return res.status(404).json({ message: 'Student account not found. Please contact admin.' });
+    }
+
+    /* Generate a JWT reset token — same mechanism as /api/auth/forgot-password */
+    const crypto = require('crypto');
+    const jwt    = require('jsonwebtoken');
+    const pv     = crypto.createHash('sha256').update(jr.password_hash).digest('hex').slice(0, 16);
+    const token  = jwt.sign(
+      { id: jr.user_id, pv, purpose: 'password-reset' },
+      process.env.RESET_PASSWORD_SECRET,
+      { expiresIn: process.env.RESET_PASSWORD_EXPIRES_IN || '30m' }
+    );
+
+    const { sendPasswordReset } = require('../config/email');
+    let emailSent = false;
+    let emailError = null;
+    try {
+      await sendPasswordReset({ toEmail: jr.email, toName: jr.name, token });
+      emailSent = true;
+    } catch (err) {
+      emailError = err.message;
+      console.error('Resend email failed:', err.message);
+    }
+
+    res.json({
+      emailSent,
+      emailError: emailError || undefined,
+      message: emailSent
+        ? `Password-setup email sent to ${jr.email}`
+        : `Email failed: ${emailError}`,
+    });
+  } catch (err) { next(err); }
+};
+
+module.exports = { getAll, create, approve, decline, resendEmail };
