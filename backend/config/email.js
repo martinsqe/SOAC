@@ -18,12 +18,15 @@ function buildTransporter() {
     return {
       transport: nodemailer.createTransport({
         host:   'smtp.resend.com',
-        port:   465,
-        secure: true,
+        port:   587,
+        secure: false,
         auth: {
           user: 'resend',
           pass: process.env.RESEND_API_KEY,
         },
+        connectionTimeout: 10000,
+        greetingTimeout:   10000,
+        socketTimeout:     15000,
       }),
       from: process.env.EMAIL_FROM || 'SOAC RKU <onboarding@resend.dev>',
       via:  'Resend',
@@ -40,6 +43,9 @@ function buildTransporter() {
       secure: true,
       auth:   { user: gmailUser, pass: gmailPass },
       tls:    { rejectUnauthorized: false },
+      connectionTimeout: 10000,
+      greetingTimeout:   10000,
+      socketTimeout:     15000,
     }),
     from: process.env.EMAIL_FROM || `SOAC RKU <${gmailUser}>`,
     via:  'Gmail',
