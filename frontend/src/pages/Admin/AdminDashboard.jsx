@@ -202,12 +202,18 @@ export default function AdminDashboard() {
             <h2 className={s.panelTitle}>Quick Actions</h2>
           </div>
           <div className={s.qList}>
-                        <QuickBtn label="Manage Clubs"     desc="Add, edit, assign coordinators"   accent="#635bff" onClick={() => navigate('/admin/clubs')}        />
+            <QuickBtn label="Manage Clubs"     desc="Add, edit, assign coordinators"   accent="#635bff" onClick={() => navigate('/admin/clubs')}        />
             <QuickBtn label="Manage Events"    desc="Create and publish new events"    accent="#f59e0b" onClick={() => navigate('/admin/events')}       />
             <QuickBtn label="All Members"      desc="Students, admins, coordinators"   accent="#10b981" onClick={() => navigate('/admin/members')}      />
             <QuickBtn label="Coordinators"     desc="View and manage club coordinators" accent="#8b5cf6" onClick={() => navigate('/admin/coordinators')} />
             <QuickBtn label="Wall of Fame"     desc="Recognise top contributors"       accent="#f43f5e" onClick={() => navigate('/admin/fame')}         />
             <QuickBtn label="View Live Site"   desc="See the guest-facing platform"    accent="#0ea5e9" onClick={() => window.open('/', '_blank')}      />
+          </div>
+          <div style={{ borderTop: '1px solid #f0edf8', marginTop: 12, paddingTop: 14, paddingBottom: 4 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#b0a8cc', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+              Email System
+            </div>
+            <TestEmailBtn adminEmail={user?.email} />
           </div>
         </div>
 
@@ -285,13 +291,6 @@ export default function AdminDashboard() {
           <div>
             <div className={s.overviewLabel}>Auth</div>
             <div className={s.overviewVal}>JWT · @rku.ac.in only</div>
-          </div>
-        </div>
-        <div className={s.overviewDivider} />
-        <div className={s.overviewItem}>
-          <div>
-            <div className={s.overviewLabel}>Email</div>
-            <TestEmailBtn adminEmail={user?.email} />
           </div>
         </div>
       </div>
