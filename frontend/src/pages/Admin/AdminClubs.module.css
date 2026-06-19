@@ -876,6 +876,9 @@
   .header { flex-direction: column; align-items: flex-start; }
   .filters { flex-direction: column; align-items: stretch; }
   .searchWrap { max-width: 100%; }
+  .catTabs { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .catTabs::-webkit-scrollbar { display: none; }
+  .catTab { flex: 0 0 auto; }
   .grid { grid-template-columns: 1fr; }
   .modal { border-radius: 12px; }
 }
