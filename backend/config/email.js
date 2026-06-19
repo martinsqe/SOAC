@@ -1,75 +1,70 @@
 const nodemailer = require('nodemailer');
 
-const APP_URL    = process.env.CLIENT_URL || 'https://soac-txy7.vercel.app';
-const APP_LOGIN  = `${APP_URL}/login`;
+const APP_URL   = process.env.CLIENT_URL || 'https://soac-txy7.vercel.app';
+const APP_LOGIN = `${APP_URL}/login`;
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Transporter factory
-   Priority 1 – Resend SMTP relay   (set RESEND_API_KEY in Railway)
-     Uses Resend's dedicated servers — never blocked by cloud providers,
-     excellent deliverability, free tier 3 000 emails / month.
-     Get a free key at https://resend.com → API Keys → Create API Key
-     Then add it as RESEND_API_KEY in Railway Variables.
-   Priority 2 – Gmail SMTP          (works with app password)
-     Uses the credentials already baked in as fallback.
+   Priority 1 – Resend HTTP API  (set RESEND_API_KEY in Railway)
+     Uses HTTPS port 443 — never blocked by any cloud provider.
+     Free tier: 3 000 emails / month.
+     Sign up at https://resend.com → API Keys → Create API Key
+   Priority 2 – Gmail SMTP fallback
 ────────────────────────────────────────────────────────────────────────── */
-function buildTransporter() {
-  if (process.env.RESEND_API_KEY) {
-    return {
+
+/* ── Resend HTTP sender ──────────────────────────────────────────────────── */
+async function sendViaResend({ to, subject, html }) {
+  const from = process.env.EMAIL_FROM || 'SOAC RKU <onboarding@resend.dev>';
+  const res  = await fetch('https://api.resend.com/emails', {
+    method:  'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type':  'application/json',
+    },
+    body: JSON.stringify({ from, to, subject, html }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || `Resend API error ${res.status}`);
+  return data;
+}
+
+/* ── Gmail SMTP fallback ─────────────────────────────────────────────────── */
+let _gmailTransport = null;
+function getGmailTransport() {
+  if (!_gmailTransport) {
+    const gmailUser = process.env.SMTP_USER || 'mjjemba9@gmail.com';
+    const gmailPass = (process.env.SMTP_PASS || 'yhzx logi zuug sylj').replace(/\s+/g, '');
+    _gmailTransport = {
       transport: nodemailer.createTransport({
-        host:   'smtp.resend.com',
-        port:   587,
-        secure: false,
-        auth: {
-          user: 'resend',
-          pass: process.env.RESEND_API_KEY,
-        },
+        host:   process.env.SMTP_HOST || 'smtp.gmail.com',
+        port:   465,
+        secure: true,
+        auth:   { user: gmailUser, pass: gmailPass },
+        tls:    { rejectUnauthorized: false },
         connectionTimeout: 10000,
         greetingTimeout:   10000,
         socketTimeout:     15000,
       }),
-      from: process.env.EMAIL_FROM || 'SOAC RKU <onboarding@resend.dev>',
-      via:  'Resend',
+      from: process.env.EMAIL_FROM || `SOAC RKU <${gmailUser}>`,
     };
   }
-
-  // Gmail fallback — port 465 SSL (more cloud-provider friendly than 587 STARTTLS)
-  const gmailUser = process.env.SMTP_USER || 'mjjemba9@gmail.com';
-  const gmailPass = (process.env.SMTP_PASS || 'yhzx logi zuug sylj').replace(/\s+/g, '');
-  return {
-    transport: nodemailer.createTransport({
-      host:   process.env.SMTP_HOST || 'smtp.gmail.com',
-      port:   465,
-      secure: true,
-      auth:   { user: gmailUser, pass: gmailPass },
-      tls:    { rejectUnauthorized: false },
-      connectionTimeout: 10000,
-      greetingTimeout:   10000,
-      socketTimeout:     15000,
-    }),
-    from: process.env.EMAIL_FROM || `SOAC RKU <${gmailUser}>`,
-    via:  'Gmail',
-  };
+  return _gmailTransport;
 }
 
-let _cached = null;
-function getMailer() {
-  if (!_cached) _cached = buildTransporter();
-  return _cached;
+/* Log which provider is active on boot */
+if (process.env.RESEND_API_KEY) {
+  console.log('✉️  Email provider: Resend HTTP API');
+} else {
+  console.log('✉️  Email provider: Gmail SMTP (fallback)');
 }
-
-/* Verify on first boot */
-(function verifyOnBoot() {
-  const { transport, via } = buildTransporter();
-  transport.verify()
-    .then(() => console.log(`✉️  Email ready via ${via}`))
-    .catch(err => console.warn(`⚠️  Email (${via}) verify failed: ${err.message}`));
-})();
 
 /* ── Shared send wrapper ─────────────────────────────────────────────────── */
-async function send(opts) {
-  const { transport, from } = getMailer();
-  await transport.sendMail({ from, ...opts });
+async function send({ to, subject, html }) {
+  if (process.env.RESEND_API_KEY) {
+    await sendViaResend({ to, subject, html });
+  } else {
+    const { transport, from } = getGmailTransport();
+    await transport.sendMail({ from, to, subject, html });
+  }
 }
 
 /* ── HTML header / footer helpers ────────────────────────────────────────── */
@@ -192,12 +187,9 @@ const sendPasswordReset = async ({ toEmail, toName, token }) => {
 
 /* ── Diagnostic: send a test email, return { ok, via, error } ─────────────── */
 const sendTestEmail = async (toEmail) => {
-  // Always build a fresh transporter for the test (not the cached one)
-  const { transport, from, via } = buildTransporter();
+  const via = process.env.RESEND_API_KEY ? 'Resend' : 'Gmail';
   try {
-    await transport.verify();
-    await transport.sendMail({
-      from,
+    await send({
       to:      toEmail,
       subject: 'SOAC Email Test',
       html:    wrap(`${header()}<h2 style="color:#1a1040">Email is working!</h2><p style="color:#555">This test email confirms SOAC can send emails via <strong>${via}</strong>.</p>${footer()}`),
