@@ -128,6 +128,32 @@ app.use('/api/calendar',       require('./routes/calendar.routes'));
 app.use('/api/event-requests',  require('./routes/eventRequests.routes'));
 app.use('/api/club-proposals',  require('./routes/clubProposals.routes'));
 
+/* ── Temporary one-time admin setup endpoint ── */
+app.get('/api/setup-admin', async (req, res) => {
+  if (req.query.secret !== 'soac-setup-mjs') {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  try {
+    const bcrypt = require('bcryptjs');
+    const { pgPool } = require('./config/db');
+    const { rows: dbInfo } = await pgPool.query('SELECT current_database(), inet_server_addr()');
+    await pgPool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS managed_club_id BIGINT');
+    await pgPool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar VARCHAR(255)');
+    const hash = await bcrypt.hash('mjjemba414@rku.ac.in', 12);
+    const { rows } = await pgPool.query(
+      `INSERT INTO users (email, password_hash, name, role, is_active, must_change_password)
+       VALUES ($1, $2, 'Admin', 'admin', true, false)
+       ON CONFLICT (email) DO UPDATE
+         SET password_hash = $2, role = 'admin', is_active = true, must_change_password = false
+       RETURNING id, email, role`,
+      ['mjjemba414@rku.ac.in', hash]
+    );
+    res.json({ success: true, db: dbInfo[0], admin: rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /* ── Health check — always 200 so Railway healthcheck passes ── */
 app.get('/api/health', async (req, res) => {
   const pgOk = await poolHealth().catch(() => false);
