@@ -130,6 +130,25 @@ app.use('/api/club-proposals',  require('./routes/clubProposals.routes'));
 
 
 
+/* ── Temporary diagnostics ── */
+app.get('/api/diag', async (req, res) => {
+  if (req.query.secret !== 'soac-setup-mjs') return res.status(403).json({ error: 'forbidden' });
+  const { pgPool } = require('./config/db');
+  const results = {};
+  const tables = ['clubs','users','events','join_requests','event_registrations','audit_log'];
+  for (const t of tables) {
+    try {
+      const r = await pgPool.query(`SELECT COUNT(*)::int AS n FROM ${t}`);
+      results[t] = r.rows[0].n;
+    } catch(e) { results[t] = `ERROR: ${e.message}`; }
+  }
+  try {
+    const r = await pgPool.query(`SELECT COUNT(*)::int AS n FROM clubs WHERE is_active=true`);
+    results.clubs_active = r.rows[0].n;
+  } catch(e) { results.clubs_active = `ERROR: ${e.message}`; }
+  res.json(results);
+});
+
 /* ── Health check — always 200 so Railway healthcheck passes ── */
 app.get('/api/health', async (req, res) => {
   const pgOk = await poolHealth().catch(() => false);
