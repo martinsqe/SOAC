@@ -2,15 +2,15 @@ import { useState, useEffect } from 'react';
 import api from '../../api/client';
 
 const ACTION_MAP = {
-  CREATE_CLUB:        { label: 'Club created',         color: '#22c55e', bg: '#f0fdf4', icon: '🏆' },
-  UPDATE_CLUB:        { label: 'Club updated',         color: '#3b82f6', bg: '#eff6ff', icon: '✏️' },
-  DELETE_CLUB:        { label: 'Club removed',         color: '#ef4444', bg: '#fef2f2', icon: '🗑️' },
-  CREATE_EVENT:       { label: 'Event created',        color: '#22c55e', bg: '#f0fdf4', icon: '📅' },
-  UPDATE_EVENT:       { label: 'Event updated',        color: '#3b82f6', bg: '#eff6ff', icon: '✏️' },
-  DELETE_EVENT:       { label: 'Event removed',        color: '#ef4444', bg: '#fef2f2', icon: '🗑️' },
-  CREATE_USER:        { label: 'User added',           color: '#8b5cf6', bg: '#f5f3ff', icon: '👤' },
-  ASSIGN_COORDINATOR: { label: 'Coordinator assigned', color: '#f59e0b', bg: '#fffbeb', icon: '👔' },
-  ASSIGN_CLUB:        { label: 'Club assigned',        color: '#f59e0b', bg: '#fffbeb', icon: '🏆' },
+  CREATE_CLUB:        { label: 'Club created',         color: '#22c55e', bg: '#f0fdf4' },
+  UPDATE_CLUB:        { label: 'Club updated',         color: '#3b82f6', bg: '#eff6ff' },
+  DELETE_CLUB:        { label: 'Club removed',         color: '#ef4444', bg: '#fef2f2' },
+  CREATE_EVENT:       { label: 'Event created',        color: '#22c55e', bg: '#f0fdf4' },
+  UPDATE_EVENT:       { label: 'Event updated',        color: '#3b82f6', bg: '#eff6ff' },
+  DELETE_EVENT:       { label: 'Event removed',        color: '#ef4444', bg: '#fef2f2' },
+  CREATE_USER:        { label: 'User added',           color: '#8b5cf6', bg: '#f5f3ff' },
+  ASSIGN_COORDINATOR: { label: 'Coordinator assigned', color: '#f59e0b', bg: '#fffbeb' },
+  ASSIGN_CLUB:        { label: 'Club assigned',        color: '#f59e0b', bg: '#fffbeb' },
 };
 
 const TRUNC = 90;
@@ -24,7 +24,7 @@ function AuditChanges({ changes }) {
         <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 5, fontSize: '.75rem', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 700, color: '#7b6fa0', flexShrink: 0 }}>{c.field}:</span>
           {c.from
-            ? <span style={{ color: '#b0a8cc', textDecoration: 'line-through', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{trunc(c.from)}</span>
+            ? <span style={{ color: '#b0a8cc', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{trunc(c.from)}</span>
             : null}
           {c.from
             ? <span style={{ color: '#c4b5fd', flexShrink: 0 }}>→</span>
@@ -118,7 +118,7 @@ export default function AdminAuditLog() {
           }}>
             {log.map((row, i) => {
               const info = ACTION_MAP[row.action] || {
-                label: row.action, color: '#7b6fa0', bg: '#f9f9f9', icon: '•',
+                label: row.action, color: '#7b6fa0', bg: '#f9f9f9',
               };
               const meta = row.meta
                 ? (typeof row.meta === 'string' ? JSON.parse(row.meta) : row.meta)
@@ -131,16 +131,6 @@ export default function AdminAuditLog() {
                   borderBottom: i < log.length - 1 ? '1px solid #f3f4f6' : 'none',
                   transition: 'background .15s',
                 }}>
-                  {/* Icon */}
-                  <div style={{
-                    width: 38, height: 38, borderRadius: 10,
-                    background: info.bg, flexShrink: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 15,
-                  }}>
-                    {info.icon}
-                  </div>
-
                   {/* Body */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: '.875rem', lineHeight: 1.4 }}>

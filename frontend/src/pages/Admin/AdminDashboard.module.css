@@ -257,7 +257,6 @@
 }
 .auditChangeFrom {
   color: #b0a8cc;
-  text-decoration: line-through;
   max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
