@@ -130,31 +130,37 @@ app.use('/api/club-proposals',  require('./routes/clubProposals.routes'));
 
 
 
-/* ── Temporary diagnostics ── */
+/* ── Temporary diagnostics + fix ── */
 app.get('/api/diag', async (req, res) => {
   if (req.query.secret !== 'soac-setup-mjs') return res.status(403).json({ error: 'forbidden' });
   const { pgPool } = require('./config/db');
-  const { ensureSoacTables } = require('./services/soacData');
   const results = {};
+
+  // Step 1: show bad categories
   try {
-    await ensureSoacTables();
-    results.ensureSoacTables = 'ok';
-  } catch(e) { results.ensureSoacTables = `ERROR: ${e.message}`; }
-  const queries = {
-    clubs:              `SELECT COUNT(*)::int AS n FROM clubs WHERE is_active=true`,
-    events:             `SELECT COUNT(*)::int AS n FROM events WHERE is_active=true`,
-    upcoming:           `SELECT COUNT(*)::int AS n FROM events WHERE is_active=true AND status='upcoming'`,
-    event_registrations:`SELECT COUNT(*)::int AS n FROM event_registrations`,
-    join_requests:      `SELECT COUNT(*)::int AS n FROM join_requests WHERE status='pending'`,
-    students:           `SELECT COUNT(*)::int AS n FROM users WHERE role='student' AND is_active=true`,
-    audit_log:          `SELECT COUNT(*)::int AS n FROM audit_log`,
-  };
-  for (const [k, q] of Object.entries(queries)) {
-    try {
-      const r = await pgPool.query(q);
-      results[k] = r.rows[0].n;
-    } catch(e) { results[k] = `ERROR: ${e.message}`; }
-  }
+    const r = await pgPool.query(`SELECT category, COUNT(*) FROM clubs GROUP BY category ORDER BY category`);
+    results.categories = r.rows;
+  } catch(e) { results.categories = `ERROR: ${e.message}`; }
+
+  // Step 2: fix bad categories
+  try {
+    const r = await pgPool.query(`UPDATE clubs SET category='academic' WHERE category NOT IN ('sports','cultural','social','academic') RETURNING category`);
+    results.fixed = r.rowCount;
+  } catch(e) { results.fixed = `ERROR: ${e.message}`; }
+
+  // Step 3: drop + re-add constraint cleanly
+  try {
+    await pgPool.query(`ALTER TABLE clubs DROP CONSTRAINT IF EXISTS clubs_category_check`);
+    await pgPool.query(`ALTER TABLE clubs ADD CONSTRAINT clubs_category_check CHECK (category IN ('sports','cultural','social','academic'))`);
+    results.constraint = 'ok';
+  } catch(e) { results.constraint = `ERROR: ${e.message}`; }
+
+  // Step 4: confirm
+  try {
+    const r = await pgPool.query(`SELECT COUNT(*)::int AS n FROM clubs WHERE is_active=true`);
+    results.clubs_active = r.rows[0].n;
+  } catch(e) { results.clubs_active = `ERROR: ${e.message}`; }
+
   res.json(results);
 });
 
