@@ -129,19 +129,6 @@ app.use('/api/event-requests',  require('./routes/eventRequests.routes'));
 app.use('/api/club-proposals',  require('./routes/clubProposals.routes'));
 
 
-/* ── Temporary seed trigger ── */
-app.get('/api/run-seed', async (req, res) => {
-  if (req.query.secret !== 'soac-setup-mjs') return res.status(403).json({ error: 'forbidden' });
-  try {
-    await autoSeed();
-    await ensureBaseIndexes();
-    const { pgPool } = require('./config/db');
-    const { rows } = await pgPool.query('SELECT COUNT(*) FROM clubs');
-    res.json({ success: true, clubs: rows[0].count });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 /* ── Health check — always 200 so Railway healthcheck passes ── */
 app.get('/api/health', async (req, res) => {
