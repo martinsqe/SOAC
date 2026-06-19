@@ -13,6 +13,29 @@ const ACTION_MAP = {
   ASSIGN_CLUB:        { label: 'Club assigned',        color: '#f59e0b', bg: '#fffbeb', icon: '🏆' },
 };
 
+const TRUNC = 90;
+const trunc = (str) => str && str.length > TRUNC ? str.slice(0, TRUNC) + '…' : (str || '—');
+
+function AuditChanges({ changes }) {
+  if (!changes?.length) return null;
+  return (
+    <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+      {changes.map((c, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 5, fontSize: '.75rem', flexWrap: 'wrap' }}>
+          <span style={{ fontWeight: 700, color: '#7b6fa0', flexShrink: 0 }}>{c.field}:</span>
+          {c.from
+            ? <span style={{ color: '#b0a8cc', textDecoration: 'line-through', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{trunc(c.from)}</span>
+            : null}
+          {c.from
+            ? <span style={{ color: '#c4b5fd', flexShrink: 0 }}>→</span>
+            : <span style={{ color: '#c4b5fd', flexShrink: 0 }}>set to</span>}
+          <span style={{ color: '#1a1040', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{trunc(c.to)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const timeAgo = (iso) => {
   const secs = Math.floor((Date.now() - new Date(iso)) / 1000);
   if (secs < 60)    return `${secs}s ago`;
@@ -103,7 +126,7 @@ export default function AdminAuditLog() {
 
               return (
                 <div key={row.id || i} style={{
-                  display: 'flex', alignItems: 'center', gap: 14,
+                  display: 'flex', alignItems: 'flex-start', gap: 14,
                   padding: '14px 20px',
                   borderBottom: i < log.length - 1 ? '1px solid #f3f4f6' : 'none',
                   transition: 'background .15s',
@@ -122,14 +145,15 @@ export default function AdminAuditLog() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: '.875rem', lineHeight: 1.4 }}>
                       <span style={{ color: info.color, fontWeight: 700 }}>{info.label}</span>
-                      {meta.name            && <span style={{ color: '#374151' }}> · {meta.name}</span>}
-                      {meta.title           && <span style={{ color: '#374151' }}> · {meta.title}</span>}
-                      {meta.email           && <span style={{ color: '#374151' }}> · {meta.email}</span>}
-                      {meta.role            && <span style={{ color: '#374151' }}> · {meta.role}</span>}
-                      {meta.coordinatorName && <span style={{ color: '#374151' }}> · {meta.coordinatorName}</span>}
-                      {meta.clubName        && <span style={{ color: '#374151' }}> → {meta.clubName}</span>}
+                      {(meta.name || meta.title || meta.email) && (
+                        <span style={{ color: '#374151' }}> · {meta.name || meta.title || meta.email}</span>
+                      )}
+                      {meta.coordinatorName && (
+                        <span style={{ color: '#374151' }}> · {meta.coordinatorName} → {meta.clubName}</span>
+                      )}
                     </div>
-                    <div style={{ fontSize: '.78rem', color: '#9ca3af', marginTop: 2 }}>
+                    <AuditChanges changes={meta.changes} />
+                    <div style={{ fontSize: '.78rem', color: '#9ca3af', marginTop: 4 }}>
                       {row.user_name || 'System'}
                       {row.entity_type && <> · {row.entity_type}</>}
                     </div>

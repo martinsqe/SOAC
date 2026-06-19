@@ -166,9 +166,8 @@ const create = async (req, res, next) => {
 /* PUT /api/clubs/:id  (admin) */
 const update = async (req, res, next) => {
   try {
-    /* Fetch only the fields we need for the update logic */
     const { rows: cur } = await pgPool.query(
-      `SELECT id, name, logo FROM clubs WHERE id = $1`,
+      `SELECT id, name, logo, category, color, coordinator, founded_year, description, tags FROM clubs WHERE id = $1`,
       [req.params.id]
     );
     if (!cur.length) return res.status(404).json({ message: 'Club not found.' });
@@ -205,7 +204,32 @@ const update = async (req, res, next) => {
       ]
     );
     const club = asClub(rows[0]);
-    await logAudit(req.user.id, req.user.name, 'UPDATE_CLUB', 'club', club.id, { name: club.name });
+
+    /* Build a before/after diff for the audit trail */
+    const changes = [];
+    const fieldLabels = {
+      name: 'Name', category: 'Category', color: 'Color', coordinator: 'Coordinator',
+      founded_year: 'Founded Year', description: 'Description', tags: 'Tags',
+    };
+    const candidates = {
+      name:         name         !== undefined ? finalName            : undefined,
+      category:     category     !== undefined ? category             : undefined,
+      color:        color        !== undefined ? color                : undefined,
+      coordinator:  coordinator  !== undefined ? coordinator          : undefined,
+      founded_year: foundedYear  !== undefined ? String(foundedYear)  : undefined,
+      description:  description  !== undefined ? description          : undefined,
+      tags:         tags         !== undefined ? JSON.parse(tags)     : undefined,
+    };
+    for (const [key, newVal] of Object.entries(candidates)) {
+      if (newVal === undefined) continue;
+      const oldRaw = current[key];
+      const oldStr = Array.isArray(oldRaw) ? oldRaw.join(', ') : String(oldRaw ?? '');
+      const newStr = Array.isArray(newVal) ? newVal.join(', ') : String(newVal ?? '');
+      if (oldStr !== newStr) changes.push({ field: fieldLabels[key] || key, from: oldStr, to: newStr });
+    }
+    if (req.file) changes.push({ field: 'Logo', from: null, to: 'updated' });
+
+    await logAudit(req.user.id, req.user.name, 'UPDATE_CLUB', 'club', club.id, { name: club.name, changes });
     await Promise.all([cache.del(`clubs:${req.params.id}`), cache.delPattern('clubs:*')]);
     res.json({ club: withLogoUrl(club) });
   } catch (err) { next(err); }

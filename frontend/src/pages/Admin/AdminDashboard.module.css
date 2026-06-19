@@ -224,7 +224,6 @@
 .auditAction {
   font-size: 12.5px;
   color: #1a1040;
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -236,6 +235,44 @@
   font-size: 11px;
   color: #b0a8cc;
   margin-top: 2px;
+}
+.auditChanges {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.auditChange {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1.4;
+  flex-wrap: wrap;
+}
+.auditChangeField {
+  font-weight: 600;
+  color: #7b6fa0;
+  flex-shrink: 0;
+}
+.auditChangeFrom {
+  color: #b0a8cc;
+  text-decoration: line-through;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.auditChangeTo {
+  color: #1a1040;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.auditChangeArrow {
+  color: #c4b5fd;
+  flex-shrink: 0;
 }
 
 /* ── Platform overview strip ── */

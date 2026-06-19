@@ -27,6 +27,26 @@ const ACTION_MAP = {
   ASSIGN_CLUB:          { label: 'Club assigned',       color: '#f59e0b', bg: '#fffbeb' },
 };
 
+const TRUNC = 72;
+const trunc = (str) => str && str.length > TRUNC ? str.slice(0, TRUNC) + '…' : (str || '—');
+
+function AuditChanges({ meta }) {
+  const changes = meta?.changes;
+  if (!changes?.length) return null;
+  return (
+    <div className={s.auditChanges}>
+      {changes.map((c, i) => (
+        <div key={i} className={s.auditChange}>
+          <span className={s.auditChangeField}>{c.field}:</span>
+          {c.from ? <span className={s.auditChangeFrom}>{trunc(c.from)}</span> : null}
+          {c.from ? <span className={s.auditChangeArrow}>→</span> : <span className={s.auditChangeArrow}>set to</span>}
+          <span className={s.auditChangeTo}>{trunc(c.to)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const timeAgo = (iso) => {
   const secs = Math.floor((Date.now() - new Date(iso)) / 1000);
   if (secs < 60)   return `${secs}s ago`;
@@ -162,21 +182,21 @@ export default function AdminDashboard() {
           ) : (
             <div className={s.auditList}>
               {stats.recentAudit.map((row, i) => {
-                const info = ACTION_MAP[row.action] || { label: row.action, color: '#7b6fa0', bg: '#f9f9f9', icon: '•' };
+                const info = ACTION_MAP[row.action] || { label: row.action, color: '#7b6fa0', bg: '#f9f9f9' };
                 const meta = row.meta ? (typeof row.meta === 'string' ? JSON.parse(row.meta) : row.meta) : {};
+                const entityName = meta.name || meta.title || meta.email || null;
                 return (
                   <div key={i} className={s.auditRow}>
                     <div className={s.auditIconWrap} style={{ background: info.bg, width: 8, height: 8, borderRadius: '50%' }} />
                     <div className={s.auditBody}>
                       <div className={s.auditAction}>
                         <span style={{ color: info.color, fontWeight: 600 }}>{info.label}</span>
-                        {meta.name              && <span className={s.auditEntityName}> · {meta.name}</span>}
-                        {meta.title             && <span className={s.auditEntityName}> · {meta.title}</span>}
-                        {meta.email             && <span className={s.auditEntityName}> · {meta.email}</span>}
-                        {meta.role              && <span className={s.auditEntityName}> · {meta.role}</span>}
-                        {meta.coordinatorName   && <span className={s.auditEntityName}> · {meta.coordinatorName}</span>}
-                        {meta.clubName          && <span className={s.auditEntityName}> → {meta.clubName}</span>}
+                        {entityName && <span className={s.auditEntityName}> · {entityName}</span>}
+                        {meta.coordinatorName && (
+                          <span className={s.auditEntityName}> · {meta.coordinatorName} → {meta.clubName}</span>
+                        )}
                       </div>
+                      <AuditChanges meta={meta} />
                       <div className={s.auditMeta}>
                         {row.user_name} · {timeAgo(row.created_at)}
                       </div>

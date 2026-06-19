@@ -292,9 +292,8 @@ const create = async (req, res, next) => {
 /* PUT /api/events/:id  (admin/coordinator) */
 const update = async (req, res, next) => {
   try {
-    /* Fetch only image — the only pre-update field we need for cleanup */
     const { rows: cur } = await pgPool.query(
-      `SELECT id, image FROM events WHERE id = $1`,
+      `SELECT id, image, title, club, category, status, date, time, venue, description, seats, highlight, is_free, fee_amount FROM events WHERE id = $1`,
       [req.params.id]
     );
     if (!cur.length) return res.status(404).json({ message: 'Event not found.' });
@@ -346,7 +345,37 @@ const update = async (req, res, next) => {
       ]
     );
     const event = asEvent(rows[0]);
-    await logAudit(req.user.id, req.user.name, 'UPDATE_EVENT', 'event', event.id, { title: event.title });
+
+    /* Build before/after diff for the audit trail */
+    const evChanges = [];
+    const evLabels = {
+      title: 'Title', club: 'Club', category: 'Category', status: 'Status',
+      date: 'Date', time: 'Time', venue: 'Venue', description: 'Description',
+      seats: 'Seats', highlight: 'Highlight', is_free: 'Free Entry', fee_amount: 'Fee',
+    };
+    const evCandidates = {
+      title:       req.body.title       !== undefined ? req.body.title       : undefined,
+      club:        req.body.club        !== undefined ? req.body.club        : undefined,
+      category:    req.body.category    !== undefined ? req.body.category    : undefined,
+      status:      req.body.status      !== undefined ? req.body.status      : undefined,
+      date:        req.body.date        !== undefined ? req.body.date        : undefined,
+      time:        req.body.time        !== undefined ? req.body.time        : undefined,
+      venue:       req.body.venue       !== undefined ? req.body.venue       : undefined,
+      description: req.body.description !== undefined ? req.body.description : undefined,
+      seats:       req.body.seats       !== undefined ? req.body.seats       : undefined,
+      highlight:   req.body.highlight   !== undefined ? req.body.highlight   : undefined,
+      is_free:     req.body.isFree      !== undefined ? String(req.body.isFree !== 'false' && req.body.isFree !== false) : undefined,
+      fee_amount:  req.body.feeAmount   !== undefined ? String(req.body.feeAmount) : undefined,
+    };
+    for (const [key, newVal] of Object.entries(evCandidates)) {
+      if (newVal === undefined) continue;
+      const oldStr = String(cur[0][key] ?? '');
+      const newStr = String(newVal ?? '');
+      if (oldStr !== newStr) evChanges.push({ field: evLabels[key] || key, from: oldStr, to: newStr });
+    }
+    if (req.file) evChanges.push({ field: 'Image', from: null, to: 'updated' });
+
+    await logAudit(req.user.id, req.user.name, 'UPDATE_EVENT', 'event', event.id, { title: event.title, changes: evChanges });
     await Promise.all([cache.del(`events:${req.params.id}`), cache.delPattern('events:*')]);
     res.json({ event: withImageUrl(event) });
   } catch (err) { next(err); }
