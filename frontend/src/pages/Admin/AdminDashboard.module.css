@@ -284,7 +284,7 @@
   align-items: center;
   gap: 0;
   box-shadow: 0 1px 3px rgba(26,16,64,0.06);
-  flex-wrap: wrap;
+  overflow-x: auto;
 }
 .overviewItem {
   display: flex;
