@@ -4,67 +4,52 @@ const APP_URL   = process.env.CLIENT_URL || 'https://soac-txy7.vercel.app';
 const APP_LOGIN = `${APP_URL}/login`;
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Priority 1 – Resend HTTP API  (set RESEND_API_KEY in Railway)
-     Uses HTTPS port 443 — never blocked by any cloud provider.
-     Free tier: 3 000 emails / month.
-     Sign up at https://resend.com → API Keys → Create API Key
-   Priority 2 – Gmail SMTP fallback
+   SMTP Configuration (Gmail or any SMTP provider)
+   Required variables:
+   - SMTP_HOST: SMTP server (e.g., smtp.gmail.com)
+   - SMTP_PORT: SMTP port (e.g., 465 for SSL, 587 for TLS)
+   - SMTP_USER: Email address
+   - SMTP_PASS: App password or password
+   - EMAIL_FROM: Sender email (optional, defaults to SMTP_USER)
 ────────────────────────────────────────────────────────────────────────── */
 
-/* ── Resend HTTP sender ──────────────────────────────────────────────────── */
-async function sendViaResend({ to, subject, html }) {
-  const from = process.env.EMAIL_FROM || 'SOAC RKU <onboarding@resend.dev>';
-  const res  = await fetch('https://api.resend.com/emails', {
-    method:  'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-      'Content-Type':  'application/json',
-    },
-    body: JSON.stringify({ from, to, subject, html }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.message || `Resend API error ${res.status}`);
-  return data;
-}
-
-/* ── Gmail SMTP fallback ─────────────────────────────────────────────────── */
-let _gmailTransport = null;
-function getGmailTransport() {
-  if (!_gmailTransport) {
-    const gmailUser = process.env.SMTP_USER || 'mjjemba9@gmail.com';
-    const gmailPass = (process.env.SMTP_PASS || 'yhzx logi zuug sylj').replace(/\s+/g, '');
-    _gmailTransport = {
+let _transport = null;
+function getTransport() {
+  if (!_transport) {
+    const smtpUser = process.env.SMTP_USER || 'mjjemba9@gmail.com';
+    const smtpPass = (process.env.SMTP_PASS || 'yhzx logi zuug sylj').replace(/\\s+/g, '');
+    const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
+    const smtpPort = parseInt(process.env.SMTP_PORT || '465', 10);
+    
+    _transport = {
       transport: nodemailer.createTransport({
-        host:   process.env.SMTP_HOST || 'smtp.gmail.com',
-        port:   465,
-        secure: true,
-        auth:   { user: gmailUser, pass: gmailPass },
+        host:   smtpHost,
+        port:   smtpPort,
+        secure: smtpPort === 465, // true for 465, false for 587
+        auth:   { user: smtpUser, pass: smtpPass },
         tls:    { rejectUnauthorized: false },
         connectionTimeout: 10000,
         greetingTimeout:   10000,
         socketTimeout:     15000,
       }),
-      from: process.env.EMAIL_FROM || `SOAC RKU <${gmailUser}>`,
+      from: process.env.EMAIL_FROM || `SOAC RKU <${smtpUser}>`,
     };
   }
-  return _gmailTransport;
+  return _transport;
 }
 
-/* Log which provider is active on boot */
-if (process.env.RESEND_API_KEY) {
-  console.log('✉️  Email provider: Resend HTTP API');
-} else {
-  console.log('✉️  Email provider: Gmail SMTP (fallback)');
-}
+/* Verify on boot */
+(function verifyOnBoot() {
+  const { transport, from } = getTransport();
+  transport.verify()
+    .then(() => console.log(`✉️  Email ready via SMTP (${process.env.SMTP_HOST || 'smtp.gmail.com'})`))
+    .catch(err => console.warn(`⚠️  Email SMTP verify failed: ${err.message}`));
+})();
 
 /* ── Shared send wrapper ─────────────────────────────────────────────────── */
-async function send({ to, subject, html }) {
-  if (process.env.RESEND_API_KEY) {
-    await sendViaResend({ to, subject, html });
-  } else {
-    const { transport, from } = getGmailTransport();
-    await transport.sendMail({ from, to, subject, html });
-  }
+async function send(opts) {
+  const { transport, from } = getTransport();
+  await transport.sendMail({ from, ...opts });
 }
 
 /* ── HTML header / footer helpers ────────────────────────────────────────── */
@@ -187,16 +172,18 @@ const sendPasswordReset = async ({ toEmail, toName, token }) => {
 
 /* ── Diagnostic: send a test email, return { ok, via, error } ─────────────── */
 const sendTestEmail = async (toEmail) => {
-  const via = process.env.RESEND_API_KEY ? 'Resend' : 'Gmail';
   try {
-    await send({
+    const { transport, from } = getTransport();
+    await transport.verify();
+    await transport.sendMail({
+      from,
       to:      toEmail,
       subject: 'SOAC Email Test',
-      html:    wrap(`${header()}<h2 style="color:#1a1040">Email is working!</h2><p style="color:#555">This test email confirms SOAC can send emails via <strong>${via}</strong>.</p>${footer()}`),
+      html:    wrap(`${header()}<h2 style="color:#1a1040">Email is working!</h2><p style="color:#555">This test email confirms SOAC can send emails via SMTP.</p>${footer()}`),
     });
-    return { ok: true, via };
+    return { ok: true, via: 'SMTP' };
   } catch (err) {
-    return { ok: false, via, error: err.message };
+    return { ok: false, via: 'SMTP', error: err.message };
   }
 };
 
@@ -208,3 +195,4 @@ module.exports = {
   sendPasswordReset,
   sendTestEmail,
 };
+
