@@ -1,30 +1,42 @@
 const nodemailer = require('nodemailer');
-const APP_LOGIN_URL = `${process.env.CLIENT_URL || 'http://localhost:5173'}/login`;
 
-// Gmail app passwords are displayed with spaces (e.g. "xxxx xxxx xxxx xxxx")
-// but must be used without spaces in SMTP auth.
-const smtpPass = (process.env.SMTP_PASS || '').replace(/\s+/g, '');
+// Fallback to Vercel production URL so email links work on Railway
+const APP_LOGIN_URL = `${process.env.CLIENT_URL || 'https://soac-txy7.vercel.app'}/login`;
 
-const transporter = nodemailer.createTransport({
-  host:   process.env.SMTP_HOST || 'smtp.gmail.com',
-  port:   parseInt(process.env.SMTP_PORT || '587', 10),
-  secure: process.env.SMTP_PORT === '465',
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: smtpPass,
-  },
-  tls: {
-    rejectUnauthorized: false,   // allow self-signed certs in dev
-  },
-});
+// Build transporter lazily on first use so it always reads the current
+// process.env values (Railway sets them before the process starts).
+let _transporter = null;
 
-/* Verify SMTP connection on startup (non-fatal — logs warning if it fails) */
-transporter.verify().then(() => {
-  console.log('✉️   SMTP connection verified —', process.env.SMTP_HOST);
-}).catch((err) => {
-  console.warn('⚠️   SMTP connection failed (emails will not send):', err.message);
-  console.warn('     Check SMTP_HOST, SMTP_USER, SMTP_PASS in .env');
-});
+function getTransporter() {
+  if (_transporter) return _transporter;
+
+  const smtpUser = process.env.SMTP_USER || 'mjjemba9@gmail.com';
+  const smtpPass = (process.env.SMTP_PASS || 'yhzx logi zuug sylj').replace(/\s+/g, '');
+  const smtpFrom = process.env.EMAIL_FROM || `SOAC RKU <${smtpUser}>`;
+  const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
+  const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
+
+  _transporter = nodemailer.createTransport({
+    host:       smtpHost,
+    port:       smtpPort,
+    secure:     smtpPort === 465,
+    requireTLS: smtpPort !== 465,
+    auth:       { user: smtpUser, pass: smtpPass },
+    tls:        { rejectUnauthorized: false },
+  });
+
+  // Store resolved from address on the transporter for reuse
+  _transporter._fromAddr = smtpFrom;
+
+  _transporter.verify().then(() => {
+    console.log(`✉️  SMTP ready — ${smtpHost}:${smtpPort} as ${smtpUser}`);
+  }).catch(err => {
+    console.warn(`⚠️  SMTP verify failed (${smtpHost}): ${err.message}`);
+    _transporter = null; // force retry on next send
+  });
+
+  return _transporter;
+}
 
 /**
  * Send login credentials to a newly created user.
@@ -34,8 +46,9 @@ const sendCredentials = async ({ toEmail, toName, password, clubName = null }) =
     ? `<p style="color:#555;line-height:1.6">Your request to join <strong style="color:#635BFF">${clubName}</strong> has been approved by the coordinator. Use the credentials below to sign in to the SOAC platform.</p>`
     : `<p style="color:#555;line-height:1.6">Your account on the SOAC RKU Platform has been created. Use the credentials below to sign in.</p>`;
 
-  await transporter.sendMail({
-    from:    process.env.EMAIL_FROM,
+  const t = getTransporter();
+  await t.sendMail({
+    from:    t._fromAddr,
     to:      toEmail,
     subject: clubName ? `You're in! Welcome to ${clubName} — SOAC RKU` : 'Your SOAC RKU Account Credentials',
     html: `
@@ -66,8 +79,9 @@ const sendCredentials = async ({ toEmail, toName, password, clubName = null }) =
  * Send club-approval notification to an existing user (no new credentials).
  */
 const sendApproval = async ({ toEmail, toName, clubName }) => {
-  await transporter.sendMail({
-    from:    process.env.EMAIL_FROM,
+  const t = getTransporter();
+  await t.sendMail({
+    from:    t._fromAddr,
     to:      toEmail,
     subject: `You're approved! Welcome to ${clubName} — SOAC RKU`,
     html: `
@@ -94,8 +108,9 @@ const sendApproval = async ({ toEmail, toName, clubName }) => {
  * Send coordinator credentials to a brand-new coordinator account.
  */
 const sendCoordinatorCredentials = async ({ toEmail, toName, password, clubName }) => {
-  await transporter.sendMail({
-    from:    process.env.EMAIL_FROM,
+  const t = getTransporter();
+  await t.sendMail({
+    from:    t._fromAddr,
     to:      toEmail,
     subject: `You've been appointed Coordinator of ${clubName} — SOAC RKU`,
     html: `
@@ -135,8 +150,9 @@ const sendCoordinatorCredentials = async ({ toEmail, toName, password, clubName 
  * Notify an existing user that they have been assigned as coordinator of a club.
  */
 const sendCoordinatorAssignment = async ({ toEmail, toName, clubName }) => {
-  await transporter.sendMail({
-    from:    process.env.EMAIL_FROM,
+  const t = getTransporter();
+  await t.sendMail({
+    from:    t._fromAddr,
     to:      toEmail,
     subject: `You've been assigned as Coordinator of ${clubName} — SOAC RKU`,
     html: `
@@ -169,9 +185,10 @@ const sendCoordinatorAssignment = async ({ toEmail, toName, clubName }) => {
 };
 
 const sendPasswordReset = async ({ toEmail, toName, token }) => {
-  const resetUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/reset-password?token=${encodeURIComponent(token)}`;
-  await transporter.sendMail({
-    from: process.env.EMAIL_FROM,
+  const resetUrl = `${process.env.CLIENT_URL || 'https://soac-txy7.vercel.app'}/reset-password?token=${encodeURIComponent(token)}`;
+  const t = getTransporter();
+  await t.sendMail({
+    from: t._fromAddr,
     to: toEmail,
     subject: 'Reset your SOAC RKU password',
     html: `
