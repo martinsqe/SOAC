@@ -209,14 +209,18 @@ const approve = async (req, res, next) => {
       cache.delPattern('clubs:*'),
     ]);
 
-    /* 5. Email (non-blocking) */
+    /* 5. Email — attempt send, capture failure so UI can warn */
+    let emailSent = false;
+    let emailError = null;
     try {
       if (isNewUser) {
         await sendCredentials({ toEmail: jr.email, toName: jr.name, password: tempPassword, clubName: jr.club_name });
       } else {
         await sendApproval({ toEmail: jr.email, toName: jr.name, clubName: jr.club_name });
       }
+      emailSent = true;
     } catch (emailErr) {
+      emailError = emailErr.message;
       console.error('Email send failed (non-fatal):', emailErr.message);
     }
 
@@ -224,6 +228,8 @@ const approve = async (req, res, next) => {
       message:     isNewUser ? 'Approved — new account created.' : 'Approved — student added to club.',
       newAccount:  isNewUser,
       credentials: isNewUser ? { email: jr.email, password: tempPassword, name: jr.name } : null,
+      emailSent,
+      emailError:  emailError || undefined,
     });
   } catch (err) {
     await pgClient.query('ROLLBACK').catch(() => {});

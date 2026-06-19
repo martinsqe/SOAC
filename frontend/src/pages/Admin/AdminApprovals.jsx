@@ -89,7 +89,7 @@ function JoinRequestsPanel() {
     setActionId(req._id);
     try {
       const res = await api.post(`/requests/${req._id}/approve`, {});
-      if (res.newAccount && res.credentials) setCreds(res.credentials);
+      if (res.newAccount && res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent });
       else showToast(res.message || 'Request approved!');
       loadRequests();
     } catch (err) { showToast(`Error: ${err.message}`); }
@@ -129,9 +129,19 @@ function JoinRequestsPanel() {
                 <strong style={{ color:'#635BFF', fontSize:18, letterSpacing:2 }}>{creds.password}</strong>
               </p>
             </div>
-            <p style={{ fontSize:12, color:'#6b7280', marginBottom:20 }}>
-              An email has been sent to the student. They must change their password on first login.
-            </p>
+            {creds.emailSent === false ? (
+              <div style={{
+                background:'#fff7ed', border:'1.5px solid #fb923c',
+                borderRadius:8, padding:'12px 14px', marginBottom:20,
+                fontSize:12, color:'#9a3412', lineHeight:1.7,
+              }}>
+                <strong>Email could not be sent.</strong> Share these credentials with the student directly. They must change their password on first login.
+              </div>
+            ) : (
+              <p style={{ fontSize:12, color:'#6b7280', marginBottom:20 }}>
+                An email was sent to the student. They must change their password on first login.
+              </p>
+            )}
             <button onClick={() => setCreds(null)}
               style={{ width:'100%', padding:12, borderRadius:10, border:'none',
                 background:'#635BFF', color:'#fff', fontWeight:700, cursor:'pointer' }}>

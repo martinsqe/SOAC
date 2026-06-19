@@ -58,7 +58,7 @@ export default function CoordRequests() {
     try {
       const res = await api.post(`/requests/${req._id}/approve`, {});
       if (res.newAccount && res.credentials) {
-        setCreds(res.credentials); // show credentials modal
+        setCreds({ ...res.credentials, emailSent: res.emailSent });
       } else {
         showToast(res.message || 'Request approved!');
       }
@@ -161,14 +161,25 @@ export default function CoordRequests() {
               </div>
             </div>
 
-            <div style={{
-              background:'#fffbeb', border:'1px solid #fcd34d',
-              borderRadius:10, padding:'10px 14px', marginBottom:18,
-              fontSize:12, color:'#92400e', lineHeight:1.6,
-            }}>
-              📧 A credentials email has also been sent to <strong>{creds.email}</strong>.
-              The student should change their password after first login.
-            </div>
+            {creds.emailSent === false ? (
+              <div style={{
+                background:'#fff7ed', border:'1.5px solid #fb923c',
+                borderRadius:10, padding:'12px 14px', marginBottom:18,
+                fontSize:12, color:'#9a3412', lineHeight:1.7,
+              }}>
+                <strong>Email could not be sent.</strong> Share these login credentials with the student directly.
+                They must change their password after first login.
+              </div>
+            ) : (
+              <div style={{
+                background:'#fffbeb', border:'1px solid #fcd34d',
+                borderRadius:10, padding:'10px 14px', marginBottom:18,
+                fontSize:12, color:'#92400e', lineHeight:1.6,
+              }}>
+                A credentials email was sent to <strong>{creds.email}</strong>.
+                The student should change their password after first login.
+              </div>
+            )}
 
             <button
               onClick={() => { setCreds(null); showToast('Approved — student can now log in.'); }}

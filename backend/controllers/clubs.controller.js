@@ -653,31 +653,39 @@ const assignCoordinator = async (req, res, next) => {
       cache.delPattern('clubs:*'),
     ]);
 
-    /* Send email (non-blocking):
-       - New user  → full credentials email with temp password
-       - Existing  → confirmation-only email, no password disclosed */
-    if (isNewUser) {
-      sendCoordinatorCredentials({
-        toEmail: emailLower, toName: coordName,
-        password: tempPassword, clubName: club.name,
-      }).catch(err => console.warn('Coordinator credentials email failed:', err.message));
-    } else {
-      sendCoordinatorAssignment({
-        toEmail: emailLower, toName: coordName, clubName: club.name,
-      }).catch(err => console.warn('Coordinator assignment email failed:', err.message));
+    /* Send email — await so we can report success/failure to the caller */
+    let emailSent = false;
+    let emailError = null;
+    try {
+      if (isNewUser) {
+        await sendCoordinatorCredentials({
+          toEmail: emailLower, toName: coordName,
+          password: tempPassword, clubName: club.name,
+        });
+      } else {
+        await sendCoordinatorAssignment({
+          toEmail: emailLower, toName: coordName, clubName: club.name,
+        });
+      }
+      emailSent = true;
+    } catch (err) {
+      emailError = err.message;
+      console.warn('Coordinator email failed:', err.message);
     }
 
     res.json({
       isNewUser,
+      emailSent,
+      emailError: emailError || undefined,
       credentials: {
         name:      coordName,
         email:     emailLower,
-        password:  tempPassword,   // null for existing users — no password was reset
+        password:  tempPassword,
         clubName:  club.name,
       },
       message: isNewUser
-        ? `Coordinator account created. Credentials sent to ${emailLower}.`
-        : `${coordName} added as coordinator of ${club.name}. Confirmation email sent to ${emailLower}.`,
+        ? `Coordinator account created${emailSent ? `. Credentials sent to ${emailLower}` : ' — email could not be sent, share credentials manually'}.`
+        : `${coordName} added as coordinator of ${club.name}${emailSent ? `. Confirmation sent to ${emailLower}` : ' — email could not be sent'}.`,
     });
   } catch (err) {
     if (err.code === '23505') {

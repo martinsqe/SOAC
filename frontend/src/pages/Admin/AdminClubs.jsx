@@ -243,7 +243,7 @@ export default function AdminClubs() {
       });
       closeAssignCoord();
       load();
-      if (res.credentials) setCreds(res.credentials);
+      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent });
     } catch (err) {
       setCoordError(err.message || 'Failed to assign coordinator.');
     } finally {
@@ -268,7 +268,7 @@ export default function AdminClubs() {
     try {
       const res = await api.post(`/requests/${reqId}/approve`, {});
       setRequests(p => p.map(r => r._id === reqId ? { ...r, status: 'approved' } : r));
-      if (res.newAccount && res.credentials) setCreds(res.credentials);
+      if (res.newAccount && res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent });
       load(); // refresh member counts
     } catch (err) {
       alert(err.message);
@@ -411,13 +411,24 @@ export default function AdminClubs() {
                     }}>{creds.password}</div>
                   </div>
                 </div>
-                <div style={{
-                  background:'#fffbeb', border:'1px solid #fcd34d',
-                  borderRadius:4, padding:'10px 14px', marginBottom:18,
-                  fontSize:12, color:'#92400e', lineHeight:1.6,
-                }}>
-                  A credentials email was also sent to <strong>{creds.email}</strong>. They should change their password on first login.
-                </div>
+                {creds.emailSent === false ? (
+                  <div style={{
+                    background:'#fff7ed', border:'1.5px solid #fb923c',
+                    borderRadius:8, padding:'12px 14px', marginBottom:18,
+                    fontSize:12, color:'#9a3412', lineHeight:1.7,
+                  }}>
+                    <strong>Email could not be sent.</strong> Share these credentials with the coordinator directly.
+                    They must change their password after first login.
+                  </div>
+                ) : (
+                  <div style={{
+                    background:'#fffbeb', border:'1px solid #fcd34d',
+                    borderRadius:4, padding:'10px 14px', marginBottom:18,
+                    fontSize:12, color:'#92400e', lineHeight:1.6,
+                  }}>
+                    A credentials email was sent to <strong>{creds.email}</strong>. They should change their password on first login.
+                  </div>
+                )}
               </>
             ) : (
               /* ── Existing user: confirmation only, no password shown ── */
@@ -433,13 +444,23 @@ export default function AdminClubs() {
                     Their existing credentials are unchanged — no password reset.
                   </div>
                 </div>
-                <div style={{
-                  background:'#eff6ff', border:'1px solid #bfdbfe',
-                  borderRadius:4, padding:'10px 14px', marginBottom:18,
-                  fontSize:12, color:'#1e40af', lineHeight:1.6,
-                }}>
-                  A confirmation email has been sent to <strong>{creds.email}</strong> notifying them of the new club assignment.
-                </div>
+                {creds.emailSent === false ? (
+                  <div style={{
+                    background:'#fff7ed', border:'1.5px solid #fb923c',
+                    borderRadius:8, padding:'12px 14px', marginBottom:18,
+                    fontSize:12, color:'#9a3412', lineHeight:1.7,
+                  }}>
+                    <strong>Notification email could not be sent.</strong> Inform {creds.name} manually that they now manage <strong>{creds.clubName}</strong>.
+                  </div>
+                ) : (
+                  <div style={{
+                    background:'#eff6ff', border:'1px solid #bfdbfe',
+                    borderRadius:4, padding:'10px 14px', marginBottom:18,
+                    fontSize:12, color:'#1e40af', lineHeight:1.6,
+                  }}>
+                    A confirmation email was sent to <strong>{creds.email}</strong> notifying them of the new club assignment.
+                  </div>
+                )}
               </>
             )}
 
