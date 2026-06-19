@@ -99,7 +99,11 @@ const ensureSoacTables = async () => {
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_clubs_active ON clubs(is_active)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_clubs_category_active ON clubs(category, is_active)`);
 
-  /* ── Drop old category CHECK constraint if it exists, add new one ──────── */
+  /* ── Migrate any old category values before adding constraint ─────────── */
+  await pgPool.query(`
+    UPDATE clubs SET category = 'academic'
+    WHERE category NOT IN ('sports','cultural','social','academic')
+  `);
   await pgPool.query(`
     DO $$ BEGIN
       ALTER TABLE clubs DROP CONSTRAINT IF EXISTS clubs_category_check;
