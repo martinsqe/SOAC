@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import s from './JoinModal.module.css';
 
-const DEPTS = ['Engineering','Pharmacy','Physiotherapy','Science'];
+const DEPTS = ['ACH','AI/ML','FOT','SDS','SOE','SPT','SOP','SOM','SOS',];
 const YEARS = ['1st Year','2nd Year','3rd Year','4th Year','5th Year', '6th Year'];
 
 export default function JoinModal({ club, onClose }) {
