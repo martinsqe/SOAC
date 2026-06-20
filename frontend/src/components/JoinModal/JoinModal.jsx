@@ -94,7 +94,7 @@ export default function JoinModal({ club, onClose }) {
               <div>
                 <label className={s.mlbl}>Department</label>
                 <select className={s.minp} value={form.dept} onChange={e => set('dept', e.target.value)}>
-                  <option value="">Select department</option>
+                  <option value="">Select School</option>
                   {DEPTS.map(d => <option key={d}>{d}</option>)}
                 </select>
               </div>
