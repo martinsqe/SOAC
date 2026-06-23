@@ -13,7 +13,7 @@ const CAT_LABELS = {
 const CAT_SHORT = {
   sports:'SPORTS', cultural:'CULTURAL', social:'SOCIAL', academic:'ACADEMIC',
 };
-const DEPTS = ['SOE','SOM','SPT','FOT','SDS','SOS'];
+const DEPTS = ['ACH','AI.ML','FOT','SOE','SOM','SOP','SPT','SDS','SOS'];
 const YEARS = ['1st Year','2nd Year','3rd Year','4th Year'];
 
 /* Static fallback — shown instantly while API loads, or if API is down */
