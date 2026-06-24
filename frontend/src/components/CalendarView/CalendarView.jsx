@@ -181,7 +181,7 @@ export default function CalendarView() {
                         <>
                           <span className={`${s.dayNum} ${isToday(d) ? s.dayNumToday : ''}`}>{d}</span>
                           <div className={s.chips}>
-                            {evs.slice(0, 3).map(ev => {
+                            {evs.slice(0, 2).map(ev => {
                               const m = TYPE_META[ev.type] || TYPE_META.event;
                               return (
                                 <div key={ev.id} className={s.chip}
@@ -191,8 +191,8 @@ export default function CalendarView() {
                                 </div>
                               );
                             })}
-                            {evs.length > 3 && (
-                              <div className={s.chipMore}>+{evs.length - 3} more</div>
+                            {evs.length > 2 && (
+                              <div className={s.chipMore}>+{evs.length - 2} more</div>
                             )}
                           </div>
                         </>

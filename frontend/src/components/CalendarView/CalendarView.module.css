@@ -245,19 +245,21 @@
 }
 
 .chip {
-  display: block;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   font-size: .66rem;
   font-weight: 500;
-  padding: 1px 5px;
+  padding: 2px 5px;
   border-radius: 3px;
   border-left: 3px solid;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  line-height: 1.6;
+  line-height: 1.4;
   cursor: default;
 }
 
