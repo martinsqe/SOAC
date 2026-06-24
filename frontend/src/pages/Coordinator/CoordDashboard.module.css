@@ -277,18 +277,14 @@
   font-size: 12px;
   font-weight: 600;
   color: #0f0a2e;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  word-break: break-word;
 }
 
 .calItemDesc {
   font-size: 11px;
   color: #9ca3af;
   margin-top: 1px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  word-break: break-word;
 }
 
 .calItemBadge {

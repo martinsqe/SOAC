@@ -159,49 +159,52 @@ export default function CalendarView() {
               ))}
             </div>
 
-            {/* Weekday headers */}
-            <div className={s.weekRow}>
-              {WEEKDAYS.map(d => <div key={d} className={s.weekHdr}>{d}</div>)}
-            </div>
+            {/* Scrollable grid wrapper (enables horizontal scroll on mobile) */}
+            <div className={s.calScrollWrap}>
+              {/* Weekday headers */}
+              <div className={s.weekRow}>
+                {WEEKDAYS.map(d => <div key={d} className={s.weekHdr}>{d}</div>)}
+              </div>
 
-            {/* Grid */}
-            {loading ? (
-              <div className={s.calLoading}>
-                <div className={s.spinner} />
-                <span>Loading…</span>
-              </div>
-            ) : (
-              <div className={s.calGrid}>
-                {cells.map((d, i) => {
-                  const evs = eventsOnDay(d);
-                  return (
-                    <div key={i}
-                      className={`${s.cell} ${d === null ? s.cellOff : ''} ${isToday(d) ? s.cellToday : ''}`}>
-                      {d !== null && (
-                        <>
-                          <span className={`${s.dayNum} ${isToday(d) ? s.dayNumToday : ''}`}>{d}</span>
-                          <div className={s.chips}>
-                            {evs.slice(0, 2).map(ev => {
-                              const m = TYPE_META[ev.type] || TYPE_META.event;
-                              return (
-                                <div key={ev.id} className={s.chip}
-                                  style={{ background: m.bg, color: m.color, borderLeftColor: m.color }}
-                                  title={ev.title}>
-                                  {ev.title}
-                                </div>
-                              );
-                            })}
-                            {evs.length > 2 && (
-                              <div className={s.chipMore}>+{evs.length - 2} more</div>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+              {/* Grid */}
+              {loading ? (
+                <div className={s.calLoading}>
+                  <div className={s.spinner} />
+                  <span>Loading…</span>
+                </div>
+              ) : (
+                <div className={s.calGrid}>
+                  {cells.map((d, i) => {
+                    const evs = eventsOnDay(d);
+                    return (
+                      <div key={i}
+                        className={`${s.cell} ${d === null ? s.cellOff : ''} ${isToday(d) ? s.cellToday : ''}`}>
+                        {d !== null && (
+                          <>
+                            <span className={`${s.dayNum} ${isToday(d) ? s.dayNumToday : ''}`}>{d}</span>
+                            <div className={s.chips}>
+                              {evs.slice(0, 2).map(ev => {
+                                const m = TYPE_META[ev.type] || TYPE_META.event;
+                                return (
+                                  <div key={ev.id} className={s.chip}
+                                    style={{ background: m.bg, color: m.color, borderLeftColor: m.color }}
+                                    title={ev.title}>
+                                    {ev.title}
+                                  </div>
+                                );
+                              })}
+                              {evs.length > 2 && (
+                                <div className={s.chipMore}>+{evs.length - 2} more</div>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Upcoming sidebar */}

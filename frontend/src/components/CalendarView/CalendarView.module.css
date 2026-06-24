@@ -185,6 +185,18 @@
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── Scroll wrapper (horizontal scroll on mobile) ────────── */
+.calScrollWrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #e5e7eb transparent;
+  margin: 0 -18px;
+  padding: 0 18px;
+}
+.calScrollWrap::-webkit-scrollbar { height: 4px; }
+.calScrollWrap::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 4px; }
+
 /* ── Calendar grid cells ─────────────────────────────────── */
 .calGrid {
   display: grid;
@@ -616,3 +628,26 @@
 .emptyIcon  { font-size: 2.2rem; margin-bottom: 12px; }
 .emptyTitle { font-size: .95rem; font-weight: 600; color: #374151; margin: 0 0 6px; }
 .emptySub   { font-size: .82rem; color: #9ca3af; margin: 0; max-width: 300px; }
+
+/* ── Mobile responsiveness ───────────────────────────────── */
+@media (max-width: 640px) {
+  .page { padding: 16px 14px 40px; }
+
+  .calPanel { padding: 14px; border-radius: 10px; }
+
+  /* Force grid to stay readable — scroll rather than squish */
+  .weekRow,
+  .calGrid { min-width: 520px; }
+
+  /* Taller cells on mobile for better readability */
+  .cell { height: 130px; min-height: 130px; }
+
+  /* Bigger day number tap target */
+  .dayNum { width: 28px; height: 28px; font-size: .85rem; }
+
+  /* Slightly larger chip text on mobile */
+  .chip { font-size: .72rem; }
+
+  /* Sidebar stacks below on mobile — already handled at 900px */
+  .monthlyWrap { gap: 14px; }
+}
