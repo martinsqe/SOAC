@@ -148,7 +148,7 @@
 
 .weekRow {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(110px, 1fr));
   border-bottom: 1px solid #e5e7eb;
   margin-bottom: 0;
 }
@@ -190,26 +190,25 @@
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
-  scrollbar-color: #e5e7eb transparent;
-  margin: 0 -18px;
-  padding: 0 18px;
+  scrollbar-color: #d1d5db transparent;
 }
-.calScrollWrap::-webkit-scrollbar { height: 4px; }
-.calScrollWrap::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 4px; }
+.calScrollWrap::-webkit-scrollbar { height: 5px; }
+.calScrollWrap::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
 
 /* ── Calendar grid cells ─────────────────────────────────── */
 .calGrid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  /* min-width on columns ensures scroll triggers on small screens */
+  grid-template-columns: repeat(7, minmax(110px, 1fr));
 }
 
 .cell {
-  height: 110px;
-  min-height: 110px;
+  height: 130px;
+  min-height: 130px;
   overflow: hidden;
   border-right: 1px solid #f0f0f0;
   border-bottom: 1px solid #f0f0f0;
-  padding: 5px 7px;
+  padding: 6px 8px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -260,9 +259,9 @@
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  font-size: .66rem;
+  font-size: .75rem;
   font-weight: 500;
-  padding: 2px 5px;
+  padding: 3px 6px;
   border-radius: 3px;
   border-left: 3px solid;
   overflow: hidden;
@@ -632,22 +631,6 @@
 /* ── Mobile responsiveness ───────────────────────────────── */
 @media (max-width: 640px) {
   .page { padding: 16px 14px 40px; }
-
-  .calPanel { padding: 14px; border-radius: 10px; }
-
-  /* Force grid to stay readable — scroll rather than squish */
-  .weekRow,
-  .calGrid { min-width: 520px; }
-
-  /* Taller cells on mobile for better readability */
-  .cell { height: 130px; min-height: 130px; }
-
-  /* Bigger day number tap target */
-  .dayNum { width: 28px; height: 28px; font-size: .85rem; }
-
-  /* Slightly larger chip text on mobile */
-  .chip { font-size: .72rem; }
-
-  /* Sidebar stacks below on mobile — already handled at 900px */
+  .calPanel { padding: 12px; border-radius: 10px; }
   .monthlyWrap { gap: 14px; }
 }
