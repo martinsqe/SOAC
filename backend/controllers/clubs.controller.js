@@ -1,5 +1,3 @@
-const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const slugify = require('slugify');
@@ -7,6 +5,8 @@ const { pgPool } = require('../config/db');
 const { sendCoordinatorCredentials, sendCoordinatorAssignment } = require('../config/email');
 const { ensureSoacTables, asClub } = require('../services/soacData');
 const { assertCoordOwnsClub, getCoordClubIds } = require('../services/coordAuth');
+const { destroyImage } = require('../config/cloudinary');
+const { getFileValue } = require('../config/multer');
 const cache = require('../services/cache');
 
 /* ── Column list (every column asClub() reads) ─────────────────────────────
@@ -29,9 +29,9 @@ const parsePage = (query) => {
 
 const logoUrl = (filename) => {
   if (!filename) return '';
-  return /^\d{13}-/.test(filename)
-    ? `/uploads/logos/${filename}`
-    : `/logos/${filename}`;
+  if (filename.startsWith('http')) return filename;         // Cloudinary URL
+  if (/^\d{13}-/.test(filename)) return `/uploads/logos/${filename}`; // legacy local
+  return `/logos/${filename}`;                              // seeded asset
 };
 
 const withLogoUrl = (club) => {
@@ -51,11 +51,6 @@ const logAudit = async (userId, userName, action, entityType, entityId, meta = {
   } catch (_) {}
 };
 
-const deleteFile = (filename, subdir) => {
-  if (!filename) return;
-  const fp = path.join(__dirname, '..', 'uploads', subdir, filename);
-  if (fs.existsSync(fp)) fs.unlinkSync(fp);
-};
 
 /* GET /api/clubs  (public)
    Supports ?page=&limit=&category=&search=
@@ -143,7 +138,7 @@ const create = async (req, res, next) => {
   try {
     await ensureSoacTables();
     const { name, category, color, coordinator, foundedYear, memberCount, eventCount, description, tags } = req.body;
-    const logo = req.file ? req.file.filename : '';
+    const logo = getFileValue(req.file) ?? '';
     const { rows } = await pgPool.query(
       `INSERT INTO clubs
        (name, slug, category, color, coordinator, founded_year, member_count, event_count, description, tags, logo)
@@ -174,8 +169,8 @@ const update = async (req, res, next) => {
     const current = cur[0];
 
     const { name, category, color, coordinator, foundedYear, memberCount, eventCount, description, tags } = req.body;
-    const nextLogo  = req.file ? req.file.filename : current.logo;
-    if (req.file) deleteFile(current.logo, 'logos');
+    const nextLogo  = req.file ? getFileValue(req.file) : current.logo;
+    if (req.file) await destroyImage(current.logo);
     const finalName = name || current.name;
 
     const { rows } = await pgPool.query(
@@ -243,7 +238,7 @@ const remove = async (req, res, next) => {
 
     /* 1. Fetch club before anything is deleted */
     const { rows: clubRows } = await client.query(
-      `SELECT id, name, logo FROM clubs WHERE id = $1`,
+      `SELECT id, name, slug, logo FROM clubs WHERE id = $1`,
       [req.params.id]
     );
     if (!clubRows.length) {
@@ -256,7 +251,13 @@ const remove = async (req, res, next) => {
           event_registrations cascade from events automatically. */
     await client.query(`DELETE FROM events WHERE club ILIKE $1`, [club.name]);
 
-    /* 3. Hard-delete the club row.
+    /* 3. Record slug so autoSeed never re-creates this club on future deploys */
+    await client.query(
+      `INSERT INTO seed_exclusions (slug) VALUES ($1) ON CONFLICT DO NOTHING`,
+      [club.slug]
+    );
+
+    /* 4. Hard-delete the club row.
           All tables with ON DELETE CASCADE FK clean up automatically:
           join_requests, student_clubs, club_announcements,
           club_leadership, club_messages, club_tasks,
@@ -266,8 +267,8 @@ const remove = async (req, res, next) => {
 
     await client.query('COMMIT');
 
-    /* 4. Remove logo file from disk (fire-and-forget) */
-    if (club.logo) deleteFile(club.logo, 'logos');
+    /* 4. Delete logo from Cloudinary (fire-and-forget) */
+    if (club.logo) destroyImage(club.logo).catch(() => {});
 
     /* 5. Audit log + cache bust */
     await logAudit(req.user.id, req.user.name, 'DELETE_CLUB', 'club', club.id, { name: club.name });

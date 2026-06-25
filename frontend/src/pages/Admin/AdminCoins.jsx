@@ -24,7 +24,7 @@ function Avatar({ avatar, name, color, size = 40 }) {
   if (avatar && !err) {
     return (
       <img
-        src={AVATAR_BASE + avatar}
+        src={avatar.startsWith('http') ? avatar : AVATAR_BASE + avatar}
         alt={name}
         style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
         onError={() => setErr(true)}

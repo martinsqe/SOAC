@@ -144,7 +144,7 @@ function CoordLayoutInner() {
     }
   }, [location.pathname]);
 
-  const avatarUrl = user?.avatar ? AVATAR_BASE + user.avatar : null;
+  const avatarUrl = user?.avatar ? (user.avatar.startsWith('http') ? user.avatar : AVATAR_BASE + user.avatar) : null;
   const initial   = user?.name?.charAt(0)?.toUpperCase() || 'C';
 
   const handleLogout = async () => {

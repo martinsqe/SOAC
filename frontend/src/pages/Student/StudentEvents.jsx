@@ -3,7 +3,7 @@ import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import s from './StudentEvents.module.css';
 
-const DEPTS = ['SOE', 'SOM', 'SPT', 'FOT', 'SDS', 'SOS'];
+const DEPTS = ['ACH','AI/ML','BCA', 'FOT','SOE', 'SOM', 'SPT',  'SDS', 'SOS'];
 const EMPTY_FORM = { enrollmentNo: '', dept: '', course: '', phone: '' };
 
 const CAT_COLOR = {

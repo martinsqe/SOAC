@@ -64,7 +64,8 @@ function formatDate(dateStr) {
 }
 
 function avatarUrl(filename) {
-  return filename ? AVATAR_BASE + filename : '';
+  if (!filename) return '';
+  return filename.startsWith('http') ? filename : AVATAR_BASE + filename;
 }
 
 /* ── Avatar component ── */

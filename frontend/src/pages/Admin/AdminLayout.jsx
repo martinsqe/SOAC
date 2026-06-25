@@ -56,7 +56,7 @@ export default function AdminLayout() {
     if (location.pathname.startsWith('/admin/chats')) setUnreadDMs(0);
   }, [location.pathname]);
 
-  const avatarUrl = user?.avatar ? AVATAR_BASE + user.avatar : null;
+  const avatarUrl = user?.avatar ? (user.avatar.startsWith('http') ? user.avatar : AVATAR_BASE + user.avatar) : null;
   const initial   = user?.name?.charAt(0)?.toUpperCase() || 'A';
 
   const handleLogout = async () => {

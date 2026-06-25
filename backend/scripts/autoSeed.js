@@ -633,6 +633,15 @@ const autoSeed = async () => {
   try {
     await ensureSoacTables();
 
+    /* ── Create seed_exclusions table (tracks admin-deleted clubs so they
+          are never re-seeded on future deployments) ───────────────────── */
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS seed_exclusions (
+        slug        TEXT PRIMARY KEY,
+        deleted_at  TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
     /* ── Migrate existing clubs to 4-category system ─────────────────────── */
     await pgPool.query(`
       UPDATE clubs SET category = 'academic'
@@ -657,12 +666,24 @@ const autoSeed = async () => {
         AND name NOT IN ('Bumblebeez', 'Soul of Music', 'Kalaraw Club', 'Pictza Club');
     `);
 
+    /* ── Load excluded slugs once ────────────────────────────────────────── */
+    const { rows: excludedRows } = await pgPool.query('SELECT slug FROM seed_exclusions');
+    const excludedSlugs = new Set(excludedRows.map(r => r.slug));
+
     /* ── Upsert all clubs with rich data ─────────────────────────────────── */
     let upserted = 0;
+    let skipped  = 0;
     let failed   = 0;
     for (const c of CLUBS) {
       try {
         const slug = slugify(c.name, { lower: true, strict: true });
+
+        /* Skip clubs the admin deliberately deleted */
+        if (excludedSlugs.has(slug)) {
+          skipped++;
+          continue;
+        }
+
         await pgPool.query(
           `INSERT INTO clubs
              (name, slug, category, color, coordinator, founded_year,
@@ -703,7 +724,7 @@ const autoSeed = async () => {
         console.warn(`⚠️  Failed to upsert club "${c.name}": ${clubErr.message}`);
       }
     }
-    console.log(`✅  Club upsert complete (${upserted}/${CLUBS.length} clubs${failed ? `, ${failed} failed` : ''})`);
+    console.log(`✅  Club upsert complete (${upserted} upserted, ${skipped} excluded by admin, ${failed} failed)`);
 
     /* ── Seed events only on first run ───────────────────────────────────── */
     const { rows: [{ count: eventCount }] } = await pgPool.query(

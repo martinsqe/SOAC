@@ -1,7 +1,7 @@
-const path    = require('path');
-const fs      = require('fs');
 const slugify = require('slugify');
 const { pgPool } = require('../config/db');
+const { destroyImage } = require('../config/cloudinary');
+const { getFileValue } = require('../config/multer');
 const cache      = require('../services/cache');
 
 /* ─── helpers ─────────────────────────────────────────────────────────────── */
@@ -14,17 +14,11 @@ const toArray = (v) => {
   return [];
 };
 
-const deleteFile = (filename, subdir) => {
-  if (!filename) return;
-  const fp = path.join(__dirname, '..', 'uploads', subdir, filename);
-  try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch (_) {}
-};
-
 const logoUrl = (filename) => {
   if (!filename) return '';
-  return /^\d{13}-/.test(filename)
-    ? `/uploads/logos/${filename}`
-    : `/logos/${filename}`;
+  if (filename.startsWith('http')) return filename;          // Cloudinary URL
+  if (/^\d{13}-/.test(filename)) return `/uploads/logos/${filename}`; // legacy local
+  return `/logos/${filename}`;                               // seeded asset
 };
 
 /* ─── POST /api/club-proposals ────────────────────────────────────────────── */
@@ -110,7 +104,7 @@ const reject = async (req, res, next) => {
 /* creating. On success: club created, proposal marked approved.                */
 const approve = async (req, res, next) => {
   const client = await pgPool.connect();
-  let uploadedFile = req.file?.filename || null;
+  let uploadedFile = req.file ? getFileValue(req.file) : null;
 
   try {
     await client.query('BEGIN');
@@ -122,7 +116,7 @@ const approve = async (req, res, next) => {
     );
     if (!propRows.length) {
       await client.query('ROLLBACK');
-      if (uploadedFile) deleteFile(uploadedFile, 'logos');
+      if (uploadedFile) destroyImage(uploadedFile).catch(() => {});
       return res.status(404).json({ message: 'Proposal not found or already reviewed.' });
     }
     const prop = propRows[0];
@@ -185,7 +179,7 @@ const approve = async (req, res, next) => {
     });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    if (uploadedFile) deleteFile(uploadedFile, 'logos');
+    if (uploadedFile) destroyImage(uploadedFile).catch(() => {});
     next(err);
   } finally {
     client.release();

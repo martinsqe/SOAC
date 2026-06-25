@@ -7,7 +7,7 @@ const AVATAR_BASE = '/uploads/avatars/';
 const ACCENT      = '#635bff';
 
 /* ── helpers ── */
-function avatarUrl(f) { return f ? AVATAR_BASE + f : ''; }
+function avatarUrl(f) { if (!f) return ''; return f.startsWith('http') ? f : AVATAR_BASE + f; }
 
 function convTime(dateStr) {
   if (!dateStr) return '';

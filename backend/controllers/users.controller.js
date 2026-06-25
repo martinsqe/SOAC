@@ -1,6 +1,7 @@
 const bcrypt   = require('bcryptjs');
 const crypto   = require('crypto');
 const { pgPool } = require('../config/db');
+const { getFileValue } = require('../config/multer');
 const { ensureSoacTables } = require('../services/soacData');
 const { sendCredentials } = require('../config/email');
 const cache = require('../services/cache');
@@ -239,7 +240,7 @@ const updateProfile = async (req, res, next) => {
     const { name } = req.body;
     const updates = []; const vals = []; let i = 1;
     if (name?.trim()) { updates.push(`name   = $${i++}`); vals.push(name.trim()); }
-    if (req.file)     { updates.push(`avatar = $${i++}`); vals.push(req.file.filename); }
+    if (req.file)     { updates.push(`avatar = $${i++}`); vals.push(getFileValue(req.file)); }
     if (!updates.length) return res.status(400).json({ message: 'Nothing to update.' });
 
     vals.push(req.user.id);

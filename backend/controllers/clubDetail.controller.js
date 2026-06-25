@@ -4,6 +4,7 @@
  */
 const { pgPool } = require('../config/db');
 const { ensureSoacTables } = require('../services/soacData');
+const { getFileValue } = require('../config/multer');
 
 /* ── GET /api/clubs/:id/membership  (authenticated) ────────────────────── */
 const getMembership = async (req, res, next) => {
@@ -59,7 +60,7 @@ const setLeadership = async (req, res, next) => {
     const photosByIndex = {};
     (req.files || []).forEach(f => {
       const m = f.fieldname.match(/^photo_(\d+)$/);
-      if (m) photosByIndex[parseInt(m[1], 10)] = `/uploads/leadership/${f.filename}`;
+      if (m) photosByIndex[parseInt(m[1], 10)] = getFileValue(f);
     });
 
     const clubId = req.params.id;

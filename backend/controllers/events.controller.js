@@ -1,8 +1,8 @@
-const fs           = require('fs');
-const path         = require('path');
 const { pgPool }   = require('../config/db');
 const { ensureSoacTables, asEvent } = require('../services/soacData');
 const { getCoordClubIds } = require('../services/coordAuth');
+const { destroyImage } = require('../config/cloudinary');
+const { getFileValue } = require('../config/multer');
 const cache = require('../services/cache');
 
 /* ── Column lists ───────────────────────────────────────────────────────────*/
@@ -35,17 +35,11 @@ const logAudit = async (userId, userName, action, entityType, entityId, meta = {
   } catch (_) {}
 };
 
-const deleteFile = (filename, subdir) => {
-  if (!filename) return;
-  const fp = path.join(__dirname, '..', 'uploads', subdir, filename);
-  if (fs.existsSync(fp)) fs.unlinkSync(fp);
-};
-
 const imageUrl = (filename) => {
   if (!filename) return '';
-  return /^\d{13}-/.test(filename)
-    ? `/uploads/events/${filename}`
-    : `/images/${filename}`;
+  if (filename.startsWith('http')) return filename;          // Cloudinary URL
+  if (/^\d{13}-/.test(filename)) return `/uploads/events/${filename}`; // legacy local
+  return `/images/${filename}`;                              // seeded asset
 };
 
 const withImageUrl = (event) => {
@@ -267,7 +261,7 @@ const create = async (req, res, next) => {
       description, tags, seats, highlight, registrationUrl,
       isFree, feeAmount,
     } = req.body;
-    const image   = req.file ? req.file.filename : '';
+    const image   = getFileValue(req.file) ?? '';
     const is_free = isFree === 'false' || isFree === false ? false : true;
     const { rows } = await pgPool.query(
       `INSERT INTO events
@@ -297,7 +291,7 @@ const update = async (req, res, next) => {
       [req.params.id]
     );
     if (!cur.length) return res.status(404).json({ message: 'Event not found.' });
-    if (req.file) deleteFile(cur[0].image, 'events');
+    if (req.file) await destroyImage(cur[0].image);
 
     const isFreeRaw = req.body.isFree;
     const is_free   = isFreeRaw === undefined ? undefined
@@ -338,7 +332,7 @@ const update = async (req, res, next) => {
         req.body.highlight       ?? null,
         req.body.registrationUrl ?? null,
         req.body.tags ? JSON.parse(req.body.tags) : null,
-        req.file ? req.file.filename : cur[0].image,
+        req.file ? getFileValue(req.file) : cur[0].image,
         is_free   ?? null,
         is_free === undefined ? null : (is_free ? 0 : Number(req.body.feeAmount) || 0),
         req.params.id,

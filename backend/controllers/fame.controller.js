@@ -1,6 +1,6 @@
 const { pgPool } = require('../config/db');
-const fs = require('fs');
-const path = require('path');
+const { destroyImage } = require('../config/cloudinary');
+const { getFileValue } = require('../config/multer');
 const cache = require('../services/cache');
 
 const FAME_COLS = [
@@ -10,9 +10,9 @@ const FAME_COLS = [
 
 const fameUrl = (filename) => {
   if (!filename) return '';
-  return /^\d{13}-/.test(filename)
-    ? `/uploads/fame/${filename}`
-    : `/images/fame/${filename}`; // fallback for seeded or legacy images
+  if (filename.startsWith('http')) return filename;          // Cloudinary URL
+  if (/^\d{13}-/.test(filename)) return `/uploads/fame/${filename}`; // legacy local
+  return `/images/fame/${filename}`;                         // seeded asset
 };
 
 const withFameUrl = (row) => ({
@@ -54,7 +54,7 @@ const getAll = async (req, res, next) => {
 const create = async (req, res, next) => {
   try {
     const { name, achievement, description, term, club_id, club_name, year, category, sort_order } = req.body;
-    const image = req.file ? req.file.filename : '';
+    const image = getFileValue(req.file) ?? '';
 
     const { rows } = await pgPool.query(
       `INSERT INTO wall_of_fame 
@@ -87,12 +87,8 @@ const update = async (req, res, next) => {
     let image = cur[0].image;
 
     if (req.file) {
-      // delete old file if it was an upload
-      if (image && /^\d{13}-/.test(image)) {
-        const oldPath = path.join(__dirname, '..', 'uploads', 'fame', image);
-        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-      }
-      image = req.file.filename;
+      await destroyImage(image);
+      image = getFileValue(req.file);
     }
 
     const { rows } = await pgPool.query(
