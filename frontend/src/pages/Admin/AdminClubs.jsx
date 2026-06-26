@@ -487,8 +487,8 @@ export default function AdminClubs() {
         <button className={s.addBtn} onClick={openAdd}>+ Add Club</button>
       </div>
 
-      {/* ── Filters ── */}
-      <div className={s.filters}>
+      {/* ── Search ── */}
+      <div className={s.searchRow}>
         <div className={s.searchWrap}>
           <svg className={s.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -500,6 +500,10 @@ export default function AdminClubs() {
             onChange={e => setSearch(e.target.value)}
           />
         </div>
+      </div>
+
+      {/* ── Category tabs — horizontally scrollable, no scrollbar ── */}
+      <div className={s.catTabsScroll}>
         <div className={s.catTabs}>
           {['all', ...CATS].map(c => (
             <button
