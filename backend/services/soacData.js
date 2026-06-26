@@ -435,6 +435,10 @@ const ensureSoacTables = async () => {
   await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS is_free BOOLEAN NOT NULL DEFAULT true`);
   await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS fee_amount NUMERIC(10,2) NOT NULL DEFAULT 0`);
 
+  /* ── Add club_id FK to events so admin can assign events to specific clubs ── */
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS club_id BIGINT REFERENCES clubs(id) ON DELETE SET NULL`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_events_club_id ON events(club_id)`);
+
   /* ── Event requests (coordinator → admin approval flow) ─────────────────── */
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS event_requests (
@@ -569,6 +573,7 @@ const asEvent = (row) => ({
   id: String(row.id),
   title: row.title,
   club: row.club || '',
+  clubId: row.club_id ? String(row.club_id) : null,
   category: row.category,
   status: row.status,
   date: row.date || '',

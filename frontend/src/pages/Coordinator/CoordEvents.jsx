@@ -90,7 +90,7 @@ export default function CoordEvents() {
     setLoading(true);
     Promise.all([
       api.get('/event-requests/mine').catch(() => ({ requests: [] })),
-      api.get(`/events?club=${encodeURIComponent(club.name)}`).catch(() => ({ events: [] })),
+      api.get(`/events?clubId=${club.id}`).catch(() => ({ events: [] })),
     ]).then(([rRes, eRes]) => {
       setReqs(rRes.requests || []);
       setEvents(eRes.events || []);

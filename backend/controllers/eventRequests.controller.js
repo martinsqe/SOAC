@@ -131,7 +131,7 @@ const approveRequest = async (req, res, next) => {
     const {
       title       = r.title,
       description = r.description,
-      club        = r.club_name,
+      clubId,               // admin may override club assignment
       category    = r.category,
       date        = r.date,
       start_date  = r.start_date,
@@ -146,23 +146,38 @@ const approveRequest = async (req, res, next) => {
       status      = 'upcoming',
     } = req.body;
 
+    // Resolve club: admin-supplied clubId overrides coordinator's original club
+    let resolvedClubId   = r.club_id;
+    let resolvedClubName = r.club_name;
+    if (clubId !== undefined) {
+      if (clubId) {
+        const { rows: clubRows } = await pgPool.query(
+          'SELECT id, name FROM clubs WHERE id = $1 AND is_active = true', [clubId]
+        );
+        if (clubRows[0]) { resolvedClubId = clubRows[0].id; resolvedClubName = clubRows[0].name; }
+      } else {
+        resolvedClubId = null; resolvedClubName = '';
+      }
+    }
+
     const parsedTags = Array.isArray(tags)
       ? tags
       : typeof tags === 'string'
         ? tags.split(',').map(t => t.trim()).filter(Boolean)
         : (r.tags || []);
 
-    // 3. Create the event
+    // 3. Create the event (including club_id FK)
     const evRes = await pgPool.query(
       `INSERT INTO events
-         (title, club, category, status, date, start_date, time, venue,
+         (title, club, club_id, category, status, date, start_date, time, venue,
           description, seats, tags, highlight, registration_url,
           is_free, fee_amount, is_active)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,true)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,true)
        RETURNING *`,
       [
         title?.trim() || r.title,
-        club || r.club_name,
+        resolvedClubName,
+        resolvedClubId,
         category || r.category,
         status,
         date || r.date || '',

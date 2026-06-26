@@ -17,7 +17,7 @@ const CAT_LABEL = {
 };
 
 const EMPTY = {
-  title: '', club: '', category: 'general', status: 'upcoming',
+  title: '', clubId: '', category: 'general', status: 'upcoming',
   date: '', startDate: '', time: '', venue: '',
   description: '', seats: '', highlight: '', registrationUrl: '',
   isFree: true, feeAmount: '',
@@ -96,6 +96,9 @@ export default function AdminEvents() {
   const [rejecting,   setRejecting]   = useState(false);
   const [toast,       setToast]       = useState('');
 
+  /* ── Clubs list (for dropdown) ── */
+  const [clubs, setClubs] = useState([]);
+
   /* ── Registrations panel ── */
   const [regEvent,    setRegEvent]    = useState(null);
   const [regs,        setRegs]        = useState([]);
@@ -113,6 +116,9 @@ export default function AdminEvents() {
       .finally(() => setLoading(false));
   }, []);
   useEffect(load, [load]);
+  useEffect(() => {
+    api.get('/clubs?limit=200').then(d => setClubs(d.clubs || [])).catch(() => {});
+  }, []);
 
   const loadRequests = useCallback(() => {
     setReqLoading(true);
@@ -131,7 +137,7 @@ export default function AdminEvents() {
 
   const openEdit = (ev) => {
     setForm({
-      title: ev.title, club: ev.club || '', category: ev.category, status: ev.status,
+      title: ev.title, clubId: ev.clubId || '', category: ev.category, status: ev.status,
       date: ev.date || '', startDate: ev.startDate ? ev.startDate.slice(0, 10) : '',
       time: ev.time || '', venue: ev.venue || '', description: ev.description || '',
       seats: ev.seats || '', highlight: ev.highlight || '', registrationUrl: ev.registrationUrl || '',
@@ -149,7 +155,7 @@ export default function AdminEvents() {
   const openApprove = (req) => {
     setForm({
       title:           req.title,
-      club:            req.clubName,
+      clubId:          req.clubId || '',
       category:        req.category || 'general',
       status:          'upcoming',
       date:            req.date || '',
@@ -199,7 +205,7 @@ export default function AdminEvents() {
         /* Approve the coordinator's request — creates event + marks approved */
         const payload = {
           title:            form.title.trim(),
-          club:             form.club,
+          clubId:           form.clubId || null,
           category:         form.category,
           status:           form.status,
           date:             form.date,
@@ -547,7 +553,12 @@ export default function AdminEvents() {
               <div className={s.row2}>
                 <div className={s.field}>
                   <label>Club / Organizer</label>
-                  <input value={form.club} onChange={sf('club')} placeholder="e.g. SOAC · RK University" />
+                  <select value={form.clubId} onChange={sf('clubId')}>
+                    <option value="">SOAC · RK University (non-club event)</option>
+                    {clubs.map(cl => (
+                      <option key={cl._id || cl.id} value={cl._id || cl.id}>{cl.name}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className={s.field}>
                   <label>Category</label>

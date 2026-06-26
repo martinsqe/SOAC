@@ -7,7 +7,7 @@ const cache = require('../services/cache');
 
 /* ── Column lists ───────────────────────────────────────────────────────────*/
 const EVENT_COLS = [
-  'id', 'title', 'club', 'category', 'status', 'date', 'start_date',
+  'id', 'title', 'club', 'club_id', 'category', 'status', 'date', 'start_date',
   'time', 'venue', 'description', 'image', 'tags', 'seats',
   'highlight', 'registration_url', 'is_free', 'fee_amount',
   'is_active', 'created_at', 'updated_at',
@@ -71,12 +71,10 @@ const getAll = async (req, res, next) => {
     if (status   && status   !== 'all') { values.push(status);        clauses.push(`e.status   = $${values.length}`); }
     if (category && category !== 'all') { values.push(category);      clauses.push(`e.category = $${values.length}`); }
 
-    // clubId (preferred): join clubs table for exact match by primary key
-    let joinClubs = '';
+    // clubId (preferred): filter directly by events.club_id FK
     if (clubId) {
-      joinClubs = 'JOIN clubs c ON c.name ILIKE e.club AND c.is_active = true';
       values.push(clubId);
-      clauses.push(`c.id = $${values.length}::bigint`);
+      clauses.push(`e.club_id = $${values.length}::bigint`);
     } else if (club) {
       // Legacy: filter by club name substring
       values.push(`%${club}%`);
@@ -87,7 +85,6 @@ const getAll = async (req, res, next) => {
     const { rows } = await pgPool.query(
       `SELECT ${EVENT_COLS.split(', ').map(c => `e.${c}`).join(', ')}, COUNT(*) OVER() AS total_count
        FROM events e
-       ${joinClubs}
        WHERE ${clauses.join(' AND ')}
        ORDER BY e.start_date ASC NULLS LAST, e.created_at DESC
        LIMIT $${values.length - 1} OFFSET $${values.length}`,
@@ -257,20 +254,32 @@ const create = async (req, res, next) => {
   try {
     await ensureSoacTables();
     const {
-      title, club, category, status, date, startDate, time, venue,
+      title, clubId, category, status, date, startDate, time, venue,
       description, tags, seats, highlight, registrationUrl,
       isFree, feeAmount,
     } = req.body;
+
+    // Resolve club name from clubId (if provided); SOAC if blank
+    let clubName = '';
+    let resolvedClubId = null;
+    if (clubId) {
+      const { rows: clubRows } = await pgPool.query(
+        'SELECT id, name FROM clubs WHERE id = $1 AND is_active = true',
+        [clubId]
+      );
+      if (clubRows[0]) { resolvedClubId = clubRows[0].id; clubName = clubRows[0].name; }
+    }
+
     const image   = getFileValue(req.file) ?? '';
     const is_free = isFree === 'false' || isFree === false ? false : true;
     const { rows } = await pgPool.query(
       `INSERT INTO events
-       (title, club, category, status, date, start_date, time, venue,
+       (title, club, club_id, category, status, date, start_date, time, venue,
         description, image, tags, seats, highlight, registration_url, is_free, fee_amount)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
        RETURNING ${EVENT_COLS}`,
       [
-        title, club || '', category || 'general', status || 'upcoming', date || '',
+        title, clubName, resolvedClubId, category || 'general', status || 'upcoming', date || '',
         startDate ? new Date(startDate) : null, time || '', venue || '', description || '', image,
         tags ? JSON.parse(tags) : [], seats || '', highlight || '', registrationUrl || '',
         is_free, is_free ? 0 : Number(feeAmount) || 0,
@@ -293,6 +302,24 @@ const update = async (req, res, next) => {
     if (!cur.length) return res.status(404).json({ message: 'Event not found.' });
     if (req.file) await destroyImage(cur[0].image);
 
+    // Resolve club assignment: use clubId FK if provided, else fall back to club text field
+    let newClubName = req.body.club ?? null;
+    let updateClubId = false;
+    let newClubId = null;
+    if (req.body.clubId !== undefined) {
+      updateClubId = true;
+      if (req.body.clubId) {
+        const { rows: clubRows } = await pgPool.query(
+          'SELECT id, name FROM clubs WHERE id = $1 AND is_active = true',
+          [req.body.clubId]
+        );
+        if (clubRows[0]) { newClubId = clubRows[0].id; newClubName = clubRows[0].name; }
+      } else {
+        newClubId = null;  // SOAC / no specific club
+        newClubName = '';
+      }
+    }
+
     const isFreeRaw = req.body.isFree;
     const is_free   = isFreeRaw === undefined ? undefined
                     : isFreeRaw === 'false' || isFreeRaw === false ? false : true;
@@ -301,41 +328,44 @@ const update = async (req, res, next) => {
       `UPDATE events
        SET title            = COALESCE($1,  title),
            club             = COALESCE($2,  club),
-           category         = COALESCE($3,  category),
-           status           = COALESCE($4,  status),
-           date             = COALESCE($5,  date),
-           start_date       = COALESCE($6,  start_date),
-           time             = COALESCE($7,  time),
-           venue            = COALESCE($8,  venue),
-           description      = COALESCE($9,  description),
-           seats            = COALESCE($10, seats),
-           highlight        = COALESCE($11, highlight),
-           registration_url = COALESCE($12, registration_url),
-           tags             = COALESCE($13, tags),
-           image            = $14,
-           is_free          = COALESCE($15, is_free),
-           fee_amount       = COALESCE($16, fee_amount),
+           club_id          = CASE WHEN $3::boolean THEN $4::bigint ELSE club_id END,
+           category         = COALESCE($5,  category),
+           status           = COALESCE($6,  status),
+           date             = COALESCE($7,  date),
+           start_date       = COALESCE($8,  start_date),
+           time             = COALESCE($9,  time),
+           venue            = COALESCE($10, venue),
+           description      = COALESCE($11, description),
+           seats            = COALESCE($12, seats),
+           highlight        = COALESCE($13, highlight),
+           registration_url = COALESCE($14, registration_url),
+           tags             = COALESCE($15, tags),
+           image            = $16,
+           is_free          = COALESCE($17, is_free),
+           fee_amount       = COALESCE($18, fee_amount),
            updated_at       = NOW()
-       WHERE id = $17
+       WHERE id = $19
        RETURNING ${EVENT_COLS}`,
       [
-        req.body.title           ?? null,
-        req.body.club            ?? null,
-        req.body.category        ?? null,
-        req.body.status          ?? null,
-        req.body.date            ?? null,
-        req.body.startDate ? new Date(req.body.startDate) : null,
-        req.body.time            ?? null,
-        req.body.venue           ?? null,
-        req.body.description     ?? null,
-        req.body.seats           ?? null,
-        req.body.highlight       ?? null,
-        req.body.registrationUrl ?? null,
-        req.body.tags ? JSON.parse(req.body.tags) : null,
-        req.file ? getFileValue(req.file) : cur[0].image,
-        is_free   ?? null,
-        is_free === undefined ? null : (is_free ? 0 : Number(req.body.feeAmount) || 0),
-        req.params.id,
+        req.body.title        ?? null,   // $1
+        newClubName,                      // $2
+        updateClubId,                     // $3 boolean: should we write club_id?
+        newClubId,                        // $4 new club_id value (null = SOAC)
+        req.body.category     ?? null,   // $5
+        req.body.status       ?? null,   // $6
+        req.body.date         ?? null,   // $7
+        req.body.startDate ? new Date(req.body.startDate) : null,  // $8
+        req.body.time         ?? null,   // $9
+        req.body.venue        ?? null,   // $10
+        req.body.description  ?? null,   // $11
+        req.body.seats        ?? null,   // $12
+        req.body.highlight    ?? null,   // $13
+        req.body.registrationUrl ?? null, // $14
+        req.body.tags ? JSON.parse(req.body.tags) : null,  // $15
+        req.file ? getFileValue(req.file) : cur[0].image,  // $16
+        is_free   ?? null,               // $17
+        is_free === undefined ? null : (is_free ? 0 : Number(req.body.feeAmount) || 0),  // $18
+        req.params.id,                   // $19
       ]
     );
     const event = asEvent(rows[0]);
@@ -445,11 +475,10 @@ const listRegistrations = async (req, res, next) => {
       if (!coordClubIds.length) {
         return res.status(403).json({ message: 'No club assigned to your coordinator account.' });
       }
-      // Check if the event belongs to any of the coordinator's clubs
+      // Check if the event belongs to any of the coordinator's clubs via club_id FK
       const { rows: evRows } = await pgPool.query(
         `SELECT e.id FROM events e
-         JOIN clubs c ON e.club ILIKE c.name
-         WHERE e.id = $1 AND e.is_active = true AND c.id = ANY($2::bigint[])`,
+         WHERE e.id = $1 AND e.is_active = true AND e.club_id = ANY($2::bigint[])`,
         [req.params.id, coordClubIds]
       );
       if (!evRows.length) return res.status(403).json({ message: 'You can only view registrations for your own club\'s events.' });
