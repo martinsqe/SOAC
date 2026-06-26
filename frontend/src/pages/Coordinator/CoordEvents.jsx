@@ -657,14 +657,16 @@ export default function CoordEvents() {
                           {isExpanded && (
                             <div className={es.teamMembersWrap}>
                               {team.members.length === 0 ? (
-                                <div className={es.teamNoMembers}>No members yet — add from registrations below.</div>
+                                <div className={es.teamNoMembers}>No members yet — add players from registrations below.</div>
                               ) : (
                                 <div className={es.teamMembersList}>
-                                  {team.members.map(m => (
+                                  {team.members.map((m, idx) => (
                                     <div key={m.id} className={es.teamMemberRow}>
-                                      <span className={es.teamMemberDot} />
-                                      <span className={es.teamMemberName}>{m.name}</span>
-                                      {m.enrollmentNo && <span className={es.teamMemberEnroll}>{m.enrollmentNo}</span>}
+                                      <span className={es.memberNum}>{idx + 1}</span>
+                                      <div className={es.memberInfo}>
+                                        <span className={es.teamMemberName}>{m.name}</span>
+                                        {m.enrollmentNo && <span className={es.teamMemberEnroll}>{m.enrollmentNo}</span>}
+                                      </div>
                                       <button
                                         className={es.removeMemberBtn}
                                         onClick={() => handleRemoveMember(team.id, m.id)}
