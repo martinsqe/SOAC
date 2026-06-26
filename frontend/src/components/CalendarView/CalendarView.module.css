@@ -124,7 +124,6 @@
   grid-template-columns: 1fr 260px;
   gap: 20px;
   align-items: flex-start;
-  min-width: 0;
 }
 
 @media (max-width: 900px) {
@@ -138,7 +137,6 @@
   border-radius: 14px;
   padding: 18px;
   box-shadow: 0 1px 6px #0001;
-  min-width: 0;
 }
 
 .calNav {
@@ -190,12 +188,9 @@
 /* ── Scroll wrapper (horizontal scroll on mobile) ────────── */
 .calScrollWrap {
   overflow-x: auto;
-  overflow-y: visible;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: #d1d5db transparent;
-  width: 100%;
-  max-width: 100%;
 }
 .calScrollWrap::-webkit-scrollbar { height: 5px; }
 .calScrollWrap::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
