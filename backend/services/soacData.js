@@ -473,6 +473,32 @@ const ensureSoacTables = async () => {
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_req_status  ON event_requests(status)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_req_club    ON event_requests(club_id)`);
 
+  /* ── Event teams (coordinator groups registered participants into teams) ── */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS event_teams (
+      id         BIGSERIAL PRIMARY KEY,
+      event_id   BIGINT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+      name       VARCHAR(255) NOT NULL,
+      max_size   INTEGER NOT NULL DEFAULT 0,
+      is_cleared BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(event_id, name)
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_teams_event ON event_teams(event_id)`);
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS event_team_members (
+      id              BIGSERIAL PRIMARY KEY,
+      team_id         BIGINT NOT NULL REFERENCES event_teams(id) ON DELETE CASCADE,
+      registration_id BIGINT NOT NULL,
+      member_name     VARCHAR(255) NOT NULL DEFAULT '',
+      enrollment_no   VARCHAR(50)  NOT NULL DEFAULT '',
+      UNIQUE(team_id, registration_id),
+      UNIQUE(registration_id)
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_team_members_team ON event_team_members(team_id)`);
+
   /* ── Club proposals (anyone → admin review → club creation) ─────────────── */
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS club_proposals (

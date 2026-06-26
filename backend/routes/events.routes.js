@@ -1,5 +1,6 @@
 const router      = require('express').Router();
 const ctrl        = require('../controllers/events.controller');
+const teamCtrl    = require('../controllers/eventTeams.controller');
 const { verifyToken }  = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/requireAdmin');
 const { uploadEvent }  = require('../config/multer');
@@ -22,5 +23,14 @@ router.delete('/:id',  verifyToken, requireAdmin, ctrl.remove);
 /* Registration routes */
 router.post('/:id/register',     ctrl.register);                                         /* public            */
 router.get('/:id/registrations', verifyToken, requireCoordOrAdmin, ctrl.listRegistrations); /* admin + coord */
+
+/* Team routes (coordinator/admin) */
+router.get   ('/:id/teams',                              verifyToken, requireCoordOrAdmin, teamCtrl.getTeams);
+router.post  ('/:id/teams',                              verifyToken, requireCoordOrAdmin, teamCtrl.createTeam);
+router.put   ('/:id/teams/:teamId',                      verifyToken, requireCoordOrAdmin, teamCtrl.updateTeam);
+router.delete('/:id/teams/:teamId',                      verifyToken, requireCoordOrAdmin, teamCtrl.deleteTeam);
+router.patch ('/:id/teams/:teamId/clear',                verifyToken, requireCoordOrAdmin, teamCtrl.toggleClear);
+router.post  ('/:id/teams/:teamId/members',              verifyToken, requireCoordOrAdmin, teamCtrl.addMember);
+router.delete('/:id/teams/:teamId/members/:memberId',    verifyToken, requireCoordOrAdmin, teamCtrl.removeMember);
 
 module.exports = router;

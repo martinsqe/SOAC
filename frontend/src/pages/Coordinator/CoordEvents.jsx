@@ -74,6 +74,16 @@ export default function CoordEvents() {
   const [regs,        setRegs]        = useState([]);
   const [regsLoading, setRegsLoading] = useState(false);
   const [regSearch,   setRegSearch]   = useState('');
+  const [regsTab,     setRegsTab]     = useState('list'); // 'list' | 'teams'
+
+  /* ── Teams state ── */
+  const [teams,          setTeams]         = useState([]);
+  const [teamsLoading,   setTeamsLoading]  = useState(false);
+  const [expandedTeams,  setExpandedTeams] = useState(new Set());
+  const [newTeamName,    setNewTeamName]   = useState('');
+  const [newTeamSize,    setNewTeamSize]   = useState('');
+  const [creatingTeam,   setCreatingTeam]  = useState(false);
+  const [teamEdits,      setTeamEdits]     = useState({}); // { teamId: {name, maxSize} }
   const showToast = (msg, type = 'ok') => {
     setToast({ msg, type });
     setTimeout(() => setToast({ msg:'', type:'ok' }), 3500);
@@ -186,16 +196,117 @@ export default function CoordEvents() {
     }
   };
 
-  /* ── View registrations for a published event ── */
+  /* ── View registrations + teams for a published event ── */
   const viewRegs = (ev) => {
     setRegEvent(ev);
     setRegs([]);
+    setTeams([]);
     setRegSearch('');
+    setRegsTab('list');
+    setExpandedTeams(new Set());
+    setNewTeamName('');
+    setNewTeamSize('');
     setRegsLoading(true);
+    setTeamsLoading(true);
     api.get(`/events/${ev._id}/registrations`)
       .then(d => setRegs(d.registrations || []))
       .catch(() => setRegs([]))
       .finally(() => setRegsLoading(false));
+    api.get(`/events/${ev._id}/teams`)
+      .then(d => setTeams(d.teams || []))
+      .catch(() => setTeams([]))
+      .finally(() => setTeamsLoading(false));
+  };
+
+  /* ── Team actions ── */
+  const toggleTeamExpand = (team) =>
+    setExpandedTeams(prev => {
+      const s = new Set(prev);
+      if (s.has(team.id)) {
+        s.delete(team.id);
+      } else {
+        s.add(team.id);
+        setTeamEdits(p => ({ ...p, [team.id]: { name: team.name, maxSize: String(team.maxSize) } }));
+      }
+      return s;
+    });
+
+  const handleCreateTeam = async () => {
+    if (!newTeamName.trim() || !regEvent) return;
+    setCreatingTeam(true);
+    try {
+      const { team } = await api.post(`/events/${regEvent._id}/teams`, {
+        name: newTeamName.trim(),
+        maxSize: Number(newTeamSize) || 0,
+      });
+      setTeams(p => [...p, team]);
+      setNewTeamName('');
+      setNewTeamSize('');
+    } catch (err) {
+      showToast(err.message || 'Failed to create team.', 'err');
+    } finally {
+      setCreatingTeam(false);
+    }
+  };
+
+  const handleDeleteTeam = async (teamId) => {
+    try {
+      await api.delete(`/events/${regEvent._id}/teams/${teamId}`);
+      setTeams(p => p.filter(t => t.id !== teamId));
+      setExpandedTeams(prev => { const s = new Set(prev); s.delete(teamId); return s; });
+      setTeamEdits(p => { const n = { ...p }; delete n[teamId]; return n; });
+    } catch (err) {
+      showToast(err.message || 'Failed to delete team.', 'err');
+    }
+  };
+
+  const handleUpdateTeam = async (teamId) => {
+    const edits = teamEdits[teamId];
+    if (!edits?.name?.trim()) return;
+    try {
+      const { team } = await api.put(`/events/${regEvent._id}/teams/${teamId}`, {
+        name:    edits.name.trim(),
+        maxSize: Number(edits.maxSize) || 0,
+      });
+      setTeams(p => p.map(t => t.id === teamId ? { ...t, name: team.name, maxSize: team.maxSize } : t));
+      showToast('Team updated.');
+    } catch (err) {
+      showToast(err.message || 'Failed to update team.', 'err');
+    }
+  };
+
+  const handleToggleClear = async (teamId) => {
+    try {
+      const { isCleared } = await api.patch(`/events/${regEvent._id}/teams/${teamId}/clear`);
+      setTeams(p => p.map(t => t.id === teamId ? { ...t, isCleared } : t));
+    } catch (err) {
+      showToast(err.message || 'Failed to update team.', 'err');
+    }
+  };
+
+  const handleAddMember = async (teamId, registrationId) => {
+    if (!registrationId) return;
+    try {
+      const { member } = await api.post(`/events/${regEvent._id}/teams/${teamId}/members`, { registrationId });
+      setTeams(p => p.map(t => t.id === teamId ? { ...t, members: [...t.members, member] } : t));
+    } catch (err) {
+      showToast(err.message || 'Failed to add member.', 'err');
+    }
+  };
+
+  const handleRemoveMember = async (teamId, memberId) => {
+    try {
+      await api.delete(`/events/${regEvent._id}/teams/${teamId}/members/${memberId}`);
+      setTeams(p => p.map(t => t.id === teamId ? { ...t, members: t.members.filter(m => m.id !== memberId) } : t));
+    } catch (err) {
+      showToast(err.message || 'Failed to remove member.', 'err');
+    }
+  };
+
+  /* registrations not yet assigned to any team */
+  const getUnassigned = () => {
+    const assigned = new Set(teams.flatMap(t => t.members.map(m => m.registrationId)));
+    return regs.filter(r => !assigned.has(String(r.id)));
   };
 
   const exportCSV = () => {
@@ -390,7 +501,7 @@ export default function CoordEvents() {
         </>
       )}
 
-      {/* ── REGISTRATIONS PANEL ── */}
+      {/* ── REGISTRATIONS + TEAMS PANEL ── */}
       {regEvent && (
         <div className={es.overlay} onClick={() => setRegEvent(null)}>
           <div className={es.regsModal} onClick={e => e.stopPropagation()}>
@@ -398,75 +509,230 @@ export default function CoordEvents() {
             {/* Header */}
             <div className={es.regsHead}>
               <div>
-                <div className={es.modalTag}>Student Registrations</div>
+                <div className={es.modalTag}>Event Management</div>
                 <h2 className={es.modalTitle}>{regEvent.title}</h2>
                 <p className={es.regsSub}>
-                  {regsLoading ? 'Loading…' : `${regs.length} registration${regs.length !== 1 ? 's' : ''} recorded`}
+                  {regsLoading ? 'Loading…' : `${regs.length} registration${regs.length !== 1 ? 's' : ''} · ${teams.length} team${teams.length !== 1 ? 's' : ''}`}
                 </p>
               </div>
               <div className={es.regsHeadRight}>
-                <button className={es.csvBtn} onClick={exportCSV} disabled={!regs.length || regsLoading}>
-                  Export CSV
-                </button>
+                {regsTab === 'list' && (
+                  <button className={es.csvBtn} onClick={exportCSV} disabled={!regs.length || regsLoading}>
+                    Export CSV
+                  </button>
+                )}
                 <button className={es.closeBtn} onClick={() => setRegEvent(null)}>✕</button>
               </div>
             </div>
 
-            {/* Search */}
-            <div className={es.regsSearchWrap}>
-              <input
-                className={es.regsSearch}
-                placeholder="Search by name, enrollment, department or email…"
-                value={regSearch}
-                onChange={e => setRegSearch(e.target.value)} />
+            {/* Sub-tabs */}
+            <div className={es.regsTabBar}>
+              <button
+                className={`${es.regsSubTab} ${regsTab === 'list' ? es.regsSubTabOn : ''}`}
+                onClick={() => setRegsTab('list')}>
+                Registrations ({regs.length})
+              </button>
+              <button
+                className={`${es.regsSubTab} ${regsTab === 'teams' ? es.regsSubTabOn : ''}`}
+                onClick={() => setRegsTab('teams')}>
+                Teams ({teams.length})
+              </button>
             </div>
 
-            {/* Table */}
-            <div className={es.regsTableWrap}>
-              {regsLoading ? (
-                <div className={es.regsEmpty}>Loading registrations…</div>
-              ) : regs.length === 0 ? (
-                <div className={es.regsEmpty}>
-                  <div style={{ fontSize:'2rem', marginBottom:8 }}>📋</div>
-                  <p>No registrations yet for this event.</p>
-                </div>
-              ) : filteredRegs.length === 0 ? (
-                <div className={es.regsEmpty}>No registrations match your search.</div>
-              ) : (
-                <table className={es.regsTable}>
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Name</th>
-                      <th>Enrollment No.</th>
-                      <th>Dept</th>
-                      <th>Course</th>
-                      <th>Mobile</th>
-                      <th>Email</th>
-                      <th>Registered At</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredRegs.map((r, i) => (
-                      <tr key={r.id || i}>
-                        <td className={es.regsNum}>{i + 1}</td>
-                        <td className={es.regsName}>{r.name || '—'}</td>
-                        <td><span className={es.regsBadge}>{r.enrollment_no || '—'}</span></td>
-                        <td><span className={es.regsDept}>{r.dept || '—'}</span></td>
-                        <td>{r.course || '—'}</td>
-                        <td>{r.phone || '—'}</td>
-                        <td className={es.regsEmail}>{r.email || '—'}</td>
-                        <td className={es.regsDate}>
-                          {r.registered_at
-                            ? new Date(r.registered_at).toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
-                            : '—'}
-                        </td>
+            {/* ── REGISTRATIONS LIST ── */}
+            {regsTab === 'list' && (<>
+              <div className={es.regsSearchWrap}>
+                <input
+                  className={es.regsSearch}
+                  placeholder="Search by name, enrollment, department or email…"
+                  value={regSearch}
+                  onChange={e => setRegSearch(e.target.value)} />
+              </div>
+              <div className={es.regsTableWrap}>
+                {regsLoading ? (
+                  <div className={es.regsEmpty}>Loading registrations…</div>
+                ) : regs.length === 0 ? (
+                  <div className={es.regsEmpty}>
+                    <div style={{ fontSize:'2rem', marginBottom:8 }}>📋</div>
+                    <p>No registrations yet for this event.</p>
+                  </div>
+                ) : filteredRegs.length === 0 ? (
+                  <div className={es.regsEmpty}>No registrations match your search.</div>
+                ) : (
+                  <table className={es.regsTable}>
+                    <thead>
+                      <tr>
+                        <th>#</th><th>Name</th><th>Enrollment No.</th>
+                        <th>Dept</th><th>Course</th><th>Mobile</th>
+                        <th>Email</th><th>Registered At</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
+                    </thead>
+                    <tbody>
+                      {filteredRegs.map((r, i) => (
+                        <tr key={r.id || i}>
+                          <td className={es.regsNum}>{i + 1}</td>
+                          <td className={es.regsName}>{r.name || '—'}</td>
+                          <td><span className={es.regsBadge}>{r.enrollment_no || '—'}</span></td>
+                          <td><span className={es.regsDept}>{r.dept || '—'}</span></td>
+                          <td>{r.course || '—'}</td>
+                          <td>{r.phone || '—'}</td>
+                          <td className={es.regsEmail}>{r.email || '—'}</td>
+                          <td className={es.regsDate}>
+                            {r.registered_at
+                              ? new Date(r.registered_at).toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
+                              : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </>)}
+
+            {/* ── TEAMS TAB ── */}
+            {regsTab === 'teams' && (
+              <div className={es.teamsPanel}>
+
+                {/* Create team bar */}
+                <div className={es.createTeamBar}>
+                  <input
+                    className={es.teamInput}
+                    placeholder="Team name…"
+                    value={newTeamName}
+                    onChange={e => setNewTeamName(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleCreateTeam()} />
+                  <input
+                    type="number"
+                    min="0"
+                    className={es.teamSizeInput}
+                    placeholder="Max (0=∞)"
+                    value={newTeamSize}
+                    onChange={e => setNewTeamSize(e.target.value)} />
+                  <button
+                    className={es.createTeamBtn}
+                    onClick={handleCreateTeam}
+                    disabled={!newTeamName.trim() || creatingTeam}>
+                    {creatingTeam ? '…' : '+ Create Team'}
+                  </button>
+                </div>
+
+                {/* Teams list */}
+                {teamsLoading ? (
+                  <div className={es.regsEmpty}>Loading teams…</div>
+                ) : teams.length === 0 ? (
+                  <div className={es.regsEmpty}>
+                    <div style={{ fontSize:'2rem', marginBottom:8 }}>👥</div>
+                    <p>No teams yet.</p>
+                    <span>Create a team above and assign registered participants.</span>
+                  </div>
+                ) : (
+                  <div className={es.teamsList}>
+                    {teams.map(team => {
+                      const isExpanded = expandedTeams.has(team.id);
+                      const unassigned = getUnassigned();
+                      const isFull = team.maxSize > 0 && team.members.length >= team.maxSize;
+                      return (
+                        <div key={team.id} className={`${es.teamCard} ${team.isCleared ? es.teamCardCleared : ''}`}>
+
+                          {/* Team header row — name + member count + cleared checkbox only */}
+                          <div className={es.teamRow}>
+                            <button className={es.teamNameBtn} onClick={() => toggleTeamExpand(team)}>
+                              <span className={es.teamChevron}>{isExpanded ? '▼' : '▶'}</span>
+                              <span className={es.teamName}>{team.name}</span>
+                              <span className={es.teamCount}>
+                                {team.members.length}{team.maxSize > 0 ? `/${team.maxSize}` : ''} member{team.members.length !== 1 ? 's' : ''}
+                              </span>
+                              {isFull && <span className={es.teamFull}>Full</span>}
+                            </button>
+                            <button
+                              className={`${es.teamClearBox} ${team.isCleared ? es.teamClearBoxOn : ''}`}
+                              onClick={() => handleToggleClear(team.id)}
+                              title={team.isCleared ? 'Unmark cleared' : 'Mark team as cleared'}>
+                              {team.isCleared ? '✓' : ''}
+                            </button>
+                          </div>
+
+                          {/* Expanded: members + add member + edit/delete controls */}
+                          {isExpanded && (
+                            <div className={es.teamMembersWrap}>
+                              {team.members.length === 0 ? (
+                                <div className={es.teamNoMembers}>No members yet — add from registrations below.</div>
+                              ) : (
+                                <div className={es.teamMembersList}>
+                                  {team.members.map(m => (
+                                    <div key={m.id} className={es.teamMemberRow}>
+                                      <span className={es.teamMemberDot} />
+                                      <span className={es.teamMemberName}>{m.name}</span>
+                                      {m.enrollmentNo && <span className={es.teamMemberEnroll}>{m.enrollmentNo}</span>}
+                                      <button
+                                        className={es.removeMemberBtn}
+                                        onClick={() => handleRemoveMember(team.id, m.id)}
+                                        title="Remove from team">
+                                        ✕
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {!isFull && (
+                                <div className={es.addMemberWrap}>
+                                  <select
+                                    className={es.addMemberSelect}
+                                    value=""
+                                    onChange={e => { if (e.target.value) handleAddMember(team.id, e.target.value); }}>
+                                    <option value="">
+                                      {unassigned.length === 0 ? 'All participants assigned' : '+ Add participant to team…'}
+                                    </option>
+                                    {unassigned.map(r => (
+                                      <option key={r.id} value={r.id}>
+                                        {r.name}{r.enrollment_no ? ` — ${r.enrollment_no}` : ''}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+                              {isFull && (
+                                <div className={es.teamFullMsg}>Team is full ({team.maxSize}/{team.maxSize} members)</div>
+                              )}
+
+                              {/* Edit name / max-size + Delete */}
+                              <div className={es.teamEditSection}>
+                                <div className={es.teamEditRow}>
+                                  <input
+                                    className={es.teamEditInput}
+                                    value={teamEdits[team.id]?.name ?? team.name}
+                                    onChange={e => setTeamEdits(p => ({ ...p, [team.id]: { ...p[team.id], name: e.target.value } }))}
+                                    placeholder="Team name…" />
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    className={es.teamEditSizeInput}
+                                    value={teamEdits[team.id]?.maxSize ?? String(team.maxSize)}
+                                    onChange={e => setTeamEdits(p => ({ ...p, [team.id]: { ...p[team.id], maxSize: e.target.value } }))}
+                                    placeholder="Max (0=∞)" />
+                                  <button
+                                    className={es.teamSaveBtn}
+                                    onClick={() => handleUpdateTeam(team.id)}>
+                                    Save
+                                  </button>
+                                </div>
+                                <button
+                                  className={es.teamDangerBtn}
+                                  onClick={() => handleDeleteTeam(team.id)}>
+                                  Delete Team
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
