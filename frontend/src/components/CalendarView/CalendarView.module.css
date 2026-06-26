@@ -124,6 +124,7 @@
   grid-template-columns: 1fr 260px;
   gap: 20px;
   align-items: flex-start;
+  min-width: 0;
 }
 
 @media (max-width: 900px) {
@@ -137,6 +138,7 @@
   border-radius: 14px;
   padding: 18px;
   box-shadow: 0 1px 6px #0001;
+  min-width: 0;
 }
 
 .calNav {
@@ -151,6 +153,7 @@
   grid-template-columns: repeat(7, minmax(110px, 1fr));
   border-bottom: 1px solid #e5e7eb;
   margin-bottom: 0;
+  min-width: 770px;
 }
 
 .weekHdr {
@@ -188,9 +191,12 @@
 /* ── Scroll wrapper (horizontal scroll on mobile) ────────── */
 .calScrollWrap {
   overflow-x: auto;
+  overflow-y: visible;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: #d1d5db transparent;
+  width: 100%;
+  max-width: 100%;
 }
 .calScrollWrap::-webkit-scrollbar { height: 5px; }
 .calScrollWrap::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
@@ -198,13 +204,12 @@
 /* ── Calendar grid cells ─────────────────────────────────── */
 .calGrid {
   display: grid;
-  /* min-width on columns ensures scroll triggers on small screens */
   grid-template-columns: repeat(7, minmax(110px, 1fr));
+  min-width: 770px;
 }
 
 .cell {
-  height: 130px;
-  min-height: 130px;
+  aspect-ratio: 1;
   overflow: hidden;
   border-right: 1px solid #f0f0f0;
   border-bottom: 1px solid #f0f0f0;

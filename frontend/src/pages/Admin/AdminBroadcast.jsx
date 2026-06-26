@@ -331,7 +331,8 @@ function CalendarTab({ showToast }) {
         ))}
       </div>
 
-      {/* Grid */}
+      {/* Grid — scroll wrapper enables horizontal swipe on mobile */}
+      <div className={s.calScrollOuter}>
       <div className={s.calWrap}>
         {/* Week day headers */}
         <div className={s.calDayHeaders}>
@@ -344,25 +345,24 @@ function CalendarTab({ showToast }) {
           <div className={s.calGrid}>
             {cells.map((d, i) => {
               const evs = eventsOn(d);
+              const isWeekend = i % 7 === 0 || i % 7 === 6;
               return (
                 <div key={i}
-                  className={`${s.calCell} ${!d ? s.calCellOff : ''} ${isToday(d) ? s.calCellToday : ''}`}
+                  className={`${s.calCell} ${!d ? s.calCellOff : ''} ${isToday(d) ? s.calCellToday : ''} ${isWeekend && d ? s.calCellWeekend : ''}`}
                   onClick={() => d && openNew(d)}>
                   {d && (
                     <>
-                      <span className={`${s.calDayNum} ${isToday(d) ? s.calDayNumToday : ''}`}>{d}</span>
+                      <span className={`${s.calDayNum} ${isToday(d) ? s.calDayNumToday : ''} ${isWeekend && !isToday(d) ? s.calDayNumWeekend : ''}`}>{d}</span>
                       <div className={s.calCellEvents}>
-                        {evs.slice(0, 3).map(ev => (
+                        {evs.map(ev => (
                           <div key={ev.id} className={s.calChip}
                             style={{ background: TYPE_META[ev.type]?.bg || '#f0f0ff', color: TYPE_META[ev.type]?.color || '#635BFF', borderLeftColor: TYPE_META[ev.type]?.color || '#635BFF' }}
                             onClick={e => { e.stopPropagation(); openEdit(ev); }}>
                             {ev.title}
                           </div>
                         ))}
-                        {evs.length > 3 && (
-                          <div className={s.calChipMore}>+{evs.length - 3} more</div>
-                        )}
                       </div>
+                      <span className={s.calAddHint}>+ add</span>
                     </>
                   )}
                 </div>
@@ -370,6 +370,7 @@ function CalendarTab({ showToast }) {
             })}
           </div>
         )}
+      </div>
       </div>
 
       {/* Event form modal */}
