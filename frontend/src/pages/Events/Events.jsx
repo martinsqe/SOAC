@@ -298,7 +298,7 @@ const normaliseEvent = (e) => ({
   highlight: e.highlight,
 });
 
-const DEPTS = ['ACH', 'AI/ML', 'BCA', 'FOT', 'SOE', 'SOM', 'SPT', 'SDS', 'SOS'];
+const DEPTS = ['ACH', 'AI/ML', 'FOT', 'SOE', 'SOM', 'SOP', 'SPT', 'SDS', 'SOS'];
 const EMPTY_FORM = { name: '', enrollmentNo: '', dept: '', course: '', phone: '', email: '' };
 
 const Events = () => {
