@@ -351,6 +351,63 @@ const ensureSoacTables = async () => {
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_att_records_session ON club_attendance_records(session_id)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_att_records_user    ON club_attendance_records(user_id)`);
 
+  /* Denormalise session_date + club_id onto records so they survive session deletion */
+  await pgPool.query(`ALTER TABLE club_attendance_records ADD COLUMN IF NOT EXISTS session_date DATE`);
+  await pgPool.query(`ALTER TABLE club_attendance_records ADD COLUMN IF NOT EXISTS club_id BIGINT REFERENCES clubs(id) ON DELETE SET NULL`);
+  /* Backfill for any existing rows */
+  await pgPool.query(`
+    UPDATE club_attendance_records r
+    SET session_date = s.session_date, club_id = s.club_id
+    FROM club_attendance_sessions s
+    WHERE r.session_id = s.id AND (r.session_date IS NULL OR r.club_id IS NULL)
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_att_records_club ON club_attendance_records(club_id, session_date DESC)`);
+  /* Change session_id FK from CASCADE → SET NULL so records survive session deletion */
+  await pgPool.query(`
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'club_attendance_records_session_id_fkey'
+          AND confdeltype = 'c'
+      ) THEN
+        ALTER TABLE club_attendance_records
+          DROP CONSTRAINT club_attendance_records_session_id_fkey;
+        ALTER TABLE club_attendance_records
+          ALTER COLUMN session_id DROP NOT NULL;
+        ALTER TABLE club_attendance_records
+          ADD CONSTRAINT club_attendance_records_session_id_fkey
+          FOREIGN KEY (session_id) REFERENCES club_attendance_sessions(id) ON DELETE SET NULL;
+      END IF;
+    END $$
+  `);
+
+  /* ── Weekly consistency bonus log (prevents double-award per club/week) ── */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS attendance_consistency_bonuses (
+      id         BIGSERIAL PRIMARY KEY,
+      club_id    BIGINT  NOT NULL,
+      user_id    INTEGER NOT NULL,
+      week_start DATE    NOT NULL,
+      awarded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(club_id, user_id, week_start)
+    )
+  `);
+
+  /* ── Member notifications (motivational messages, achievements) ──────── */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS member_notifications (
+      id         BIGSERIAL PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      club_id    BIGINT  REFERENCES clubs(id) ON DELETE SET NULL,
+      title      VARCHAR(255) NOT NULL DEFAULT '',
+      body       TEXT    NOT NULL DEFAULT '',
+      type       VARCHAR(50)  NOT NULL DEFAULT 'info',
+      is_read    BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_member_notif_user ON member_notifications(user_id, created_at DESC)`);
+
   /* ── Live scoreboards (sports clubs) ───────────────────────────────────── */
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS club_live_scores (
@@ -548,6 +605,70 @@ const ensureSoacTables = async () => {
   `);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_cal_start ON college_calendar(start_date)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_cal_type  ON college_calendar(type)`);
+
+  /* ── Task soft-delete support ───────────────────────────────────────────── */
+  await pgPool.query(`ALTER TABLE club_tasks ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT false`);
+  await pgPool.query(`ALTER TABLE club_tasks ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`);
+
+  /* ── Task completion records (survive task soft-delete via SET NULL FK) ── */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS task_completion_records (
+      id            BIGSERIAL PRIMARY KEY,
+      task_id       BIGINT  REFERENCES club_tasks(id) ON DELETE SET NULL,
+      club_id       BIGINT  NOT NULL,
+      user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_name     VARCHAR(255) NOT NULL DEFAULT '',
+      task_title    VARCHAR(255) NOT NULL DEFAULT '',
+      is_completed  BOOLEAN NOT NULL DEFAULT false,
+      coins_awarded INTEGER NOT NULL DEFAULT 0,
+      saved_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(task_id, user_id)
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_task_comp_task ON task_completion_records(task_id)`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_task_comp_user ON task_completion_records(user_id)`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_task_comp_club ON task_completion_records(club_id, saved_at DESC)`);
+
+  /* ── Club performance parameters (coordinator-defined metrics) ──────────── */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS club_performance_params (
+      id               BIGSERIAL PRIMARY KEY,
+      club_id          BIGINT       NOT NULL,
+      name             VARCHAR(255) NOT NULL,
+      description      TEXT         NOT NULL DEFAULT '',
+      unit             VARCHAR(100) NOT NULL DEFAULT '',
+      measurement_type VARCHAR(20)  NOT NULL DEFAULT 'higher_better'
+                         CHECK (measurement_type IN ('higher_better','lower_better')),
+      max_value        NUMERIC(10,2),
+      category         VARCHAR(100) NOT NULL DEFAULT 'General',
+      thresholds       JSONB        NOT NULL DEFAULT '[]'::jsonb,
+      sort_order       INTEGER      NOT NULL DEFAULT 0,
+      is_active        BOOLEAN      NOT NULL DEFAULT true,
+      created_by       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      updated_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_perf_params_club ON club_performance_params(club_id, sort_order)`);
+
+  /* ── Performance assessment records ────────────────────────────────────── */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS club_performance_records (
+      id            BIGSERIAL    PRIMARY KEY,
+      param_id      BIGINT       NOT NULL REFERENCES club_performance_params(id) ON DELETE CASCADE,
+      club_id       BIGINT       NOT NULL,
+      user_id       INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_name     VARCHAR(255) NOT NULL DEFAULT '',
+      value         NUMERIC(10,2) NOT NULL,
+      recorded_date DATE         NOT NULL DEFAULT CURRENT_DATE,
+      notes         TEXT         NOT NULL DEFAULT '',
+      recorded_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_perf_records_param ON club_performance_records(param_id, user_id, recorded_date DESC)`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_perf_records_club  ON club_performance_records(club_id, recorded_date DESC)`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_perf_records_user  ON club_performance_records(user_id, recorded_date DESC)`);
 
   /* ── Backfill CASCADE FK constraints on tables created without them ────────
      Uses DO $$ … EXCEPTION WHEN duplicate_object THEN NULL; END $$ so it is

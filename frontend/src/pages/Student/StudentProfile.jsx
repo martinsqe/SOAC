@@ -92,12 +92,29 @@ export default function StudentProfile() {
   /* ── clubs joined (for profile card) ── */
   const [myClubs, setMyClubs] = useState([]);
 
+  /* ── Weekly evaluation ── */
+  const [weeklyData,    setWeeklyData]    = useState(null);
+  const [weeklyLoading, setWeeklyLoading] = useState(true);
+
   useEffect(() => {
     api.get('/users/me/clubs').then(r => setMyClubs(r.clubs || [])).catch(() => {});
-    // Coins would come from a future endpoint; show 0 for now
     setCoins(user?.coins ?? 0);
     setCoinsLoaded(true);
+    api.get('/users/me/weekly-evaluation')
+      .then(r => setWeeklyData(r))
+      .catch(() => setWeeklyData(null))
+      .finally(() => setWeeklyLoading(false));
   }, [user]);
+
+  const markNotifRead = async (id) => {
+    try {
+      await api.patch(`/users/me/notifications/${id}/read`, {});
+      setWeeklyData(prev => prev ? {
+        ...prev,
+        notifications: prev.notifications.map(n => n.id === id ? { ...n, isRead: true } : n),
+      } : prev);
+    } catch { /* silent */ }
+  };
 
   const displayUrl = avatarPreview || getAvatarUrl(user?.avatar);
   const hue        = getHue(user?.name);
@@ -378,25 +395,100 @@ export default function StudentProfile() {
             </div>
           </SectionCard>
 
-          {/* ── Notifications / Privacy (placeholder) ── */}
-          <SectionCard icon="🔔" title="Notification Preferences" subtitle="Control what alerts you receive on SOAC">
-            <div className={s.toggleList}>
-              {[
-                { label: 'Club event reminders',          sub: 'Get notified before events from your clubs' },
-                { label: 'New club announcements',        sub: 'Posts from coordinators in your clubs' },
-                { label: 'SOAC-wide broadcasts',          sub: 'Campus-wide messages from admin' },
-                { label: 'Task assignments',              sub: 'When a coordinator assigns you a task' },
-              ].map((item, i) => (
-                <div key={i} className={s.toggleRow}>
-                  <div className={s.toggleText}>
-                    <div className={s.toggleLabel}>{item.label}</div>
-                    <div className={s.toggleSub}>{item.sub}</div>
+          {/* ── Weekly Evaluation ── */}
+          <SectionCard icon="📅" title="Weekly Evaluation"
+            subtitle={weeklyData
+              ? `${new Date(weeklyData.weekStart).toLocaleDateString('en-GB',{day:'numeric',month:'short'})} – ${new Date(weeklyData.weekEnd).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}`
+              : 'This week\'s attendance across your clubs'}>
+            {weeklyLoading ? (
+              <div className={s.weeklyLoading}>Loading your weekly summary…</div>
+            ) : !weeklyData || weeklyData.clubs.length === 0 ? (
+              <div className={s.weeklyEmpty}>You are not a member of any club yet. Join a club to see your weekly evaluation here.</div>
+            ) : (
+              <div className={s.weeklyClubs}>
+                {weeklyData.clubs.map(cl => (
+                  <div key={cl.clubId} className={s.weeklyClub}>
+                    <div className={s.weeklyClubHead}>
+                      <span className={s.weeklyClubDot} style={{ background: cl.color }} />
+                      <span className={s.weeklyClubName}>{cl.clubName}</span>
+                      {cl.consistencyBonus && (
+                        <span className={s.weeklyBonusBadge}>Consistency Champion +100</span>
+                      )}
+                    </div>
+                    <div className={s.weeklyStats}>
+                      <div className={s.weeklyStat}>
+                        <span className={s.weeklyStatVal}>{cl.weekPresent}</span>
+                        <span className={s.weeklyStatLbl}>Days Present</span>
+                      </div>
+                      <div className={s.weeklyStat}>
+                        <span className={s.weeklyStatVal}>{cl.weekXp}</span>
+                        <span className={s.weeklyStatLbl}>XP Earned</span>
+                      </div>
+                      <div className={s.weeklyStat}>
+                        {cl.consistencyBonus
+                          ? <span className={s.weeklyStatVal} style={{color:'#059669'}}>Achieved</span>
+                          : <span className={s.weeklyStatVal}>{cl.daysToBonus}</span>}
+                        <span className={s.weeklyStatLbl}>{cl.consistencyBonus ? 'Bonus' : 'Days to Bonus'}</span>
+                      </div>
+                    </div>
+                    {cl.sessions.length === 0 ? (
+                      <div className={s.weeklyNoSessions}>No sessions recorded this week.</div>
+                    ) : (
+                      <div className={s.weeklySessions}>
+                        {cl.sessions.map((sess, i) => (
+                          <div key={i} className={s.weeklySession}>
+                            <span className={`${s.weeklyStatusDot} ${s['weeklyStatus_' + sess.status]}`} />
+                            <span className={s.weeklySessionDate}>
+                              {new Date(sess.date).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})}
+                            </span>
+                            {sess.label && <span className={s.weeklySessionLabel}>{sess.label}</span>}
+                            <span className={`${s.weeklyStatusBadge} ${s['weeklyBadge_' + sess.status]}`}>
+                              {sess.status.charAt(0).toUpperCase() + sess.status.slice(1)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Consistency progress bar */}
+                    {!cl.consistencyBonus && (
+                      <div className={s.weeklyProgress}>
+                        <div className={s.weeklyProgressBar}>
+                          <div className={s.weeklyProgressFill}
+                            style={{ width: `${Math.min(100, (cl.weekPresent / 4) * 100)}%` }} />
+                        </div>
+                        <span className={s.weeklyProgressLbl}>{cl.weekPresent}/4 for consistency bonus</span>
+                      </div>
+                    )}
                   </div>
-                  <div className={s.comingSoonBadge}>Soon</div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </SectionCard>
+
+          {/* ── Motivational Messages / Achievements ── */}
+          {weeklyData?.notifications?.length > 0 && (
+            <SectionCard icon="🏆" title="Achievements & Messages"
+              subtitle="Motivational messages from your coordinators">
+              <div className={s.notifList}>
+                {weeklyData.notifications.map(n => (
+                  <div key={n.id} className={`${s.notifCard} ${n.isRead ? s.notifRead : s.notifUnread}`}>
+                    <div className={s.notifCardTop}>
+                      <span className={s.notifTitle}>{n.title}</span>
+                      {!n.isRead && (
+                        <button className={s.notifMarkBtn} onClick={() => markNotifRead(n.id)}>
+                          Mark read
+                        </button>
+                      )}
+                    </div>
+                    <p className={s.notifBody}>{n.body}</p>
+                    <span className={s.notifTime}>
+                      {new Date(n.createdAt).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </SectionCard>
+          )}
 
           {/* ── Danger zone ── */}
           <SectionCard icon="⚠️" title="Account" subtitle="Manage your session and account status">

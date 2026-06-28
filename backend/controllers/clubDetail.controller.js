@@ -187,20 +187,17 @@ const postMessage = async (req, res, next) => {
 const getTasks = async (req, res, next) => {
   try {
     await ensureSoacTables();
-    const clubId = req.params.id;
-
-    /* Any authenticated user can view tasks */
-
     const { rows } = await pgPool.query(
       `SELECT id, title, description, status, priority, due_date,
-              created_by_name, created_at, updated_at
+              is_deleted, deleted_at, created_by_name, created_at, updated_at
        FROM club_tasks
        WHERE club_id = $1::bigint
        ORDER BY
-         CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+         CASE WHEN is_deleted THEN 1 ELSE 0 END,
          CASE status   WHEN 'todo' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,
+         CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
          created_at DESC`,
-      [clubId]
+      [req.params.id]
     );
     res.json({ tasks: rows });
   } catch (err) { next(err); }
@@ -216,12 +213,10 @@ const createTask = async (req, res, next) => {
       `INSERT INTO club_tasks
          (club_id, title, description, priority, due_date, created_by, created_by_name)
        VALUES ($1::bigint, $2, $3, $4, $5, $6, $7)
-       RETURNING id, title, description, status, priority, due_date, created_by_name, created_at, updated_at`,
-      [
-        req.params.id, title.trim(), (description||'').trim(),
-        priority || 'medium', due_date || null,
-        req.user.id, req.user.name,
-      ]
+       RETURNING id, title, description, status, priority, due_date,
+                 is_deleted, deleted_at, created_by_name, created_at, updated_at`,
+      [req.params.id, title.trim(), (description||'').trim(),
+       priority || 'medium', due_date || null, req.user.id, req.user.name]
     );
     res.status(201).json({ task: rows[0] });
   } catch (err) { next(err); }
@@ -230,6 +225,14 @@ const createTask = async (req, res, next) => {
 /* PATCH /api/clubs/:id/tasks/:taskId  (coordinator / admin) */
 const updateTask = async (req, res, next) => {
   try {
+    /* Archived tasks cannot be edited */
+    const { rows: check } = await pgPool.query(
+      `SELECT is_deleted FROM club_tasks WHERE id = $1::bigint AND club_id = $2::bigint`,
+      [req.params.taskId, req.params.id]
+    );
+    if (!check.length) return res.status(404).json({ message: 'Task not found.' });
+    if (check[0].is_deleted) return res.status(403).json({ message: 'Cannot edit an archived task.' });
+
     const { title, description, status, priority, due_date } = req.body;
     const { rows } = await pgPool.query(
       `UPDATE club_tasks
@@ -240,28 +243,135 @@ const updateTask = async (req, res, next) => {
            due_date    = CASE WHEN $5::text IS NOT NULL THEN $5::date ELSE due_date END,
            updated_at  = NOW()
        WHERE id = $6::bigint AND club_id = $7::bigint
-       RETURNING id, title, description, status, priority, due_date, created_by_name, created_at, updated_at`,
-      [
-        title?.trim() || null, description?.trim() || null,
-        status || null, priority || null,
-        due_date != null ? String(due_date) : null,
-        req.params.taskId, req.params.id,
-      ]
+       RETURNING id, title, description, status, priority, due_date,
+                 is_deleted, deleted_at, created_by_name, created_at, updated_at`,
+      [title?.trim() || null, description?.trim() || null, status || null, priority || null,
+       due_date != null ? String(due_date) : null, req.params.taskId, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Task not found.' });
     res.json({ task: rows[0] });
   } catch (err) { next(err); }
 };
 
-/* DELETE /api/clubs/:id/tasks/:taskId  (coordinator / admin) */
+/* DELETE /api/clubs/:id/tasks/:taskId  — soft-archive; records are preserved */
 const deleteTask = async (req, res, next) => {
   try {
     const { rows } = await pgPool.query(
-      `DELETE FROM club_tasks WHERE id = $1::bigint AND club_id = $2::bigint RETURNING id`,
+      `UPDATE club_tasks
+       SET is_deleted = true, deleted_at = NOW(), updated_at = NOW()
+       WHERE id = $1::bigint AND club_id = $2::bigint AND is_deleted = false
+       RETURNING id`,
       [req.params.taskId, req.params.id]
     );
-    if (!rows.length) return res.status(404).json({ message: 'Task not found.' });
-    res.json({ message: 'Task deleted.' });
+    if (!rows.length) return res.status(404).json({ message: 'Task not found or already archived.' });
+    res.json({ message: 'Task archived. Completion records and coins have been preserved.' });
+  } catch (err) { next(err); }
+};
+
+/* GET /api/clubs/:id/tasks/:taskId/completions */
+const getTaskCompletions = async (req, res, next) => {
+  try {
+    const { taskId, id: clubId } = req.params;
+    const { rows: taskRows } = await pgPool.query(
+      `SELECT id, title, is_deleted FROM club_tasks WHERE id = $1::bigint AND club_id = $2::bigint`,
+      [taskId, clubId]
+    );
+    if (!taskRows.length) return res.status(404).json({ message: 'Task not found.' });
+
+    /* All active club members */
+    const { rows: members } = await pgPool.query(
+      `SELECT sc.user_id, u.name AS user_name
+       FROM student_clubs sc
+       JOIN users u ON u.id = sc.user_id
+       WHERE sc.club_id = $1::bigint AND u.is_active = true
+       ORDER BY u.name`,
+      [clubId]
+    );
+
+    /* Existing completions */
+    const { rows: saved } = await pgPool.query(
+      `SELECT user_id, is_completed, coins_awarded FROM task_completion_records WHERE task_id = $1::bigint`,
+      [taskId]
+    );
+    const savedMap = Object.fromEntries(saved.map(r => [String(r.user_id), r]));
+
+    res.json({
+      task: { id: String(taskRows[0].id), title: taskRows[0].title, isDeleted: taskRows[0].is_deleted },
+      members: members.map(m => ({
+        userId:       String(m.user_id),
+        userName:     m.user_name,
+        isCompleted:  savedMap[String(m.user_id)]?.is_completed  ?? false,
+        coinsAwarded: savedMap[String(m.user_id)]?.coins_awarded ?? 0,
+      })),
+      alreadySaved: saved.length > 0,
+    });
+  } catch (err) { next(err); }
+};
+
+/* POST /api/clubs/:id/tasks/:taskId/completions
+   Body: { completions: [{ userId, userName, isCompleted }] }
+   Awards 100 XP per completed member, adjusts XP diff on re-saves.
+   Blocked if task is archived. */
+const saveTaskCompletions = async (req, res, next) => {
+  try {
+    const { taskId, id: clubId } = req.params;
+    const { completions = [] } = req.body;
+
+    const { rows: taskRows } = await pgPool.query(
+      `SELECT id, title, is_deleted FROM club_tasks WHERE id = $1::bigint AND club_id = $2::bigint`,
+      [taskId, clubId]
+    );
+    if (!taskRows.length) return res.status(404).json({ message: 'Task not found.' });
+    if (taskRows[0].is_deleted)
+      return res.status(403).json({ message: 'Cannot modify completions for an archived task.' });
+    const taskTitle = taskRows[0].title;
+
+    const client = await pgPool.connect();
+    try {
+      await client.query('BEGIN');
+      let totalCoins = 0;
+
+      for (const c of completions) {
+        if (!c.userId) continue;
+        const isCompleted = !!c.isCompleted;
+        const newCoins    = isCompleted ? 100 : 0;
+
+        /* Get previous state to compute XP diff */
+        const { rows: prev } = await client.query(
+          `SELECT is_completed, coins_awarded FROM task_completion_records
+           WHERE task_id = $1::bigint AND user_id = $2::int`,
+          [taskId, c.userId]
+        );
+        const oldCoins = prev[0]?.coins_awarded ?? 0;
+
+        /* Upsert completion record */
+        await client.query(
+          `INSERT INTO task_completion_records
+             (task_id, club_id, user_id, user_name, task_title, is_completed, coins_awarded, saved_at)
+           VALUES ($1::bigint, $2::bigint, $3::int, $4, $5, $6, $7, NOW())
+           ON CONFLICT (task_id, user_id) DO UPDATE
+             SET is_completed  = EXCLUDED.is_completed,
+                 coins_awarded = EXCLUDED.coins_awarded,
+                 saved_at      = NOW()`,
+          [taskId, clubId, c.userId, c.userName || '', taskTitle, isCompleted, newCoins]
+        );
+
+        /* Apply XP delta only if it changed */
+        const xpDiff = newCoins - oldCoins;
+        if (xpDiff !== 0) {
+          await applyXpDelta(client, clubId, c.userId, c.userName || '', xpDiff, req.user.id);
+        }
+        totalCoins += newCoins;
+      }
+
+      await client.query('COMMIT');
+      res.json({ message: 'Completions saved.', totalCoinsAwarded: totalCoins });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
   } catch (err) { next(err); }
 };
 
@@ -301,6 +411,31 @@ const updateOverview = async (req, res, next) => {
 /* ══════════════════════════════════════════════════════════════════════════
    ATTENDANCE
 ══════════════════════════════════════════════════════════════════════════ */
+
+/* Coins awarded per attendance status */
+const ATTEND_XP = { present: 100, late: 50, excused: 25, absent: 0 };
+
+/* Motivational messages sent when a member hits 4 present days in a week */
+const CONSISTENCY_MESSAGES = [
+  "Exceptional dedication this week! Attending 4 sessions proves you are serious about your growth — champions are built on exactly this kind of commitment.",
+  "Outstanding consistency! Showing up 4 times in a single week reflects a champion's mindset. Keep pushing — greatness is within your reach.",
+  "Remarkable effort this week! Four sessions of committed training — you are laying the foundation for something truly exceptional. Keep it up!",
+  "Brilliant work! Your 4-session consistency this week is a clear sign you are ready to level up. Leaders lead by showing up, and you are doing exactly that.",
+  "Excellence recognized! Four sessions in one week earns you the Consistency Champion bonus. Your commitment is what sets you apart — never stop.",
+];
+
+/* Upsert XP delta into member_progress (inside an existing client transaction) */
+const applyXpDelta = (client, clubId, userId, userName, xpDelta, updatedBy) =>
+  client.query(
+    `INSERT INTO member_progress (club_id, user_id, user_name, xp, updated_by, updated_at)
+     VALUES ($1::bigint, $2::int, $3, GREATEST(0, $4::int), $5, NOW())
+     ON CONFLICT (club_id, user_id) DO UPDATE
+       SET xp         = GREATEST(0, member_progress.xp + $4::int),
+           user_name  = EXCLUDED.user_name,
+           updated_by = EXCLUDED.updated_by,
+           updated_at = NOW()`,
+    [clubId, userId, userName, xpDelta, updatedBy]
+  );
 
 /* GET /api/clubs/:id/attendance  — list sessions (newest first) */
 const getAttendance = async (req, res, next) => {
@@ -355,14 +490,55 @@ const createAttendanceSession = async (req, res, next) => {
          VALUES ($1::bigint, $2::date, $3, $4) RETURNING id, session_date, session_label, created_at`,
         [req.params.id, session_date, session_label || '', req.user.id]
       );
+      const clubId = req.params.id;
       for (const r of records) {
         if (!r.user_id) continue;
+        const status = r.status || 'present';
+        /* Store session_date + club_id on the record so it persists after session deletion */
         await client.query(
-          `INSERT INTO club_attendance_records (session_id, user_id, user_name, status, notes)
-           VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT (session_id, user_id) DO UPDATE SET status = EXCLUDED.status, notes = EXCLUDED.notes`,
-          [session.id, r.user_id, r.user_name || '', r.status || 'present', r.notes || '']
+          `INSERT INTO club_attendance_records
+             (session_id, user_id, user_name, status, notes, session_date, club_id)
+           VALUES ($1, $2, $3, $4, $5, $6::date, $7::bigint)
+           ON CONFLICT (session_id, user_id) DO UPDATE
+             SET status       = EXCLUDED.status,
+                 notes        = EXCLUDED.notes,
+                 session_date = EXCLUDED.session_date,
+                 club_id      = EXCLUDED.club_id`,
+          [session.id, r.user_id, r.user_name || '', status, r.notes || '', session_date, clubId]
         );
+        /* Award base attendance XP */
+        const xp = ATTEND_XP[status] ?? 0;
+        if (xp > 0) {
+          await applyXpDelta(client, clubId, r.user_id, r.user_name || '', xp, req.user.id);
+        }
+        /* Consistency bonus: +100 coins when member is present for the 4th time this week */
+        if (status === 'present') {
+          const { rows: [{ cnt }] } = await client.query(
+            `SELECT COUNT(DISTINCT session_date)::int AS cnt
+             FROM club_attendance_records
+             WHERE user_id = $1 AND club_id = $2::bigint AND status = 'present'
+               AND DATE_TRUNC('week', session_date) = DATE_TRUNC('week', $3::date)`,
+            [r.user_id, clubId, session_date]
+          );
+          if (cnt >= 4) {
+            /* Only award once per (club, user, week) */
+            const { rows: bonusGranted } = await client.query(
+              `INSERT INTO attendance_consistency_bonuses (club_id, user_id, week_start)
+               VALUES ($1::bigint, $2::int, DATE_TRUNC('week', $3::date)::date)
+               ON CONFLICT (club_id, user_id, week_start) DO NOTHING RETURNING id`,
+              [clubId, r.user_id, session_date]
+            );
+            if (bonusGranted.length) {
+              await applyXpDelta(client, clubId, r.user_id, r.user_name || '', 100, req.user.id);
+              const msg = CONSISTENCY_MESSAGES[Math.floor(Math.random() * CONSISTENCY_MESSAGES.length)];
+              await client.query(
+                `INSERT INTO member_notifications (user_id, club_id, title, body, type)
+                 VALUES ($1::int, $2::bigint, $3, $4, 'achievement')`,
+                [r.user_id, clubId, 'Consistency Champion! +100 bonus coins', msg]
+              );
+            }
+          }
+        }
       }
       await client.query('COMMIT');
       res.status(201).json({ session: { ...session, total: records.length } });
@@ -375,22 +551,60 @@ const createAttendanceSession = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* PATCH /api/clubs/:id/attendance/:recordId  — update a single record status */
+/* PATCH /api/clubs/:id/attendance/records/:recordId  — update a single record status */
 const updateAttendanceRecord = async (req, res, next) => {
   try {
     const { status, notes } = req.body;
-    const { rows } = await pgPool.query(
-      `UPDATE club_attendance_records
-       SET status = COALESCE($1, status), notes = COALESCE($2, notes)
-       WHERE id = $3::bigint RETURNING id, status, notes`,
-      [status || null, notes ?? null, req.params.recordId]
-    );
-    if (!rows.length) return res.status(404).json({ message: 'Record not found.' });
-    res.json({ record: rows[0] });
+    const clubId    = req.params.id;
+    const recordId  = req.params.recordId;
+
+    const client = await pgPool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Fetch current record to get old status and user identity
+      const { rows: existing } = await client.query(
+        `SELECT id, user_id, user_name, status AS old_status
+         FROM club_attendance_records WHERE id = $1::bigint`,
+        [recordId]
+      );
+      if (!existing.length) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ message: 'Record not found.' });
+      }
+      const { user_id, user_name, old_status } = existing[0];
+      const newStatus = status || old_status;
+
+      // Update the record
+      const { rows } = await client.query(
+        `UPDATE club_attendance_records
+         SET status = COALESCE($1, status), notes = COALESCE($2, notes)
+         WHERE id = $3::bigint RETURNING id, user_id, user_name, status, notes`,
+        [status || null, notes ?? null, recordId]
+      );
+
+      // Adjust XP for the status change
+      if (status && status !== old_status) {
+        const xpDiff = (ATTEND_XP[newStatus] ?? 0) - (ATTEND_XP[old_status] ?? 0);
+        if (xpDiff !== 0) {
+          await applyXpDelta(client, clubId, user_id, user_name, xpDiff, req.user.id);
+        }
+      }
+
+      await client.query('COMMIT');
+      res.json({ record: rows[0] });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
   } catch (err) { next(err); }
 };
 
-/* DELETE /api/clubs/:id/attendance/:sessionId  — delete a session + cascade records */
+/* DELETE /api/clubs/:id/attendance/:sessionId
+   Deletes the session header only — records are preserved (session_id set to NULL via FK)
+   and all coins previously allocated remain intact. */
 const deleteAttendanceSession = async (req, res, next) => {
   try {
     const { rows } = await pgPool.query(
@@ -398,7 +612,7 @@ const deleteAttendanceSession = async (req, res, next) => {
       [req.params.sessionId, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Session not found.' });
-    res.json({ message: 'Session deleted.' });
+    res.json({ message: 'Session deleted. Attendance records and allocated coins have been preserved.' });
   } catch (err) { next(err); }
 };
 
@@ -986,7 +1200,7 @@ module.exports = {
   getMembership,
   getLeadership, setLeadership,
   getMessages, postMessage,
-  getTasks, createTask, updateTask, deleteTask,
+  getTasks, createTask, updateTask, deleteTask, getTaskCompletions, saveTaskCompletions,
   updateOverview,
   getAttendance, getAttendanceSession, createAttendanceSession, updateAttendanceRecord, deleteAttendanceSession,
   getProgress, upsertProgress,

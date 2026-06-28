@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const ctrl   = require('../controllers/clubs.controller');
 const cd     = require('../controllers/clubDetail.controller');
+const perf   = require('../controllers/clubPerformance.controller');
 const { verifyToken }  = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/requireAdmin');
 const { requireCoordinatorOwnership } = require('../middleware/requireCoordinatorOwnership');
@@ -45,10 +46,12 @@ router.get('/:id/messages',  verifyToken, cd.getMessages);
 router.post('/:id/messages', verifyToken, msgRateLimit(), cd.postMessage);
 
 /* ── Tasks ── */
-router.get('/:id/tasks',                verifyToken, cd.getTasks);
-router.post('/:id/tasks',               verifyToken, requireCoordinatorOwnership, cd.createTask);
-router.patch('/:id/tasks/:taskId',      verifyToken, requireCoordinatorOwnership, cd.updateTask);
-router.delete('/:id/tasks/:taskId',     verifyToken, requireCoordinatorOwnership, cd.deleteTask);
+router.get('/:id/tasks',                             verifyToken, cd.getTasks);
+router.post('/:id/tasks',                            verifyToken, requireCoordinatorOwnership, cd.createTask);
+router.patch('/:id/tasks/:taskId',                   verifyToken, requireCoordinatorOwnership, cd.updateTask);
+router.delete('/:id/tasks/:taskId',                  verifyToken, requireCoordinatorOwnership, cd.deleteTask);
+router.get('/:id/tasks/:taskId/completions',         verifyToken, requireCoordinatorOwnership, cd.getTaskCompletions);
+router.post('/:id/tasks/:taskId/completions',        verifyToken, requireCoordinatorOwnership, cd.saveTaskCompletions);
 
 /* ── Overview (coordinator self-service) ── */
 router.patch('/:id/overview', verifyToken, requireCoordinatorOwnership, cd.updateOverview);
@@ -60,9 +63,18 @@ router.post('/:id/attendance',                      verifyToken, requireCoordina
 router.patch('/:id/attendance/records/:recordId',   verifyToken, requireCoordinatorOwnership, cd.updateAttendanceRecord);
 router.delete('/:id/attendance/:sessionId',         verifyToken, requireCoordinatorOwnership, cd.deleteAttendanceSession);
 
-/* ── Member progress ── */
+/* ── Member progress (XP/level management) ── */
 router.get('/:id/progress',             verifyToken, requireCoordinatorOwnership, cd.getProgress);
 router.put('/:id/progress/:userId',     verifyToken, requireCoordinatorOwnership, cd.upsertProgress);
+
+/* ── Advanced performance tracking ── */
+router.get('/:id/performance/params',                     verifyToken, requireCoordinatorOwnership, perf.getParams);
+router.post('/:id/performance/params',                    verifyToken, requireCoordinatorOwnership, perf.createParam);
+router.put('/:id/performance/params/:paramId',            verifyToken, requireCoordinatorOwnership, perf.updateParam);
+router.delete('/:id/performance/params/:paramId',         verifyToken, requireCoordinatorOwnership, perf.deleteParam);
+router.post('/:id/performance/records',                   verifyToken, requireCoordinatorOwnership, perf.recordAssessment);
+router.get('/:id/performance/dashboard',                  verifyToken, requireCoordinatorOwnership, perf.getProgressDashboard);
+router.get('/:id/performance/player/:userId',             verifyToken, requireCoordinatorOwnership, perf.getPlayerTimeline);
 
 /* ── Live scoreboards ── */
 router.get('/:id/live-scores',               verifyToken, requireCoordinatorOwnership, cd.getLiveScores);

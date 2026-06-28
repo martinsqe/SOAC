@@ -234,6 +234,119 @@ const myCoins = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+/* GET /api/users/me/weekly-evaluation
+   Returns per-club attendance for the current ISO week (Mon–Sun) plus unread notifications. */
+const ATTEND_XP_EVAL = { present: 100, late: 50, excused: 25, absent: 0 };
+
+const weeklyEvaluation = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    /* Current ISO week bounds */
+    const { rows: [week] } = await pgPool.query(
+      `SELECT DATE_TRUNC('week', CURRENT_DATE)::date                     AS week_start,
+              (DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '6 days')::date AS week_end`
+    );
+
+    /* All clubs the user belongs to */
+    const { rows: clubs } = await pgPool.query(
+      `SELECT sc.club_id, c.name AS club_name, c.color, c.logo
+       FROM student_clubs sc
+       JOIN clubs c ON c.id = sc.club_id
+       WHERE sc.user_id = $1 AND c.is_active = true
+       ORDER BY c.name`,
+      [userId]
+    );
+
+    if (!clubs.length) {
+      return res.json({ weekStart: week.week_start, weekEnd: week.week_end, clubs: [], notifications: [] });
+    }
+
+    const clubIds = clubs.map(c => c.club_id);
+
+    /* This week's attendance records (survive session deletion via session_date on record) */
+    const { rows: records } = await pgPool.query(
+      `SELECT r.club_id, r.session_date, r.status, r.notes,
+              COALESCE(s.session_label, '') AS session_label
+       FROM club_attendance_records r
+       LEFT JOIN club_attendance_sessions s ON s.id = r.session_id
+       WHERE r.user_id = $1
+         AND r.club_id = ANY($2::bigint[])
+         AND r.session_date >= $3::date
+         AND r.session_date <= $4::date
+       ORDER BY r.session_date ASC`,
+      [userId, clubIds, week.week_start, week.week_end]
+    );
+
+    /* Which clubs already gave a consistency bonus this week */
+    const { rows: bonusRows } = await pgPool.query(
+      `SELECT club_id FROM attendance_consistency_bonuses
+       WHERE user_id = $1 AND week_start = $2::date`,
+      [userId, week.week_start]
+    );
+    const bonusClubIds = new Set(bonusRows.map(b => String(b.club_id)));
+
+    /* Build per-club summary */
+    const clubData = clubs.map(cl => {
+      const clRecs = records.filter(r => String(r.club_id) === String(cl.club_id));
+      const weekPresent = clRecs.filter(r => r.status === 'present').length;
+      const hasBonus    = bonusClubIds.has(String(cl.club_id));
+      const baseXp      = clRecs.reduce((sum, r) => sum + (ATTEND_XP_EVAL[r.status] || 0), 0);
+      return {
+        clubId:           String(cl.club_id),
+        clubName:         cl.club_name,
+        color:            cl.color || '#635bff',
+        sessions:         clRecs.map(r => ({
+          date:   r.session_date,
+          label:  r.session_label,
+          status: r.status,
+          notes:  r.notes,
+        })),
+        weekPresent,
+        weekXp:           baseXp + (hasBonus ? 100 : 0),
+        consistencyBonus: hasBonus,
+        daysToBonus:      hasBonus ? 0 : Math.max(0, 4 - weekPresent),
+      };
+    });
+
+    /* Recent notifications for this user (unread first, max 20) */
+    const { rows: notifs } = await pgPool.query(
+      `SELECT id, club_id, title, body, type, is_read, created_at
+       FROM member_notifications
+       WHERE user_id = $1
+       ORDER BY is_read ASC, created_at DESC
+       LIMIT 20`,
+      [userId]
+    );
+
+    res.json({
+      weekStart: week.week_start,
+      weekEnd:   week.week_end,
+      clubs:     clubData,
+      notifications: notifs.map(n => ({
+        id:        String(n.id),
+        clubId:    n.club_id ? String(n.club_id) : null,
+        title:     n.title,
+        body:      n.body,
+        type:      n.type,
+        isRead:    n.is_read,
+        createdAt: n.created_at,
+      })),
+    });
+  } catch (err) { next(err); }
+};
+
+/* PATCH /api/users/me/notifications/:id/read  — mark a notification read */
+const markNotificationRead = async (req, res, next) => {
+  try {
+    await pgPool.query(
+      `UPDATE member_notifications SET is_read = true WHERE id = $1::bigint AND user_id = $2`,
+      [req.params.notifId, req.user.id]
+    );
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+};
+
 /* PUT /api/users/me/profile  (any authenticated user) */
 const updateProfile = async (req, res, next) => {
   try {
@@ -304,4 +417,4 @@ const assignClub = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, create, update, remove, stats, auditLog, myClubs, updateProfile, assignClub, myCoins };
+module.exports = { getAll, create, update, remove, stats, auditLog, myClubs, updateProfile, assignClub, myCoins, weeklyEvaluation, markNotificationRead };

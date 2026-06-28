@@ -633,12 +633,18 @@ function AttendanceTab({ clubId, members, showToast }) {
    TASKS TAB
 ══════════════════════════════════════════════════════════ */
 function TasksTab({ clubId, user, showToast }) {
-  const [tasks,   setTasks]   = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm,setShowForm]= useState(false);
-  const [editing, setEditing] = useState(null);
-  const [form,    setForm]    = useState({ title:'', description:'', priority:'medium', due_date:'' });
-  const [saving,  setSaving]  = useState(false);
+  const [tasks,             setTasks]             = useState([]);
+  const [loading,           setLoading]           = useState(true);
+  const [showForm,          setShowForm]          = useState(false);
+  const [editing,           setEditing]           = useState(null);
+  const [form,              setForm]              = useState({ title:'', description:'', priority:'medium', due_date:'' });
+  const [saving,            setSaving]            = useState(false);
+  /* completion panel */
+  const [selectedTask,      setSelectedTask]      = useState(null);
+  const [completions,       setCompletions]       = useState([]);
+  const [completionLoading, setCompletionLoading] = useState(false);
+  const [completionSaving,  setCompletionSaving]  = useState(false);
+  const [completionSaved,   setCompletionSaved]   = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -647,20 +653,49 @@ function TasksTab({ clubId, user, showToast }) {
     } catch (_) {}
     setLoading(false);
   }, [clubId]);
-
   useEffect(() => { load(); }, [load]);
 
+  /* ── Open completion panel for a task ── */
+  const openCompletions = async (task) => {
+    setSelectedTask(task);
+    setCompletionSaved(false);
+    setCompletionLoading(true);
+    try {
+      const data = await api.get(`/clubs/${clubId}/tasks/${task.id}/completions`);
+      setCompletions(data.members || []);
+    } catch (_) { setCompletions([]); }
+    setCompletionLoading(false);
+  };
+
+  const toggleCompletion = (userId) => {
+    if (selectedTask?.is_deleted) return;
+    setCompletions(cs => cs.map(c => c.userId === userId ? { ...c, isCompleted: !c.isCompleted } : c));
+    setCompletionSaved(false);
+  };
+
+  const saveCompletions = async () => {
+    if (!selectedTask || selectedTask.is_deleted) return;
+    setCompletionSaving(true);
+    try {
+      const result = await api.post(`/clubs/${clubId}/tasks/${selectedTask.id}/completions`, { completions });
+      setCompletionSaved(true);
+      showToast(`Saved! ${result.totalCoinsAwarded} coins awarded to members.`);
+    } catch (e) { showToast(e.message || 'Save failed.'); }
+    finally { setCompletionSaving(false); }
+  };
+
+  /* ── Task form ── */
   const openNew = () => {
     setEditing(null);
     setForm({ title:'', description:'', priority:'medium', due_date:'' });
     setShowForm(true);
   };
-  const openEdit = (t) => {
+  const openEdit = (t, e) => {
+    e.stopPropagation();
     setEditing(t);
     setForm({ title: t.title, description: t.description || '', priority: t.priority, due_date: t.due_date?.slice(0,10) || '' });
     setShowForm(true);
   };
-
   const save = async () => {
     if (!form.title.trim()) return;
     setSaving(true);
@@ -679,57 +714,75 @@ function TasksTab({ clubId, user, showToast }) {
     finally { setSaving(false); }
   };
 
-  const cycle = async (task) => {
+  const cycle = async (task, e) => {
+    e.stopPropagation();
+    if (task.is_deleted) return;
     const next = { todo:'in_progress', in_progress:'done', done:'todo' }[task.status];
     try {
       const res = await api.patch(`/clubs/${clubId}/tasks/${task.id}`, { status: next });
       setTasks(ts => ts.map(t => t.id === task.id ? res.task : t));
+      if (selectedTask?.id === task.id) setSelectedTask(res.task);
     } catch (_) {}
   };
 
-  const del = async (id) => {
-    if (!window.confirm('Delete this task?')) return;
+  const del = async (id, e) => {
+    e.stopPropagation();
+    if (!window.confirm('Archive this task? Records and coins are preserved. No further edits will be possible.')) return;
     try {
       await api.delete(`/clubs/${clubId}/tasks/${id}`);
-      setTasks(ts => ts.filter(t => t.id !== id));
-      showToast('Task deleted.');
-    } catch (e) { showToast(e.message || 'Delete failed.'); }
+      setTasks(ts => ts.map(t => t.id === id ? { ...t, is_deleted: true } : t));
+      if (selectedTask?.id === id) setSelectedTask(prev => prev ? { ...prev, is_deleted: true } : null);
+      showToast('Task archived. Records preserved.');
+    } catch (e) { showToast(e.message || 'Archive failed.'); }
   };
+
+  const activeTasks   = tasks.filter(t => !t.is_deleted);
+  const archivedTasks = tasks.filter(t =>  t.is_deleted);
+  const completedCount = completions.filter(c => c.isCompleted).length;
 
   if (loading) return <div className={s.loading}><div className={s.spinner} /></div>;
 
   return (
     <>
-      <div className={s.card}>
-        <div className={s.cardHead}>
-          <div>
-            <p className={s.cardTitle}>Tasks</p>
-            <p className={s.cardSub}>{tasks.length} task{tasks.length !== 1 ? 's' : ''} · click status to cycle</p>
-          </div>
-          <button className={`${s.btn} ${s.btnPrimary} ${s.btnSmall}`} onClick={openNew}>+ New Task</button>
-        </div>
+      <div className={s.taskLayout}>
 
-        {tasks.length === 0 ? (
-          <div className={s.empty}>
-            <div className={s.emptyIco}>✅</div>
-            <p>No tasks yet. Create one to assign work to your club.</p>
+        {/* ══ Left: task list ══ */}
+        <div className={s.taskListPanel}>
+          <div className={s.taskListHead}>
+            <div>
+              <div className={s.cardTitle}>Tasks</div>
+              <div className={s.cardSub}>{activeTasks.length} active · click a task to manage completions</div>
+            </div>
+            <button className={`${s.btn} ${s.btnPrimary} ${s.btnSmall}`} onClick={openNew}>+ New Task</button>
           </div>
-        ) : (
-          <div className={s.taskList}>
-            {tasks.map(t => (
-              <div key={t.id} className={s.taskRow}>
-                <div className={s.taskDot} style={{ background: PRIORITY_COLOR[t.priority] }} />
-                <div className={s.taskBody}>
-                  <div className={s.taskTitle}>{t.title}</div>
+
+          {activeTasks.length === 0 && archivedTasks.length === 0 ? (
+            <div className={s.empty}>
+              <div className={s.emptyIco}>✅</div>
+              <p>No tasks yet. Create one to assign and track member work.</p>
+            </div>
+          ) : (
+            <div className={s.taskScrollList}>
+              {activeTasks.map(t => (
+                <div key={t.id}
+                  className={`${s.taskCard} ${selectedTask?.id === t.id ? s.taskCardSel : ''}`}
+                  onClick={() => openCompletions(t)}>
+                  <div className={s.taskCardTop}>
+                    <div className={s.taskDot} style={{ background: PRIORITY_COLOR[t.priority] }} />
+                    <div className={s.taskCardName}>{t.title}</div>
+                    <div className={s.taskActions} onClick={e => e.stopPropagation()}>
+                      <button className={`${s.btn} ${s.btnOutline} ${s.btnSmall}`} onClick={e => openEdit(t, e)}>Edit</button>
+                      <button className={`${s.btn} ${s.btnDanger}  ${s.btnSmall}`} onClick={e => del(t.id, e)}>Del</button>
+                    </div>
+                  </div>
                   {t.description && <div className={s.taskDesc}>{t.description}</div>}
                   <div className={s.taskMeta}>
                     <span className={s.taskBadge}
-                      style={{ background: STATUS_COLOR[t.status] + '18', color: STATUS_COLOR[t.status] }}
-                      onClick={() => cycle(t)} title="Click to change status" style={{ cursor:'pointer', background: STATUS_COLOR[t.status] + '18', color: STATUS_COLOR[t.status] }}>
+                      style={{ background: STATUS_COLOR[t.status]+'18', color: STATUS_COLOR[t.status], cursor:'pointer' }}
+                      onClick={e => cycle(t, e)} title="Click to cycle status">
                       {STATUS_LABEL[t.status]}
                     </span>
-                    <span className={s.taskBadge}
-                      style={{ background: PRIORITY_COLOR[t.priority] + '18', color: PRIORITY_COLOR[t.priority] }}>
+                    <span className={s.taskBadge} style={{ background: PRIORITY_COLOR[t.priority]+'18', color: PRIORITY_COLOR[t.priority] }}>
                       {t.priority}
                     </span>
                     {t.due_date && (
@@ -739,14 +792,106 @@ function TasksTab({ clubId, user, showToast }) {
                     )}
                   </div>
                 </div>
-                <div className={s.taskActions}>
-                  <button className={`${s.btn} ${s.btnOutline} ${s.btnSmall}`} onClick={() => openEdit(t)}>Edit</button>
-                  <button className={`${s.btn} ${s.btnDanger}  ${s.btnSmall}`} onClick={() => del(t.id)}>Del</button>
+              ))}
+
+              {archivedTasks.length > 0 && (
+                <>
+                  <div className={s.taskArchiveDivider}>Archived</div>
+                  {archivedTasks.map(t => (
+                    <div key={t.id}
+                      className={`${s.taskCard} ${s.taskCardArchived} ${selectedTask?.id === t.id ? s.taskCardSel : ''}`}
+                      onClick={() => openCompletions(t)}>
+                      <div className={s.taskCardTop}>
+                        <div className={s.taskDot} style={{ background: '#d1d5db' }} />
+                        <div className={s.taskCardName} style={{ color:'#9ca3af', textDecoration:'line-through' }}>{t.title}</div>
+                        <span className={s.taskArchivedBadge}>Archived</span>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ══ Right: completion panel ══ */}
+        <div className={`${s.completionPanel} ${selectedTask ? s.completionPanelOpen : ''}`}>
+          {!selectedTask ? (
+            <div className={s.completionEmpty}>
+              <div className={s.completionEmptyIco}>👆</div>
+              <p>Click a task to view members and manage completions</p>
+            </div>
+          ) : (
+            <>
+              <div className={s.completionHead}>
+                <div className={s.completionHeadInfo}>
+                  <div className={s.completionHeadTitle}>{selectedTask.title}</div>
+                  {selectedTask.is_deleted
+                    ? <span className={s.taskArchivedBadge}>Archived — read only</span>
+                    : <span className={s.completionSubtitle}>Check members who completed this task</span>
+                  }
                 </div>
+                <button className={s.completionClose} onClick={() => setSelectedTask(null)}>✕</button>
               </div>
-            ))}
-          </div>
-        )}
+
+              {completionLoading ? (
+                <div className={s.loading}><div className={s.spinner} /></div>
+              ) : completions.length === 0 ? (
+                <div className={s.completionEmpty}>
+                  <div className={s.completionEmptyIco}>👥</div>
+                  <p>No members in this club yet.</p>
+                </div>
+              ) : (
+                <>
+                  <div className={s.completionStats}>
+                    <div className={s.completionStatChip}>
+                      <span className={s.completionStatVal}>{completedCount}/{completions.length}</span>
+                      <span className={s.completionStatLbl}>Completed</span>
+                    </div>
+                    <div className={s.completionStatChip}>
+                      <span className={s.completionStatVal} style={{ color:'#635bff' }}>{completedCount * 100}</span>
+                      <span className={s.completionStatLbl}>Coins to award</span>
+                    </div>
+                  </div>
+
+                  <div className={s.completionList}>
+                    {completions.map((c, i) => (
+                      <div key={c.userId}
+                        className={`${s.completionRow} ${c.isCompleted ? s.completionRowDone : ''}`}
+                        onClick={() => toggleCompletion(c.userId)}
+                        style={{ cursor: selectedTask.is_deleted ? 'default' : 'pointer' }}>
+                        <span className={s.memberNum}>{i + 1}</span>
+                        <span className={s.completionMemberName}>{c.userName}</span>
+                        {c.isCompleted
+                          ? <span className={s.completionCoinBadge}>+100</span>
+                          : <span className={s.completionZeroBadge}>+0</span>
+                        }
+                        <div className={`${s.completionCheck} ${c.isCompleted ? s.completionCheckOn : ''}`}>
+                          {c.isCompleted && '✓'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {!selectedTask.is_deleted && (
+                    <div className={s.completionFooter}>
+                      {completionSaved && (
+                        <span className={s.completionSavedMsg}>Coins allocated successfully!</span>
+                      )}
+                      <button
+                        className={`${s.btn} ${s.btnPrimary}`}
+                        style={{ width:'100%' }}
+                        onClick={saveCompletions}
+                        disabled={completionSaving}>
+                        {completionSaving ? 'Saving…' : 'Save & Award Coins'}
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* Task form modal */}
@@ -1044,136 +1189,815 @@ function LeadershipTab({ clubId, showToast }) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   PROGRESS TAB
+   PROGRESS TAB — Advanced Performance Tracking
 ══════════════════════════════════════════════════════════ */
-const MAX_XP = 500;
 
-function ProgressTab({ clubId, members, showToast }) {
-  const [progress, setProgress] = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [editMem,  setEditMem]  = useState(null);
-  const [form,     setForm]     = useState({ level:'Beginner', xp: 0, notes:'' });
-  const [saving,   setSaving]   = useState(false);
+/* ── Period / date helpers (pure, no hooks) ── */
+function fmtIso(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function periodLabel(period, d) {
+  switch (period) {
+    case 'day': return d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+    case 'week': {
+      const mon = new Date(d); mon.setDate(d.getDate()-((d.getDay()+6)%7));
+      const sun = new Date(mon); sun.setDate(mon.getDate()+6);
+      return `${mon.toLocaleDateString('en-GB',{day:'numeric',month:'short'})} – ${sun.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}`;
+    }
+    case 'month': return d.toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+    case 'year':  return String(d.getFullYear());
+    default: return '';
+  }
+}
+function navDate(period, d, dir) {
+  const n = new Date(d);
+  switch (period) {
+    case 'day':   n.setDate(n.getDate()+dir);           break;
+    case 'week':  n.setDate(n.getDate()+dir*7);         break;
+    case 'month': n.setMonth(n.getMonth()+dir);         break;
+    case 'year':  n.setFullYear(n.getFullYear()+dir);   break;
+  }
+  return n;
+}
+function applyLabel(param, value) {
+  const ts = Array.isArray(param.thresholds) ? param.thresholds : [];
+  if (!ts.length) return { label: '—', color: '#6b7280' };
+  if (param.measurement_type === 'lower_better') {
+    for (const t of ts) if (value <= Number(t.value)) return { label: t.label, color: t.color||'#6b7280' };
+  } else {
+    for (const t of ts) if (value >= Number(t.value)) return { label: t.label, color: t.color||'#6b7280' };
+  }
+  const last = ts[ts.length-1];
+  return { label: last.label, color: last.color||'#6b7280' };
+}
+const THRESHOLD_COLORS = ['#059669','#3b82f6','#f59e0b','#ef4444','#8b5cf6','#ec4899'];
 
-  const load = useCallback(async () => {
-    try {
-      const data = await api.get(`/clubs/${clubId}/progress`);
-      setProgress(data.progress || []);
-    } catch (_) {}
-    setLoading(false);
-  }, [clubId]);
+/* ── Param form modal ── */
+function ParamFormModal({ initial, onSave, onClose, saving }) {
+  const blank = { name:'', description:'', unit:'', measurement_type:'higher_better',
+                  max_value:'', category:'General', thresholds:[] };
+  const [form, setForm] = useState(initial ? { ...blank, ...initial,
+    max_value: initial.max_value ?? '',
+    thresholds: Array.isArray(initial.thresholds) ? initial.thresholds.map(t=>({...t})) : []
+  } : blank);
 
-  useEffect(() => { load(); }, [load]);
+  const setF = (k,v) => setForm(f=>({...f,[k]:v}));
+  const addThreshold = () => setForm(f=>({
+    ...f,
+    thresholds:[...f.thresholds,{ value:'', label:'', color: THRESHOLD_COLORS[f.thresholds.length % THRESHOLD_COLORS.length] }]
+  }));
+  const setT = (i,k,v) => setForm(f=>({ ...f, thresholds: f.thresholds.map((t,j)=>j===i?{...t,[k]:v}:t) }));
+  const removeT = (i)   => setForm(f=>({ ...f, thresholds: f.thresholds.filter((_,j)=>j!==i) }));
 
-  /* Merge members with saved progress, fill gaps with defaults */
-  const rows = members.map(m => {
-    const saved = progress.find(p => String(p.user_id) === String(m.id));
-    return saved
-      ? { ...saved, avatar: m.avatar }
-      : { user_id: m.id, user_name: m.name, level: 'Beginner', xp: 0, notes: '', avatar: m.avatar };
-  });
-
-  const openEdit = (row) => {
-    setEditMem(row);
-    setForm({ level: row.level || 'Beginner', xp: row.xp || 0, notes: row.notes || '' });
-  };
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      const res = await api.put(`/clubs/${clubId}/progress/${editMem.user_id}`,
-        { ...form, xp: Number(form.xp), user_name: editMem.user_name });
-      setProgress(ps => {
-        const idx = ps.findIndex(p => String(p.user_id) === String(editMem.user_id));
-        if (idx >= 0) return ps.map((p, i) => i === idx ? { ...p, ...res.progress } : p);
-        return [...ps, res.progress];
-      });
-      setEditMem(null);
-      showToast('Progress saved ✓');
-    } catch (e) { showToast(e.message || 'Save failed.'); }
-    finally { setSaving(false); }
-  };
-
-  if (loading) return <div className={s.loading}><div className={s.spinner} /></div>;
+  const isHigh = form.measurement_type === 'higher_better';
+  const thresholdHint = isHigh
+    ? 'Sort from best (highest) to worst (lowest) — e.g. ≥ 8 = Excellent, ≥ 5 = Good, ≥ 0 = Improving'
+    : 'Sort from best (lowest) to worst (highest) — e.g. ≤ 10s = Elite, ≤ 15s = Good, ≤ 999 = Improving';
 
   return (
-    <>
-      <div className={s.card}>
-        <div className={s.cardHead}>
-          <div>
-            <p className={s.cardTitle}>Student Progress</p>
-            <p className={s.cardSub}>Track each member's level, XP and personal notes.</p>
+    <div className={s.modalOverlay} onClick={onClose}>
+      <div className={s.modal} style={{maxWidth:540,width:'94vw'}} onClick={e=>e.stopPropagation()}>
+        <div className={s.modalHead}>
+          <span className={s.modalTitle}>{initial?.id ? 'Edit Parameter' : 'New Parameter'}</span>
+          <button className={s.modalClose} onClick={onClose}>✕</button>
+        </div>
+        <div className={s.modalBody}>
+          <div className={s.grid2}>
+            <div className={s.field} style={{gridColumn:'1/-1'}}>
+              <label>Parameter Name *</label>
+              <input value={form.name} onChange={e=>setF('name',e.target.value)} placeholder="e.g. Shooting Accuracy" />
+            </div>
+            <div className={s.field}>
+              <label>Unit</label>
+              <input value={form.unit} onChange={e=>setF('unit',e.target.value)} placeholder="e.g. goals, seconds, kg" />
+            </div>
+            <div className={s.field}>
+              <label>Category</label>
+              <input value={form.category} onChange={e=>setF('category',e.target.value)} placeholder="e.g. Technical, Physical" />
+            </div>
+            <div className={s.field}>
+              <label>Measurement</label>
+              <select value={form.measurement_type} onChange={e=>setF('measurement_type',e.target.value)}>
+                <option value="higher_better">Higher is Better</option>
+                <option value="lower_better">Lower is Better</option>
+              </select>
+            </div>
+            <div className={s.field}>
+              <label>Max Value (optional)</label>
+              <input type="number" value={form.max_value} onChange={e=>setF('max_value',e.target.value)} placeholder="e.g. 10 for shots/10" />
+            </div>
+            <div className={s.field} style={{gridColumn:'1/-1'}}>
+              <label>Description</label>
+              <textarea rows={2} value={form.description} onChange={e=>setF('description',e.target.value)}
+                placeholder="What does this parameter measure?" />
+            </div>
+          </div>
+
+          <div className={s.thresholdsSection}>
+            <div className={s.thresholdsHead}>
+              <span className={s.thresholdsTitle}>Performance Thresholds</span>
+              <button className={`${s.btn} ${s.btnSmall} ${s.btnOutline}`} type="button" onClick={addThreshold}>+ Add</button>
+            </div>
+            <p className={s.thresholdsHint}>{thresholdHint}</p>
+            {form.thresholds.map((t,i) => (
+              <div key={i} className={s.thresholdRow}>
+                <span className={s.thresholdDir}>{isHigh ? '≥' : '≤'}</span>
+                <input className={s.thresholdVal} type="number" step="0.1"
+                  value={t.value} onChange={e=>setT(i,'value',e.target.value)} placeholder="0" />
+                <input className={s.thresholdLabel} value={t.label}
+                  onChange={e=>setT(i,'label',e.target.value)} placeholder="Label" />
+                <input type="color" className={s.thresholdColor}
+                  value={t.color||'#6b7280'} onChange={e=>setT(i,'color',e.target.value)} />
+                <button className={s.thresholdDel} onClick={()=>removeT(i)}>✕</button>
+              </div>
+            ))}
+            {form.thresholds.length === 0 &&
+              <p style={{fontSize:'.75rem',color:'#9ca3af',margin:'6px 0 0'}}>No thresholds yet — scores will show raw values only.</p>
+            }
+          </div>
+
+          <div className={s.btnRow}>
+            <button className={`${s.btn} ${s.btnPrimary}`} disabled={saving || !form.name.trim()}
+              onClick={() => onSave(form)}>
+              {saving ? 'Saving…' : (initial?.id ? 'Update Parameter' : 'Create Parameter')}
+            </button>
+            <button className={`${s.btn} ${s.btnOutline}`} onClick={onClose}>Cancel</button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
 
-        {rows.length === 0 ? (
-          <div className={s.empty}>
-            <div className={s.emptyIco}>📈</div>
-            <p>No members yet. Approve join requests to track progress.</p>
+/* ── Record Assessments modal ── */
+function RecordModal({ param, players, onSave, onClose, saving }) {
+  const today = fmtIso(new Date());
+  const [date, setDate]     = useState(today);
+  const [vals, setVals]     = useState(() =>
+    Object.fromEntries(players.map(p => [p.userId, { value:'', notes:'' }]))
+  );
+  const setV = (uid, k, v) => setVals(prev => ({ ...prev, [uid]: { ...prev[uid], [k]: v } }));
+
+  const hasMax = param.max_value && Number(param.max_value) > 0;
+  const maxV   = Number(param.max_value);
+
+  const preview = (uid) => {
+    const v = vals[uid]?.value;
+    if (v === '' || v == null) return null;
+    const num = parseFloat(v);
+    if (isNaN(num)) return null;
+    return applyLabel(param, num);
+  };
+
+  const validCount = players.filter(p => vals[p.userId]?.value !== '' && vals[p.userId]?.value != null).length;
+
+  return (
+    <div className={s.modalOverlay} onClick={onClose}>
+      <div className={s.modal} style={{maxWidth:560,width:'95vw',maxHeight:'90vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+        <div className={s.modalHead}>
+          <span className={s.modalTitle}>Record: {param.name}</span>
+          <button className={s.modalClose} onClick={onClose}>✕</button>
+        </div>
+        <div className={s.modalBody} style={{overflowY:'auto',flex:1}}>
+          <div style={{display:'flex',gap:12,alignItems:'center',marginBottom:12,flexWrap:'wrap'}}>
+            <div className={s.field} style={{flex:1,minWidth:140,marginBottom:0}}>
+              <label>Assessment Date</label>
+              <input type="date" value={date} onChange={e=>setDate(e.target.value)} />
+            </div>
+            <div className={s.field} style={{flex:1,minWidth:160,marginBottom:0}}>
+              <label>Unit</label>
+              <span style={{display:'flex',alignItems:'center',gap:6,fontSize:'.85rem',color:'#6b7280',marginTop:6}}>
+                {param.unit || 'raw score'}
+                {hasMax && <span style={{color:'#8b5cf6',fontWeight:600}}>/ {maxV}</span>}
+                <span style={{fontSize:'.72rem',background:'#f3f4f6',padding:'2px 6px',borderRadius:4}}>
+                  {param.measurement_type === 'lower_better' ? 'Lower = Better' : 'Higher = Better'}
+                </span>
+              </span>
+            </div>
           </div>
-        ) : (
-          <div className={s.progList}>
-            {rows.map((r, i) => {
-              const coins = computeCoins(r.xp, r.level);
-              const tier  = getTier(coins);
+          <div className={s.recordList}>
+            {players.map((p,i) => {
+              const lbl = preview(p.userId);
               return (
-              <div key={r.user_id} className={s.progRow}>
-                <div className={s.progAv} style={{ background: GRADS[i % GRADS.length] }}>
-                  {initials(r.user_name)}
-                </div>
-                <div className={s.progInfo}>
-                  <div className={s.progName}>{r.user_name}</div>
-                  <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:2, flexWrap:'wrap' }}>
-                    <div className={s.progLevel}>{r.level}</div>
-                    <span style={{ fontSize:'.7rem', fontWeight:700, padding:'2px 8px', borderRadius:6, background: tier.bg, color: tier.color }}>
-                      {tier.icon} {coins} coins · {tier.label}
+                <div key={p.userId} className={s.recordRow}>
+                  <div className={s.recordAv} style={{background: GRADS[i % GRADS.length]}}>
+                    {initials(p.userName)}
+                  </div>
+                  <span className={s.recordName}>{p.userName}</span>
+                  <input
+                    className={s.recordInput}
+                    type="number" step="0.01"
+                    min={0} max={hasMax ? maxV : undefined}
+                    value={vals[p.userId]?.value ?? ''}
+                    placeholder={hasMax ? `0 – ${maxV}` : '—'}
+                    onChange={e=>setV(p.userId,'value',e.target.value)}
+                  />
+                  {lbl && (
+                    <span className={s.recordLabel} style={{background: lbl.color+'22', color: lbl.color, border:`1px solid ${lbl.color}44`}}>
+                      {lbl.label}
                     </span>
-                  </div>
-                  <div className={s.progXP}>{r.xp} XP × {LEVEL_MULT[r.level] || 1} = {coins} coins</div>
-                  <div className={s.xpBar}>
-                    <div className={s.xpFill} style={{ width: `${Math.min(100, (r.xp / MAX_XP) * 100)}%` }} />
-                  </div>
-                  {r.notes && <div style={{ fontSize: '.72rem', color: '#9ca3af', marginTop: 4 }}>{r.notes}</div>}
+                  )}
                 </div>
-                <button className={`${s.btn} ${s.btnOutline} ${s.btnSmall}`} onClick={() => openEdit(r)}>
-                  Edit
-                </button>
-              </div>
               );
             })}
           </div>
-        )}
+          <div className={s.btnRow} style={{marginTop:16}}>
+            <button className={`${s.btn} ${s.btnPrimary}`} disabled={saving || validCount===0}
+              onClick={() => onSave(date, vals)}>
+              {saving ? 'Saving…' : `Save ${validCount} Assessment${validCount!==1?'s':''}`}
+            </button>
+            <button className={`${s.btn} ${s.btnOutline}`} onClick={onClose}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Player Detail Modal ── */
+function PlayerDetailModal({ player, params, clubId, period, currentDate, onClose }) {
+  const [timeline, setTimeline] = useState(null);
+  const [loading, setLoading]   = useState(true);
+
+  useEffect(() => {
+    const fetch = async () => {
+      try {
+        const data = await api.get(
+          `/clubs/${clubId}/performance/player/${player.userId}?period=${period}&date=${fmtIso(currentDate)}`
+        );
+        setTimeline(data);
+      } catch (_) {}
+      setLoading(false);
+    };
+    fetch();
+  }, [clubId, player.userId, period, currentDate]);
+
+  const attStats = { present:0, late:0, absent:0, excused:0 };
+  if (timeline?.attendance) {
+    for (const a of timeline.attendance) attStats[a.status] = (attStats[a.status]||0)+1;
+  }
+  const totalSessions = timeline?.attendance?.length || 0;
+
+  return (
+    <div className={s.modalOverlay} onClick={onClose}>
+      <div className={s.modal} style={{maxWidth:600,width:'95vw',maxHeight:'90vh',display:'flex',flexDirection:'column'}}
+           onClick={e=>e.stopPropagation()}>
+        <div className={s.modalHead}>
+          <span className={s.modalTitle}>{player.userName} — Detailed View</span>
+          <button className={s.modalClose} onClick={onClose}>✕</button>
+        </div>
+        <div className={s.modalBody} style={{overflowY:'auto',flex:1}}>
+          {loading ? (
+            <div className={s.loading}><div className={s.spinner}/></div>
+          ) : (
+            <>
+              {/* Summary chips */}
+              <div className={s.detailChips}>
+                <div className={s.detailChip}>
+                  <span className={s.detailChipVal}>{player.xp}</span>
+                  <span className={s.detailChipLbl}>XP</span>
+                </div>
+                <div className={s.detailChip}>
+                  <span className={s.detailChipVal}>{player.coins}</span>
+                  <span className={s.detailChipLbl}>Coins</span>
+                </div>
+                <div className={s.detailChip}>
+                  <span className={s.detailChipVal}>{player.level}</span>
+                  <span className={s.detailChipLbl}>Level</span>
+                </div>
+                <div className={s.detailChip}>
+                  <span className={s.detailChipVal}>{totalSessions > 0 ? `${attStats.present}/${totalSessions}` : '—'}</span>
+                  <span className={s.detailChipLbl}>Present</span>
+                </div>
+              </div>
+
+              {/* Attendance log */}
+              {timeline?.attendance?.length > 0 && (
+                <div className={s.detailSection}>
+                  <p className={s.detailSectionTitle}>Attendance ({timeline.attendance.length} sessions)</p>
+                  <div className={s.detailAttList}>
+                    {timeline.attendance.map((a, i) => (
+                      <div key={i} className={s.detailAttRow}>
+                        <span className={s.detailAttDate}>{new Date(a.session_date).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</span>
+                        <span className={`${s.detailBadge} ${s[`weeklyBadge_${a.status}`]}`}>{a.status}</span>
+                        {a.session_label && <span className={s.detailAttLabel}>{a.session_label}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Task completions */}
+              {timeline?.tasks?.length > 0 && (
+                <div className={s.detailSection}>
+                  <p className={s.detailSectionTitle}>Tasks ({timeline.tasks.filter(t=>t.is_completed).length}/{timeline.tasks.length} completed)</p>
+                  <div className={s.detailTaskList}>
+                    {timeline.tasks.map((t,i) => (
+                      <div key={i} className={s.detailTaskRow}>
+                        <span className={t.is_completed ? s.detailTaskDone : s.detailTaskPend}>
+                          {t.is_completed ? '✓' : '○'}
+                        </span>
+                        <span className={s.detailTaskName}>{t.task_title}</span>
+                        {t.is_completed && <span className={s.detailTaskCoins}>+{t.coins_awarded} coins</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Performance timeline per param */}
+              {params.map(p => {
+                const records = timeline?.performance?.[String(p.id)] || [];
+                if (!records.length) return null;
+                return (
+                  <div key={p.id} className={s.detailSection}>
+                    <p className={s.detailSectionTitle}>{p.name} ({p.unit || 'score'})</p>
+                    <div className={s.detailPerfList}>
+                      {records.map((r,i) => (
+                        <div key={i} className={s.detailPerfRow}>
+                          <span className={s.detailPerfDate}>{new Date(r.date).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</span>
+                          <span className={s.detailPerfVal}>
+                            {r.value}{p.max_value ? `/${p.max_value}` : ''} {p.unit}
+                          </span>
+                          {r.label && (
+                            <span style={{fontSize:'.72rem',fontWeight:600,padding:'2px 8px',borderRadius:4,
+                              background:r.color+'22',color:r.color,border:`1px solid ${r.color}44`}}>
+                              {r.label}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {(!timeline?.attendance?.length && !timeline?.tasks?.length && Object.keys(timeline?.performance||{}).length===0) && (
+                <p style={{color:'#9ca3af',fontSize:'.85rem',textAlign:'center',padding:'24px 0'}}>No records for this period.</p>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Main ProgressTab ── */
+const PERIODS = ['Day','Week','Month','Year'];
+
+function ProgressTab({ clubId, members, showToast }) {
+  const [period,      setPeriod]      = useState('Week');
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [subTab,      setSubTab]      = useState('players'); // 'players' | 'params' | 'record'
+
+  /* Dashboard data */
+  const [dashData,    setDashData]    = useState(null);
+  const [dashLoading, setDashLoading] = useState(true);
+
+  /* Param management */
+  const [showParamForm, setShowParamForm] = useState(false);
+  const [editingParam,  setEditingParam]  = useState(null);
+  const [paramSaving,   setParamSaving]   = useState(false);
+
+  /* Assessment recording */
+  const [recordParam,  setRecordParam]  = useState(null);
+  const [recordSaving, setRecordSaving] = useState(false);
+
+  /* Player detail */
+  const [detailPlayer, setDetailPlayer] = useState(null);
+
+  /* XP edit (legacy) */
+  const [editMem,  setEditMem]  = useState(null);
+  const [xpForm,   setXpForm]   = useState({ level:'Beginner', xp:0, notes:'' });
+  const [xpSaving, setXpSaving] = useState(false);
+
+  const loadDash = useCallback(async () => {
+    setDashLoading(true);
+    try {
+      const data = await api.get(
+        `/clubs/${clubId}/performance/dashboard?period=${period.toLowerCase()}&date=${fmtIso(currentDate)}`
+      );
+      setDashData(data);
+    } catch (_) {}
+    setDashLoading(false);
+  }, [clubId, period, currentDate]);
+
+  useEffect(() => { loadDash(); }, [loadDash]);
+
+  /* Period navigation */
+  const navigate = (dir) => setCurrentDate(d => navDate(period.toLowerCase(), d, dir));
+
+  /* Param CRUD */
+  const saveParam = async (form) => {
+    setParamSaving(true);
+    try {
+      const cleaned = {
+        ...form,
+        max_value: form.max_value !== '' ? Number(form.max_value) : null,
+        thresholds: form.thresholds.map(t => ({ ...t, value: Number(t.value) })),
+      };
+      if (editingParam?.id) {
+        await api.put(`/clubs/${clubId}/performance/params/${editingParam.id}`, cleaned);
+        showToast('Parameter updated ✓');
+      } else {
+        await api.post(`/clubs/${clubId}/performance/params`, cleaned);
+        showToast('Parameter created ✓');
+      }
+      setShowParamForm(false);
+      setEditingParam(null);
+      loadDash();
+    } catch (e) { showToast(e.message || 'Save failed.'); }
+    setParamSaving(false);
+  };
+
+  const deactivateParam = async (paramId) => {
+    if (!window.confirm('Deactivate this parameter? Existing records are kept.')) return;
+    try {
+      await api.delete(`/clubs/${clubId}/performance/params/${paramId}`);
+      showToast('Parameter deactivated.');
+      loadDash();
+    } catch (e) { showToast(e.message || 'Failed.'); }
+  };
+
+  /* Assessment recording */
+  const saveAssessment = async (date, vals) => {
+    setRecordSaving(true);
+    try {
+      const records = (dashData?.players || [])
+        .filter(p => vals[p.userId]?.value !== '' && vals[p.userId]?.value != null)
+        .map(p => ({ userId: p.userId, userName: p.userName, value: Number(vals[p.userId].value), notes: vals[p.userId].notes || '' }));
+      await api.post(`/clubs/${clubId}/performance/records`, { paramId: recordParam.id, recordedDate: date, records });
+      showToast(`Assessments saved for ${records.length} member(s) ✓`);
+      setRecordParam(null);
+      loadDash();
+    } catch (e) { showToast(e.message || 'Failed.'); }
+    setRecordSaving(false);
+  };
+
+  /* XP save */
+  const saveXp = async () => {
+    setXpSaving(true);
+    try {
+      await api.put(`/clubs/${clubId}/progress/${editMem.userId}`,
+        { ...xpForm, xp: Number(xpForm.xp), user_name: editMem.userName });
+      showToast('XP saved ✓');
+      setEditMem(null);
+      loadDash();
+    } catch (e) { showToast(e.message || 'Save failed.'); }
+    setXpSaving(false);
+  };
+
+  const params  = dashData?.params  || [];
+  const players = dashData?.players || [];
+
+  /* Summary stats */
+  const avgAtt  = players.filter(p=>p.attendance.rate!=null).length
+    ? Math.round(players.filter(p=>p.attendance.rate!=null).reduce((a,p)=>a+p.attendance.rate,0)/players.filter(p=>p.attendance.rate!=null).length)
+    : null;
+  const avgTask = players.filter(p=>p.tasks.rate!=null).length
+    ? Math.round(players.filter(p=>p.tasks.rate!=null).reduce((a,p)=>a+p.tasks.rate,0)/players.filter(p=>p.tasks.rate!=null).length)
+    : null;
+
+  return (
+    <>
+      {/* Period selector + date navigator */}
+      <div className={s.perfHeader}>
+        <div className={s.periodTabs}>
+          {PERIODS.map(p => (
+            <button key={p}
+              className={`${s.periodTab} ${period===p ? s.periodTabActive : ''}`}
+              onClick={()=>{ setPeriod(p); }}>
+              {p}
+            </button>
+          ))}
+        </div>
+        <div className={s.dateNav}>
+          <button className={s.dateNavBtn} onClick={()=>navigate(-1)}>&#8249;</button>
+          <span className={s.dateNavLabel}>{periodLabel(period.toLowerCase(), currentDate)}</span>
+          <button className={s.dateNavBtn} onClick={()=>navigate(1)}>&#8250;</button>
+        </div>
       </div>
 
-      {/* Progress edit modal */}
+      {/* Summary bar */}
+      <div className={s.perfSummary}>
+        <div className={s.perfSumChip}>
+          <span className={s.perfSumVal}>{players.length}</span>
+          <span className={s.perfSumLbl}>Members</span>
+        </div>
+        <div className={s.perfSumChip}>
+          <span className={s.perfSumVal}>{avgAtt != null ? `${avgAtt}%` : '—'}</span>
+          <span className={s.perfSumLbl}>Avg Attendance</span>
+        </div>
+        <div className={s.perfSumChip}>
+          <span className={s.perfSumVal}>{avgTask != null ? `${avgTask}%` : '—'}</span>
+          <span className={s.perfSumLbl}>Avg Tasks Done</span>
+        </div>
+        <div className={s.perfSumChip}>
+          <span className={s.perfSumVal}>{params.length}</span>
+          <span className={s.perfSumLbl}>Active Metrics</span>
+        </div>
+      </div>
+
+      {/* Sub-tabs */}
+      <div className={s.perfSubTabs}>
+        <button className={`${s.perfSubTab} ${subTab==='players'?s.perfSubTabActive:''}`} onClick={()=>setSubTab('players')}>
+          Players Overview
+        </button>
+        <button className={`${s.perfSubTab} ${subTab==='params'?s.perfSubTabActive:''}`} onClick={()=>setSubTab('params')}>
+          Metrics ({params.length})
+        </button>
+        <button className={`${s.perfSubTab} ${subTab==='record'?s.perfSubTabActive:''}`} onClick={()=>setSubTab('record')}>
+          Record Now
+        </button>
+      </div>
+
+      {dashLoading ? (
+        <div className={s.loading}><div className={s.spinner}/></div>
+      ) : (
+
+        /* ── PLAYERS OVERVIEW ── */
+        subTab === 'players' ? (
+          <div className={s.card}>
+            {players.length === 0 ? (
+              <div className={s.empty}>
+                <div className={s.emptyIco}>📊</div>
+                <p>No members yet or no data for this period.</p>
+              </div>
+            ) : (
+              <div className={s.perfTableWrap}>
+                <table className={s.perfTable}>
+                  <thead>
+                    <tr>
+                      <th className={s.perfThName}>Player</th>
+                      <th className={s.perfTh}>Level / Coins</th>
+                      <th className={s.perfTh}>Attendance</th>
+                      <th className={s.perfTh}>Tasks</th>
+                      {params.map(p=>(
+                        <th key={p.id} className={s.perfTh} title={p.description}>
+                          {p.name}{p.unit?` (${p.unit})`:''}
+                        </th>
+                      ))}
+                      <th className={s.perfTh}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {players.map((p,i) => {
+                      const tier = getTier(p.coins);
+                      return (
+                        <tr key={p.userId} className={s.perfRow} onClick={()=>{
+                          setDetailPlayer(p);
+                        }}>
+                          <td className={s.perfTdName}>
+                            <div className={s.perfAvWrap}>
+                              <div className={s.perfAv} style={{background:GRADS[i%GRADS.length]}}>
+                                {initials(p.userName)}
+                              </div>
+                              <span>{p.userName}</span>
+                            </div>
+                          </td>
+                          <td className={s.perfTd}>
+                            <div className={s.perfLevelWrap}>
+                              <span className={s.progLevel}>{p.level}</span>
+                              <span style={{fontSize:'.68rem',fontWeight:700,color:tier.color}}>{p.coins} coins</span>
+                            </div>
+                          </td>
+                          <td className={s.perfTd}>
+                            {p.attendance.sessions > 0 ? (
+                              <div className={s.perfRateWrap}>
+                                <div className={s.perfRateBar}>
+                                  <div className={s.perfRateFill} style={{
+                                    width:`${p.attendance.rate??0}%`,
+                                    background: p.attendance.rate >= 75 ? '#059669' : p.attendance.rate >= 50 ? '#f59e0b' : '#ef4444'
+                                  }}/>
+                                </div>
+                                <span className={s.perfRateNum}>{p.attendance.rate}%</span>
+                                <span className={s.perfRateSub}>{p.attendance.present}P {p.attendance.late}L {p.attendance.absent}A</span>
+                              </div>
+                            ) : <span style={{color:'#9ca3af',fontSize:'.75rem'}}>No sessions</span>}
+                          </td>
+                          <td className={s.perfTd}>
+                            {p.tasks.total > 0 ? (
+                              <div className={s.perfRateWrap}>
+                                <div className={s.perfRateBar}>
+                                  <div className={s.perfRateFill} style={{
+                                    width:`${p.tasks.rate??0}%`,
+                                    background: p.tasks.rate >= 80 ? '#059669' : p.tasks.rate >= 50 ? '#f59e0b' : '#ef4444'
+                                  }}/>
+                                </div>
+                                <span className={s.perfRateNum}>{p.tasks.rate}%</span>
+                                <span className={s.perfRateSub}>{p.tasks.completed}/{p.tasks.total}</span>
+                              </div>
+                            ) : <span style={{color:'#9ca3af',fontSize:'.75rem'}}>—</span>}
+                          </td>
+                          {params.map(param => {
+                            const rec = p.params[String(param.id)];
+                            return (
+                              <td key={param.id} className={s.perfTd}>
+                                {rec ? (
+                                  <div className={s.perfParamCell}>
+                                    <span className={s.perfParamVal}>
+                                      {rec.value}{param.max_value?`/${param.max_value}`:''}
+                                    </span>
+                                    {rec.label && (
+                                      <span className={s.perfParamLabel}
+                                        style={{background:rec.color+'22',color:rec.color,border:`1px solid ${rec.color}44`}}>
+                                        {rec.label}
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : <span style={{color:'#9ca3af',fontSize:'.75rem'}}>—</span>}
+                              </td>
+                            );
+                          })}
+                          <td className={s.perfTd}>
+                            <button className={`${s.btn} ${s.btnSmall} ${s.btnOutline}`}
+                              onClick={e=>{e.stopPropagation(); setEditMem(p); setXpForm({level:p.level,xp:p.xp,notes:p.progressNotes}); }}>
+                              XP Edit
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        ) :
+
+        /* ── PARAMS MANAGEMENT ── */
+        subTab === 'params' ? (
+          <div className={s.card}>
+            <div className={s.cardHead}>
+              <div>
+                <p className={s.cardTitle}>Performance Metrics</p>
+                <p className={s.cardSub}>Define what you measure. Each metric can have custom thresholds.</p>
+              </div>
+              <button className={`${s.btn} ${s.btnPrimary} ${s.btnSmall}`}
+                onClick={()=>{ setEditingParam(null); setShowParamForm(true); }}>
+                + Add Metric
+              </button>
+            </div>
+
+            {params.length === 0 ? (
+              <div className={s.empty}>
+                <div className={s.emptyIco}>🎯</div>
+                <p>No metrics defined yet. Add your first performance parameter.</p>
+              </div>
+            ) : (
+              <div className={s.paramGrid}>
+                {params.map(p => (
+                  <div key={p.id} className={s.paramCard}>
+                    <div className={s.paramCardTop}>
+                      <div>
+                        <p className={s.paramName}>{p.name}</p>
+                        <p className={s.paramMeta}>
+                          {p.unit && <span>{p.unit}</span>}
+                          {p.category && <span className={s.paramCat}>{p.category}</span>}
+                          <span className={`${s.paramDir} ${p.measurement_type==='lower_better'?s.paramDirLow:s.paramDirHigh}`}>
+                            {p.measurement_type==='lower_better'?'↓ Lower Better':'↑ Higher Better'}
+                          </span>
+                        </p>
+                        {p.description && <p className={s.paramDesc}>{p.description}</p>}
+                      </div>
+                      <div className={s.paramActions}>
+                        <button className={`${s.btn} ${s.btnSmall} ${s.btnOutline}`}
+                          onClick={()=>{ setEditingParam(p); setShowParamForm(true); }}>Edit</button>
+                        <button className={`${s.btn} ${s.btnSmall} ${s.btnDanger}`}
+                          onClick={()=>deactivateParam(p.id)}>Remove</button>
+                      </div>
+                    </div>
+                    {Array.isArray(p.thresholds) && p.thresholds.length > 0 && (
+                      <div className={s.paramThresholds}>
+                        {p.thresholds.map((t,i) => (
+                          <span key={i} className={s.paramThreshChip}
+                            style={{background:t.color+'22',color:t.color,border:`1px solid ${t.color}44`}}>
+                            {p.measurement_type==='lower_better'?'≤':'≥'}{t.value} = {t.label}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) :
+
+        /* ── RECORD NOW ── */
+        (
+          <div className={s.card}>
+            <div className={s.cardHead}>
+              <div>
+                <p className={s.cardTitle}>Record Assessments</p>
+                <p className={s.cardSub}>Select a metric below and enter scores for each member.</p>
+              </div>
+            </div>
+            {params.length === 0 ? (
+              <div className={s.empty}>
+                <div className={s.emptyIco}>📝</div>
+                <p>No metrics defined. Go to the Metrics tab to add parameters first.</p>
+              </div>
+            ) : (
+              <div className={s.recordParamList}>
+                {params.map(p => (
+                  <div key={p.id} className={s.recordParamCard}>
+                    <div className={s.recordParamInfo}>
+                      <p className={s.recordParamName}>{p.name}</p>
+                      <p className={s.recordParamMeta}>
+                        {p.unit && <span>{p.unit}</span>}
+                        {p.max_value && <span>max {p.max_value}</span>}
+                        <span className={`${s.paramDir} ${p.measurement_type==='lower_better'?s.paramDirLow:s.paramDirHigh}`}>
+                          {p.measurement_type==='lower_better'?'↓ Lower Better':'↑ Higher Better'}
+                        </span>
+                      </p>
+                      {Array.isArray(p.thresholds) && p.thresholds.length > 0 && (
+                        <div className={s.paramThresholds} style={{marginTop:4}}>
+                          {p.thresholds.map((t,i)=>(
+                            <span key={i} className={s.paramThreshChip}
+                              style={{background:t.color+'22',color:t.color,border:`1px solid ${t.color}44`}}>
+                              {t.label}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <button className={`${s.btn} ${s.btnPrimary} ${s.btnSmall}`}
+                      onClick={()=>setRecordParam(p)}>
+                      Enter Scores
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      )}
+
+      {/* Param form modal */}
+      {showParamForm && (
+        <ParamFormModal
+          initial={editingParam}
+          onSave={saveParam}
+          onClose={()=>{ setShowParamForm(false); setEditingParam(null); }}
+          saving={paramSaving}
+        />
+      )}
+
+      {/* Record assessment modal */}
+      {recordParam && (
+        <RecordModal
+          param={recordParam}
+          players={players}
+          onSave={saveAssessment}
+          onClose={()=>setRecordParam(null)}
+          saving={recordSaving}
+        />
+      )}
+
+      {/* Player detail modal */}
+      {detailPlayer && (
+        <PlayerDetailModal
+          player={detailPlayer}
+          params={params}
+          clubId={clubId}
+          period={period.toLowerCase()}
+          currentDate={currentDate}
+          onClose={()=>setDetailPlayer(null)}
+        />
+      )}
+
+      {/* XP edit modal */}
       {editMem && (
-        <div className={s.modalOverlay} onClick={() => setEditMem(null)}>
-          <div className={s.modal} onClick={e => e.stopPropagation()}>
+        <div className={s.modalOverlay} onClick={()=>setEditMem(null)}>
+          <div className={s.modal} onClick={e=>e.stopPropagation()}>
             <div className={s.modalHead}>
-              <span className={s.modalTitle}>{editMem.user_name}</span>
-              <button className={s.modalClose} onClick={() => setEditMem(null)}>✕</button>
+              <span className={s.modalTitle}>{editMem.userName} — XP & Level</span>
+              <button className={s.modalClose} onClick={()=>setEditMem(null)}>✕</button>
             </div>
             <div className={s.modalBody}>
               <div className={s.grid2}>
                 <div className={s.field}><label>Level</label>
-                  <select value={form.level} onChange={e => setForm(f => ({...f, level: e.target.value}))}>
-                    {LEVEL_OPTIONS.map(l => <option key={l}>{l}</option>)}
+                  <select value={xpForm.level} onChange={e=>setXpForm(f=>({...f,level:e.target.value}))}>
+                    {LEVEL_OPTIONS.map(l=><option key={l}>{l}</option>)}
                   </select>
                 </div>
-                <div className={s.field}><label>XP (0 – {MAX_XP})</label>
-                  <input type="number" min={0} max={MAX_XP} value={form.xp}
-                    onChange={e => setForm(f => ({...f, xp: e.target.value}))} />
+                <div className={s.field}><label>XP</label>
+                  <input type="number" min={0} value={xpForm.xp}
+                    onChange={e=>setXpForm(f=>({...f,xp:e.target.value}))} />
                 </div>
               </div>
               <div className={s.field}><label>Notes</label>
-                <textarea rows={3} value={form.notes} placeholder="Observations, achievements, areas to improve…"
-                  onChange={e => setForm(f => ({...f, notes: e.target.value}))} />
+                <textarea rows={3} value={xpForm.notes}
+                  placeholder="Observations, achievements, areas to improve…"
+                  onChange={e=>setXpForm(f=>({...f,notes:e.target.value}))} />
               </div>
               <div className={s.btnRow}>
-                <button className={`${s.btn} ${s.btnPrimary}`} onClick={save} disabled={saving}>
-                  {saving ? 'Saving…' : 'Save Progress'}
+                <button className={`${s.btn} ${s.btnPrimary}`} onClick={saveXp} disabled={xpSaving}>
+                  {xpSaving?'Saving…':'Save XP & Level'}
                 </button>
-                <button className={`${s.btn} ${s.btnOutline}`} onClick={() => setEditMem(null)}>Cancel</button>
+                <button className={`${s.btn} ${s.btnOutline}`} onClick={()=>setEditMem(null)}>Cancel</button>
               </div>
             </div>
           </div>

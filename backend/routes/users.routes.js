@@ -8,8 +8,10 @@ router.get('/',  verifyToken, requireAdmin, ctrl.getAll);
 router.post('/', verifyToken, requireAdmin, ctrl.create);
 
 // Specific /me and /meta routes MUST come before /:id to avoid Express matching 'me'/'meta' as an id
-router.get('/me/clubs',   verifyToken, ctrl.myClubs);
-router.get('/me/coins',   verifyToken, ctrl.myCoins);
+router.get('/me/clubs',                              verifyToken, ctrl.myClubs);
+router.get('/me/coins',                              verifyToken, ctrl.myCoins);
+router.get('/me/weekly-evaluation',                  verifyToken, ctrl.weeklyEvaluation);
+router.patch('/me/notifications/:notifId/read',      verifyToken, ctrl.markNotificationRead);
 router.put('/me/profile', verifyToken, uploadAvatar.single('avatar'), ctrl.updateProfile);
 
 router.get('/meta/stats', verifyToken, requireAdmin, ctrl.stats);
