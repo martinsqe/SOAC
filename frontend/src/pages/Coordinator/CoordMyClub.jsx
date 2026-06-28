@@ -1567,10 +1567,6 @@ function ProgressTab({ clubId, members, showToast }) {
   /* Player detail */
   const [detailPlayer, setDetailPlayer] = useState(null);
 
-  /* XP edit (legacy) */
-  const [editMem,  setEditMem]  = useState(null);
-  const [xpForm,   setXpForm]   = useState({ level:'Beginner', xp:0, notes:'' });
-  const [xpSaving, setXpSaving] = useState(false);
 
   const loadDash = useCallback(async () => {
     setDashLoading(true);
@@ -1633,19 +1629,6 @@ function ProgressTab({ clubId, members, showToast }) {
       loadDash();
     } catch (e) { showToast(e.message || 'Failed.'); }
     setRecordSaving(false);
-  };
-
-  /* XP save */
-  const saveXp = async () => {
-    setXpSaving(true);
-    try {
-      await api.put(`/clubs/${clubId}/progress/${editMem.userId}`,
-        { ...xpForm, xp: Number(xpForm.xp), user_name: editMem.userName });
-      showToast('XP saved ✓');
-      setEditMem(null);
-      loadDash();
-    } catch (e) { showToast(e.message || 'Save failed.'); }
-    setXpSaving(false);
   };
 
   const params  = dashData?.params  || [];
@@ -1730,7 +1713,6 @@ function ProgressTab({ clubId, members, showToast }) {
                   <thead>
                     <tr>
                       <th className={s.perfThName}>Player</th>
-                      <th className={s.perfTh}>Level / Coins</th>
                       <th className={s.perfTh}>Attendance</th>
                       <th className={s.perfTh}>Tasks</th>
                       {params.map(p=>(
@@ -1743,7 +1725,6 @@ function ProgressTab({ clubId, members, showToast }) {
                   </thead>
                   <tbody>
                     {players.map((p,i) => {
-                      const tier = getTier(p.coins);
                       return (
                         <tr key={p.userId} className={s.perfRow} onClick={()=>{
                           setDetailPlayer(p);
@@ -1754,12 +1735,6 @@ function ProgressTab({ clubId, members, showToast }) {
                                 {initials(p.userName)}
                               </div>
                               <span>{p.userName}</span>
-                            </div>
-                          </td>
-                          <td className={s.perfTd}>
-                            <div className={s.perfLevelWrap}>
-                              <span className={s.progLevel}>{p.level}</span>
-                              <span style={{fontSize:'.68rem',fontWeight:700,color:tier.color}}>{p.coins} coins</span>
                             </div>
                           </td>
                           <td className={s.perfTd}>
@@ -1810,12 +1785,6 @@ function ProgressTab({ clubId, members, showToast }) {
                               </td>
                             );
                           })}
-                          <td className={s.perfTd}>
-                            <button className={`${s.btn} ${s.btnSmall} ${s.btnOutline}`}
-                              onClick={e=>{e.stopPropagation(); setEditMem(p); setXpForm({level:p.level,xp:p.xp,notes:p.progressNotes}); }}>
-                              XP Edit
-                            </button>
-                          </td>
                         </tr>
                       );
                     })}
@@ -1968,41 +1937,6 @@ function ProgressTab({ clubId, members, showToast }) {
         />
       )}
 
-      {/* XP edit modal */}
-      {editMem && (
-        <div className={s.modalOverlay} onClick={()=>setEditMem(null)}>
-          <div className={s.modal} onClick={e=>e.stopPropagation()}>
-            <div className={s.modalHead}>
-              <span className={s.modalTitle}>{editMem.userName} — XP & Level</span>
-              <button className={s.modalClose} onClick={()=>setEditMem(null)}>✕</button>
-            </div>
-            <div className={s.modalBody}>
-              <div className={s.grid2}>
-                <div className={s.field}><label>Level</label>
-                  <select value={xpForm.level} onChange={e=>setXpForm(f=>({...f,level:e.target.value}))}>
-                    {LEVEL_OPTIONS.map(l=><option key={l}>{l}</option>)}
-                  </select>
-                </div>
-                <div className={s.field}><label>XP</label>
-                  <input type="number" min={0} value={xpForm.xp}
-                    onChange={e=>setXpForm(f=>({...f,xp:e.target.value}))} />
-                </div>
-              </div>
-              <div className={s.field}><label>Notes</label>
-                <textarea rows={3} value={xpForm.notes}
-                  placeholder="Observations, achievements, areas to improve…"
-                  onChange={e=>setXpForm(f=>({...f,notes:e.target.value}))} />
-              </div>
-              <div className={s.btnRow}>
-                <button className={`${s.btn} ${s.btnPrimary}`} onClick={saveXp} disabled={xpSaving}>
-                  {xpSaving?'Saving…':'Save XP & Level'}
-                </button>
-                <button className={`${s.btn} ${s.btnOutline}`} onClick={()=>setEditMem(null)}>Cancel</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

@@ -85,26 +85,68 @@ export default function StudentProfile() {
   const [pwMsg,       setPwMsg]       = useState('');
   const [pwOk,        setPwOk]        = useState(false);
 
-  /* ── SOAC Coins ── */
-  const [coins,       setCoins]       = useState(null);
+  /* ── SOAC Coins (fetched from member_progress, not auth context) ── */
+  const [coinsData,   setCoinsData]   = useState(null);
   const [coinsLoaded, setCoinsLoaded] = useState(false);
 
   /* ── clubs joined (for profile card) ── */
   const [myClubs, setMyClubs] = useState([]);
 
-  /* ── Weekly evaluation ── */
+  /* ── Progress evaluation: Week / Month / Year tabs + date navigation ── */
+  const EVAL_PERIODS = ['Week', 'Month', 'Year'];
+  const [evalPeriod,    setEvalPeriod]    = useState('Week');
+  const [evalDate,      setEvalDate]      = useState(new Date());
   const [weeklyData,    setWeeklyData]    = useState(null);
   const [weeklyLoading, setWeeklyLoading] = useState(true);
 
-  useEffect(() => {
-    api.get('/users/me/clubs').then(r => setMyClubs(r.clubs || [])).catch(() => {});
-    setCoins(user?.coins ?? 0);
-    setCoinsLoaded(true);
-    api.get('/users/me/weekly-evaluation')
+  function evalFmtIso(d) {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  function evalPeriodLabel(period, d) {
+    switch (period) {
+      case 'Week': {
+        const mon = new Date(d); mon.setDate(d.getDate()-((d.getDay()+6)%7));
+        const sun = new Date(mon); sun.setDate(mon.getDate()+6);
+        return `${mon.toLocaleDateString('en-GB',{day:'numeric',month:'short'})} – ${sun.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}`;
+      }
+      case 'Month': return d.toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+      case 'Year':  return String(d.getFullYear());
+      default: return '';
+    }
+  }
+  function evalNavDate(period, d, dir) {
+    const n = new Date(d);
+    switch (period) {
+      case 'Week':  n.setDate(n.getDate()+dir*7);        break;
+      case 'Month': n.setMonth(n.getMonth()+dir);        break;
+      case 'Year':  n.setFullYear(n.getFullYear()+dir);  break;
+    }
+    return n;
+  }
+
+  const fetchEval = (period, date) => {
+    setWeeklyLoading(true);
+    api.get(`/users/me/weekly-evaluation?period=${period.toLowerCase()}&date=${evalFmtIso(date)}`)
       .then(r => setWeeklyData(r))
       .catch(() => setWeeklyData(null))
       .finally(() => setWeeklyLoading(false));
-  }, [user]);
+  };
+
+  useEffect(() => {
+    api.get('/users/me/clubs').then(r => setMyClubs(r.clubs || [])).catch(() => {});
+    api.get('/users/me/coins').then(r => { setCoinsData(r); setCoinsLoaded(true); }).catch(() => setCoinsLoaded(true));
+    fetchEval('Week', new Date());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handlePeriodChange = (p) => { setEvalPeriod(p); fetchEval(p, evalDate); };
+  const handleDateNav = (dir) => {
+    const next = evalNavDate(evalPeriod, evalDate, dir);
+    setEvalDate(next);
+    fetchEval(evalPeriod, next);
+  };
+
+  const totalCoins = coinsData?.coins ?? 0;
 
   const markNotifRead = async (id) => {
     try {
@@ -239,7 +281,7 @@ export default function StudentProfile() {
               <div className={s.idStatDiv} />
               <div className={s.idStat}>
                 <div className={s.idStatN} style={{ color: '#f59e0b' }}>
-                  {coinsLoaded ? coins : '—'}
+                  {coinsLoaded ? totalCoins : '—'}
                 </div>
                 <div className={s.idStatL}>Coins</div>
               </div>
@@ -259,24 +301,39 @@ export default function StudentProfile() {
                 <div className={s.coinsLabel}>SOAC Coins</div>
                 <div className={s.coinsHint}>Your campus reward wallet</div>
               </div>
+              <div className={s.coinsTotalBadge}>
+                <span className={s.coinsTotalNum}>{coinsLoaded ? totalCoins : '—'}</span>
+                <span className={s.coinsTotalLbl}>total</span>
+              </div>
             </div>
-            <div className={s.coinsBal}>
-              {coinsLoaded ? coins : <span className={s.coinsSkel} />}
-              <span className={s.coinsUnit}>coins</span>
-            </div>
-            <div className={s.coinsInfo}>
-              <div className={s.coinsTip}>
-                <span>🎁</span>
-                <span>Earn coins by attending events &amp; activities</span>
+
+            {/* Per-club breakdown — always shown, all enrolled clubs */}
+            {!coinsLoaded ? (
+              <div className={s.coinsSkelList}>
+                {[1,2,3].map(i => <div key={i} className={s.coinsSkel} style={{height:40,borderRadius:8}} />)}
               </div>
-              <div className={s.coinsTip}>
-                <span>🛒</span>
-                <span>Redeem for fee waivers &amp; merchandise</span>
+            ) : coinsData?.clubs?.length > 0 ? (
+              <div className={s.coinsClubCards}>
+                {coinsData.clubs.map(cl => (
+                  <div key={cl.club_id} className={s.coinsClubCard}>
+                    <div className={s.coinsClubCardLeft}>
+                      <span className={s.coinsClubBar} style={{ background: cl.color || '#635bff' }} />
+                      <span className={s.coinsClubName}>{cl.club_name}</span>
+                    </div>
+                    <div className={s.coinsClubCardRight}>
+                      <span className={s.coinsClubAmount}>{cl.coins}</span>
+                      <span className={s.coinsClubUnit}>coins</span>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className={s.coinsTip}>
-                <span>📈</span>
-                <span>Transaction history coming soon</span>
-              </div>
+            ) : (
+              <p className={s.coinsNoClubs}>Join a club to start earning coins.</p>
+            )}
+
+            <div className={s.coinsTip} style={{marginTop:8}}>
+              <span>🎁</span>
+              <span>Earn coins by attending sessions &amp; completing tasks</span>
             </div>
           </div>
 
@@ -395,72 +452,208 @@ export default function StudentProfile() {
             </div>
           </SectionCard>
 
-          {/* ── Weekly Evaluation ── */}
-          <SectionCard icon="📅" title="Weekly Evaluation"
-            subtitle={weeklyData
-              ? `${new Date(weeklyData.weekStart).toLocaleDateString('en-GB',{day:'numeric',month:'short'})} – ${new Date(weeklyData.weekEnd).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}`
-              : 'This week\'s attendance across your clubs'}>
+          {/* ── My Progress (Week / Month / Year) ── */}
+          <SectionCard icon="📊" title="My Progress" subtitle="Your attendance, tasks and overall performance — calculated automatically">
+
+            {/* Period tabs + date nav */}
+            <div className={s.evalHeader}>
+              <div className={s.evalPeriodTabs}>
+                {EVAL_PERIODS.map(p => (
+                  <button key={p}
+                    className={`${s.evalPeriodTab} ${evalPeriod === p ? s.evalPeriodTabActive : ''}`}
+                    onClick={() => handlePeriodChange(p)}>
+                    {p === 'Week' ? 'This Week' : p === 'Month' ? 'This Month' : 'This Year'}
+                  </button>
+                ))}
+              </div>
+              <div className={s.evalDateNav}>
+                <button className={s.evalNavBtn} onClick={() => handleDateNav(-1)}>&#8249;</button>
+                <span className={s.evalNavLabel}>{evalPeriodLabel(evalPeriod, evalDate)}</span>
+                <button className={s.evalNavBtn} onClick={() => handleDateNav(1)}>&#8250;</button>
+              </div>
+            </div>
+
             {weeklyLoading ? (
-              <div className={s.weeklyLoading}>Loading your weekly summary…</div>
+              <div className={s.weeklyLoading}>Calculating your progress…</div>
             ) : !weeklyData || weeklyData.clubs.length === 0 ? (
-              <div className={s.weeklyEmpty}>You are not a member of any club yet. Join a club to see your weekly evaluation here.</div>
+              <div className={s.weeklyEmpty}>Join a club to see your progress here.</div>
             ) : (
               <div className={s.weeklyClubs}>
-                {weeklyData.clubs.map(cl => (
-                  <div key={cl.clubId} className={s.weeklyClub}>
-                    <div className={s.weeklyClubHead}>
-                      <span className={s.weeklyClubDot} style={{ background: cl.color }} />
-                      <span className={s.weeklyClubName}>{cl.clubName}</span>
-                      {cl.consistencyBonus && (
-                        <span className={s.weeklyBonusBadge}>Consistency Champion +100</span>
+                {weeklyData.clubs.map(cl => {
+                  const att   = cl.attendance || {};
+                  const tasks = cl.tasks      || {};
+
+                  /* Student only sees sessions they attended (present) */
+                  const attendedSessions = (att.list || []).filter(s => s.status === 'present');
+                  /* Student only sees tasks they completed */
+                  const completedTasks = (tasks.list || []).filter(t => t.completed);
+
+                  const hasAttended  = attendedSessions.length > 0;
+                  const hasCompleted = completedTasks.length > 0;
+                  const hasAny       = hasAttended || hasCompleted || cl.overallScore !== null;
+
+                  return (
+                    <div key={cl.clubId} className={s.weeklyClub}>
+
+                      {/* ── Club header ── */}
+                      <div className={s.weeklyClubHead}>
+                        <span className={s.weeklyClubDot} style={{ background: cl.color }} />
+                        <span className={s.weeklyClubName}>{cl.clubName}</span>
+                        {att.consistencyBonus && (
+                          <span className={s.weeklyBonusBadge}>Consistency Champion +100 coins</span>
+                        )}
+                      </div>
+
+                      {!hasAny ? (
+                        <div className={s.weeklyNoSessions}>No participation recorded for this period.</div>
+                      ) : (
+                        <>
+                          {/* ── 1. SESSIONS ATTENDED ── */}
+                          <div className={s.evalSection}>
+                            <div className={s.evalSectionHead}>
+                              <span className={s.evalSectionIcon}>📅</span>
+                              <span className={s.evalSectionTitle}>Sessions Attended</span>
+                              {att.coinsEarned > 0 && (
+                                <span className={s.evalSectionCoins}>+{att.coinsEarned} coins</span>
+                              )}
+                            </div>
+
+                            {/* Single big attended count */}
+                            <div className={s.evalAttendedRow}>
+                              <div className={s.evalAttendedBig}>
+                                <span className={s.evalAttendedNum}>{att.present || 0}</span>
+                                <span className={s.evalAttendedLbl}>
+                                  {att.present === 1 ? 'session attended' : 'sessions attended'}
+                                </span>
+                              </div>
+                              {att.sessions > 0 && (
+                                <div className={s.evalAttendedOf}>
+                                  out of {att.sessions} total
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Consistency bonus or progress bar (week only) */}
+                            {att.consistencyBonus ? (
+                              <div className={s.evalBonusEarned}>
+                                Consistency Champion — you attended 4+ days this week! +100 bonus coins
+                              </div>
+                            ) : evalPeriod === 'Week' && att.sessions > 0 && (
+                              <div className={s.weeklyProgress}>
+                                <div className={s.weeklyProgressBar}>
+                                  <div className={s.weeklyProgressFill}
+                                    style={{ width: `${Math.min(100,((att.present||0)/4)*100)}%` }} />
+                                </div>
+                                <span className={s.weeklyProgressLbl}>
+                                  {att.present || 0}/4 sessions for consistency bonus
+                                </span>
+                              </div>
+                            )}
+
+                            {/* Present sessions list */}
+                            {hasAttended && (
+                              <div className={s.evalSessionList}>
+                                {attendedSessions.map((sess, i) => (
+                                  <div key={i} className={s.evalSessionRow}>
+                                    <span className={s.evalSessionDot} />
+                                    <span className={s.evalSessionDate}>
+                                      {new Date(sess.date).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})}
+                                    </span>
+                                    {sess.label && (
+                                      <span className={s.evalSessionLabel}>{sess.label}</span>
+                                    )}
+                                    <span className={s.evalSessionCoinsTag}>+100 coins</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* ── 2. TASKS COMPLETED ── */}
+                          <div className={s.evalSection}>
+                            <div className={s.evalSectionHead}>
+                              <span className={s.evalSectionIcon}>✅</span>
+                              <span className={s.evalSectionTitle}>Tasks Completed</span>
+                              {tasks.coinsEarned > 0 && (
+                                <span className={s.evalSectionCoins}>+{tasks.coinsEarned} coins</span>
+                              )}
+                            </div>
+
+                            {/* Efficiency bar */}
+                            {tasks.total > 0 && (
+                              <div className={s.evalEfficiencyWrap}>
+                                <div className={s.evalEfficiencyBar}>
+                                  <div className={s.evalEfficiencyFill} style={{
+                                    width: `${tasks.efficiency ?? 0}%`,
+                                    background: tasks.efficiency >= 80 ? '#059669'
+                                              : tasks.efficiency >= 50 ? '#f59e0b' : '#ef4444'
+                                  }}/>
+                                </div>
+                                <span className={s.evalEfficiencyNum}>
+                                  {tasks.completed}/{tasks.total} tasks — {tasks.efficiency ?? 0}% completion rate
+                                </span>
+                              </div>
+                            )}
+
+                            {hasCompleted ? (
+                              <div className={s.evalTaskList}>
+                                {completedTasks.map((t, i) => (
+                                  <div key={i} className={s.evalTaskRow}>
+                                    <span className={s.evalTaskCheck}>✓</span>
+                                    <span className={s.evalTaskName}>{t.title}</span>
+                                    <span className={s.evalTaskCoins}>+{t.coinsAwarded} coins</span>
+                                    {t.date && (
+                                      <span className={s.evalTaskDate}>
+                                        {new Date(t.date).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className={s.evalNoActivity}>No tasks completed this period.</p>
+                            )}
+                          </div>
+
+                          {/* ── 3. OVERALL PROGRESS ── */}
+                          <div className={s.evalOverallWrap}>
+                            <div className={s.evalOverallTop}>
+                              <div className={s.evalOverallScore}>
+                                <span className={s.evalScoreNum}
+                                  style={{color: cl.scoreColor || '#9ca3af'}}>
+                                  {cl.overallScore !== null ? `${cl.overallScore}%` : '—'}
+                                </span>
+                                <span className={s.evalScoreLabel}
+                                  style={{color: cl.scoreColor||'#9ca3af', background:(cl.scoreColor||'#9ca3af')+'18'}}>
+                                  {cl.scoreLabel || 'No data'}
+                                </span>
+                              </div>
+                              <div className={s.evalOverallRight}>
+                                <p className={s.evalOverallTitle}>
+                                  {evalPeriod === 'Week' ? 'Weekly' : evalPeriod === 'Month' ? 'Monthly' : 'Annual'} Progress
+                                </p>
+                                <p className={s.evalOverallSub}>
+                                  Based on {att.present||0} session{att.present!==1?'s':''} attended
+                                  {tasks.total > 0 ? ` · ${tasks.completed} task${tasks.completed!==1?'s':''} done` : ''}
+                                </p>
+                                <div className={s.evalTotalCoinsChip}>
+                                  {cl.totalCoins} total coins in this club
+                                </div>
+                              </div>
+                            </div>
+                            {cl.motivationalMessage && (
+                              <div className={s.evalMotivMsg}>
+                                <span className={s.evalMotivQuote}>"</span>
+                                {cl.motivationalMessage}
+                                <span className={s.evalMotivQuote}>"</span>
+                              </div>
+                            )}
+                          </div>
+                        </>
                       )}
                     </div>
-                    <div className={s.weeklyStats}>
-                      <div className={s.weeklyStat}>
-                        <span className={s.weeklyStatVal}>{cl.weekPresent}</span>
-                        <span className={s.weeklyStatLbl}>Days Present</span>
-                      </div>
-                      <div className={s.weeklyStat}>
-                        <span className={s.weeklyStatVal}>{cl.weekXp}</span>
-                        <span className={s.weeklyStatLbl}>XP Earned</span>
-                      </div>
-                      <div className={s.weeklyStat}>
-                        {cl.consistencyBonus
-                          ? <span className={s.weeklyStatVal} style={{color:'#059669'}}>Achieved</span>
-                          : <span className={s.weeklyStatVal}>{cl.daysToBonus}</span>}
-                        <span className={s.weeklyStatLbl}>{cl.consistencyBonus ? 'Bonus' : 'Days to Bonus'}</span>
-                      </div>
-                    </div>
-                    {cl.sessions.length === 0 ? (
-                      <div className={s.weeklyNoSessions}>No sessions recorded this week.</div>
-                    ) : (
-                      <div className={s.weeklySessions}>
-                        {cl.sessions.map((sess, i) => (
-                          <div key={i} className={s.weeklySession}>
-                            <span className={`${s.weeklyStatusDot} ${s['weeklyStatus_' + sess.status]}`} />
-                            <span className={s.weeklySessionDate}>
-                              {new Date(sess.date).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})}
-                            </span>
-                            {sess.label && <span className={s.weeklySessionLabel}>{sess.label}</span>}
-                            <span className={`${s.weeklyStatusBadge} ${s['weeklyBadge_' + sess.status]}`}>
-                              {sess.status.charAt(0).toUpperCase() + sess.status.slice(1)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {/* Consistency progress bar */}
-                    {!cl.consistencyBonus && (
-                      <div className={s.weeklyProgress}>
-                        <div className={s.weeklyProgressBar}>
-                          <div className={s.weeklyProgressFill}
-                            style={{ width: `${Math.min(100, (cl.weekPresent / 4) * 100)}%` }} />
-                        </div>
-                        <span className={s.weeklyProgressLbl}>{cl.weekPresent}/4 for consistency bonus</span>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </SectionCard>

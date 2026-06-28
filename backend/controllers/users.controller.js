@@ -191,24 +191,28 @@ const myClubs = async (req, res, next) => {
 };
 
 /* GET /api/users/me/coins  (any authenticated student)
-   Returns the current student's coins (XP × level multiplier), rank in global
-   leaderboard, tier, and a breakdown per club.                              */
+   Returns per-club coin breakdown for ALL clubs the student belongs to,
+   even clubs where no attendance has been recorded yet (shows 0 coins).  */
 const myCoins = async (req, res, next) => {
   try {
-    /* Per-club breakdown for this student */
+    /* Start from student_clubs so every enrolled club appears, even with 0 XP */
     const { rows: progRows } = await pgPool.query(
-      `SELECT mp.club_id, c.name AS club_name, c.color,
-              mp.xp, mp.level,
-              FLOOR(mp.xp::float * CASE mp.level
+      `SELECT sc.club_id, c.name AS club_name, c.color,
+              COALESCE(mp.xp, 0)::int                       AS xp,
+              COALESCE(mp.level, 'Beginner')                AS level,
+              FLOOR(COALESCE(mp.xp, 0)::float * CASE COALESCE(mp.level, 'Beginner')
                 WHEN 'Expert'       THEN 3
                 WHEN 'Advanced'     THEN 2
                 WHEN 'Alumni'       THEN 2
                 WHEN 'Intermediate' THEN 1.5
                 ELSE 1
               END)::int AS coins
-       FROM member_progress mp
-       JOIN clubs c ON c.id = mp.club_id
-       WHERE mp.user_id = $1`,
+       FROM student_clubs sc
+       JOIN clubs c ON c.id = sc.club_id AND c.is_active = true
+       LEFT JOIN member_progress mp
+              ON mp.user_id = sc.user_id AND mp.club_id = sc.club_id
+       WHERE sc.user_id = $1
+       ORDER BY c.name`,
       [req.user.id]
     );
 
@@ -218,13 +222,13 @@ const myCoins = async (req, res, next) => {
     const { rows: rankRows } = await pgPool.query(
       `SELECT COUNT(*)::int AS ahead
        FROM (
-         SELECT FLOOR(SUM(mp2.xp::float * CASE mp2.level
+         SELECT FLOOR(SUM(COALESCE(mp2.xp,0)::float * CASE COALESCE(mp2.level,'Beginner')
            WHEN 'Expert' THEN 3 WHEN 'Advanced' THEN 2 WHEN 'Alumni' THEN 2
            WHEN 'Intermediate' THEN 1.5 ELSE 1 END))::int AS c
-         FROM member_progress mp2
-         JOIN users u2 ON u2.id = mp2.user_id
-         WHERE u2.is_active = true AND u2.role = 'student'
-         GROUP BY mp2.user_id
+         FROM student_clubs sc2
+         JOIN users u2 ON u2.id = sc2.user_id AND u2.is_active = true AND u2.role = 'student'
+         LEFT JOIN member_progress mp2 ON mp2.user_id = sc2.user_id AND mp2.club_id = sc2.club_id
+         GROUP BY sc2.user_id
        ) sub WHERE sub.c > $1`,
       [totalCoins]
     );
@@ -234,23 +238,130 @@ const myCoins = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* GET /api/users/me/weekly-evaluation
-   Returns per-club attendance for the current ISO week (Mon–Sun) plus unread notifications. */
-const ATTEND_XP_EVAL = { present: 100, late: 50, excused: 25, absent: 0 };
+/* ── Motivational message banks ─────────────────────────────────────────── */
+const WEEK_MSGS = [
+  "Outstanding week! Every session brings you closer to greatness. Keep showing up!",
+  "Consistency is your superpower. Another week of dedication in the books!",
+  "Champions are built one practice at a time. You're building something special!",
+  "Your commitment this week sets you apart. Never underestimate the power of showing up!",
+  "Hard work beats talent when talent doesn't work hard. You're proving that every week!",
+  "Every rep, every session, every task — it all adds up. Trust the process!",
+  "This week you were disciplined, dedicated, and driven. That's the recipe for success!",
+  "Progress isn't always visible, but it's always happening. Keep grinding!",
+  "You showed up when it mattered. That's what separates good from great!",
+  "Greatness is earned in the small moments. You're earning it, week by week!",
+  "Your energy this week was contagious. Keep inspiring those around you!",
+  "Every goal starts with showing up. You showed up — now keep going!",
+];
+const MONTH_MSGS = [
+  "A full month of dedication. Your growth speaks for itself — keep rising!",
+  "Month complete! Every session, every task, every effort has built a stronger you.",
+  "What a month! Your consistency is turning potential into performance. Keep it up!",
+  "Four weeks of showing up. You're not just a member — you're a pillar of this club.",
+  "Monthly reflection: you've worked hard, grown stronger, and proven your commitment!",
+  "Another month closer to your best self. The journey is the destination — embrace it!",
+  "This month's stats tell a story of grit and growth. Write an even better one next month!",
+  "Champions are built over months, not days. You're in the building phase — trust it!",
+  "Your monthly performance shows real character. Keep this momentum going!",
+  "Month done. You gave it your all. Rest, reflect, and come back even stronger!",
+  "Consistent effort is the foundation of every great achievement. You're laying it!",
+  "Look back at where you started this month. That growth? That's all you!",
+];
+const YEAR_MSGS = [
+  "A full year of dedication! You've grown tremendously — the best is yet to come!",
+  "365 days of choices, challenges, and growth. You chose to show up. That's everything!",
+  "Year in review: your commitment is shaping who you're becoming. Incredibly proud of you!",
+  "One year stronger. The consistency and discipline you've built will carry you far.",
+  "Your yearly journey tells the story of a true champion. Carry this into the next year!",
+];
 
+function getMotivationalMsg(period, dateRange) {
+  switch (period) {
+    case 'week': {
+      const d = new Date(dateRange.start + 'T12:00:00');
+      const dayNum = d.getUTCDay() || 7;
+      const tmp = new Date(d); tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+      const weekNum = Math.ceil(((tmp - yearStart) / 86400000 + 1) / 7);
+      return WEEK_MSGS[weekNum % WEEK_MSGS.length];
+    }
+    case 'month': {
+      const month = new Date(dateRange.start + 'T12:00:00').getMonth();
+      return MONTH_MSGS[month % MONTH_MSGS.length];
+    }
+    case 'year': {
+      const year = new Date(dateRange.start + 'T12:00:00').getFullYear();
+      return YEAR_MSGS[year % YEAR_MSGS.length];
+    }
+    default: return WEEK_MSGS[0];
+  }
+}
+
+function computeOverallScore(presentSessions, totalSessions, completedTasks, totalTasks) {
+  let score = 0, weight = 0;
+  if (totalSessions > 0) {
+    score  += (presentSessions / totalSessions) * 100 * 0.6;
+    weight += 0.6;
+  }
+  if (totalTasks > 0) {
+    score  += (completedTasks / totalTasks) * 100 * 0.4;
+    weight += 0.4;
+  }
+  if (weight === 0) return null;
+  return Math.round(weight < 1 ? score / weight : score);
+}
+
+function scoreToLabel(score) {
+  if (score === null) return { label: 'No data', color: '#9ca3af' };
+  if (score >= 90)   return { label: 'Outstanding', color: '#059669' };
+  if (score >= 75)   return { label: 'Excellent',   color: '#3b82f6' };
+  if (score >= 60)   return { label: 'Good',         color: '#8b5cf6' };
+  if (score >= 40)   return { label: 'Average',      color: '#f59e0b' };
+  return               { label: 'Improving',    color: '#ef4444' };
+}
+
+/* ── Date-range helpers for period-based evaluation ────────────────────── */
+function evalFmtDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function evalGetRange(period, dateStr) {
+  const base = dateStr ? new Date(dateStr + 'T12:00:00') : new Date();
+  const y = base.getFullYear(), mo = base.getMonth(), dy = base.getDate();
+  switch (period) {
+    case 'day': { const s = evalFmtDate(base); return { start: s, end: s }; }
+    case 'week': {
+      const dow = (base.getDay() + 6) % 7;
+      const mon = new Date(base); mon.setDate(dy - dow);
+      const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+      return { start: evalFmtDate(mon), end: evalFmtDate(sun) };
+    }
+    case 'month': {
+      const first = new Date(y, mo, 1), last = new Date(y, mo + 1, 0);
+      return { start: evalFmtDate(first), end: evalFmtDate(last) };
+    }
+    case 'year':
+      return { start: `${y}-01-01`, end: `${y}-12-31` };
+    default: {
+      const dow = (base.getDay() + 6) % 7;
+      const mon = new Date(base); mon.setDate(dy - dow);
+      const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+      return { start: evalFmtDate(mon), end: evalFmtDate(sun) };
+    }
+  }
+}
+
+/* GET /api/users/me/weekly-evaluation?period=week&date=2026-06-28
+   Returns per-club progress summary (attendance + tasks + coins) for the
+   requested period, plus unread motivational notifications.              */
 const weeklyEvaluation = async (req, res, next) => {
   try {
     const userId = req.user.id;
-
-    /* Current ISO week bounds */
-    const { rows: [week] } = await pgPool.query(
-      `SELECT DATE_TRUNC('week', CURRENT_DATE)::date                     AS week_start,
-              (DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '6 days')::date AS week_end`
-    );
+    const period = req.query.period || 'week';
+    const range  = evalGetRange(period, req.query.date);
 
     /* All clubs the user belongs to */
     const { rows: clubs } = await pgPool.query(
-      `SELECT sc.club_id, c.name AS club_name, c.color, c.logo
+      `SELECT sc.club_id, c.name AS club_name, c.color
        FROM student_clubs sc
        JOIN clubs c ON c.id = sc.club_id
        WHERE sc.user_id = $1 AND c.is_active = true
@@ -259,12 +370,12 @@ const weeklyEvaluation = async (req, res, next) => {
     );
 
     if (!clubs.length) {
-      return res.json({ weekStart: week.week_start, weekEnd: week.week_end, clubs: [], notifications: [] });
+      return res.json({ period, dateRange: range, clubs: [], notifications: [] });
     }
 
     const clubIds = clubs.map(c => c.club_id);
 
-    /* This week's attendance records (survive session deletion via session_date on record) */
+    /* Attendance records in period */
     const { rows: records } = await pgPool.query(
       `SELECT r.club_id, r.session_date, r.status, r.notes,
               COALESCE(s.session_label, '') AS session_label
@@ -272,44 +383,111 @@ const weeklyEvaluation = async (req, res, next) => {
        LEFT JOIN club_attendance_sessions s ON s.id = r.session_id
        WHERE r.user_id = $1
          AND r.club_id = ANY($2::bigint[])
-         AND r.session_date >= $3::date
-         AND r.session_date <= $4::date
+         AND r.session_date BETWEEN $3::date AND $4::date
        ORDER BY r.session_date ASC`,
-      [userId, clubIds, week.week_start, week.week_end]
+      [userId, clubIds, range.start, range.end]
     );
 
-    /* Which clubs already gave a consistency bonus this week */
+    /* Task completion records in period */
+    const { rows: taskRecs } = await pgPool.query(
+      `SELECT club_id, task_title, is_completed, coins_awarded,
+              saved_at::date AS completed_date
+       FROM task_completion_records
+       WHERE user_id = $1
+         AND club_id = ANY($2::bigint[])
+         AND saved_at::date BETWEEN $3::date AND $4::date
+       ORDER BY saved_at ASC`,
+      [userId, clubIds, range.start, range.end]
+    );
+
+    /* Consistency bonuses in period (any week whose week_start falls inside range) */
     const { rows: bonusRows } = await pgPool.query(
       `SELECT club_id FROM attendance_consistency_bonuses
-       WHERE user_id = $1 AND week_start = $2::date`,
-      [userId, week.week_start]
+       WHERE user_id = $1
+         AND week_start BETWEEN $2::date AND $3::date`,
+      [userId, range.start, range.end]
     );
     const bonusClubIds = new Set(bonusRows.map(b => String(b.club_id)));
 
+    /* Coins & level per club from member_progress (total, not period-specific) */
+    const { rows: progRows } = await pgPool.query(
+      `SELECT mp.club_id, COALESCE(mp.level,'Beginner') AS level,
+              FLOOR(COALESCE(mp.xp,0)::float * CASE COALESCE(mp.level,'Beginner')
+                WHEN 'Expert'       THEN 3
+                WHEN 'Advanced'     THEN 2
+                WHEN 'Alumni'       THEN 2
+                WHEN 'Intermediate' THEN 1.5
+                ELSE 1 END)::int AS coins
+       FROM member_progress mp
+       WHERE mp.user_id = $1 AND mp.club_id = ANY($2::bigint[])`,
+      [userId, clubIds]
+    );
+    const progMap = Object.fromEntries(progRows.map(p => [String(p.club_id), p]));
+
+    /* Motivational message for this period */
+    const motMsg = getMotivationalMsg(period, range);
+
     /* Build per-club summary */
     const clubData = clubs.map(cl => {
-      const clRecs = records.filter(r => String(r.club_id) === String(cl.club_id));
-      const weekPresent = clRecs.filter(r => r.status === 'present').length;
-      const hasBonus    = bonusClubIds.has(String(cl.club_id));
-      const baseXp      = clRecs.reduce((sum, r) => sum + (ATTEND_XP_EVAL[r.status] || 0), 0);
+      const cid      = String(cl.club_id);
+      const clRecs   = records.filter(r => String(r.club_id) === cid);
+      const clTasks  = taskRecs.filter(r => String(r.club_id) === cid);
+      const present  = clRecs.filter(r => r.status === 'present').length;
+      const late     = clRecs.filter(r => r.status === 'late').length;
+      const absent   = clRecs.filter(r => r.status === 'absent').length;
+      const excused  = clRecs.filter(r => r.status === 'excused').length;
+      const hasBonus = bonusClubIds.has(cid);
+      const prog     = progMap[cid] || { coins: 0 };
+      const tasksDone  = clTasks.filter(t => t.is_completed).length;
+      const tasksTotal = clTasks.length;
+      const attCoins   = present * 100 + late * 50 + excused * 25 + (hasBonus ? 100 : 0);
+      const taskCoins  = clTasks.filter(t => t.is_completed).reduce((s, t) => s + (Number(t.coins_awarded) || 0), 0);
+      const efficiency = tasksTotal > 0 ? Math.round((tasksDone / tasksTotal) * 100) : null;
+      const score      = computeOverallScore(present, clRecs.length, tasksDone, tasksTotal);
+      const sl         = scoreToLabel(score);
+
       return {
-        clubId:           String(cl.club_id),
-        clubName:         cl.club_name,
-        color:            cl.color || '#635bff',
-        sessions:         clRecs.map(r => ({
-          date:   r.session_date,
-          label:  r.session_label,
-          status: r.status,
-          notes:  r.notes,
-        })),
-        weekPresent,
-        weekXp:           baseXp + (hasBonus ? 100 : 0),
+        clubId:        cid,
+        clubName:      cl.club_name,
+        color:         cl.color || '#635bff',
+        totalCoins:    prog.coins,
+        attendance: {
+          sessions: clRecs.length,
+          present, late, absent, excused,
+          coinsEarned:      attCoins,
+          consistencyBonus: hasBonus,
+          daysToBonus:      hasBonus ? 0 : Math.max(0, 4 - present),
+          list: clRecs.map(r => ({
+            date: r.session_date, label: r.session_label, status: r.status,
+          })),
+        },
+        tasks: {
+          total:      tasksTotal,
+          completed:  tasksDone,
+          efficiency,
+          coinsEarned: taskCoins,
+          list: clTasks.map(t => ({
+            title:        t.task_title,
+            completed:    t.is_completed,
+            coinsAwarded: Number(t.coins_awarded) || 0,
+            date:         t.completed_date,
+          })),
+        },
+        overallScore:        score,
+        scoreLabel:          sl.label,
+        scoreColor:          sl.color,
+        motivationalMessage: motMsg,
+        /* keep flat fields for backwards compat */
+        periodPresent:    present,
+        periodTasksDone:  tasksDone,
+        periodTotalTasks: tasksTotal,
         consistencyBonus: hasBonus,
-        daysToBonus:      hasBonus ? 0 : Math.max(0, 4 - weekPresent),
+        daysToBonus:      hasBonus ? 0 : Math.max(0, 4 - present),
+        sessions: clRecs.map(r => ({ date: r.session_date, label: r.session_label, status: r.status })),
       };
     });
 
-    /* Recent notifications for this user (unread first, max 20) */
+    /* Recent notifications (unread first, max 20) */
     const { rows: notifs } = await pgPool.query(
       `SELECT id, club_id, title, body, type, is_read, created_at
        FROM member_notifications
@@ -320,9 +498,9 @@ const weeklyEvaluation = async (req, res, next) => {
     );
 
     res.json({
-      weekStart: week.week_start,
-      weekEnd:   week.week_end,
-      clubs:     clubData,
+      period,
+      dateRange: range,
+      clubs: clubData,
       notifications: notifs.map(n => ({
         id:        String(n.id),
         clubId:    n.club_id ? String(n.club_id) : null,
