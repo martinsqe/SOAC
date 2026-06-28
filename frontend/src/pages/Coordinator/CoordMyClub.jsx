@@ -179,14 +179,8 @@ export default function CoordMyClub() {
 
       {/* ── Club selector (only shown when managing 2+ clubs) ── */}
       {clubs.length > 1 && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          padding: '10px 0 18px',
-          flexWrap: 'wrap',
-        }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1, marginRight: 4 }}>
-            Managing:
-          </span>
+        <div className={s.managingStrip}>
+          <span className={s.managingLabel}>Managing:</span>
           {clubs.map(c => {
             const isActive = String(c.id) === String(club.id || club._id);
             const cColor = c.color || '#635BFF';
@@ -205,6 +199,8 @@ export default function CoordMyClub() {
                   fontSize: 13,
                   cursor: 'pointer',
                   transition: 'all .15s',
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap',
                 }}
               >
                 <span style={{

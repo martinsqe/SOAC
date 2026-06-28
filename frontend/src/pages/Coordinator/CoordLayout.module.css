@@ -275,4 +275,6 @@
 
 @media (max-width: 480px) {
   .topbarName { display: none; }
+  .pageId { font-size: 11px; letter-spacing: -0.1px; }
+  .topbar { padding: 0 12px; }
 }
