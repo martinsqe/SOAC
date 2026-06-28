@@ -28,7 +28,7 @@ const getLeadership = async (req, res, next) => {
   try {
     await ensureSoacTables();
     const { rows } = await pgPool.query(
-      `SELECT id, role_title, holder_name, holder_email, responsibilities, photo_url, user_id, sort_order, updated_at
+      `SELECT id, role_title, holder_name, holder_email, phone, responsibilities, photo_url, user_id, sort_order, updated_at
        FROM club_leadership
        WHERE club_id = $1::bigint
        ORDER BY sort_order ASC, id ASC`,
@@ -44,6 +44,7 @@ const getLeadership = async (req, res, next) => {
      photo_<i>  — optional image file for position at index i             */
 const setLeadership = async (req, res, next) => {
   try {
+    await ensureSoacTables();   // guarantees phone column exists before INSERT
     let positions;
     try {
       // When sent as multipart, positions arrives as a JSON string in req.body
@@ -75,13 +76,14 @@ const setLeadership = async (req, res, next) => {
         const photoUrl = photosByIndex[i] ?? (p.photo_url || '');
         await client.query(
           `INSERT INTO club_leadership
-             (club_id, role_title, holder_name, holder_email, responsibilities, photo_url, user_id, sort_order)
-           VALUES ($1::bigint, $2, $3, $4, $5, $6, $7, $8)`,
+             (club_id, role_title, holder_name, holder_email, phone, responsibilities, photo_url, user_id, sort_order)
+           VALUES ($1::bigint, $2, $3, $4, $5, $6, $7, $8, $9)`,
           [
             clubId,
             p.role_title.trim(),
-            (p.holder_name    || '').trim(),
-            (p.holder_email   || '').trim(),
+            (p.holder_name      || '').trim(),
+            (p.holder_email     || '').trim(),
+            (p.phone            || '').trim(),
             (p.responsibilities || '').trim(),
             photoUrl,
             p.user_id || null,
@@ -97,7 +99,7 @@ const setLeadership = async (req, res, next) => {
       client.release();
     }
     const { rows } = await pgPool.query(
-      `SELECT id, role_title, holder_name, holder_email, responsibilities, photo_url, user_id, sort_order, updated_at
+      `SELECT id, role_title, holder_name, holder_email, phone, responsibilities, photo_url, user_id, sort_order, updated_at
        FROM club_leadership WHERE club_id = $1::bigint ORDER BY sort_order ASC, id ASC`,
       [clubId]
     );

@@ -249,6 +249,7 @@ const ensureSoacTables = async () => {
   // Migrate existing installations: add photo_url and responsibilities if missing
   await pgPool.query(`ALTER TABLE club_leadership ADD COLUMN IF NOT EXISTS photo_url        VARCHAR(500) NOT NULL DEFAULT ''`);
   await pgPool.query(`ALTER TABLE club_leadership ADD COLUMN IF NOT EXISTS responsibilities TEXT        NOT NULL DEFAULT ''`);
+  await pgPool.query(`ALTER TABLE club_leadership ADD COLUMN IF NOT EXISTS phone            VARCHAR(50) NOT NULL DEFAULT ''`);
 
   /* ── Club chat messages ────────────────────────────────────────────────── */
   await pgPool.query(`

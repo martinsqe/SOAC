@@ -48,12 +48,16 @@ const imageFilter = (req, file, cb) => {
 
 /**
  * Returns the value to store in the DB for an uploaded file.
- *   Cloudinary mode → req.file.path  (https://res.cloudinary.com/...)
- *   Disk mode       → req.file.filename  (e.g. 1234567890-logo.jpg)
+ *   Cloudinary mode → file.path  (https://res.cloudinary.com/...)
+ *   Disk mode       → /uploads/<subfolder>/<filename>  (URL-accessible via the /uploads static route)
  */
 const getFileValue = (file) => {
   if (!file) return null;
-  return useCloudinary ? file.path : file.filename;
+  if (useCloudinary) return file.path;
+  // Convert absolute disk path to a URL-routable path
+  const norm = file.path.replace(/\\/g, '/');
+  const idx  = norm.lastIndexOf('/uploads/');
+  return idx !== -1 ? norm.slice(idx) : `/uploads/${file.filename}`;
 };
 
 const uploadLogo       = multer({ storage: makeStorage('logos'),      fileFilter: imageFilter, limits: { fileSize: 5  * 1024 * 1024 } });

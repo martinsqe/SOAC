@@ -25,7 +25,7 @@ function initials(name = '') {
   return name.trim().split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase() || '?';
 }
 
-const EMPTY_POS = { role_title: '', holder_name: '', holder_email: '', responsibilities: '', photo_url: '' };
+const EMPTY_POS = { role_title: '', holder_name: '', holder_email: '', phone: '', responsibilities: '', photo_url: '' };
 
 export default function CoordLeaders() {
   const { club }    = useCoordClub();
@@ -68,6 +68,7 @@ export default function CoordLeaders() {
             role_title:      p.role_title      || '',
             holder_name:     p.holder_name     || '',
             holder_email:    p.holder_email    || '',
+            phone:           p.phone           || '',
             responsibilities: p.responsibilities || '',
             photo_url:       p.photo_url       || '',
           }))
@@ -214,6 +215,7 @@ export default function CoordLeaders() {
                 {leader.holder_name || <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>Vacant</span>}
               </div>
               {leader.holder_email && <div className={s.dept}>{leader.holder_email}</div>}
+              {leader.phone && <div className={s.dept}>📞 {leader.phone}</div>}
               {leader.responsibilities && (
                 <div className={s.responsibilities}>{leader.responsibilities}</div>
               )}
@@ -315,7 +317,7 @@ export default function CoordLeaders() {
                     </div>
 
                     {/* Text fields */}
-                    <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                       <input
                         placeholder="Role title (e.g. President) *"
                         value={pos.role_title}
@@ -334,14 +336,20 @@ export default function CoordLeaders() {
                         onChange={e => updatePosition(i, 'holder_email', e.target.value)}
                         style={inputStyle}
                       />
-                      <textarea
-                        placeholder="Roles & responsibilities (e.g. Manages club finances, chairs weekly meetings…)"
-                        value={pos.responsibilities}
-                        onChange={e => updatePosition(i, 'responsibilities', e.target.value)}
-                        rows={3}
-                        style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.5 }}
+                      <input
+                        placeholder="Phone / WhatsApp (optional)"
+                        value={pos.phone}
+                        onChange={e => updatePosition(i, 'phone', e.target.value)}
+                        style={inputStyle}
                       />
                     </div>
+                    <textarea
+                      placeholder="Roles & responsibilities (e.g. Manages club finances, chairs weekly meetings…)"
+                      value={pos.responsibilities}
+                      onChange={e => updatePosition(i, 'responsibilities', e.target.value)}
+                      rows={3}
+                      style={{ ...inputStyle, marginTop: 8, resize: 'vertical', lineHeight: 1.5 }}
+                    />
                   </div>
                 );
               })}

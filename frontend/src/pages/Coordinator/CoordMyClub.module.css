@@ -402,18 +402,29 @@
 
 /* ── Leadership ── */
 /* ── Leadership read view ── */
-.leaderGrid { display: grid; grid-template-columns: repeat(auto-fill,minmax(200px,1fr)); gap: 12px; }
+.leaderGrid { display: grid; grid-template-columns: repeat(auto-fill,minmax(220px,1fr)); gap: 16px; }
 .leaderCard {
-  padding: 16px; background: #f9fafb; border: 1px solid #ebebf0; border-radius: 12px;
-  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 5px;
+  padding: 24px 16px 18px; background: #fff; border: 1px solid #ebebf0; border-radius: 16px;
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px;
+  box-shadow: 0 1px 6px rgba(0,0,0,.04);
 }
+/* 4.5cm ≈ 170px */
 .leaderAv {
-  width: 52px; height: 52px; border-radius: 50%;
-  overflow: hidden; flex-shrink: 0; margin-bottom: 6px;
+  width: 170px; height: 170px; border-radius: 50%;
+  overflow: hidden; flex-shrink: 0; margin-bottom: 10px;
+  object-fit: cover;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 3rem; font-weight: 900; color: #fff;
+  border: 3px solid #e0deff;
 }
 .leaderRole { font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: #9ca3af; }
-.leaderName { font-size: .9rem; font-weight: 700; color: #0f0a2e; }
-.leaderEmail { font-size: .75rem; color: #6b7280; word-break: break-all; }
+.leaderName { font-size: .95rem; font-weight: 700; color: #0f0a2e; }
+.leaderContactRow { display: flex; flex-direction: column; gap: 3px; width: 100%; margin-top: 2px; }
+.leaderContact {
+  display: flex; align-items: center; gap: 5px; justify-content: center;
+  font-size: .75rem; color: #6b7280; word-break: break-all;
+}
+.leaderContactIcon { font-size: .8rem; flex-shrink: 0; }
 .leaderResp {
   font-size: .73rem; color: #6b7280; line-height: 1.5;
   text-align: left; background: #f0f0f9; border-radius: 6px;
@@ -423,14 +434,14 @@
 
 /* ── Leadership edit form ── */
 .posCard {
-  padding: 14px 16px; background: #f9fafb; border: 1px solid #e5e7eb;
-  border-radius: 10px; margin-bottom: 8px;
+  padding: 16px 18px; background: #f9fafb; border: 1px solid #e5e7eb;
+  border-radius: 12px; margin-bottom: 10px;
 }
 .posPhotoRow {
-  display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+  display: flex; align-items: center; gap: 16px; margin-bottom: 14px;
 }
 .posPhotoCircle {
-  width: 48px; height: 48px; border-radius: 50%;
+  width: 90px; height: 90px; border-radius: 50%;
   border: 2px solid #e0deff; background: #e5e7eb; overflow: hidden;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
@@ -444,8 +455,7 @@
   background: #fff; color: #ef4444; font-weight: 600;
   font-size: .72rem; cursor: pointer; font-family: inherit;
 }
-.posGrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; align-items: end; }
-@media (max-width: 680px) { .posGrid { grid-template-columns: 1fr 1fr; } }
+.posGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: end; }
 @media (max-width: 480px) { .posGrid { grid-template-columns: 1fr; } }
 
 /* ── Progress ── */

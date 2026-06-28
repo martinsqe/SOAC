@@ -286,31 +286,35 @@
 /* ════════════════════════════ LEADERSHIP ════════════════════════════ */
 .leaderGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 20px;
 }
 .leaderCard {
   background: #fff; border: 2px solid #ebebf0;
-  border-radius: 18px; padding: 24px 20px;
+  border-radius: 20px; padding: 28px 20px 20px;
   text-align: center; transition: box-shadow .2s, transform .2s;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
 }
-.leaderCard:hover { box-shadow: 0 8px 28px rgba(0,0,0,.08); transform: translateY(-2px); }
+.leaderCard:hover { box-shadow: 0 8px 28px rgba(0,0,0,.1); transform: translateY(-3px); }
 .leaderCardOpen { opacity: .5; }
+/* 4.5 cm ≈ 170 px */
 .leaderAv {
-  width: 60px; height: 60px; border-radius: 50%;
+  width: 170px; height: 170px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  margin: 0 auto 12px;
+  margin: 0 auto 14px;
   font-family: 'Plus Jakarta Sans', sans-serif;
-  font-size: 1.5rem; font-weight: 900;
+  font-size: 3rem; font-weight: 900;
   overflow: hidden; flex-shrink: 0;
+  border: 3px solid #ebebf0;
 }
 .leaderRole {
   display: inline-block; font-size: 10px; font-weight: 800;
   text-transform: uppercase; letter-spacing: .6px;
-  padding: 3px 10px; border-radius: 6px; margin-bottom: 8px;
+  padding: 3px 10px; border-radius: 6px; margin-bottom: 6px;
 }
-.leaderName { font-size: .875rem; font-weight: 800; color: #0f0a2e; margin-bottom: 4px; }
-.leaderEmail { font-size: .72rem; color: #9ca3af; margin-bottom: 4px; word-break: break-all; }
+.leaderName { font-size: .95rem; font-weight: 800; color: #0f0a2e; margin-bottom: 2px; }
+.leaderEmail { font-size: .72rem; color: #9ca3af; margin-bottom: 2px; word-break: break-all; }
+.leaderPhone { font-size: .72rem; color: #9ca3af; margin-bottom: 4px; }
 .leaderDesc { font-size: .75rem; color: #9ca3af; line-height: 1.5; }
 
 /* ════════════════════════════ GATE (locked) ════════════════════════════ */

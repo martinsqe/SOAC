@@ -1,14 +1,21 @@
 let _cloudinary = null;
 
-try {
-  _cloudinary = require('cloudinary').v2;
-  _cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key:    process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-  });
-} catch (_) {
-  // Package not installed yet — destroyImage will be a no-op until it is
+const hasCredentials =
+  process.env.CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY    &&
+  process.env.CLOUDINARY_API_SECRET;
+
+if (hasCredentials) {
+  try {
+    _cloudinary = require('cloudinary').v2;
+    _cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key:    process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+    });
+  } catch (_) {
+    // Package not installed — disk storage fallback will be used
+  }
 }
 
 const cloudinary = _cloudinary;

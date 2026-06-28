@@ -938,7 +938,7 @@ function TasksTab({ clubId, user, showToast }) {
 /* ══════════════════════════════════════════════════════════
    LEADERSHIP TAB
 ══════════════════════════════════════════════════════════ */
-const EMPTY_POS = { role_title: '', holder_name: '', holder_email: '', responsibilities: '', photo_url: '' };
+const EMPTY_POS = { role_title: '', holder_name: '', holder_email: '', phone: '', responsibilities: '', photo_url: '' };
 
 const LEADER_GRADIENTS = [
   'linear-gradient(135deg,#635BFF,#A259FF)',
@@ -981,6 +981,7 @@ function LeadershipTab({ clubId, showToast }) {
           role_title:      l.role_title      || '',
           holder_name:     l.holder_name     || '',
           holder_email:    l.holder_email    || '',
+          phone:           l.phone           || '',
           responsibilities: l.responsibilities || '',
           photo_url:       l.photo_url       || '',
         }))
@@ -1082,19 +1083,32 @@ function LeadershipTab({ clubId, showToast }) {
           <div className={s.leaderGrid}>
             {leadership.map((l, i) => (
               <div key={l.id || i} className={s.leaderCard}>
-                {/* Avatar */}
+                {/* Avatar — 4cm / 152px */}
                 {l.photo_url ? (
                   <img src={l.photo_url} alt={l.holder_name || l.role_title}
-                    className={s.leaderAv} style={{ objectFit: 'cover' }} />
+                    className={s.leaderAv} />
                 ) : (
                   <div className={s.leaderAv}
-                    style={{ background: LEADER_GRADIENTS[i % LEADER_GRADIENTS.length], display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: '1rem' }}>
+                    style={{ background: LEADER_GRADIENTS[i % LEADER_GRADIENTS.length] }}>
                     {leaderInitials(l.holder_name || l.role_title)}
                   </div>
                 )}
                 <div className={s.leaderRole}>{l.role_title}</div>
                 <div className={s.leaderName}>{l.holder_name || '—'}</div>
-                {l.holder_email && <div className={s.leaderEmail}>{l.holder_email}</div>}
+                <div className={s.leaderContactRow}>
+                  {l.holder_email && (
+                    <div className={s.leaderContact}>
+                      <span className={s.leaderContactIcon}>✉</span>
+                      <span>{l.holder_email}</span>
+                    </div>
+                  )}
+                  {l.phone && (
+                    <div className={s.leaderContact}>
+                      <span className={s.leaderContactIcon}>📞</span>
+                      <span>{l.phone}</span>
+                    </div>
+                  )}
+                </div>
                 {l.responsibilities && (
                   <div className={s.leaderResp}>{l.responsibilities}</div>
                 )}
@@ -1155,6 +1169,11 @@ function LeadershipTab({ clubId, showToast }) {
                     <label>Email</label>
                     <input value={p.holder_email} placeholder="email@rku.ac.in"
                       onChange={e => updatePos(i, 'holder_email', e.target.value)} />
+                  </div>
+                  <div className={s.field} style={{ margin: 0 }}>
+                    <label>Phone / WhatsApp</label>
+                    <input value={p.phone} placeholder="+91 9876543210"
+                      onChange={e => updatePos(i, 'phone', e.target.value)} />
                   </div>
                 </div>
 

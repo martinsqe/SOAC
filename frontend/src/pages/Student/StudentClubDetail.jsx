@@ -668,7 +668,7 @@ export default function StudentClubDetail() {
                 {/* 1 — Faculty Coordinator (always from club data) */}
                 <div className={s.leaderCard} style={{ borderColor: color + '40' }}>
                   <div className={s.leaderAv}
-                    style={{ background: `linear-gradient(135deg,${color},${color}99)` }}>
+                    style={{ background: `linear-gradient(135deg,${color},${color}99)`, color: '#fff' }}>
                     {club.coordinator?.charAt(0)?.toUpperCase() || 'C'}
                   </div>
                   <div className={s.leaderRole} style={{ color, background: color + '14' }}>
@@ -687,7 +687,7 @@ export default function StudentClubDetail() {
                       style={{ borderColor: color + '40' }}>
                       {/* Avatar: real photo if available, else gradient initials */}
                       {pos.photo_url ? (
-                        <div className={s.leaderAv} style={{ padding: 0, overflow: 'hidden' }}>
+                        <div className={s.leaderAv} style={{ padding: 0 }}>
                           <img
                             src={pos.photo_url}
                             alt={pos.holder_name || pos.role_title}
@@ -713,6 +713,9 @@ export default function StudentClubDetail() {
                       </div>
                       {pos.holder_email && (
                         <div className={s.leaderEmail}>{pos.holder_email}</div>
+                      )}
+                      {pos.phone && (
+                        <div className={s.leaderPhone}>📞 {pos.phone}</div>
                       )}
                       {pos.responsibilities && (
                         <div className={s.leaderDesc}>{pos.responsibilities}</div>
