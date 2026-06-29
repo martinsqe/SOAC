@@ -386,7 +386,6 @@ export default function CoordDashboard() {
               { label:'Review Requests', to:'/coordinator/requests' },
               { label:'Add Event',        to:'/coordinator/events'   },
               { label:'View Members',     to:'/coordinator/members'  },
-              { label:'Post News',        to:'/coordinator/news'     },
               { label:'Leadership',       to:'/coordinator/leaders'  },
               { label:'SOAC News',        to:'/coordinator/soac'     },
             ].map((a, i) => (

@@ -15,7 +15,6 @@ const NAV = [
   { to: '/coordinator/members',   label: 'Members'             },
   { to: '/coordinator/requests',  label: 'Requests'            },
   { to: '/coordinator/messages',  label: 'Messages'            },
-  { to: '/coordinator/news',      label: 'News'                },
   { to: '/coordinator/events',    label: 'Events'              },
   { to: '/coordinator/leaders',   label: 'Leadership'          },
   { to: '/coordinator/soac',      label: 'SOAC News'           },

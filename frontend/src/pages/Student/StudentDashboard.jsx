@@ -233,7 +233,6 @@ export default function StudentDashboard() {
           { icon:'🏅', label:'My Clubs',        desc:'Clubs you\'ve joined',        onClick:() => navigate('/student/clubs')     },
           { icon:'📅', label:'Events',           desc:'Upcoming campus events',      onClick:() => navigate('/student/events')    },
           { icon:'🗓️', label:'Calendar',         desc:'College events & exams',      onClick:() => navigate('/student/calendar')  },
-          { icon:'📰', label:'News Feed',        desc:'Latest club news',            onClick:() => navigate('/student/news')      },
           { icon:'🏆', label:'Wall of Fame',     desc:'Top contributors',            onClick:() => navigate('/student/fame')      },
         ].map((a, i) => (
           <button key={i} className={s.actionCard} onClick={a.onClick}>

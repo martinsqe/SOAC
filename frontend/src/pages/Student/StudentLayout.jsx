@@ -13,7 +13,6 @@ const NAV_MAIN = [
   { to: '/student/events',       icon: '📅', label: 'Events'                },
   { to: '/student/clubs',        icon: '🏆', label: 'My Clubs'              },
   { to: '/student/calendar',     icon: '🗓️', label: 'Calendar'             },
-  { to: '/student/news',         icon: '🌐', label: 'News Feed'             },
   { to: '/student/soac-updates', icon: '🏛️', label: 'SOAC Updates'         },
 ];
 

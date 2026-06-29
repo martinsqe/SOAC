@@ -41,7 +41,7 @@ import StudentClubDetail  from './pages/Student/StudentClubDetail';
 import StudentEvents    from './pages/Student/StudentEvents';
 import StudentProfile   from './pages/Student/StudentProfile';
 import {
-  StudentNewsFeed, StudentSOACUpdates,
+  StudentSOACUpdates,
   StudentFame,
 } from './pages/Student/StudentPages';
 import StudentMessages from './pages/Student/StudentMessages';
@@ -53,7 +53,6 @@ import CoordLayout    from './pages/Coordinator/CoordLayout';
 import CoordDashboard from './pages/Coordinator/CoordDashboard';
 import CoordMembers   from './pages/Coordinator/CoordMembers';
 import CoordRequests  from './pages/Coordinator/CoordRequests';
-import CoordNews      from './pages/Coordinator/CoordNews';
 import CoordEvents    from './pages/Coordinator/CoordEvents';
 import CoordLeaders   from './pages/Coordinator/CoordLeaders';
 import CoordSOAC      from './pages/Coordinator/CoordSOAC';
@@ -183,7 +182,6 @@ function AppInner() {
           <Route path="events"        element={<StudentEvents />} />
           <Route path="clubs"           element={<StudentClubs />} />
           <Route path="clubs/:id"       element={<StudentClubDetail />} />
-          <Route path="news"          element={<StudentNewsFeed />} />
           <Route path="soac-updates"  element={<StudentSOACUpdates />} />
           <Route path="fame"          element={<WallOfFame />} />
           <Route path="messages"      element={<StudentMessages />} />
@@ -197,7 +195,6 @@ function AppInner() {
           <Route path="members"      element={<CoordMembers />} />
           <Route path="requests"     element={<CoordRequests />} />
           <Route path="messages"     element={<CoordMessages />} />
-          <Route path="news"         element={<CoordNews />} />
           <Route path="events"       element={<CoordEvents />} />
           <Route path="leaders"      element={<CoordLeaders />} />
           <Route path="soac"         element={<CoordSOAC />} />
