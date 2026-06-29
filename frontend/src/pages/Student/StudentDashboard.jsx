@@ -107,7 +107,7 @@ export default function StudentDashboard() {
   useEffect(() => {
     Promise.all([
       api.get('/users/me/coins').catch(() => ({ coins: 0, rank: null, clubs: [] })),
-      api.get('/clubs/leaderboard?limit=10').catch(() => ({ leaderboard: [] })),
+      api.get('/clubs/leaderboard?limit=3').catch(() => ({ leaderboard: [] })),
     ]).then(([coinsRes, lbRes]) => {
       setMyCoins(coinsRes.coins || 0);
       setMyRank(coinsRes.rank || null);
@@ -297,42 +297,76 @@ export default function StudentDashboard() {
           </div>
           {coinsLoading ? (
             <div className={s.loadList}>
-              {[1,2,3,4,5].map(i => <div key={i} className={s.shimmer} style={{ height:44, borderRadius:9 }} />)}
+              {[1,2,3].map(i => <div key={i} className={s.shimmer} style={{ height:44, borderRadius:9 }} />)}
             </div>
           ) : leaderboard.length === 0 ? (
             <div className={s.empty}>No progress data yet. Coordinators set XP to earn coins.</div>
-          ) : (
-            <div className={s.lbList}>
-              {leaderboard.map((entry, i) => {
-                const rank   = i + 1;
-                const tier   = getTier(entry.coins);
-                const isMe   = String(entry.user_id) === String(user?.id);
-                const topThree = rank <= FREE_REG_RANKS;
-                return (
-                  <div key={entry.user_id}
-                    className={`${s.lbRow} ${isMe ? s.lbRowMe : ''} ${topThree ? s.lbRowTop : ''}`}>
-                    <div className={s.lbRank} style={{ color: topThree ? '#d97706' : '#9ca3af' }}>
-                      {rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`}
+          ) : (() => {
+            const top3    = leaderboard.slice(0, 3);
+            const iInTop3 = top3.some(e => String(e.user_id) === String(user?.id));
+            const myC     = myCoins ?? 0;
+            const gap1    = top3[0] ? top3[0].coins - myC : 0;
+            const gap3    = top3[2] ? top3[2].coins - myC : (top3[1] ? top3[1].coins - myC : 0);
+            const myTier  = getTier(myC);
+            return (
+              <div className={s.lbList}>
+                {top3.map((entry, i) => {
+                  const rank = i + 1;
+                  const tier = getTier(entry.coins);
+                  const isMe = String(entry.user_id) === String(user?.id);
+                  return (
+                    <div key={entry.user_id}
+                      className={`${s.lbRow} ${isMe ? s.lbRowMe : ''} ${s.lbRowTop}`}>
+                      <div className={s.lbRank} style={{ color: '#d97706' }}>
+                        {rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'}
+                      </div>
+                      <div className={s.lbAvatar} style={{ background: tier.color + '22', color: tier.color }}>
+                        {entry.user_name?.charAt(0)?.toUpperCase() || '?'}
+                      </div>
+                      <div className={s.lbInfo}>
+                        <span className={s.lbName}>
+                          {entry.user_name}
+                          {isMe && <span className={s.lbYou}>you</span>}
+                          <span className={s.lbFreeReg}>Free Reg</span>
+                        </span>
+                        <span className={s.lbMeta}>{entry.club_count} club{entry.club_count !== 1 ? 's' : ''} · {entry.total_xp} XP</span>
+                      </div>
+                      <div className={s.lbCoins} style={{ color: tier.color }}>
+                        {tier.icon} {entry.coins}
+                      </div>
                     </div>
-                    <div className={s.lbAvatar} style={{ background: tier.color + '22', color: tier.color }}>
-                      {entry.user_name?.charAt(0)?.toUpperCase() || '?'}
+                  );
+                })}
+
+                {/* Student's own row — only if not already in top 3 */}
+                {!iInTop3 && (
+                  <>
+                    <div className={s.lbDivider}>· · ·</div>
+                    <div className={`${s.lbRow} ${s.lbRowMe}`}>
+                      <div className={s.lbRank} style={{ color: '#9ca3af' }}>#{myRank ?? '—'}</div>
+                      <div className={s.lbAvatar} style={{ background: myTier.color + '22', color: myTier.color }}>
+                        {user?.name?.charAt(0)?.toUpperCase() || '?'}
+                      </div>
+                      <div className={s.lbInfo}>
+                        <span className={s.lbName}>
+                          {user?.name}
+                          <span className={s.lbYou}>you</span>
+                        </span>
+                        <span className={s.lbMeta}>
+                          {gap1 > 0
+                            ? `${gap1} coins behind #1${gap3 > 0 && gap3 !== gap1 ? ` · ${gap3} to reach Top 3` : ''}`
+                            : 'You\'re in the top 3!'}
+                        </span>
+                      </div>
+                      <div className={s.lbCoins} style={{ color: myTier.color }}>
+                        {myTier.icon} {myC}
+                      </div>
                     </div>
-                    <div className={s.lbInfo}>
-                      <span className={s.lbName}>
-                        {entry.user_name}
-                        {isMe && <span className={s.lbYou}>you</span>}
-                        {topThree && <span className={s.lbFreeReg}>Free Reg</span>}
-                      </span>
-                      <span className={s.lbMeta}>{entry.club_count} club{entry.club_count !== 1 ? 's' : ''} · {entry.total_xp} XP</span>
-                    </div>
-                    <div className={s.lbCoins} style={{ color: tier.color }}>
-                      {tier.icon} {entry.coins}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  </>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </div>
 

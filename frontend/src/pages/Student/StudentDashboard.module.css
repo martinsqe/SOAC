@@ -188,6 +188,7 @@
 }
 .lbRowTop  { background: #fffbeb; border-color: #fde68a; }
 .lbRowMe   { background: #f0fdf4; border-color: #6ee7b7; }
+.lbDivider { text-align: center; color: #d1d5db; font-size: 13px; letter-spacing: 4px; padding: 4px 0; }
 
 .lbRank { width: 28px; font-size: .875rem; font-weight: 800; text-align: center; flex-shrink: 0; }
 .lbAvatar {
