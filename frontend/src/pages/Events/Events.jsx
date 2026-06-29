@@ -299,7 +299,7 @@ const normaliseEvent = (e) => ({
 });
 
 const DEPTS = ['ACH', 'AI/ML', 'FOT', 'SOE', 'SOM', 'SOP', 'SPT', 'SDS', 'SOS'];
-const EMPTY_FORM = { name: '', enrollmentNo: '', dept: '', course: '', phone: '', email: '' };
+const EMPTY_FORM = { name: '', enrollmentNo: '', dept: '', course: '', phone: '', email: '', gender: '' };
 
 const Events = () => {
   const navigate = useNavigate();
@@ -351,6 +351,7 @@ const Events = () => {
     else { const digits = regForm.phone.replace(/[\s\-+]/g, '').replace(/^91/, ''); if (!/^\d{10}$/.test(digits)) e.phone = 'Enter a valid 10-digit mobile number.'; }
     if (!regForm.email.trim()) e.email = 'Email is required.';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(regForm.email)) e.email = 'Enter a valid email.';
+    if (!regForm.gender) e.gender = 'Gender is required.';
     setRegErr(e);
     return Object.keys(e).length === 0;
   };
@@ -916,12 +917,25 @@ const Events = () => {
                         {user && <span className={styles.regLockedTag}>auto-filled</span>}
                       </label>
                       <input
-                        id="reg-email" type="email" placeholder="you@example.com"
+                        id="reg-email" type="email" placeholder="you@rku.ac.in"
                         value={regForm.email} onChange={sf('email')}
                         className={`${regErr.email ? styles.regInputErr : ''} ${user ? styles.regInputLocked : ''}`}
                         readOnly={!!user}
                       />
                       {regErr.email && <span className={styles.regErrMsg}>{regErr.email}</span>}
+                    </div>
+                  </div>
+
+                  {/* Row 4 — Gender */}
+                  <div className={styles.regRow}>
+                    <div className={styles.regField}>
+                      <label htmlFor="reg-gender">Gender <span className={styles.req}>*</span></label>
+                      <select id="reg-gender" value={regForm.gender} onChange={sf('gender')} className={regErr.gender ? styles.regInputErr : ''}>
+                        <option value="">Select gender</option>
+                        <option value="M">M</option>
+                        <option value="F">F</option>
+                      </select>
+                      {regErr.gender && <span className={styles.regErrMsg}>{regErr.gender}</span>}
                     </div>
                   </div>
 

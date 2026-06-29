@@ -90,6 +90,12 @@
   gap: 12px;
 }
 
+.mg3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+
 .mlbl {
   font-size: 11px;
   font-weight: 700;
@@ -168,4 +174,5 @@
 
 @media (max-width: 540px) {
   .mg2 { grid-template-columns: 1fr; }
+  .mg3 { grid-template-columns: 1fr; }
 }

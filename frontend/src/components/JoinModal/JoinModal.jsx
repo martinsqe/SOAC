@@ -5,7 +5,7 @@ const DEPTS = ['ACH','AI/ML','FOT','SDS','SOE','SPT','SOP','SOM','SOS',];
 const YEARS = ['1st Year','2nd Year','3rd Year','4th Year','5th Year', '6th Year'];
 
 export default function JoinModal({ club, onClose }) {
-  const [form, setForm] = useState({ name:'', email:'', phone:'', enrollmentNo:'', dept:'', year:'', message:'' });
+  const [form, setForm] = useState({ name:'', email:'', phone:'', enrollmentNo:'', dept:'', year:'', gender:'', message:'' });
   const [submitting, setSubmitting] = useState(false);
   const [done,       setDone]       = useState(false);
   const [err,        setErr]        = useState('');
@@ -17,6 +17,7 @@ export default function JoinModal({ club, onClose }) {
     setErr('');
     if (!form.name.trim() || !form.email.trim()) { setErr('Name and email are required.'); return; }
     if (!form.email.includes('@')) { setErr('Enter a valid email address.'); return; }
+    if (!form.gender) { setErr('Please select your gender.'); return; }
     setSubmitting(true);
     try {
       const res = await fetch('/api/requests', {
@@ -31,6 +32,7 @@ export default function JoinModal({ club, onClose }) {
           enrollmentNo: form.enrollmentNo.trim(),
           dept:         form.dept,
           year:         form.year,
+          gender:       form.gender,
           message:      form.message.trim(),
         }),
       });
@@ -90,7 +92,7 @@ export default function JoinModal({ club, onClose }) {
                 <input className={s.minp} placeholder="e.g. 22BCE001" value={form.enrollmentNo} onChange={e => set('enrollmentNo', e.target.value)} />
               </div>
             </div>
-            <div className={s.mg2}>
+            <div className={s.mg3}>
               <div>
                 <label className={s.mlbl}>Department</label>
                 <select className={s.minp} value={form.dept} onChange={e => set('dept', e.target.value)}>
@@ -103,6 +105,14 @@ export default function JoinModal({ club, onClose }) {
                 <select className={s.minp} value={form.year} onChange={e => set('year', e.target.value)}>
                   <option value="">Select year</option>
                   {YEARS.map(y => <option key={y}>{y}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={s.mlbl}>Gender <span className={s.mreq}>*</span></label>
+                <select className={s.minp} value={form.gender} onChange={e => set('gender', e.target.value)}>
+                  <option value="">Select gender</option>
+                  <option value="M">M</option>
+                  <option value="F">F</option>
                 </select>
               </div>
             </div>

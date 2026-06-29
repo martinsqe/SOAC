@@ -15,8 +15,11 @@ const EVENT_COLS = [
 
 const REG_COLS = [
   'id', 'event_id', 'event_title', 'name', 'enrollment_no',
-  'dept', 'course', 'phone', 'email', 'registered_at',
+  'dept', 'course', 'phone', 'email', 'gender', 'registered_at',
 ].join(', ');
+
+/* idempotent migration */
+pgPool.query(`ALTER TABLE event_registrations ADD COLUMN IF NOT EXISTS gender CHAR(1) DEFAULT NULL`).catch(() => {});
 
 /* ── Pagination helper ──────────────────────────────────────────────────────*/
 const parsePage = (query) => {
@@ -435,16 +438,19 @@ const register = async (req, res, next) => {
     const event = eventRows[0];
     if (event.status === 'past') return res.status(400).json({ message: 'Registrations for this event are closed.' });
 
-    const { name, email, phone, enrollmentNo, dept, course } = req.body;
+    const { name, email, phone, enrollmentNo, dept, course, gender } = req.body;
     if (!name?.trim())   return res.status(400).json({ message: 'Name is required.' });
     if (!email?.trim())  return res.status(400).json({ message: 'Email is required.' });
     if (!dept?.trim())   return res.status(400).json({ message: 'Department is required.' });
     if (!course?.trim()) return res.status(400).json({ message: 'Course is required.' });
+    if (!gender || !['M', 'F'].includes(gender.toUpperCase())) {
+      return res.status(400).json({ message: 'Gender is required. Please select M or F.' });
+    }
 
     const { rows } = await pgPool.query(
       `INSERT INTO event_registrations
-       (event_id, event_title, name, enrollment_no, dept, course, phone, email)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       (event_id, event_title, name, enrollment_no, dept, course, phone, email, gender)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        RETURNING ${REG_COLS}`,
       [
         event.id, event.title, name.trim(),
@@ -452,6 +458,7 @@ const register = async (req, res, next) => {
         dept.trim(), course.trim(),
         phone ? phone.trim() : '',
         email.trim().toLowerCase(),
+        gender.toUpperCase(),
       ]
     );
     await cache.del(`events:${req.params.id}`);

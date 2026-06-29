@@ -10,9 +10,12 @@ const RKU_DOMAIN = '@rku.ac.in';
 /* ── Column lists ───────────────────────────────────────────────────────────*/
 const JR_COLS = [
   'id', 'club_id', 'club_name', 'name', 'email',
-  'phone', 'enrollment_no', 'dept', 'year',
+  'phone', 'enrollment_no', 'dept', 'year', 'gender',
   'message', 'status', 'created_at', 'updated_at',
 ].join(', ');
+
+/* idempotent migration */
+pgPool.query(`ALTER TABLE join_requests ADD COLUMN IF NOT EXISTS gender CHAR(1) DEFAULT NULL`).catch(() => {});
 
 /* ── Pagination helper ──────────────────────────────────────────────────────*/
 const parsePage = (query) => {
@@ -97,19 +100,22 @@ const getAll = async (req, res, next) => {
 const create = async (req, res, next) => {
   try {
     await ensureSoacTables();
-    const { clubId, clubName, name, email, phone, enrollmentNo, dept, year, message } = req.body;
+    const { clubId, clubName, name, email, phone, enrollmentNo, dept, year, gender, message } = req.body;
     if (!clubId || !name || !email) return res.status(400).json({ message: 'clubId, name and email are required.' });
     if (!email.toLowerCase().endsWith(RKU_DOMAIN)) {
       return res.status(400).json({ message: 'Only RKU institutional emails (@rku.ac.in) are allowed to join clubs.' });
     }
+    if (!gender || !['M', 'F'].includes(gender.toUpperCase())) {
+      return res.status(400).json({ message: 'Gender is required. Please select M or F.' });
+    }
 
     const { rows } = await pgPool.query(
       `INSERT INTO join_requests
-       (club_id, club_name, name, email, phone, enrollment_no, dept, year, message, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending')
+       (club_id, club_name, name, email, phone, enrollment_no, dept, year, gender, message, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')
        RETURNING ${JR_COLS}`,
       [clubId, clubName || '', name.trim(), email.toLowerCase(),
-       phone || '', enrollmentNo || '', dept || '', year || '', message || '']
+       phone || '', enrollmentNo || '', dept || '', year || '', gender.toUpperCase(), message || '']
     );
     await cache.del('stats:admin');
     res.status(201).json({ request: toJR(rows[0]) });

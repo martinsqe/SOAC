@@ -76,7 +76,7 @@ export default function GuestContact() {
                   required
                   type="email"
                   style={{ width: '100%', padding: '12px 16px', borderRadius: 12, border: '1.5px solid #e5e7eb', outline: 'none' }}
-                  placeholder="john@example.com"
+                  placeholder="you@rku.ac.in"
                 />
               </div>
               <div>

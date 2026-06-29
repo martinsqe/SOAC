@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import s from './StudentEvents.module.css';
 
 const DEPTS = ['ACH','AI/ML','FOT','SOE', 'SOM','SOP' ,'SPT',  'SDS', 'SOS'];
-const EMPTY_FORM = { enrollmentNo: '', dept: '', course: '', phone: '' };
+const EMPTY_FORM = { enrollmentNo: '', dept: '', course: '', phone: '', gender: '' };
 
 const CAT_COLOR = {
   tech:      '#635BFF',
@@ -77,6 +77,7 @@ export default function StudentEvents() {
       const digits = regForm.phone.replace(/[\s\-+]/g, '').replace(/^91/, '');
       if (!/^\d{10}$/.test(digits)) e.phone = 'Enter a valid 10-digit number.';
     }
+    if (!regForm.gender)             e.gender        = 'Gender is required.';
     setRegErr(e);
     return Object.keys(e).length === 0;
   };
@@ -97,6 +98,7 @@ export default function StudentEvents() {
           dept:         regForm.dept,
           course:       regForm.course,
           phone:        regForm.phone,
+          gender:       regForm.gender,
         }),
       });
       const data = await res.json();
@@ -330,6 +332,23 @@ export default function StudentEvents() {
                         className={regErr.phone ? s.inputErr : ''}
                       />
                       {regErr.phone && <span className={s.errMsg}>{regErr.phone}</span>}
+                    </div>
+                  </div>
+
+                  {/* Row 3 — Gender */}
+                  <div className={s.row}>
+                    <div className={s.field}>
+                      <label>Gender <span className={s.req}>*</span></label>
+                      <select
+                        value={regForm.gender}
+                        onChange={sf('gender')}
+                        className={regErr.gender ? s.inputErr : ''}
+                      >
+                        <option value="">Select gender</option>
+                        <option value="M">M</option>
+                        <option value="F">F</option>
+                      </select>
+                      {regErr.gender && <span className={s.errMsg}>{regErr.gender}</span>}
                     </div>
                   </div>
 
