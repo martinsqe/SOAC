@@ -5,19 +5,34 @@ const cache = require('../services/cache');
 
 const FAME_COLS = [
   'id', 'name', 'achievement', 'description', 'term', 'club_id', 'club_name', 'year', 'category',
-  'image', 'sort_order', 'is_active', 'created_at', 'updated_at'
+  'image', 'gallery', 'sort_order', 'is_active', 'created_at', 'updated_at',
 ].join(', ');
+
+// Idempotent migration — add gallery column if missing
+pgPool.query(`ALTER TABLE wall_of_fame ADD COLUMN IF NOT EXISTS gallery JSONB DEFAULT '[]'::jsonb`)
+  .catch(() => {});
+
+const parseGallery = (raw) => {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; }
+    catch { return []; }
+  }
+  return [];
+};
 
 const fameUrl = (filename) => {
   if (!filename) return '';
-  if (filename.startsWith('http')) return filename;          // Cloudinary URL
-  if (/^\d{13}-/.test(filename)) return `/uploads/fame/${filename}`; // legacy local
-  return `/images/fame/${filename}`;                         // seeded asset
+  if (filename.startsWith('http')) return filename;
+  if (/^\d{13}-/.test(filename)) return `/uploads/fame/${filename}`;
+  return `/images/fame/${filename}`;
 };
 
 const withFameUrl = (row) => ({
   ...row,
-  imageUrl: fameUrl(row.image)
+  imageUrl: fameUrl(row.image),
+  gallery: parseGallery(row.gallery),
 });
 
 const logAudit = async (userId, userName, action, entityId, meta = {}) => {
@@ -49,23 +64,24 @@ const getAll = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* POST /api/fame
-   Admin only. */
+/* POST /api/fame — admin only */
 const create = async (req, res, next) => {
   try {
     const { name, achievement, description, term, club_id, club_name, year, category, sort_order } = req.body;
-    const image = getFileValue(req.file) ?? '';
+    const image   = getFileValue(req.files?.image?.[0]) ?? '';
+    const gallery = (req.files?.gallery ?? []).slice(0, 4).map(f => getFileValue(f));
 
     const { rows } = await pgPool.query(
-      `INSERT INTO wall_of_fame 
-         (name, achievement, description, term, club_id, club_name, year, category, sort_order, image, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO wall_of_fame
+         (name, achievement, description, term, club_id, club_name, year, category, sort_order, image, gallery, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING ${FAME_COLS}`,
       [
         name, achievement, description || '', term || '',
-        club_id || null, club_name || '', 
-        year || '', category || 'General', 
-        parseInt(sort_order) || 0, image, req.user.id
+        club_id || null, club_name || '',
+        year || '', category || 'General',
+        parseInt(sort_order) || 0,
+        image, JSON.stringify(gallery), req.user.id,
       ]
     );
 
@@ -76,20 +92,33 @@ const create = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* PUT /api/fame/:id
-   Admin only. */
+/* PUT /api/fame/:id — admin only */
 const update = async (req, res, next) => {
   try {
-    const { rows: cur } = await pgPool.query('SELECT image FROM wall_of_fame WHERE id = $1', [req.params.id]);
+    const { rows: cur } = await pgPool.query(
+      'SELECT image, gallery FROM wall_of_fame WHERE id = $1',
+      [req.params.id]
+    );
     if (!cur.length) return res.status(404).json({ message: 'Item not found.' });
 
-    const { name, achievement, description, term, club_id, club_name, year, category, sort_order, is_active } = req.body;
-    let image = cur[0].image;
+    const existingGallery = parseGallery(cur[0].gallery);
+    const { name, achievement, description, term, club_id, club_name, year, category, sort_order, is_active, keep_gallery } = req.body;
 
-    if (req.file) {
-      await destroyImage(image);
-      image = getFileValue(req.file);
+    // Cover photo: replace only when a new file is uploaded
+    let image = cur[0].image;
+    if (req.files?.image?.[0]) {
+      await destroyImage(image).catch(() => {});
+      image = getFileValue(req.files.image[0]);
     }
+
+    // Gallery: kept existing URLs + new uploads, capped at 5
+    const keepUrls = parseGallery(keep_gallery);
+    const newFiles  = (req.files?.gallery ?? []).map(f => getFileValue(f));
+    const merged    = [...keepUrls, ...newFiles].slice(0, 5);
+
+    // Destroy Cloudinary images removed from the gallery
+    const removed = existingGallery.filter(url => !keepUrls.includes(url));
+    await Promise.all(removed.map(url => destroyImage(url).catch(() => {})));
 
     const { rows } = await pgPool.query(
       `UPDATE wall_of_fame
@@ -104,14 +133,15 @@ const update = async (req, res, next) => {
            sort_order  = COALESCE($9, sort_order),
            is_active   = COALESCE($10, is_active),
            image       = $11,
+           gallery     = $12,
            updated_at  = NOW()
-       WHERE id = $12
+       WHERE id = $13
        RETURNING ${FAME_COLS}`,
       [
         name, achievement, description, term,
-        club_id || null, club_name, 
-        year, category, parseInt(sort_order), is_active, 
-        image, req.params.id
+        club_id || null, club_name,
+        year, category, parseInt(sort_order), is_active,
+        image, JSON.stringify(merged), req.params.id,
       ]
     );
 

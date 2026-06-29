@@ -1,69 +1,150 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../../api/client';
 import s from './WallOfFame.module.css';
 
+const CAT_COLORS = {
+  Tech:     { bg: 'rgba(219,234,254,.9)', text: '#1d4ed8' },
+  Sports:   { bg: 'rgba(220,252,231,.9)', text: '#15803d' },
+  Cultural: { bg: 'rgba(255,237,213,.9)', text: '#c2410c' },
+  Social:   { bg: 'rgba(253,232,247,.9)', text: '#be185d' },
+  Academic: { bg: 'rgba(204,251,241,.9)', text: '#0f766e' },
+  General:  { bg: 'rgba(237,233,254,.9)', text: '#5b21b6' },
+};
+
+const FameCard = ({ item, idx }) => {
+  const photos = [item.imageUrl, ...(item.gallery || [])].filter(Boolean);
+  const [cur, setCur] = useState(0);
+  const touchX = useRef(null);
+  const cat = CAT_COLORS[item.category] || CAT_COLORS.General;
+
+  const atStart = cur === 0;
+  const atEnd   = cur === photos.length - 1;
+
+  const prev = (e) => { e.stopPropagation(); setCur(i => Math.max(0, i - 1)); };
+  const next = (e) => { e.stopPropagation(); setCur(i => Math.min(photos.length - 1, i + 1)); };
+
+  const onTouchStart = (e) => { touchX.current = e.touches[0].clientX; };
+  const onTouchEnd   = (e) => {
+    if (touchX.current === null) return;
+    const dx = e.changedTouches[0].clientX - touchX.current;
+    if (Math.abs(dx) > 40) {
+      if (dx < 0) setCur(i => Math.min(photos.length - 1, i + 1));
+      else        setCur(i => Math.max(0, i - 1));
+    }
+    touchX.current = null;
+  };
+
+  return (
+    <article className={s.card} style={{ animationDelay: `${Math.min(idx, 9) * 0.06}s` }}>
+
+      {/* ── Photo carousel ── */}
+      <div
+        className={s.photoBox}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
+        {photos.length > 0 ? (
+          <img
+            src={photos[cur]}
+            alt={`${item.name} — ${item.achievement}`}
+            className={s.photo}
+          />
+        ) : (
+          <div className={s.photoInit}>{item.name.charAt(0)}</div>
+        )}
+
+        {photos.length > 1 && (
+          <>
+            {!atStart && <button className={`${s.navBtn} ${s.navL}`} onClick={prev} aria-label="Previous">&#8249;</button>}
+            {!atEnd   && <button className={`${s.navBtn} ${s.navR}`} onClick={next} aria-label="Next">&#8250;</button>}
+            <div className={s.dots} aria-hidden="true">
+              {photos.map((_, i) => (
+                <span
+                  key={i}
+                  className={`${s.dot}${i === cur ? ` ${s.dotOn}` : ''}`}
+                  onClick={e => { e.stopPropagation(); setCur(i); }}
+                />
+              ))}
+            </div>
+            <span className={s.photoCounter}>{cur + 1} / {photos.length}</span>
+          </>
+        )}
+
+        <span className={s.catChip} style={{ background: cat.bg, color: cat.text }}>
+          {item.category}
+        </span>
+      </div>
+
+      {/* ── Text body ── */}
+      <div className={s.body}>
+        <div className={s.nameRow}>
+          <h3 className={s.name}>{item.name}</h3>
+        </div>
+        <p className={s.ach}>{item.achievement}</p>
+        {item.description && <p className={s.desc}>{item.description}</p>}
+        <div className={s.footer}>
+          {item.club_name && <span className={s.club}>{item.club_name}</span>}
+          {(item.term || item.year) && (
+            <span className={s.year}>
+              {[item.term, item.year].filter(Boolean).join(' · ')}
+            </span>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+};
+
 const WallOfFame = () => {
-  const [items, setItems] = useState([]);
+  const [items,   setItems]   = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error,   setError]   = useState('');
 
   useEffect(() => {
     api.get('/fame')
       .then(d => setItems(d.items || []))
-      .catch(() => setError('Failed to load the Hall of Heroes.'))
+      .catch(() => setError('Failed to load the Wall of Fame.'))
       .finally(() => setLoading(false));
   }, []);
 
-  if (error) return <div className={s.empty}>{error}</div>;
-
   return (
     <div className={s.page}>
+
       <header className={s.header}>
-        <div className={s.tag}>Hall of Excellence</div>
+        <div className={s.eyebrow}>Hall of Excellence</div>
         <h1 className={s.title}>Wall of Fame</h1>
         <p className={s.sub}>
-          Celebrating the extraordinary achievements of our students and clubs. 
+          Celebrating the extraordinary achievements of our students and clubs.
           These legends have left an indelible mark on RK University.
         </p>
       </header>
 
       {loading ? (
-        <div className={s.loading}>
-          {[1, 2, 3, 4, 5, 6].map(i => <div key={i} className={s.skeleton} />)}
+        <div className={s.skeletonGrid}>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className={s.skeleton} style={{ animationDelay: `${i * 0.12}s` }} />
+          ))}
+        </div>
+      ) : error ? (
+        <div className={s.empty}>
+          <div className={s.emptyTitle}>Something went wrong</div>
+          <p className={s.emptySub}>{error}</p>
         </div>
       ) : items.length === 0 ? (
         <div className={s.empty}>
-          <h3>The wall is waiting for its first legend.</h3>
-          <p>Check back soon for upcoming achievements!</p>
+          <div className={s.emptyTitle}>The wall awaits its first legend.</div>
+          <p className={s.emptySub}>
+            Extraordinary achievements are on their way — check back soon.
+          </p>
         </div>
       ) : (
         <div className={s.grid}>
           {items.map((item, idx) => (
-            <div key={item.id} className={s.card} style={{ animationDelay: `${idx * 0.1}s` }}>
-              <div className={s.imgBox}>
-                {item.imageUrl ? (
-                  <img src={item.imageUrl} alt={item.name} className={s.img} />
-                ) : (
-                  <div className={s.img} style={{ background: 'linear-gradient(45deg, #f1f5f9, #e2e8f0)', display:'flex', alignItems:'center', justifyContent:'center', fontSize: 40 }}>
-                    {item.name.charAt(0)}
-                  </div>
-                )}
-              </div>
-              
-              <div className={s.body}>
-                <h3 className={s.name}>{item.name}</h3>
-                <p className={s.achievement}>{item.achievement}</p>
-                {item.description && <p className={s.desc}>{item.description}</p>}
-                
-                <div className={s.meta}>
-                  {item.club_name && <span className={s.club}>{item.club_name}</span>}
-                  <span className={s.year}>{item.term ? `${item.term} · ` : ''}{item.year}</span>
-                </div>
-              </div>
-            </div>
+            <FameCard key={item.id} item={item} idx={idx} />
           ))}
         </div>
       )}
+
     </div>
   );
 };

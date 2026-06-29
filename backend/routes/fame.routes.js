@@ -4,12 +4,15 @@ const { verifyToken }  = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/requireAdmin');
 const { uploadFame }   = require('../config/multer');
 
-/* ── Public (All Logged-in Users) ── */
-router.get('/', verifyToken, ctrl.getAll);
+// Accept cover photo + up to 5 achievement gallery photos
+const fameUpload = uploadFame.fields([
+  { name: 'image',   maxCount: 1 },
+  { name: 'gallery', maxCount: 5 },
+]);
 
-/* ── Admin Management ── */
-router.post('/',   verifyToken, requireAdmin, uploadFame.single('image'), ctrl.create);
-router.put('/:id', verifyToken, requireAdmin, uploadFame.single('image'), ctrl.update);
-router.delete('/:id', verifyToken, requireAdmin, ctrl.remove);
+router.get('/',       verifyToken,               ctrl.getAll);
+router.post('/',      verifyToken, requireAdmin, fameUpload, ctrl.create);
+router.put('/:id',    verifyToken, requireAdmin, fameUpload, ctrl.update);
+router.delete('/:id', verifyToken, requireAdmin,             ctrl.remove);
 
 module.exports = router;
