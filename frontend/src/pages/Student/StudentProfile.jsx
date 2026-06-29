@@ -275,7 +275,6 @@ export default function StudentProfile() {
 
             <div className={s.idName}>{user?.name}</div>
             <div className={s.idEmail}>{user?.email}</div>
-            <span className={s.idBadge}>🎓 Student</span>
             {isWallOfFamer && (
               <span className={s.wofBadge}>&#9733; Wall of Famer</span>
             )}
@@ -344,120 +343,11 @@ export default function StudentProfile() {
             </div>
           </div>
 
-          {/* Quick info */}
-          <div className={s.infoCard}>
-            <div className={s.infoRow}><span className={s.infoLbl}>University</span><span className={s.infoVal}>RK University</span></div>
-            <div className={s.infoRow}><span className={s.infoLbl}>Portal</span><span className={s.infoVal}>SOAC Student</span></div>
-            <div className={s.infoRow}><span className={s.infoLbl}>Max clubs</span><span className={s.infoVal}>3 per semester</span></div>
-          </div>
 
         </aside>
 
         {/* ════════ RIGHT — settings panels ════════ */}
         <div className={s.main}>
-
-          {/* ── Profile info ── */}
-          <SectionCard icon="👤" title="Personal Information" subtitle="Update your display name and profile photo">
-            {avatarFile && (
-              <div className={s.photoHint}>
-                📷 New photo selected — save to apply
-              </div>
-            )}
-            <div className={s.formRow}>
-              <Field label="Display Name">
-                <input
-                  className={s.input}
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  placeholder="Your full name"
-                  maxLength={80}
-                />
-              </Field>
-              <Field label="Email Address" hint="Email cannot be changed — contact admin if needed.">
-                <input className={`${s.input} ${s.inputDisabled}`} value={user?.email || ''} disabled />
-              </Field>
-            </div>
-            <div className={s.formRow}>
-              <Field label="Role">
-                <input className={`${s.input} ${s.inputDisabled}`} value="Student" disabled />
-              </Field>
-              <Field label="Enrollment No.">
-                <input className={`${s.input} ${s.inputDisabled}`} value={user?.enrollmentNo || 'Not set'} disabled />
-              </Field>
-            </div>
-            {profileMsg && (
-              <div className={profileOk ? s.msgOk : s.msgErr}>{profileMsg}</div>
-            )}
-            <div className={s.formActions}>
-              <button className={s.btnPrimary} onClick={handleProfileSave} disabled={profileSaving}>
-                {profileSaving ? 'Saving…' : 'Save Changes'}
-              </button>
-            </div>
-          </SectionCard>
-
-          {/* ── Change Password ── */}
-          <SectionCard icon="🔐" title="Change Password" subtitle="Use a strong password of at least 8 characters">
-            <div className={s.formRow}>
-              <Field label="Current Password">
-                <div className={s.pwWrap}>
-                  <input
-                    className={s.input}
-                    type={showCur ? 'text' : 'password'}
-                    value={currentPw}
-                    onChange={e => setCurrentPw(e.target.value)}
-                    placeholder="Enter current password"
-                  />
-                  <Eye show={showCur} onToggle={() => setShowCur(v => !v)} />
-                </div>
-              </Field>
-            </div>
-            <div className={s.formRow}>
-              <Field label="New Password">
-                <div className={s.pwWrap}>
-                  <input
-                    className={s.input}
-                    type={showNew ? 'text' : 'password'}
-                    value={newPw}
-                    onChange={e => setNewPw(e.target.value)}
-                    placeholder="Minimum 8 characters"
-                  />
-                  <Eye show={showNew} onToggle={() => setShowNew(v => !v)} />
-                </div>
-                {strength && (
-                  <div className={s.strengthRow}>
-                    <div className={s.strengthTrack}>
-                      <div className={s.strengthFill} style={{ width: strength.pct + '%', background: strength.color }} />
-                    </div>
-                    <span style={{ color: strength.color, fontSize: 11, fontWeight: 700 }}>{strength.label}</span>
-                  </div>
-                )}
-              </Field>
-              <Field label="Confirm New Password">
-                <div className={s.pwWrap}>
-                  <input
-                    className={s.input}
-                    type={showConf ? 'text' : 'password'}
-                    value={confirmPw}
-                    onChange={e => setConfirmPw(e.target.value)}
-                    placeholder="Re-enter new password"
-                  />
-                  <Eye show={showConf} onToggle={() => setShowConf(v => !v)} />
-                </div>
-                {confirmPw && newPw !== confirmPw && (
-                  <span className={s.hint} style={{ color: '#ef4444' }}>Passwords do not match.</span>
-                )}
-                {confirmPw && newPw === confirmPw && confirmPw.length > 0 && (
-                  <span className={s.hint} style={{ color: '#22c55e' }}>✓ Passwords match.</span>
-                )}
-              </Field>
-            </div>
-            {pwMsg && <div className={pwOk ? s.msgOk : s.msgErr}>{pwMsg}</div>}
-            <div className={s.formActions}>
-              <button className={s.btnPrimary} onClick={handlePasswordSave} disabled={pwSaving}>
-                {pwSaving ? 'Changing…' : 'Change Password'}
-              </button>
-            </div>
-          </SectionCard>
 
           {/* ── My Progress (Week / Month / Year) ── */}
           <SectionCard icon="📊" title="My Progress" subtitle="Your attendance, tasks and overall performance — calculated automatically">
@@ -665,50 +555,131 @@ export default function StudentProfile() {
             )}
           </SectionCard>
 
-          {/* ── Motivational Messages / Achievements ── */}
+          {/* ── Notifications (no heading) ── */}
           {weeklyData?.notifications?.length > 0 && (
-            <SectionCard icon="🏆" title="Achievements & Messages"
-              subtitle="Motivational messages from your coordinators">
-              <div className={s.notifList}>
-                {weeklyData.notifications.map(n => (
-                  <div key={n.id} className={`${s.notifCard} ${n.isRead ? s.notifRead : s.notifUnread}`}>
-                    <div className={s.notifCardTop}>
-                      <span className={s.notifTitle}>{n.title}</span>
-                      {!n.isRead && (
-                        <button className={s.notifMarkBtn} onClick={() => markNotifRead(n.id)}>
-                          Mark read
-                        </button>
-                      )}
-                    </div>
-                    <p className={s.notifBody}>{n.body}</p>
-                    <span className={s.notifTime}>
-                      {new Date(n.createdAt).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}
-                    </span>
+            <div className={s.notifList}>
+              {weeklyData.notifications.map(n => (
+                <div key={n.id} className={`${s.notifCard} ${n.isRead ? s.notifRead : s.notifUnread}`}>
+                  <div className={s.notifCardTop}>
+                    <span className={s.notifTitle}>{n.title}</span>
+                    {!n.isRead && (
+                      <button className={s.notifMarkBtn} onClick={() => markNotifRead(n.id)}>
+                        Mark read
+                      </button>
+                    )}
                   </div>
-                ))}
-              </div>
-            </SectionCard>
+                  <p className={s.notifBody}>{n.body}</p>
+                  <span className={s.notifTime}>
+                    {new Date(n.createdAt).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}
+                  </span>
+                </div>
+              ))}
+            </div>
           )}
 
-          {/* ── Danger zone ── */}
-          <SectionCard icon="⚠️" title="Account" subtitle="Manage your session and account status">
-            <div className={s.dangerList}>
-              <div className={s.dangerRow}>
-                <div>
-                  <div className={s.dangerLabel}>Download my data</div>
-                  <div className={s.dangerSub}>Export your club memberships, event history and profile data</div>
-                </div>
-                <button className={s.btnOutline} disabled>Coming Soon</button>
+          {/* ── Profile info ── */}
+          <SectionCard icon="👤" title="Personal Information" subtitle="Update your display name and profile photo">
+            {avatarFile && (
+              <div className={s.photoHint}>
+                📷 New photo selected — save to apply
               </div>
-              <div className={s.dangerRow} style={{ borderColor: '#fecaca' }}>
-                <div>
-                  <div className={s.dangerLabel} style={{ color: '#ef4444' }}>Deactivate account</div>
-                  <div className={s.dangerSub}>Temporarily suspend your SOAC access — contact admin to restore</div>
-                </div>
-                <button className={s.btnDanger} disabled>Contact Admin</button>
-              </div>
+            )}
+            <div className={s.formRow}>
+              <Field label="Display Name">
+                <input
+                  className={s.input}
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="Your full name"
+                  maxLength={80}
+                />
+              </Field>
+              <Field label="Email Address" hint="Email cannot be changed — contact admin if needed.">
+                <input className={`${s.input} ${s.inputDisabled}`} value={user?.email || ''} disabled />
+              </Field>
+            </div>
+            <div className={s.formRow}>
+              <Field label="Role">
+                <input className={`${s.input} ${s.inputDisabled}`} value="Student" disabled />
+              </Field>
+              <Field label="Enrollment No.">
+                <input className={`${s.input} ${s.inputDisabled}`} value={user?.enrollmentNo || 'Not set'} disabled />
+              </Field>
+            </div>
+            {profileMsg && (
+              <div className={profileOk ? s.msgOk : s.msgErr}>{profileMsg}</div>
+            )}
+            <div className={s.formActions}>
+              <button className={s.btnPrimary} onClick={handleProfileSave} disabled={profileSaving}>
+                {profileSaving ? 'Saving…' : 'Save Changes'}
+              </button>
             </div>
           </SectionCard>
+
+          {/* ── Change Password ── */}
+          <SectionCard icon="🔐" title="Change Password" subtitle="Use a strong password of at least 8 characters">
+            <div className={s.formRow}>
+              <Field label="Current Password">
+                <div className={s.pwWrap}>
+                  <input
+                    className={s.input}
+                    type={showCur ? 'text' : 'password'}
+                    value={currentPw}
+                    onChange={e => setCurrentPw(e.target.value)}
+                    placeholder="Enter current password"
+                  />
+                  <Eye show={showCur} onToggle={() => setShowCur(v => !v)} />
+                </div>
+              </Field>
+            </div>
+            <div className={s.formRow}>
+              <Field label="New Password">
+                <div className={s.pwWrap}>
+                  <input
+                    className={s.input}
+                    type={showNew ? 'text' : 'password'}
+                    value={newPw}
+                    onChange={e => setNewPw(e.target.value)}
+                    placeholder="Minimum 8 characters"
+                  />
+                  <Eye show={showNew} onToggle={() => setShowNew(v => !v)} />
+                </div>
+                {strength && (
+                  <div className={s.strengthRow}>
+                    <div className={s.strengthTrack}>
+                      <div className={s.strengthFill} style={{ width: strength.pct + '%', background: strength.color }} />
+                    </div>
+                    <span style={{ color: strength.color, fontSize: 11, fontWeight: 700 }}>{strength.label}</span>
+                  </div>
+                )}
+              </Field>
+              <Field label="Confirm New Password">
+                <div className={s.pwWrap}>
+                  <input
+                    className={s.input}
+                    type={showConf ? 'text' : 'password'}
+                    value={confirmPw}
+                    onChange={e => setConfirmPw(e.target.value)}
+                    placeholder="Re-enter new password"
+                  />
+                  <Eye show={showConf} onToggle={() => setShowConf(v => !v)} />
+                </div>
+                {confirmPw && newPw !== confirmPw && (
+                  <span className={s.hint} style={{ color: '#ef4444' }}>Passwords do not match.</span>
+                )}
+                {confirmPw && newPw === confirmPw && confirmPw.length > 0 && (
+                  <span className={s.hint} style={{ color: '#22c55e' }}>✓ Passwords match.</span>
+                )}
+              </Field>
+            </div>
+            {pwMsg && <div className={pwOk ? s.msgOk : s.msgErr}>{pwMsg}</div>}
+            <div className={s.formActions}>
+              <button className={s.btnPrimary} onClick={handlePasswordSave} disabled={pwSaving}>
+                {pwSaving ? 'Changing…' : 'Change Password'}
+              </button>
+            </div>
+          </SectionCard>
+
 
         </div>
       </div>
