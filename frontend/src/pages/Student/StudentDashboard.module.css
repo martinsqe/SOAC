@@ -328,3 +328,59 @@
   .heroStats { display: none; }
   .actions { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ── Wall of Fame notification banner ── */
+.wofBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  background: linear-gradient(135deg, #fffbeb 0%, #fef9c3 60%, #fef3c7 100%);
+  border: 1.5px solid #fcd34d;
+  border-left: 5px solid #f59e0b;
+  border-radius: 14px;
+  padding: 18px 44px 18px 18px;
+  margin-bottom: 22px;
+  position: relative;
+  animation: wofSlide .4s cubic-bezier(.175,.885,.32,1.275) both;
+  box-shadow: 0 4px 20px rgba(245,158,11,.15);
+}
+.wofBannerStar {
+  font-size: 26px;
+  line-height: 1;
+  color: #d97706;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.wofBannerContent { flex: 1; }
+.wofBannerTitle {
+  font-size: 16px;
+  font-weight: 800;
+  color: #92400e;
+  margin-bottom: 5px;
+  letter-spacing: -.01em;
+}
+.wofBannerBody {
+  font-size: 13.5px;
+  color: #78350f;
+  line-height: 1.6;
+}
+.wofBannerClose {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  background: none;
+  border: none;
+  font-size: 22px;
+  color: #b45309;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+  opacity: .65;
+  transition: opacity .15s;
+}
+.wofBannerClose:hover { opacity: 1; }
+
+@keyframes wofSlide {
+  from { opacity: 0; transform: translateY(-10px) scale(.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}

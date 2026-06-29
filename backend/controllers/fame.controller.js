@@ -5,12 +5,13 @@ const cache = require('../services/cache');
 
 const FAME_COLS = [
   'id', 'name', 'achievement', 'description', 'term', 'club_id', 'club_name', 'year', 'category',
-  'image', 'gallery', 'sort_order', 'is_active', 'created_at', 'updated_at',
+  'image', 'gallery', 'email', 'enrollment_number', 'sort_order', 'is_active', 'created_at', 'updated_at',
 ].join(', ');
 
-// Idempotent migration — add gallery column if missing
-pgPool.query(`ALTER TABLE wall_of_fame ADD COLUMN IF NOT EXISTS gallery JSONB DEFAULT '[]'::jsonb`)
-  .catch(() => {});
+// Idempotent migrations
+pgPool.query(`ALTER TABLE wall_of_fame ADD COLUMN IF NOT EXISTS gallery           JSONB        DEFAULT '[]'::jsonb`).catch(() => {});
+pgPool.query(`ALTER TABLE wall_of_fame ADD COLUMN IF NOT EXISTS email             VARCHAR(255) DEFAULT NULL`).catch(() => {});
+pgPool.query(`ALTER TABLE wall_of_fame ADD COLUMN IF NOT EXISTS enrollment_number VARCHAR(50)  DEFAULT NULL`).catch(() => {});
 
 const parseGallery = (raw) => {
   if (!raw) return [];
@@ -67,27 +68,53 @@ const getAll = async (req, res, next) => {
 /* POST /api/fame — admin only */
 const create = async (req, res, next) => {
   try {
-    const { name, achievement, description, term, club_id, club_name, year, category, sort_order } = req.body;
+    const { name, achievement, description, term, club_id, club_name, year, category, sort_order, email, enrollment_number } = req.body;
     const image   = getFileValue(req.files?.image?.[0]) ?? '';
     const gallery = (req.files?.gallery ?? []).slice(0, 4).map(f => getFileValue(f));
 
+    const cleanEmail = email?.trim().toLowerCase() || null;
+    const cleanEnrol = enrollment_number?.trim().toUpperCase() || null;
+
     const { rows } = await pgPool.query(
       `INSERT INTO wall_of_fame
-         (name, achievement, description, term, club_id, club_name, year, category, sort_order, image, gallery, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         (name, achievement, description, term, club_id, club_name, year, category, sort_order, image, gallery, email, enrollment_number, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING ${FAME_COLS}`,
       [
         name, achievement, description || '', term || '',
         club_id || null, club_name || '',
         year || '', category || 'General',
         parseInt(sort_order) || 0,
-        image, JSON.stringify(gallery), req.user.id,
+        image, JSON.stringify(gallery),
+        cleanEmail, cleanEnrol, req.user.id,
       ]
     );
 
     const item = withFameUrl(rows[0]);
     await logAudit(req.user.id, req.user.name, 'CREATE_FAME_ITEM', item.id, { name: item.name });
     await cache.del('fame:all');
+
+    // Notify the student if their RKU email maps to a registered user
+    if (cleanEmail) {
+      try {
+        const { rows: uRows } = await pgPool.query(
+          `SELECT id FROM users WHERE LOWER(email) = $1 AND is_active = true LIMIT 1`,
+          [cleanEmail]
+        );
+        if (uRows.length) {
+          await pgPool.query(
+            `INSERT INTO member_notifications (user_id, title, body, type)
+             VALUES ($1, $2, $3, 'wall_of_fame')`,
+            [
+              uRows[0].id,
+              "You're on the Wall of Fame!",
+              `Honored for "${achievement}". Your excellence is now a permanent part of RK University's legacy — a moment you've truly earned.`,
+            ]
+          );
+        }
+      } catch (_) {}
+    }
+
     res.status(201).json({ item });
   } catch (err) { next(err); }
 };
@@ -102,7 +129,9 @@ const update = async (req, res, next) => {
     if (!cur.length) return res.status(404).json({ message: 'Item not found.' });
 
     const existingGallery = parseGallery(cur[0].gallery);
-    const { name, achievement, description, term, club_id, club_name, year, category, sort_order, is_active, keep_gallery } = req.body;
+    const { name, achievement, description, term, club_id, club_name, year, category, sort_order, is_active, keep_gallery, email, enrollment_number } = req.body;
+    const cleanEmail = email?.trim().toLowerCase() || null;
+    const cleanEnrol = enrollment_number?.trim().toUpperCase() || null;
 
     // Cover photo: replace only when a new file is uploaded
     let image = cur[0].image;
@@ -132,16 +161,19 @@ const update = async (req, res, next) => {
            category    = COALESCE($8, category),
            sort_order  = COALESCE($9, sort_order),
            is_active   = COALESCE($10, is_active),
-           image       = $11,
-           gallery     = $12,
-           updated_at  = NOW()
-       WHERE id = $13
+           image             = $11,
+           gallery           = $12,
+           email             = COALESCE($13, email),
+           enrollment_number = COALESCE($14, enrollment_number),
+           updated_at        = NOW()
+       WHERE id = $15
        RETURNING ${FAME_COLS}`,
       [
         name, achievement, description, term,
         club_id || null, club_name,
         year, category, parseInt(sort_order), is_active,
-        image, JSON.stringify(merged), req.params.id,
+        image, JSON.stringify(merged),
+        cleanEmail, cleanEnrol, req.params.id,
       ]
     );
 

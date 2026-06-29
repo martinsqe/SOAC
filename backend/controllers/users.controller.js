@@ -538,6 +538,38 @@ const weeklyEvaluation = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+/* GET /api/users/me/notifications — unread notifications + WoF status */
+const getNotifications = async (req, res, next) => {
+  try {
+    const [notifRes, wofRes] = await Promise.all([
+      pgPool.query(
+        `SELECT id, club_id, title, body, type, is_read, created_at
+         FROM member_notifications
+         WHERE user_id = $1 AND is_read = false
+         ORDER BY created_at DESC LIMIT 15`,
+        [req.user.id]
+      ),
+      pgPool.query(
+        `SELECT 1 FROM wall_of_fame
+         WHERE LOWER(email) = LOWER($1) AND is_active = true LIMIT 1`,
+        [req.user.email]
+      ),
+    ]);
+    res.json({
+      isWallOfFamer: wofRes.rows.length > 0,
+      notifications: notifRes.rows.map(n => ({
+        id:        String(n.id),
+        clubId:    n.club_id ? String(n.club_id) : null,
+        title:     n.title,
+        body:      n.body,
+        type:      n.type,
+        isRead:    n.is_read,
+        createdAt: n.created_at,
+      })),
+    });
+  } catch (err) { next(err); }
+};
+
 /* PATCH /api/users/me/notifications/:id/read  — mark a notification read */
 const markNotificationRead = async (req, res, next) => {
   try {
@@ -639,4 +671,4 @@ const assignClub = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, create, update, remove, stats, auditLog, myClubs, updateProfile, assignClub, myCoins, weeklyEvaluation, markNotificationRead };
+module.exports = { getAll, create, update, remove, stats, auditLog, myClubs, updateProfile, assignClub, myCoins, weeklyEvaluation, getNotifications, markNotificationRead };

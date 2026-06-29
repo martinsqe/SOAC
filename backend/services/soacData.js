@@ -692,6 +692,31 @@ const ensureSoacTables = async () => {
       END $$
     `);
   }
+
+  /* ── Wall of Fame ───────────────────────────────────────────────────────── */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS wall_of_fame (
+      id                BIGSERIAL    PRIMARY KEY,
+      name              VARCHAR(255) NOT NULL,
+      achievement       VARCHAR(255) NOT NULL,
+      description       TEXT         NOT NULL DEFAULT '',
+      term              VARCHAR(100) NOT NULL DEFAULT '',
+      club_id           BIGINT       REFERENCES clubs(id) ON DELETE SET NULL,
+      club_name         VARCHAR(255) NOT NULL DEFAULT '',
+      year              VARCHAR(20)  NOT NULL DEFAULT '',
+      category          VARCHAR(50)  NOT NULL DEFAULT 'General',
+      image             TEXT         NOT NULL DEFAULT '',
+      gallery           JSONB        NOT NULL DEFAULT '[]'::jsonb,
+      email             VARCHAR(255),
+      enrollment_number VARCHAR(50),
+      sort_order        INTEGER      NOT NULL DEFAULT 0,
+      is_active         BOOLEAN      NOT NULL DEFAULT true,
+      created_by        INTEGER      REFERENCES users(id) ON DELETE SET NULL,
+      created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      updated_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_wall_of_fame_active ON wall_of_fame(is_active, sort_order, created_at DESC)`);
 };
 
 const asClub = (row) => ({

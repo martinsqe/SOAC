@@ -11,6 +11,7 @@ router.post('/', verifyToken, requireAdmin, ctrl.create);
 router.get('/me/clubs',                              verifyToken, ctrl.myClubs);
 router.get('/me/coins',                              verifyToken, ctrl.myCoins);
 router.get('/me/weekly-evaluation',                  verifyToken, ctrl.weeklyEvaluation);
+router.get('/me/notifications',                      verifyToken, ctrl.getNotifications);
 router.patch('/me/notifications/:notifId/read',      verifyToken, ctrl.markNotificationRead);
 router.put('/me/profile', verifyToken, uploadAvatar.single('avatar'), ctrl.updateProfile);
 

@@ -75,6 +75,9 @@ export default function StudentDashboard() {
   const [calEvents,    setCalEvents]    = useState([]);
   const [calLoading,   setCalLoading]   = useState(true);
 
+  /* ── Wall of Fame notification ── */
+  const [wofNotif, setWofNotif] = useState(null);
+
   useEffect(() => {
     Promise.all([
       api.get('/users/me/clubs').catch(() => ({ clubs: [] })),
@@ -112,6 +115,21 @@ export default function StudentDashboard() {
       setLeaderboard(lbRes.leaderboard || []);
     }).finally(() => setCoinsLoading(false));
   }, []);
+
+  /* ── Fetch Wall of Fame notification ── */
+  useEffect(() => {
+    api.get('/users/me/notifications')
+      .then(d => {
+        const wof = (d.notifications || []).find(n => n.type === 'wall_of_fame');
+        if (wof) setWofNotif(wof);
+      })
+      .catch(() => {});
+  }, []);
+
+  const dismissWofNotif = (id) => {
+    setWofNotif(null);
+    api.patch(`/users/me/notifications/${id}/read`, {}).catch(() => {});
+  };
 
   /* ── Fetch college calendar (current + next month) ── */
   useEffect(() => {
@@ -166,6 +184,22 @@ export default function StudentDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Wall of Fame notification — appears right after greeting */}
+      {wofNotif && (
+        <div className={s.wofBanner}>
+          <div className={s.wofBannerStar}>★</div>
+          <div className={s.wofBannerContent}>
+            <div className={s.wofBannerTitle}>Congratulations, {firstName}!</div>
+            <div className={s.wofBannerBody}>{wofNotif.body}</div>
+          </div>
+          <button
+            className={s.wofBannerClose}
+            onClick={() => dismissWofNotif(wofNotif.id)}
+            aria-label="Dismiss"
+          >×</button>
+        </div>
+      )}
 
       {/* My Clubs — only shown if joined any */}
       {!loading && myClubs.length > 0 && (

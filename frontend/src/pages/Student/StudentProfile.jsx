@@ -92,6 +92,9 @@ export default function StudentProfile() {
   /* ── clubs joined (for profile card) ── */
   const [myClubs, setMyClubs] = useState([]);
 
+  /* ── Wall of Famer status ── */
+  const [isWallOfFamer, setIsWallOfFamer] = useState(false);
+
   /* ── Progress evaluation: Week / Month / Year tabs + date navigation ── */
   const EVAL_PERIODS = ['Week', 'Month', 'Year'];
   const [evalPeriod,    setEvalPeriod]    = useState('Week');
@@ -135,6 +138,7 @@ export default function StudentProfile() {
   useEffect(() => {
     api.get('/users/me/clubs').then(r => setMyClubs(r.clubs || [])).catch(() => {});
     api.get('/users/me/coins').then(r => { setCoinsData(r); setCoinsLoaded(true); }).catch(() => setCoinsLoaded(true));
+    api.get('/users/me/notifications').then(r => { if (r.isWallOfFamer) setIsWallOfFamer(true); }).catch(() => {});
     fetchEval('Week', new Date());
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -272,6 +276,9 @@ export default function StudentProfile() {
             <div className={s.idName}>{user?.name}</div>
             <div className={s.idEmail}>{user?.email}</div>
             <span className={s.idBadge}>🎓 Student</span>
+            {isWallOfFamer && (
+              <span className={s.wofBadge}>&#9733; Wall of Famer</span>
+            )}
 
             <div className={s.idStats}>
               <div className={s.idStat}>

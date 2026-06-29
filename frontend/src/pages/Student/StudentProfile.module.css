@@ -107,7 +107,24 @@
   font-weight: 700;
   letter-spacing: .4px;
   padding: 3px 12px;
+  margin-bottom: 10px;
+}
+
+.wofBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 14px;
+  background: linear-gradient(135deg, #fef9c3 0%, #fde68a 100%);
+  border: 1.5px solid #fbbf24;
+  border-radius: 100px;
+  font-size: .72rem;
+  font-weight: 800;
+  color: #92400e;
+  letter-spacing: .04em;
+  text-transform: uppercase;
   margin-bottom: 18px;
+  box-shadow: 0 2px 8px rgba(245,158,11,.25);
 }
 
 .idStats { display: flex; gap: 0; width: 100%; }

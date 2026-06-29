@@ -7,6 +7,20 @@ const CATS = ['General', 'Tech', 'Sports', 'Cultural', 'Social', 'Academic'];
 const EMPTY = {
   name: '', achievement: '', description: '', term: '',
   club_id: '', club_name: '', year: '', category: 'General', sort_order: 0,
+  email: '', enrollment_number: '',
+};
+
+const RKU_EMAIL_RE  = /@rku\.ac\.in$/i;
+const ENROL_RE      = /^[A-Za-z0-9]{6,20}$/;
+
+const validateForm = (form) => {
+  if (!form.name.trim())        return 'Name is required.';
+  if (!form.achievement.trim()) return 'Achievement is required.';
+  if (form.email && !RKU_EMAIL_RE.test(form.email.trim()))
+    return 'Email must be a valid RKU address (e.g. student@rku.ac.in).';
+  if (form.enrollment_number && !ENROL_RE.test(form.enrollment_number.trim()))
+    return 'Enrollment number must be 6–20 alphanumeric characters.';
+  return null;
 };
 
 const inp = {
@@ -57,6 +71,7 @@ export default function AdminFame() {
       club_id: it.club_id || '', club_name: it.club_name || '',
       year: it.year || '', category: it.category || 'General',
       sort_order: it.sort_order || 0,
+      email: it.email || '', enrollment_number: it.enrollment_number || '',
     });
     setEditing(it.id);
     setCoverFile(null); setCoverPrev(it.imageUrl || '');
@@ -104,8 +119,8 @@ export default function AdminFame() {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!form.name.trim() || !form.achievement.trim())
-      return setError('Name and Achievement are required.');
+    const validErr = validateForm(form);
+    if (validErr) return setError(validErr);
     setSaving(true); setError('');
     try {
       const fd = new FormData();
@@ -323,6 +338,42 @@ export default function AdminFame() {
               <div style={{ display: 'grid', gap: 12 }}>
                 <input placeholder="Full Name *" value={form.name} onChange={sf('name')} style={inp} required />
                 <input placeholder="Achievement Title *" value={form.achievement} onChange={sf('achievement')} style={inp} required />
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <input
+                      placeholder="RKU Email (optional)"
+                      value={form.email}
+                      onChange={sf('email')}
+                      type="email"
+                      style={{
+                        ...inp,
+                        borderColor: form.email && !RKU_EMAIL_RE.test(form.email.trim()) ? '#fca5a5' : '#e2e8f0',
+                      }}
+                    />
+                    {form.email && !RKU_EMAIL_RE.test(form.email.trim()) && (
+                      <p style={{ fontSize: 11, color: '#ef4444', margin: '4px 0 0' }}>Must end with @rku.ac.in</p>
+                    )}
+                  </div>
+                  <div>
+                    <input
+                      placeholder="Enrollment No. (optional)"
+                      value={form.enrollment_number}
+                      onChange={sf('enrollment_number')}
+                      style={{
+                        ...inp,
+                        borderColor: form.enrollment_number && !ENROL_RE.test(form.enrollment_number.trim()) ? '#fca5a5' : '#e2e8f0',
+                      }}
+                    />
+                    {form.enrollment_number && !ENROL_RE.test(form.enrollment_number.trim()) && (
+                      <p style={{ fontSize: 11, color: '#ef4444', margin: '4px 0 0' }}>6–20 alphanumeric characters</p>
+                    )}
+                  </div>
+                </div>
+                <p style={{ fontSize: 11, color: '#94a3b8', margin: '-4px 0 0' }}>
+                  Providing the email automatically notifies the student in their dashboard.
+                </p>
+
                 <textarea
                   placeholder="Description (optional)…"
                   value={form.description} onChange={sf('description')} rows={3}
