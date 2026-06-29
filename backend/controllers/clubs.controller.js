@@ -118,15 +118,20 @@ const getOne = async (req, res, next) => {
     const { rows } = await pgPool.query(
       `SELECT ${CLUB_COLS},
               (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = clubs.id) AS real_member_count,
-              (SELECT COUNT(*)::int FROM events WHERE club = clubs.name AND is_active = true) AS real_event_count
+              (SELECT COUNT(*)::int FROM events WHERE club = clubs.name AND is_active = true) AS real_event_count,
+              (SELECT u.avatar FROM coordinator_club_assignments cca
+               JOIN users u ON u.id = cca.user_id
+               WHERE cca.club_id = clubs.id AND cca.is_active = true
+               ORDER BY cca.id ASC LIMIT 1) AS coordinator_avatar
        FROM clubs WHERE id = $1`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Club not found.' });
 
     const club = asClub(rows[0]);
-    club.memberCount = rows[0].real_member_count;
-    club.eventCount  = rows[0].real_event_count;
+    club.memberCount        = rows[0].real_member_count;
+    club.eventCount         = rows[0].real_event_count;
+    club.coordinatorAvatar  = rows[0].coordinator_avatar || null;
     const result = { club: withLogoUrl(club) };
     await cache.set(cacheKey, result, cache.TTL.CLUB);
     res.json(result);

@@ -137,6 +137,8 @@ export default function CoordLeaders() {
       });
       const { leadership: updated } = await api.putForm(`/clubs/${clubId}/leadership`, fd);
       setLeadership(updated || []);
+      setPhotoPreviews(prev => { Object.values(prev).forEach(u => URL.revokeObjectURL(u)); return {}; });
+      setPhotoFiles({});
       setEditing(false);
       showToast('Leadership updated!');
     } catch (err) {
@@ -195,14 +197,14 @@ export default function CoordLeaders() {
         <div className={s.grid}>
           {leadership.map((leader, i) => (
             <div key={leader.id || i} className={s.card}>
-              {/* Photo or gradient initials */}
               {leader.photo_url ? (
-                <img
-                  src={leader.photo_url}
-                  alt={leader.holder_name || leader.role_title}
-                  className={s.av}
-                  style={{ objectFit: 'cover' }}
-                />
+                <div className={s.av} style={{ padding: 0 }}>
+                  <img
+                    src={leader.photo_url}
+                    alt={leader.holder_name || leader.role_title}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center', display: 'block', borderRadius: '50%' }}
+                  />
+                </div>
               ) : (
                 <div className={s.av} style={{ background: AVATAR_GRADIENTS[i % AVATAR_GRADIENTS.length] }}>
                   {initials(leader.holder_name || leader.role_title)}

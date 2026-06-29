@@ -62,8 +62,12 @@ const getFileValue = (file) => {
 
 const uploadLogo       = multer({ storage: makeStorage('logos'),      fileFilter: imageFilter, limits: { fileSize: 5  * 1024 * 1024 } });
 const uploadEvent      = multer({ storage: makeStorage('events'),     fileFilter: imageFilter, limits: { fileSize: 10 * 1024 * 1024 } });
-const uploadAvatar     = multer({ storage: makeStorage('avatars'),    fileFilter: imageFilter, limits: { fileSize: 5  * 1024 * 1024 } });
 const uploadFame       = multer({ storage: makeStorage('fame'),       fileFilter: imageFilter, limits: { fileSize: 5  * 1024 * 1024 } });
 const uploadLeadership = multer({ storage: makeStorage('leadership'), fileFilter: imageFilter, limits: { fileSize: 5  * 1024 * 1024 } });
 
-module.exports = { uploadLogo, uploadEvent, uploadAvatar, uploadFame, uploadLeadership, getFileValue };
+/* Avatar uses memoryStorage so the controller can upload the buffer to Cloudinary
+   inside a proper try/catch — avoids the "socket hang up" crash from unhandled
+   stream errors that multer-storage-cloudinary can emit. */
+const uploadAvatar = multer({ storage: multer.memoryStorage(), fileFilter: imageFilter, limits: { fileSize: 5 * 1024 * 1024 } });
+
+module.exports = { uploadLogo, uploadEvent, uploadAvatar, uploadFame, uploadLeadership, getFileValue, cloudinaryInstance, useCloudinary };

@@ -1,10 +1,34 @@
 const bcrypt   = require('bcryptjs');
 const crypto   = require('crypto');
+const path     = require('path');
+const fs       = require('fs');
 const { pgPool } = require('../config/db');
-const { getFileValue } = require('../config/multer');
+const { cloudinaryInstance, useCloudinary } = require('../config/multer');
 const { ensureSoacTables } = require('../services/soacData');
 const { sendCredentials } = require('../config/email');
 const cache = require('../services/cache');
+
+const AVATAR_ALLOWED = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+
+/* Upload a file buffer — returns stored value (Cloudinary URL or /uploads path) */
+const uploadAvatarBuffer = async (file) => {
+  if (useCloudinary && cloudinaryInstance) {
+    const result = await new Promise((resolve, reject) => {
+      const stream = cloudinaryInstance.uploader.upload_stream(
+        { folder: 'avatars', resource_type: 'image', allowed_formats: AVATAR_ALLOWED },
+        (err, r) => (err ? reject(err) : resolve(r))
+      );
+      stream.end(file.buffer);
+    });
+    return result.secure_url;
+  }
+  // Disk fallback
+  const dir = path.join(__dirname, '..', 'uploads', 'avatars');
+  fs.mkdirSync(dir, { recursive: true });
+  const fname = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  fs.writeFileSync(path.join(dir, fname), file.buffer);
+  return `/uploads/avatars/${fname}`;
+};
 
 const RKU_DOMAIN = '@rku.ac.in';
 
@@ -530,8 +554,15 @@ const updateProfile = async (req, res, next) => {
   try {
     const { name } = req.body;
     const updates = []; const vals = []; let i = 1;
-    if (name?.trim()) { updates.push(`name   = $${i++}`); vals.push(name.trim()); }
-    if (req.file)     { updates.push(`avatar = $${i++}`); vals.push(getFileValue(req.file)); }
+
+    if (name?.trim()) { updates.push(`name = $${i++}`); vals.push(name.trim()); }
+
+    if (req.file) {
+      const avatarVal = await uploadAvatarBuffer(req.file);
+      updates.push(`avatar = $${i++}`);
+      vals.push(avatarVal);
+    }
+
     if (!updates.length) return res.status(400).json({ message: 'Nothing to update.' });
 
     vals.push(req.user.id);
@@ -541,7 +572,20 @@ const updateProfile = async (req, res, next) => {
       vals
     );
     const u = rows[0];
+
+    // Bust user session cache
     await cache.del(`session:user:${req.user.id}`);
+
+    // If a coordinator changed their avatar, bust their clubs' cache so the
+    // Faculty Coordinator card in the student view updates immediately
+    if (req.file && req.user.role === 'coordinator') {
+      const { rows: clubRows } = await pgPool.query(
+        `SELECT club_id FROM coordinator_club_assignments WHERE user_id = $1 AND is_active = true`,
+        [req.user.id]
+      );
+      await Promise.all(clubRows.map(r => cache.del(`clubs:${r.club_id}`)));
+    }
+
     res.json({ user: { ...u, avatar: u.avatar || '', managedClubId: u.managed_club_id || null } });
   } catch (err) { next(err); }
 };

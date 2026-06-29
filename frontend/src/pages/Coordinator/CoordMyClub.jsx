@@ -1046,6 +1046,9 @@ function LeadershipTab({ clubId, showToast }) {
       Object.entries(photoFiles).forEach(([idx, file]) => fd.append(`photo_${idx}`, file));
       const res = await api.putForm(`/clubs/${clubId}/leadership`, fd);
       setLeadership(res.leadership || []);
+      // Clear stale blob URLs
+      setPhotoPreviews(prev => { Object.values(prev).forEach(u => URL.revokeObjectURL(u)); return {}; });
+      setPhotoFiles({});
       setEditing(false);
       showToast('Leadership saved ✓');
     } catch (e) { showToast(e.message || 'Save failed.'); }
@@ -1079,10 +1082,14 @@ function LeadershipTab({ clubId, showToast }) {
           <div className={s.leaderGrid}>
             {leadership.map((l, i) => (
               <div key={l.id || i} className={s.leaderCard}>
-                {/* Avatar — 4cm / 152px */}
                 {l.photo_url ? (
-                  <img src={l.photo_url} alt={l.holder_name || l.role_title}
-                    className={s.leaderAv} />
+                  <div className={s.leaderAv} style={{ padding: 0 }}>
+                    <img
+                      src={l.photo_url}
+                      alt={l.holder_name || l.role_title}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center', display: 'block', borderRadius: '50%' }}
+                    />
+                  </div>
                 ) : (
                   <div className={s.leaderAv}
                     style={{ background: LEADER_GRADIENTS[i % LEADER_GRADIENTS.length] }}>
