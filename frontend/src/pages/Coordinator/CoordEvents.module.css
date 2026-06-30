@@ -676,12 +676,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  scrollbar-width: thin;
-  scrollbar-color: #d1d5db #f9fafb;
 }
-.teamsList::-webkit-scrollbar { width: 5px; }
-.teamsList::-webkit-scrollbar-track { background: #f9fafb; }
-.teamsList::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
 
 /* ── Team card ── */
 .teamCard {
@@ -1197,4 +1192,207 @@
   .fixtureMatchLine { flex-direction: column; align-items: stretch; }
   .fixtureMatchLine .fixtureSelect,
   .fixtureMatchLine .fixtureInput { width: 100%; }
+}
+
+/* ══════════════════════════════
+   GROUPS PANEL
+══════════════════════════════ */
+.groupsPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0 28px 20px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.groupsLayout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 20px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+
+/* Left pool */
+.groupsPool {
+  border: 1.5px solid #e5e7eb;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.groupsPoolTitle {
+  font-size: .72rem;
+  font-weight: 700;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 10px 14px;
+  background: #f8f9fc;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.groupsPoolEmpty {
+  padding: 14px;
+  font-size: .8rem;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.poolTeamRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f3f4f6;
+}
+.poolTeamRow:last-child { border-bottom: none; }
+
+.poolTeamName {
+  font-size: .83rem;
+  font-weight: 600;
+  color: #374151;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.poolTeamSelect {
+  padding: 4px 8px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 7px;
+  font-size: .75rem;
+  color: #374151;
+  background: #fff;
+  cursor: pointer;
+  outline: none;
+  flex-shrink: 0;
+}
+.poolTeamSelect:focus { border-color: #635bff; }
+
+/* Groups grid */
+.groupsArea {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.groupCard {
+  border: 1.5px solid #e5e7eb;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.groupCardHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f8f9fc;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 8px 10px;
+}
+
+.groupNameInput {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: .82rem;
+  font-weight: 700;
+  color: #374151;
+  outline: none;
+  min-width: 0;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.groupNameInput:focus {
+  background: #fff;
+  box-shadow: 0 0 0 2px #635bff30;
+}
+
+.groupDeleteBtn {
+  background: none;
+  border: none;
+  color: #d1d5db;
+  cursor: pointer;
+  font-size: .85rem;
+  padding: 2px 4px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  line-height: 1;
+  transition: color .12s, background .12s;
+}
+.groupDeleteBtn:hover { color: #ef4444; background: #fef2f2; }
+
+.groupTeamList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  min-height: 40px;
+}
+
+.groupTeamEmpty {
+  font-size: .74rem;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.groupTeamChip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  background: #f0f0ff;
+  border: 1px solid #ddd6fe;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: .8rem;
+  font-weight: 600;
+  color: #4c1d95;
+}
+
+.chipRemoveBtn {
+  background: none;
+  border: none;
+  color: #a78bfa;
+  cursor: pointer;
+  font-size: .7rem;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color .1s;
+}
+.chipRemoveBtn:hover { color: #ef4444; }
+
+.groupsActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1.5px solid #f0f0f5;
+}
+
+@media (max-width: 640px) {
+  .groupsLayout { grid-template-columns: 1fr; }
+  .groupsArea { grid-template-columns: 1fr 1fr; }
+}
+
+.bracketPreview {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1.5px solid #f0f0f5;
+}
+
+.bracketPreviewTitle {
+  font-size: .72rem;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  margin-bottom: 16px;
 }

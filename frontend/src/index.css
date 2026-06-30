@@ -54,6 +54,16 @@ body {
   margin: 0;
 }
 
+/* ── Global scrollbar styling (matches Teams panel) ── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db #f9fafb;
+}
+*::-webkit-scrollbar { width: 5px; height: 5px; }
+*::-webkit-scrollbar-track { background: #f9fafb; }
+*::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+*::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+
 #root {
   width: 100%;
   max-width: 100%;

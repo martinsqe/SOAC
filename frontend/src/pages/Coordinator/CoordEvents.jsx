@@ -3,6 +3,7 @@ import { useCoordClub } from '../../context/CoordClubContext';
 import api from '../../api/client';
 import s from './CoordSubPage.module.css';
 import es from './CoordEvents.module.css';
+import TournamentBracket from '../../components/TournamentBracket/TournamentBracket';
 
 /* ── Status helpers ── */
 const REQ_STATUS = {
@@ -74,7 +75,11 @@ export default function CoordEvents() {
   const [regs,        setRegs]        = useState([]);
   const [regsLoading, setRegsLoading] = useState(false);
   const [regSearch,   setRegSearch]   = useState('');
-  const [regsTab,     setRegsTab]     = useState('list'); // 'list' | 'teams' | 'fixtures'
+  const [regsTab,     setRegsTab]     = useState('list'); // 'list' | 'teams' | 'groups' | 'fixtures'
+
+  /* ── Groups state ── */
+  const [groups,       setGroups]      = useState([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
 
   /* ── Fixtures state ── */
   const [fixtures,        setFixtures]        = useState([]); // [{teamA,teamB,date,time,venue,round}]
@@ -215,6 +220,7 @@ export default function CoordEvents() {
     setNewTeamSize('');
     setRegsLoading(true);
     setTeamsLoading(true);
+    setGroupsLoading(true);
     api.get(`/events/${ev._id}/registrations`)
       .then(d => setRegs(d.registrations || []))
       .catch(() => setRegs([]))
@@ -223,6 +229,10 @@ export default function CoordEvents() {
       .then(d => setTeams(d.teams || []))
       .catch(() => setTeams([]))
       .finally(() => setTeamsLoading(false));
+    api.get(`/events/${ev._id}/groups`)
+      .then(d => setGroups(d.groups || []))
+      .catch(() => setGroups([]))
+      .finally(() => setGroupsLoading(false));
     api.get(`/events/${ev._id}/fixtures`)
       .then(d => {
         const flat = d.fixtures || [];
@@ -286,6 +296,57 @@ export default function CoordEvents() {
       setDeclareLoading(false);
     }
   };
+
+  /* ── Group actions ── */
+  const handleCreateGroup = async () => {
+    try {
+      const d = await api.post(`/events/${regEvent._id}/groups`, {});
+      setGroups(g => [...g, d.group]);
+    } catch (err) { showToast(err.message || 'Could not create group.', 'err'); }
+  };
+
+  const handleRenameGroup = async (groupId, newName) => {
+    if (!newName.trim()) return;
+    try {
+      const d = await api.patch(`/events/${regEvent._id}/groups/${groupId}`, { name: newName });
+      setGroups(g => g.map(gr => gr.id === groupId ? { ...gr, name: d.group.name } : gr));
+    } catch (err) { showToast(err.message || 'Could not rename group.', 'err'); }
+  };
+
+  const handleDeleteGroup = async (groupId) => {
+    try {
+      await api.delete(`/events/${regEvent._id}/groups/${groupId}`);
+      setGroups(g => g.filter(gr => gr.id !== groupId));
+    } catch (err) { showToast(err.message || 'Could not delete group.', 'err'); }
+  };
+
+  const handleAssignTeam = async (groupId, teamId) => {
+    try {
+      await api.post(`/events/${regEvent._id}/groups/${groupId}/assign`, { teamId });
+      /* Update groups state: remove team from any group, add to target group */
+      setGroups(prev => {
+        const teamObj = teams.find(t => t.id === teamId);
+        return prev.map(gr => {
+          const filtered = gr.teams.filter(t => t.id !== teamId);
+          if (gr.id === groupId) return { ...gr, teams: [...filtered, { id: teamId, name: teamObj?.name || '' }] };
+          return { ...gr, teams: filtered };
+        });
+      });
+    } catch (err) { showToast(err.message || 'Could not assign team.', 'err'); }
+  };
+
+  const handleUnassignTeam = async (groupId, teamId) => {
+    try {
+      await api.delete(`/events/${regEvent._id}/groups/${groupId}/teams/${teamId}`);
+      setGroups(prev => prev.map(gr =>
+        gr.id === groupId ? { ...gr, teams: gr.teams.filter(t => t.id !== teamId) } : gr
+      ));
+    } catch (err) { showToast(err.message || 'Could not remove team.', 'err'); }
+  };
+
+  /* Teams not yet assigned to any group */
+  const assignedTeamIds = new Set(groups.flatMap(g => g.teams.map(t => t.id)));
+  const unassignedTeams = teams.filter(t => !assignedTeamIds.has(t.id));
 
   /* ── Team actions ── */
   const toggleTeamExpand = (team) =>
@@ -606,13 +667,18 @@ export default function CoordEvents() {
                 onClick={() => setRegsTab('teams')}>
                 Teams ({teams.length})
               </button>
-              {regEvent?.category === 'sports' && (
+              {regEvent?.category === 'sports' && (<>
+                <button
+                  className={`${es.regsSubTab} ${regsTab === 'groups' ? es.regsSubTabOn : ''}`}
+                  onClick={() => setRegsTab('groups')}>
+                  Groups {groups.length > 0 && <span className={es.declaredBadge}>{groups.length}</span>}
+                </button>
                 <button
                   className={`${es.regsSubTab} ${regsTab === 'fixtures' ? es.regsSubTabOn : ''}`}
                   onClick={() => setRegsTab('fixtures')}>
                   Fixtures {fixturesDeclared && <span className={es.declaredBadge}>Declared</span>}
                 </button>
-              )}
+              </>)}
             </div>
 
             {/* ── REGISTRATIONS LIST ── */}
@@ -665,6 +731,92 @@ export default function CoordEvents() {
                 )}
               </div>
             </>)}
+
+            {/* ── GROUPS TAB ── */}
+            {regsTab === 'groups' && (
+              <div className={es.groupsPanel}>
+                {groupsLoading ? (
+                  <div className={es.regsEmpty}>Loading groups…</div>
+                ) : (
+                  <div className={es.groupsLayout}>
+
+                    {/* Left — unassigned teams pool */}
+                    <div className={es.groupsPool}>
+                      <div className={es.groupsPoolTitle}>Unassigned Teams</div>
+                      {unassignedTeams.length === 0 ? (
+                        <div className={es.groupsPoolEmpty}>All teams have been assigned.</div>
+                      ) : (
+                        unassignedTeams.map(team => (
+                          <div key={team.id} className={es.poolTeamRow}>
+                            <span className={es.poolTeamName}>{team.name}</span>
+                            <select
+                              className={es.poolTeamSelect}
+                              defaultValue=""
+                              onChange={e => { if (e.target.value) handleAssignTeam(e.target.value, team.id); e.target.value = ''; }}>
+                              <option value="" disabled>Move to…</option>
+                              {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                            </select>
+                          </div>
+                        ))
+                      )}
+                      {teams.length === 0 && (
+                        <div className={es.groupsPoolEmpty}>Create teams first in the Teams tab.</div>
+                      )}
+                    </div>
+
+                    {/* Right — groups */}
+                    <div className={es.groupsArea}>
+                      {groups.length === 0 && (
+                        <div className={es.regsEmpty} style={{ gridColumn: '1/-1' }}>
+                          No groups yet. Click &ldquo;Add Group&rdquo; to start.
+                        </div>
+                      )}
+                      {groups.map(group => (
+                        <div key={group.id} className={es.groupCard}>
+                          <div className={es.groupCardHead}>
+                            <input
+                              className={es.groupNameInput}
+                              defaultValue={group.name}
+                              onBlur={e => handleRenameGroup(group.id, e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+                            />
+                            <button className={es.groupDeleteBtn} onClick={() => handleDeleteGroup(group.id)} title="Delete group">✕</button>
+                          </div>
+                          <div className={es.groupTeamList}>
+                            {group.teams.length === 0 ? (
+                              <span className={es.groupTeamEmpty}>No teams yet — assign from the left.</span>
+                            ) : (
+                              group.teams.map(t => (
+                                <div key={t.id} className={es.groupTeamChip}>
+                                  <span>{t.name}</span>
+                                  <button className={es.chipRemoveBtn} onClick={() => handleUnassignTeam(group.id, t.id)}>✕</button>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                  </div>
+                )}
+
+                <div className={es.groupsActions}>
+                  <button className={es.addFixtureBtn} onClick={handleCreateGroup}>
+                    + Add Group
+                  </button>
+                  <span className={es.fixtureHint}>Click a group name to rename it.</span>
+                </div>
+
+                {/* Bracket preview */}
+                {groups.length >= 2 && (
+                  <div className={es.bracketPreview}>
+                    <div className={es.bracketPreviewTitle}>Bracket Preview</div>
+                    <TournamentBracket groups={groups} />
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ── FIXTURES TAB ── */}
             {regsTab === 'fixtures' && (

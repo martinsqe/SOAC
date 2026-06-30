@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import s from './StudentEvents.module.css';
+import TournamentBracket from '../../components/TournamentBracket/TournamentBracket';
 
 const DEPTS = ['ACH','AI/ML','FOT','SOE', 'SOM','SOP' ,'SPT',  'SDS', 'SOS'];
 const EMPTY_FORM = { enrollmentNo: '', dept: '', course: '', phone: '', gender: '' };
@@ -73,9 +74,12 @@ export default function StudentEvents() {
     setFixtureLoading(true);
     setFixtureData(null);
     try {
-      const d = await api.get(`/events/${ev._id}/public-fixtures`);
-      setFixtureData(d);
-    } catch { /* show empty state */ }
+      const [fixtureRes, groupRes] = await Promise.all([
+        api.get(`/events/${ev._id}/public-fixtures`),
+        api.get(`/events/${ev._id}/public-groups`),
+      ]);
+      setFixtureData({ ...fixtureRes, groups: groupRes.groups || [] });
+    } catch (e) { void e; }
     setFixtureLoading(false);
   };
 
@@ -439,8 +443,47 @@ export default function StudentEvents() {
             ) : (
               <div className={s.fixtureContent}>
 
-                {/* Teams */}
-                {fixtureData.teams.length > 0 && (
+                {/* Groups (if declared) — World Cup / NBA style */}
+                {fixtureData.groups?.length > 0 ? (
+                  <section className={s.fixtureSection}>
+                    <h3 className={s.fixtureSectionTitle}>Groups</h3>
+                    <div className={s.fixtureGroupsGrid}>
+                      {fixtureData.groups.map(group => {
+                        /* Enrich group teams with member data from fixtureData.teams */
+                        const enriched = group.teams.map(gt => {
+                          const full = fixtureData.teams.find(t => t.id === gt.id || t.name === gt.name);
+                          return full || { ...gt, members: [] };
+                        });
+                        return (
+                          <div key={group.id} className={s.fixtureGroupCard}>
+                            <div className={s.fixtureGroupName}>{group.name}</div>
+                            <div className={s.fixtureGroupTeams}>
+                              {enriched.length === 0
+                                ? <span className={s.fixtureNoMembers}>No teams assigned</span>
+                                : enriched.map((team, ti) => (
+                                  <div key={ti} className={s.fixtureGroupTeamBlock}>
+                                    <div className={s.fixtureTeamHeader}>{team.name}</div>
+                                    <div className={s.fixtureTeamMembers}>
+                                      {(!team.members || team.members.length === 0)
+                                        ? <span className={s.fixtureNoMembers}>No players</span>
+                                        : team.members.map((m, mi) => (
+                                          <div key={mi} className={s.fixturePlayerRow}>
+                                            <span className={s.fixturePlayerNum}>{mi + 1}</span>
+                                            <span className={s.fixturePlayerName}>{m.name}</span>
+                                            {m.enrollmentNo && <span className={s.fixturePlayerEnroll}>{m.enrollmentNo}</span>}
+                                          </div>
+                                        ))}
+                                    </div>
+                                  </div>
+                                ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ) : fixtureData.teams.length > 0 && (
+                  /* Fall back to flat teams list when no groups set */
                   <section className={s.fixtureSection}>
                     <h3 className={s.fixtureSectionTitle}>Teams</h3>
                     <div className={s.fixtureTeamsList}>
@@ -461,6 +504,14 @@ export default function StudentEvents() {
                         </div>
                       ))}
                     </div>
+                  </section>
+                )}
+
+                {/* Bracket — shown when 2+ groups exist */}
+                {fixtureData.groups?.length >= 2 && (
+                  <section className={s.fixtureSection}>
+                    <h3 className={s.fixtureSectionTitle}>Bracket</h3>
+                    <TournamentBracket groups={fixtureData.groups} />
                   </section>
                 )}
 

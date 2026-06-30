@@ -30,11 +30,20 @@ body {
 
 ::-webkit-scrollbar {
   width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f9fafb;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--red);
+  background: #d1d5db;
   border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
 }
 
 img {

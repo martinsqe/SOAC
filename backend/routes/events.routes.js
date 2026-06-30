@@ -1,6 +1,7 @@
 const router      = require('express').Router();
 const ctrl        = require('../controllers/events.controller');
 const teamCtrl    = require('../controllers/eventTeams.controller');
+const groupCtrl   = require('../controllers/eventGroups.controller');
 const { verifyToken }  = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/requireAdmin');
 const { uploadEvent }  = require('../config/multer');
@@ -37,5 +38,14 @@ router.delete('/:id/teams/:teamId/members/:memberId',    verifyToken, requireCoo
 router.get ('/:id/public-fixtures',          teamCtrl.getPublicFixtures);                                   /* public */
 router.get ('/:id/fixtures',                 verifyToken, requireCoordOrAdmin, teamCtrl.getFixtures);        /* coord  */
 router.post('/:id/fixtures/save-declare',    verifyToken, requireCoordOrAdmin, teamCtrl.saveAndDeclare);     /* coord  */
+
+/* Groups routes */
+router.get   ('/:id/public-groups',                       groupCtrl.getPublicGroups);                              /* public */
+router.get   ('/:id/groups',                              verifyToken, requireCoordOrAdmin, groupCtrl.getGroups);   /* coord  */
+router.post  ('/:id/groups',                              verifyToken, requireCoordOrAdmin, groupCtrl.createGroup);
+router.patch ('/:id/groups/:groupId',                     verifyToken, requireCoordOrAdmin, groupCtrl.renameGroup);
+router.delete('/:id/groups/:groupId',                     verifyToken, requireCoordOrAdmin, groupCtrl.deleteGroup);
+router.post  ('/:id/groups/:groupId/assign',              verifyToken, requireCoordOrAdmin, groupCtrl.assignTeam);
+router.delete('/:id/groups/:groupId/teams/:teamId',       verifyToken, requireCoordOrAdmin, groupCtrl.unassignTeam);
 
 module.exports = router;
