@@ -74,7 +74,12 @@ export default function CoordEvents() {
   const [regs,        setRegs]        = useState([]);
   const [regsLoading, setRegsLoading] = useState(false);
   const [regSearch,   setRegSearch]   = useState('');
-  const [regsTab,     setRegsTab]     = useState('list'); // 'list' | 'teams'
+  const [regsTab,     setRegsTab]     = useState('list'); // 'list' | 'teams' | 'fixtures'
+
+  /* ── Fixtures state ── */
+  const [fixtures,        setFixtures]        = useState([]); // [{teamA,teamB,date,time,venue,round}]
+  const [fixturesDeclared, setFixturesDeclared] = useState(false);
+  const [declareLoading,  setDeclareLoading]  = useState(false);
 
   /* ── Teams state ── */
   const [teams,          setTeams]         = useState([]);
@@ -196,11 +201,13 @@ export default function CoordEvents() {
     }
   };
 
-  /* ── View registrations + teams for a published event ── */
+  /* ── View registrations + teams + fixtures for a published event ── */
   const viewRegs = (ev) => {
     setRegEvent(ev);
     setRegs([]);
     setTeams([]);
+    setFixtures([]);
+    setFixturesDeclared(ev.fixtures_declared || false);
     setRegSearch('');
     setRegsTab('list');
     setExpandedTeams(new Set());
@@ -216,6 +223,68 @@ export default function CoordEvents() {
       .then(d => setTeams(d.teams || []))
       .catch(() => setTeams([]))
       .finally(() => setTeamsLoading(false));
+    api.get(`/events/${ev._id}/fixtures`)
+      .then(d => {
+        const flat = d.fixtures || [];
+        /* Reconstruct date-groups from flat list */
+        const groups = [];
+        const byDate = {};
+        flat.forEach(fix => {
+          const key = fix.date || '';
+          if (!byDate[key]) {
+            const g = { date: fix.date || '', venue: fix.venue || '', matches: [] };
+            byDate[key] = g;
+            groups.push(g);
+          }
+          byDate[key].matches.push({ teamA: fix.teamA || '', teamB: fix.teamB || '', time: fix.time || '', round: fix.round || '' });
+        });
+        setFixtures(groups);
+      })
+      .catch(() => setFixtures([]));
+  };
+
+  /* ── Fixture helpers (date-grouped structure) ──
+     fixtures = [{ date, venue, matches: [{teamA,teamB,time,round}] }]  */
+  const addDateGroup = () =>
+    setFixtures(f => [...f, { date: '', venue: '', matches: [{ teamA: '', teamB: '', time: '', round: '' }] }]);
+
+  const addMatchToGroup = (gi) =>
+    setFixtures(f => f.map((g, i) => i === gi
+      ? { ...g, matches: [...g.matches, { teamA: '', teamB: '', time: '', round: '' }] }
+      : g));
+
+  const updateGroup = (gi, key, val) =>
+    setFixtures(f => f.map((g, i) => i === gi ? { ...g, [key]: val } : g));
+
+  const updateMatch = (gi, mi, key, val) =>
+    setFixtures(f => f.map((g, i) => i === gi
+      ? { ...g, matches: g.matches.map((m, j) => j === mi ? { ...m, [key]: val } : m) }
+      : g));
+
+  const removeMatch = (gi, mi) =>
+    setFixtures(f => f.map((g, i) => i === gi
+      ? { ...g, matches: g.matches.filter((_, j) => j !== mi) }
+      : g).filter(g => g.matches.length > 0));
+
+  const removeDateGroup = (gi) =>
+    setFixtures(f => f.filter((_, i) => i !== gi));
+
+  const handleSaveDeclare = async () => {
+    setDeclareLoading(true);
+    try {
+      /* Flatten groups → backend flat format */
+      const flatFixtures = fixtures.flatMap(g =>
+        g.matches.map(m => ({ teamA: m.teamA, teamB: m.teamB, time: m.time, round: m.round, date: g.date, venue: g.venue }))
+      );
+      await api.post(`/events/${regEvent._id}/fixtures/save-declare`, { fixtures: flatFixtures });
+      setFixturesDeclared(true);
+      setEvents(prev => prev.map(e => e._id === regEvent._id ? { ...e, fixtures_declared: true } : e));
+      showToast('Fixtures saved and declared to students!');
+    } catch (err) {
+      showToast(err.message || 'Failed to save fixtures.', 'err');
+    } finally {
+      setDeclareLoading(false);
+    }
   };
 
   /* ── Team actions ── */
@@ -537,6 +606,13 @@ export default function CoordEvents() {
                 onClick={() => setRegsTab('teams')}>
                 Teams ({teams.length})
               </button>
+              {regEvent?.category === 'sports' && (
+                <button
+                  className={`${es.regsSubTab} ${regsTab === 'fixtures' ? es.regsSubTabOn : ''}`}
+                  onClick={() => setRegsTab('fixtures')}>
+                  Fixtures {fixturesDeclared && <span className={es.declaredBadge}>Declared</span>}
+                </button>
+              )}
             </div>
 
             {/* ── REGISTRATIONS LIST ── */}
@@ -589,6 +665,108 @@ export default function CoordEvents() {
                 )}
               </div>
             </>)}
+
+            {/* ── FIXTURES TAB ── */}
+            {regsTab === 'fixtures' && (
+              <div className={es.fixturesPanel}>
+                {fixturesDeclared && (
+                  <div className={es.declaredBanner}>
+                    ✅ Fixtures have been declared — students can now view them.
+                    You can update and re-declare at any time.
+                  </div>
+                )}
+
+                <div className={es.fixturesList}>
+                  {fixtures.length === 0 && (
+                    <div className={es.regsEmpty}>
+                      <p>No fixtures yet. Add a date to start scheduling.</p>
+                    </div>
+                  )}
+
+                  {fixtures.map((group, gi) => (
+                    <div key={gi} className={es.fixtureDateGroup}>
+                      {/* Date group header */}
+                      <div className={es.fixtureDateGroupHead}>
+                        <div className={es.fixtureDateGroupFields}>
+                          <div className={es.fixtureMetaField}>
+                            <label className={es.fixtureLbl}>Date</label>
+                            <input
+                              type="date"
+                              className={es.fixtureInput}
+                              value={group.date}
+                              onChange={e => updateGroup(gi, 'date', e.target.value)} />
+                          </div>
+                          <div className={es.fixtureMetaField} style={{ flex: 2 }}>
+                            <label className={es.fixtureLbl}>Venue (shared for all games this day)</label>
+                            <input
+                              className={es.fixtureInput}
+                              placeholder="e.g. TNS Grounds"
+                              value={group.venue}
+                              onChange={e => updateGroup(gi, 'venue', e.target.value)} />
+                          </div>
+                        </div>
+                        <button className={es.fixtureRemoveBtn} onClick={() => removeDateGroup(gi)} title="Remove this date">✕</button>
+                      </div>
+
+                      {/* Matches under this date */}
+                      <div className={es.fixtureMatchesBlock}>
+                        {group.matches.map((m, mi) => (
+                          <div key={mi} className={es.fixtureMatchLine}>
+                            <select
+                              className={es.fixtureSelect}
+                              value={m.teamA}
+                              onChange={e => updateMatch(gi, mi, 'teamA', e.target.value)}>
+                              <option value="">Team A…</option>
+                              {teams.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                            </select>
+                            <span className={es.fixtureVsLabel}>vs</span>
+                            <select
+                              className={es.fixtureSelect}
+                              value={m.teamB}
+                              onChange={e => updateMatch(gi, mi, 'teamB', e.target.value)}>
+                              <option value="">Team B…</option>
+                              {teams.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                            </select>
+                            <input
+                              className={es.fixtureInput}
+                              style={{ maxWidth: 110 }}
+                              type="text"
+                              placeholder="Time e.g. 4:00 PM"
+                              value={m.time}
+                              onChange={e => updateMatch(gi, mi, 'time', e.target.value)} />
+                            <input
+                              className={es.fixtureInput}
+                              style={{ maxWidth: 140 }}
+                              placeholder="Round / Stage"
+                              value={m.round}
+                              onChange={e => updateMatch(gi, mi, 'round', e.target.value)} />
+                            <button className={es.fixtureRemoveBtn} onClick={() => removeMatch(gi, mi)} title="Remove match">✕</button>
+                          </div>
+                        ))}
+                        <button className={es.addMatchInGroupBtn} onClick={() => addMatchToGroup(gi)} disabled={teams.length < 2}>
+                          + Add Match
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className={es.fixtureActions}>
+                  <button className={es.addFixtureBtn} onClick={addDateGroup} disabled={teams.length < 2}>
+                    + Add Date
+                  </button>
+                  {teams.length < 2 && (
+                    <span className={es.fixtureHint}>Create at least 2 teams first.</span>
+                  )}
+                  <button
+                    className={es.saveDeclareBtn}
+                    onClick={handleSaveDeclare}
+                    disabled={declareLoading || fixtures.length === 0}>
+                    {declareLoading ? 'Saving…' : fixturesDeclared ? '✓ Update & Re-declare' : 'Save & Declare'}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* ── TEAMS TAB ── */}
             {regsTab === 'teams' && (

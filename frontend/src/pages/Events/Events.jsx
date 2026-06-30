@@ -319,6 +319,24 @@ const Events = () => {
   const [pastSearchInput, setPastSearchInput] = useState('');
   const [statsModal, setStatsModal]       = useState(null);
 
+  /* ── Registered events (persisted per user) ── */
+  const [registeredIds, setRegisteredIds] = useState(() => {
+    try {
+      const key = `soac_ev_regs_${user?.id || 'guest'}`;
+      const stored = localStorage.getItem(key);
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch { return new Set(); }
+  });
+
+  const markRegistered = (eventId) => {
+    setRegisteredIds(prev => {
+      const next = new Set(prev);
+      next.add(String(eventId));
+      try { localStorage.setItem(`soac_ev_regs_${user?.id || 'guest'}`, JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  };
+
   /* ── Registration modal state ── */
   const [regModal, setRegModal] = useState(null);   // null | { id, title }
   const [regForm, setRegForm] = useState(EMPTY_FORM);
@@ -326,6 +344,23 @@ const Events = () => {
   const [regApi, setRegApi] = useState('');     // api-level error
   const [regDone, setRegDone] = useState(false);  // success screen
   const [regLoading, setRegLoading] = useState(false);
+
+  /* ── Teams & Fixtures modal ── */
+  const [fixtureModal,   setFixtureModal]   = useState(null);
+  const [fixtureData,    setFixtureData]    = useState(null);
+  const [fixtureLoading, setFixtureLoading] = useState(false);
+
+  const openFixtures = async (ev) => {
+    setFixtureModal({ id: ev.id, title: ev.title });
+    setFixtureLoading(true);
+    setFixtureData(null);
+    try {
+      const res = await fetch(`/api/events/${ev.id}/public-fixtures`);
+      const d = await res.json();
+      setFixtureData(d);
+    } catch { /* empty state */ }
+    setFixtureLoading(false);
+  };
 
   const openReg = (ev) => {
     setRegModal({ id: ev.id, title: ev.title });
@@ -370,6 +405,7 @@ const Events = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Registration failed.');
       setRegDone(true);
+      markRegistered(regModal.id);
     } catch (err) {
       setRegApi(err.message);
     } finally {
@@ -573,9 +609,11 @@ const Events = () => {
                     <div className={styles.featTags}>
                       {featured.tags.map(t => <span key={t} className={styles.tag}>{t}</span>)}
                     </div>
-                    <button className={styles.regBtn} onClick={() => openReg(featured)}>
-                      Register Now →
-                    </button>
+                    {registeredIds.has(String(featured.id)) && featured.category === 'sports' ? (
+                      <button className={styles.fixturesBtn} onClick={() => openFixtures(featured)}>Teams &amp; Fixtures</button>
+                    ) : (
+                      <button className={styles.regBtn} onClick={() => openReg(featured)}>Register Now →</button>
+                    )}
                   </div>
                 </div>
               )}
@@ -597,9 +635,11 @@ const Events = () => {
                         </div>
                         <div className={styles.upCardFooter}>
                           <span className={styles.upCardSeats}>🎟️ {ev.seats}</span>
-                          <button className={styles.upRegBtn} onClick={() => openReg(ev)}>
-                            Register Now →
-                          </button>
+                          {registeredIds.has(String(ev.id)) && ev.category === 'sports' ? (
+                            <button className={styles.fixturesBtn} onClick={() => openFixtures(ev)}>Teams &amp; Fixtures</button>
+                          ) : (
+                            <button className={styles.upRegBtn} onClick={() => openReg(ev)}>Register Now →</button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1020,6 +1060,78 @@ const Events = () => {
               </div>
             ))}
 
+          </div>
+        </div>
+      )}
+
+      {/* ══ TEAMS & FIXTURES MODAL ══ */}
+      {fixtureModal && (
+        <div className={styles.statsOverlay} onClick={() => setFixtureModal(null)}>
+          <div className={styles.statsPanel} onClick={e => e.stopPropagation()} style={{ maxWidth: 720 }}>
+            <div className={styles.statsPanelHead}>
+              <div>
+                <div className={styles.modalTag}>Sports Event</div>
+                <h2 className={styles.modalTitle}>{fixtureModal.title}</h2>
+              </div>
+              <button className={styles.statsClose} onClick={() => setFixtureModal(null)}>✕</button>
+            </div>
+
+            {fixtureLoading ? (
+              <div className={styles.fixtureLoading}>Loading teams and fixtures…</div>
+            ) : !fixtureData || (fixtureData.teams?.length === 0 && fixtureData.fixtures?.length === 0) ? (
+              <div className={styles.fixtureEmpty}>Teams and fixtures have not been declared yet. Check back soon.</div>
+            ) : (
+              <div className={styles.fixtureContent}>
+
+                {fixtureData.teams?.length > 0 && (
+                  <section className={styles.fixtureSection}>
+                    <h3 className={styles.fixtureSectionTitle}>Teams</h3>
+                    <div className={styles.fixtureTeamsGrid}>
+                      {fixtureData.teams.map(team => (
+                        <div key={team.id} className={styles.fixtureTeamCard}>
+                          <div className={styles.fixtureTeamName}>{team.name}</div>
+                          <div className={styles.fixtureTeamMembers}>
+                            {team.members.length === 0
+                              ? <span className={styles.fixtureNoMembers}>No players assigned</span>
+                              : team.members.map((m, i) => (
+                                <div key={i} className={styles.fixturePlayerRow}>
+                                  <span className={styles.fixturePlayerNum}>{i + 1}</span>
+                                  <span className={styles.fixturePlayerName}>{m.name}</span>
+                                  {m.enrollmentNo && <span className={styles.fixturePlayerEnroll}>{m.enrollmentNo}</span>}
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {fixtureData.fixtures?.length > 0 && (
+                  <section className={styles.fixtureSection}>
+                    <h3 className={styles.fixtureSectionTitle}>Match Schedule</h3>
+                    <div className={styles.fixtureMatchList}>
+                      {fixtureData.fixtures.map((fix, i) => (
+                        <div key={i} className={styles.fixtureMatchRow}>
+                          {fix.round && <span className={styles.fixtureRound}>{fix.round}</span>}
+                          <div className={styles.fixtureMatchTeams}>
+                            <span className={styles.fixtureMatchTeam}>{fix.teamA || '—'}</span>
+                            <span className={styles.fixtureMatchVs}>vs</span>
+                            <span className={styles.fixtureMatchTeam}>{fix.teamB || '—'}</span>
+                          </div>
+                          <div className={styles.fixtureMatchMeta}>
+                            {fix.date && <span>📅 {fix.date}</span>}
+                            {fix.time && <span>🕐 {fix.time}</span>}
+                            {fix.venue && <span>📍 {fix.venue}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+              </div>
+            )}
           </div>
         </div>
       )}

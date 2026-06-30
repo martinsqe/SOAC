@@ -29,6 +29,32 @@ export default function StudentEvents() {
   const [filter,  setFilter]  = useState('all');
   const [search,  setSearch]  = useState('');
 
+  /* ── Registered events (persisted per user) ── */
+  const [registeredIds, setRegisteredIds] = useState(() => {
+    try {
+      const stored = localStorage.getItem(`soac_ev_regs_${user?.id || 'guest'}`);
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch { return new Set(); }
+  });
+
+  /* Re-sync from localStorage once user id is known (auth may be async on first render) */
+  useEffect(() => {
+    if (!user?.id) return;
+    try {
+      const stored = localStorage.getItem(`soac_ev_regs_${user.id}`);
+      if (stored) setRegisteredIds(new Set(JSON.parse(stored)));
+    } catch (e) { void e; }
+  }, [user?.id]);
+
+  const markRegistered = (eventId) => {
+    setRegisteredIds(prev => {
+      const next = new Set(prev);
+      next.add(String(eventId));
+      try { localStorage.setItem(`soac_ev_regs_${user?.id || 'guest'}`, JSON.stringify([...next])); } catch (e) { void e; }
+      return next;
+    });
+  };
+
   /* ── Registration modal ── */
   const [regModal,   setRegModal]   = useState(null);   // { id, title }
   const [regForm,    setRegForm]    = useState(EMPTY_FORM);
@@ -36,6 +62,22 @@ export default function StudentEvents() {
   const [regApi,     setRegApi]     = useState('');
   const [regDone,    setRegDone]    = useState(false);
   const [regLoading, setRegLoading] = useState(false);
+
+  /* ── Teams & Fixtures modal (sports events) ── */
+  const [fixtureModal,   setFixtureModal]   = useState(null);
+  const [fixtureData,    setFixtureData]    = useState(null);
+  const [fixtureLoading, setFixtureLoading] = useState(false);
+
+  const openFixtures = async (ev) => {
+    setFixtureModal({ id: ev._id, title: ev.title });
+    setFixtureLoading(true);
+    setFixtureData(null);
+    try {
+      const d = await api.get(`/events/${ev._id}/public-fixtures`);
+      setFixtureData(d);
+    } catch { /* show empty state */ }
+    setFixtureLoading(false);
+  };
 
   useEffect(() => {
     api.get('/events')
@@ -104,6 +146,7 @@ export default function StudentEvents() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Registration failed.');
       setRegDone(true);
+      markRegistered(regModal.id);
     } catch (err) {
       setRegApi(err.message);
     } finally {
@@ -237,13 +280,26 @@ export default function StudentEvents() {
                 {/* Footer */}
                 <div className={s.cardFoot}>
                   {ev.seats && <span className={s.seats}>🎟️ {ev.seats}</span>}
-                  {canRegister ? (
-                    <button className={s.regBtn} onClick={() => openReg(ev)}>
-                      Register →
-                    </button>
-                  ) : (
-                    <span className={s.closed}>Registration closed</span>
-                  )}
+                  {(() => {
+                    const isSports     = ev.category === 'sports';
+                    const isRegistered = registeredIds.has(String(ev._id));
+
+                    if (isSports && isRegistered) {
+                      return (
+                        <button className={s.fixturesBtn} onClick={() => openFixtures(ev)}>
+                          Teams &amp; Fixtures
+                        </button>
+                      );
+                    }
+                    if (canRegister) {
+                      return (
+                        <button className={s.regBtn} onClick={() => openReg(ev)}>
+                          Register →
+                        </button>
+                      );
+                    }
+                    return <span className={s.closed}>Registration closed</span>;
+                  })()}
                 </div>
               </div>
             );
@@ -359,6 +415,100 @@ export default function StudentEvents() {
                   </button>
                 </form>
               </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════
+          TEAMS & FIXTURES MODAL
+      ══════════════════════════ */}
+      {fixtureModal && (
+        <div className={s.modalOv} onClick={() => setFixtureModal(null)}>
+          <div className={s.modalBox} onClick={e => e.stopPropagation()} style={{ maxWidth: 720 }}>
+            <button className={s.modalClose} onClick={() => setFixtureModal(null)} aria-label="Close">✕</button>
+            <div className={s.modalHead}>
+              <div className={s.modalPill}>Sports Event</div>
+              <h2 className={s.modalTitle}>{fixtureModal.title}</h2>
+            </div>
+
+            {fixtureLoading ? (
+              <div className={s.fixtureLoading}>Loading teams and fixtures…</div>
+            ) : !fixtureData || (fixtureData.teams.length === 0 && fixtureData.fixtures.length === 0) ? (
+              <div className={s.fixtureEmpty}>Teams and fixtures have not been declared yet. Check back soon.</div>
+            ) : (
+              <div className={s.fixtureContent}>
+
+                {/* Teams */}
+                {fixtureData.teams.length > 0 && (
+                  <section className={s.fixtureSection}>
+                    <h3 className={s.fixtureSectionTitle}>Teams</h3>
+                    <div className={s.fixtureTeamsList}>
+                      {fixtureData.teams.map(team => (
+                        <div key={team.id} className={s.fixtureTeamCard}>
+                          <div className={s.fixtureTeamHeader}>{team.name}</div>
+                          <div className={s.fixtureTeamMembers}>
+                            {team.members.length === 0
+                              ? <span className={s.fixtureNoMembers}>No players assigned</span>
+                              : team.members.map((m, i) => (
+                                <div key={i} className={s.fixturePlayerRow}>
+                                  <span className={s.fixturePlayerNum}>{i + 1}</span>
+                                  <span className={s.fixturePlayerName}>{m.name}</span>
+                                  {m.enrollmentNo && <span className={s.fixturePlayerEnroll}>{m.enrollmentNo}</span>}
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {/* Fixtures — grouped by date */}
+                {fixtureData.fixtures.length > 0 && (() => {
+                  const groups = [];
+                  const seen = {};
+                  fixtureData.fixtures.forEach(fix => {
+                    const key = fix.date || 'Date TBD';
+                    if (!seen[key]) { seen[key] = []; groups.push({ date: key, matches: seen[key] }); }
+                    seen[key].push(fix);
+                  });
+                  return (
+                    <section className={s.fixtureSection}>
+                      <h3 className={s.fixtureSectionTitle}>Fixtures</h3>
+                      <div className={s.fixtureMatchList}>
+                        {groups.map(group => {
+                            const groupVenue = group.matches[0]?.venue || '';
+                            return (
+                              <div key={group.date} className={s.fixtureDateGroup}>
+                                <div className={s.fixtureDateHeader}>
+                                  <span>{group.date}</span>
+                                  {groupVenue && <span className={s.fixtureDateVenue}>{groupVenue}</span>}
+                                </div>
+                                {group.matches.map((fix, i) => (
+                                  <div key={i} className={s.fixtureMatchRow}>
+                                    {fix.round && <span className={s.fixtureRound}>{fix.round}</span>}
+                                    <div className={s.fixtureMatchTeams}>
+                                      <span className={s.fixtureMatchTeam}>{fix.teamA || '—'}</span>
+                                      <span className={s.fixtureMatchVs}>vs</span>
+                                      <span className={s.fixtureMatchTeam}>{fix.teamB || '—'}</span>
+                                    </div>
+                                    {fix.time && (
+                                      <div className={s.fixtureMatchMeta}>
+                                        <span>{fix.time}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </section>
+                  );
+                })()}
+
+              </div>
             )}
           </div>
         </div>

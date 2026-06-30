@@ -10,8 +10,10 @@ const EVENT_COLS = [
   'id', 'title', 'club', 'club_id', 'category', 'status', 'date', 'start_date',
   'time', 'venue', 'description', 'image', 'tags', 'seats',
   'highlight', 'registration_url', 'is_free', 'fee_amount',
-  'is_active', 'created_at', 'updated_at',
+  'is_active', 'created_at', 'updated_at', 'fixtures_declared',
 ].join(', ');
+
+pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS fixtures_declared BOOLEAN NOT NULL DEFAULT false`).catch(() => {});
 
 const REG_COLS = [
   'id', 'event_id', 'event_title', 'name', 'enrollment_no',

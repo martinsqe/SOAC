@@ -996,3 +996,205 @@
   transition: background .12s, border-color .12s;
 }
 .teamDangerBtn:hover { background: #fef2f2; border-color: #f87171; }
+
+/* ══ Fixtures panel ══ */
+.declaredBadge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  background: #d1fae5;
+  color: #065f46;
+  border-radius: 20px;
+  font-size: .68rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.fixturesPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-y: auto;
+  flex: 1;
+  padding: 18px 24px 20px;
+}
+
+.declaredBanner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #ecfdf5;
+  border: 1.5px solid #6ee7b7;
+  border-radius: 10px;
+  font-size: .83rem;
+  font-weight: 600;
+  color: #065f46;
+  margin-bottom: 16px;
+}
+
+.fixturesList {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+/* Date group card */
+.fixtureDateGroup {
+  border: 1.5px solid #e5e7eb;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.fixtureDateGroupHead {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  background: #f8f9fc;
+  padding: 12px 14px;
+  border-bottom: 1.5px solid #e5e7eb;
+}
+
+.fixtureDateGroupFields {
+  display: flex;
+  gap: 12px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+/* Matches block inside a date group */
+.fixtureMatchesBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: #fff;
+}
+
+.fixtureMatchLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fixtureMatchLine .fixtureSelect { flex: 1; min-width: 100px; }
+.fixtureMatchLine .fixtureInput  { flex: 1; min-width: 80px; }
+
+.fixtureVsLabel {
+  font-size: .82rem;
+  font-weight: 800;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.fixtureLbl {
+  font-size: .71rem;
+  font-weight: 700;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.fixtureSelect, .fixtureInput {
+  padding: 7px 10px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: .83rem;
+  background: #fff;
+  color: #111827;
+  outline: none;
+  transition: border-color .14s;
+  width: 100%;
+}
+.fixtureSelect:focus, .fixtureInput:focus { border-color: #635bff; }
+
+.fixtureMetaField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 120px;
+}
+
+.fixtureRemoveBtn {
+  background: none;
+  border: none;
+  color: #d1d5db;
+  font-size: 1rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: color .12s, background .12s;
+}
+.fixtureRemoveBtn:hover { color: #ef4444; background: #fef2f2; }
+
+.addMatchInGroupBtn {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 5px 14px;
+  background: #fff;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 7px;
+  color: #6b7280;
+  font-size: .78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .13s, color .13s;
+}
+.addMatchInGroupBtn:hover:not(:disabled) { border-color: #635bff; color: #635bff; }
+.addMatchInGroupBtn:disabled { opacity: .4; cursor: default; }
+
+.fixtureActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 4px;
+  border-top: 1.5px solid #f0f0f5;
+  flex-wrap: wrap;
+}
+
+.addFixtureBtn {
+  padding: 8px 16px;
+  background: #fff;
+  border: 1.5px solid #635bff;
+  border-radius: 9px;
+  color: #635bff;
+  font-size: .82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .14s;
+}
+.addFixtureBtn:hover:not(:disabled) { background: #f5f4ff; }
+.addFixtureBtn:disabled { opacity: .45; cursor: default; }
+
+.fixtureHint {
+  font-size: .76rem;
+  color: #9ca3af;
+}
+
+.saveDeclareBtn {
+  margin-left: auto;
+  padding: 9px 22px;
+  background: linear-gradient(135deg, #635bff, #7c3aed);
+  border: none;
+  border-radius: 10px;
+  color: #fff;
+  font-size: .85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity .14s;
+  box-shadow: 0 3px 10px rgba(99,91,255,.3);
+}
+.saveDeclareBtn:hover:not(:disabled) { opacity: .88; }
+.saveDeclareBtn:disabled { opacity: .5; cursor: default; }
+
+@media (max-width: 640px) {
+  .fixtureDateGroupFields { flex-direction: column; }
+  .fixtureMatchLine { flex-direction: column; align-items: stretch; }
+  .fixtureMatchLine .fixtureSelect,
+  .fixtureMatchLine .fixtureInput { width: 100%; }
+}

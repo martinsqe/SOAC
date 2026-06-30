@@ -242,3 +242,208 @@
   .cardFoot { flex-direction: column; align-items: flex-start; gap: 6px; }
   .regBtn { width: 100%; text-align: center; }
 }
+
+/* ── Sports registration status ── */
+.regStatus {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: right;
+}
+.regDone {
+  font-size: .78rem;
+  font-weight: 700;
+  color: #059669;
+}
+.regPending {
+  font-size: .7rem;
+  color: #6b7280;
+  font-style: italic;
+}
+.fixturesBtn {
+  padding: 7px 18px;
+  background: transparent;
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  color: #374151;
+  font-size: .78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.fixturesBtn:hover { border-color: #9ca3af; color: #111827; }
+
+/* ── Teams & Fixtures modal content ── */
+.fixtureLoading, .fixtureEmpty {
+  padding: 32px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: .9rem;
+}
+
+.fixtureContent {
+  padding: 0 28px 24px;
+  overflow-y: auto;
+  max-height: 68vh;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.fixtureSection { display: flex; flex-direction: column; gap: 12px; }
+
+.fixtureSectionTitle {
+  font-size: .88rem;
+  font-weight: 800;
+  color: #374151;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding-bottom: 6px;
+  border-bottom: 2px solid #f0f0f5;
+}
+
+/* Teams — 2 per row */
+.fixtureTeamsList {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.fixtureTeamCard {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.fixtureTeamHeader {
+  font-size: .84rem;
+  font-weight: 700;
+  color: #111827;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.fixtureTeamMembers { display: flex; flex-direction: column; gap: 0; }
+
+.fixtureNoMembers {
+  font-size: .78rem;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.fixturePlayerRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+.fixturePlayerRow:last-child { border-bottom: none; }
+
+.fixturePlayerNum {
+  font-size: .72rem;
+  color: #9ca3af;
+  width: 18px;
+  flex-shrink: 0;
+}
+
+.fixturePlayerName {
+  font-size: .86rem;
+  font-weight: 600;
+  color: #1f2937;
+  flex: 1;
+}
+
+.fixturePlayerEnroll {
+  font-size: .76rem;
+  font-weight: 500;
+  color: #6b7280;
+}
+
+/* Match schedule */
+.fixtureMatchList { display: flex; flex-direction: column; gap: 16px; }
+
+.fixtureDateGroup { display: flex; flex-direction: column; gap: 6px; }
+
+.fixtureDateHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: .75rem;
+  font-weight: 700;
+  color: #374151;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: 2px 0 6px;
+  border-bottom: 1px solid #e5e7eb;
+  gap: 8px;
+}
+
+.fixtureDateVenue {
+  font-size: .72rem;
+  font-weight: 500;
+  color: #9ca3af;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.fixtureMatchRow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 14px 16px;
+  text-align: center;
+}
+
+.fixtureRound {
+  font-size: .72rem;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  align-self: center;
+}
+
+.fixtureMatchTeams {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  width: 100%;
+}
+
+.fixtureMatchTeam {
+  font-size: .94rem;
+  font-weight: 700;
+  color: #1f2937;
+  flex: 1;
+  text-align: center;
+}
+
+.fixtureMatchVs {
+  font-size: .72rem;
+  font-weight: 600;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.fixtureMatchMeta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  font-size: .78rem;
+  font-weight: 500;
+  color: #4b5563;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+@media (max-width: 540px) {
+  .fixtureTeamsList { grid-template-columns: 1fr; }
+  .fixtureMatchMeta { gap: 10px; }
+}

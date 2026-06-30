@@ -33,4 +33,9 @@ router.patch ('/:id/teams/:teamId/clear',                verifyToken, requireCoo
 router.post  ('/:id/teams/:teamId/members',              verifyToken, requireCoordOrAdmin, teamCtrl.addMember);
 router.delete('/:id/teams/:teamId/members/:memberId',    verifyToken, requireCoordOrAdmin, teamCtrl.removeMember);
 
+/* Fixtures routes */
+router.get ('/:id/public-fixtures',          teamCtrl.getPublicFixtures);                                   /* public */
+router.get ('/:id/fixtures',                 verifyToken, requireCoordOrAdmin, teamCtrl.getFixtures);        /* coord  */
+router.post('/:id/fixtures/save-declare',    verifyToken, requireCoordOrAdmin, teamCtrl.saveAndDeclare);     /* coord  */
+
 module.exports = router;
