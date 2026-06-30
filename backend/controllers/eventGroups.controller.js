@@ -1,26 +1,32 @@
 const { pgPool }         = require('../config/db');
 const { getCoordClubIds } = require('../services/coordAuth');
 
-/* ── Migrations ── */
-pgPool.query(`
-  CREATE TABLE IF NOT EXISTS event_groups (
-    id         BIGSERIAL    PRIMARY KEY,
-    event_id   BIGINT       NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    name       VARCHAR(100) NOT NULL,
-    sort_order INTEGER      NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-  )
-`).catch(() => {});
-
-pgPool.query(`
-  CREATE TABLE IF NOT EXISTS event_group_teams (
-    id       BIGSERIAL PRIMARY KEY,
-    group_id BIGINT    NOT NULL REFERENCES event_groups(id) ON DELETE CASCADE,
-    team_id  BIGINT    NOT NULL REFERENCES event_teams(id)  ON DELETE CASCADE,
-    event_id BIGINT    NOT NULL,
-    UNIQUE (team_id, event_id)
-  )
-`).catch(() => {});
+/* ── Migrations (sequential — event_group_teams FKs event_groups) ── */
+(async () => {
+  try {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS event_groups (
+        id         BIGSERIAL    PRIMARY KEY,
+        event_id   BIGINT       NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        name       VARCHAR(100) NOT NULL,
+        sort_order INTEGER      NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS event_group_teams (
+        id       BIGSERIAL PRIMARY KEY,
+        group_id BIGINT    NOT NULL REFERENCES event_groups(id) ON DELETE CASCADE,
+        team_id  BIGINT    NOT NULL REFERENCES event_teams(id)  ON DELETE CASCADE,
+        event_id BIGINT    NOT NULL,
+        UNIQUE (team_id, event_id)
+      )
+    `);
+    console.log('[eventGroups] tables ready');
+  } catch (err) {
+    console.error('[eventGroups] migration failed:', err.message);
+  }
+})();
 
 const checkAccess = async (req, res) => {
   if (req.user.role === 'admin') return true;
