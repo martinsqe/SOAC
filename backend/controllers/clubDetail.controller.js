@@ -674,9 +674,10 @@ const DEFAULT_TIMER_SECONDS = {
   volleyball: 90 * 60,
   badminton: 60 * 60,
 };
-const LIVE_SCORE_SELECT = `id, club_id, sport, match_title, opponent_name, venue, status,
+const LIVE_SCORE_SELECT = `id, club_id, sport, match_title, home_team, opponent_name, venue, status,
               game_clock, team_score, opponent_score, score_data, stats, home_players, away_players,
               time_remaining_seconds, timer_running, timer_last_started_at,
+              winner_name, fixture_id, event_id,
               started_at, ended_at, created_at, updated_at`;
 
 const withTimerComputed = (row) => {
@@ -695,9 +696,13 @@ const mapLiveScore = (row) => ({
   clubId: String(row.club_id),
   sport: row.sport,
   matchTitle: row.match_title || '',
+  homeTeam: row.home_team || '',
   opponentName: row.opponent_name || '',
   venue: row.venue || '',
   status: row.status,
+  winnerName: row.winner_name || null,
+  fixtureId: row.fixture_id ? String(row.fixture_id) : null,
+  eventId: row.event_id ? String(row.event_id) : null,
   gameClock: row.game_clock || '',
   teamScore: Number(row.team_score || 0),
   opponentScore: Number(row.opponent_score || 0),
@@ -749,16 +754,17 @@ const createLiveScore = async (req, res, next) => {
     }
     const { rows } = await pgPool.query(
       `INSERT INTO club_live_scores
-         (club_id, sport, match_title, opponent_name, venue, game_clock,
+         (club_id, sport, match_title, home_team, opponent_name, venue, game_clock,
           team_score, opponent_score, score_data, stats, home_players, away_players,
-          time_remaining_seconds, status, created_by, updated_by)
-       VALUES ($1::bigint, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13, 'draft', $14, $14)
+          time_remaining_seconds, status, created_by, updated_by, fixture_id, event_id)
+       VALUES ($1::bigint, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, $14, 'draft', $15, $15, $16, $17)
        RETURNING ${LIVE_SCORE_SELECT}`,
       [
         req.params.id,
         sport,
         (req.body.matchTitle || '').trim(),
-        (req.body.opponentName || '').trim(),
+        (req.body.homeTeam || '').trim(),
+        (req.body.opponentName || req.body.awayTeam || '').trim(),
         (req.body.venue || '').trim(),
         (req.body.gameClock || '').trim(),
         Number(req.body.teamScore) || 0,
@@ -769,6 +775,8 @@ const createLiveScore = async (req, res, next) => {
         JSON.stringify(req.body.awayPlayers || []),
         Math.max(0, Number(req.body.timeRemainingSeconds ?? DEFAULT_TIMER_SECONDS[sport]) || DEFAULT_TIMER_SECONDS[sport]),
         req.user.id,
+        req.body.fixtureId ? Number(req.body.fixtureId) : null,
+        req.body.eventId   ? Number(req.body.eventId)   : null,
       ]
     );
     const score = mapLiveScore(withTimerComputed(rows[0]));
@@ -799,9 +807,10 @@ const updateLiveScore = async (req, res, next) => {
            home_players   = COALESCE($10::jsonb, home_players),
            away_players   = COALESCE($11::jsonb, away_players),
            time_remaining_seconds = COALESCE($12, time_remaining_seconds),
-           updated_by     = $13,
+           home_team      = COALESCE($13, home_team),
+           updated_by     = $14,
            updated_at     = NOW()
-       WHERE id = $14::bigint AND club_id = $15::bigint
+       WHERE id = $15::bigint AND club_id = $16::bigint
        RETURNING ${LIVE_SCORE_SELECT}`,
       [
         sport,
@@ -816,6 +825,7 @@ const updateLiveScore = async (req, res, next) => {
         updates.homePlayers !== undefined ? JSON.stringify(updates.homePlayers || []) : null,
         updates.awayPlayers !== undefined ? JSON.stringify(updates.awayPlayers || []) : null,
         updates.timeRemainingSeconds !== undefined ? Math.max(0, Number(updates.timeRemainingSeconds) || 0) : null,
+        updates.homeTeam !== undefined ? String(updates.homeTeam).trim() : null,
         req.user.id,
         req.params.scoreId,
         req.params.id,
@@ -862,6 +872,7 @@ const endLiveScore = async (req, res, next) => {
     );
     if (!currentRows.length) return res.status(404).json({ message: 'Scoreboard not found.' });
     const current = withTimerComputed(currentRows[0]);
+    const winnerName = req.body.winnerName ? String(req.body.winnerName).trim() : null;
     const { rows } = await pgPool.query(
       `UPDATE club_live_scores
        SET status = 'ended',
@@ -869,13 +880,52 @@ const endLiveScore = async (req, res, next) => {
            timer_running = false,
            timer_last_started_at = NULL,
            time_remaining_seconds = $1,
-           updated_by = $2,
+           winner_name = $2,
+           updated_by = $3,
            updated_at = NOW()
-       WHERE id = $3::bigint AND club_id = $4::bigint
+       WHERE id = $4::bigint AND club_id = $5::bigint
        RETURNING ${LIVE_SCORE_SELECT}`,
-      [current.time_remaining_seconds, req.user.id, req.params.scoreId, req.params.id]
+      [current.time_remaining_seconds, winnerName, req.user.id, req.params.scoreId, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Scoreboard not found.' });
+
+    /* Write winner back to event_fixtures and broadcast bracket update */
+    if (winnerName) {
+      const broadcastResult = (fixtureId, eventId) => {
+        const io = req.app.get('io');
+        if (io && eventId) {
+          io.emit('bracket:result:updated', {
+            eventId:   String(eventId),
+            fixtureId: String(fixtureId),
+            winner:    winnerName,
+            teamA:     current.home_team     || '',
+            teamB:     current.opponent_name || '',
+          });
+        }
+      };
+
+      if (current.fixture_id) {
+        /* Explicitly linked fixture — update directly */
+        pgPool.query(
+          `UPDATE event_fixtures SET winner_name = $1 WHERE id = $2::bigint`,
+          [winnerName, current.fixture_id]
+        ).then(() => broadcastResult(current.fixture_id, current.event_id)).catch(() => {});
+      } else if (current.home_team && current.opponent_name) {
+        /* No fixture link — try to find a unique match by team names */
+        pgPool.query(
+          `SELECT id, event_id FROM event_fixtures
+           WHERE winner_name IS NULL AND team_a_name = $1 AND team_b_name = $2`,
+          [current.home_team, current.opponent_name]
+        ).then(({ rows: fx }) => {
+          if (fx.length !== 1) return; // ambiguous or not found — skip
+          return pgPool.query(
+            `UPDATE event_fixtures SET winner_name = $1 WHERE id = $2::bigint`,
+            [winnerName, fx[0].id]
+          ).then(() => broadcastResult(fx[0].id, fx[0].event_id));
+        }).catch(() => {});
+      }
+    }
+
     const score = mapLiveScore(withTimerComputed(rows[0]));
     emitScoreUpdate(req, req.params.scoreId, { score });
     res.json({ score });

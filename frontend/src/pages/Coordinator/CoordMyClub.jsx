@@ -64,11 +64,55 @@ const SPORT_TIMER_SECONDS = {
 /* seconds per quarter / period for basketball */
 const QUARTER_TIMER = { Q1: 600, Q2: 600, Q3: 600, Q4: 600, OT: 300 };
 const PLAYER_STAT_FIELDS = {
-  cricket: ['runs', 'balls', 'wickets'],
+  cricket:    ['runs', 'balls', 'wickets'],
   basketball: ['points', 'rebounds', 'assists'],
-  football: ['goals', 'assists', 'saves'],
+  football:   ['goals', 'assists', 'yellow_cards'],
   volleyball: ['points', 'blocks', 'aces'],
-  badminton: ['points', 'winners', 'errors'],
+  badminton:  ['points', 'winners', 'errors'],
+  kabaddi:    ['points', 'raids', 'tackles'],
+};
+
+/* Which stat on the player drives the team score total */
+const SPORT_SCORE_STAT = {
+  basketball: 'points',
+  football:   'goals',
+  cricket:    'runs',
+  volleyball: 'points',
+  badminton:  'points',
+  kabaddi:    'points',
+};
+
+/* Sport-specific scoring buttons — each adds `value` to player stat AND team score */
+const SPORT_SCORE_BUTTONS = {
+  basketball: [
+    { label: '1PT', value: 1, color: '#6366f1', title: 'Free throw' },
+    { label: '2PT', value: 2, color: '#0ea5e9', title: 'Field goal' },
+    { label: '3PT', value: 3, color: '#f59e0b', title: 'Three-pointer' },
+  ],
+  football: [
+    { label: '⚽ Goal', value: 1, color: '#10b981', title: 'Goal scored' },
+  ],
+  cricket: [
+    { label: '1', value: 1, color: '#6b7280' },
+    { label: '2', value: 2, color: '#6b7280' },
+    { label: '3', value: 3, color: '#6b7280' },
+    { label: '4', value: 4, color: '#0ea5e9', title: 'Boundary' },
+    { label: '6', value: 6, color: '#f59e0b', title: 'Six' },
+  ],
+  volleyball: [
+    { label: '+ Point', value: 1, color: '#10b981', title: 'Rally point' },
+  ],
+  badminton: [
+    { label: '+ Point', value: 1, color: '#10b981', title: 'Rally point' },
+  ],
+  kabaddi: [
+    { label: 'Raid',      value: 1, color: '#6366f1', title: 'Raid point' },
+    { label: 'Super Raid',value: 3, color: '#f59e0b', title: 'Super Raid (3 pts)' },
+    { label: 'Tackle',    value: 1, color: '#10b981', title: 'Tackle point' },
+  ],
+  general: [
+    { label: '+ Point', value: 1, color: '#10b981' },
+  ],
 };
 const BASKETBALL_EVENT_TYPES = [
   { key: 'shot_made', label: 'Shot Made' },
@@ -2197,7 +2241,7 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
   const [form, setForm] = useState({
     sport: 'cricket',
     matchTitle: '',
-    homeTeam: club?.name || 'Home Team',
+    homeTeam: '',
     awayTeam: '',
     venue: '',
     gameClock: '',
@@ -2210,6 +2254,19 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
     timeRemainingSeconds: SPORT_TIMER_SECONDS.cricket,
   });
 
+  /* ── Event auto-fill state ── */
+  const [sportEvents, setSportEvents] = useState([]);
+  const [selectedEventId, setSelectedEventId] = useState('');
+  const [eventFixtures, setEventFixtures] = useState([]);
+  const [eventTeamsList, setEventTeamsList] = useState([]);
+  const [gamedayOptions, setGamedayOptions] = useState([]);
+  const [selectedGameday, setSelectedGameday] = useState('');
+  const [gamedayMatches, setGamedayMatches] = useState([]);
+  const [selectedMatchId, setSelectedMatchId] = useState('');
+  const [loadingEventData, setLoadingEventData] = useState(false);
+  const [linkedFixtureId, setLinkedFixtureId] = useState(null);
+  const [endingScoreId, setEndingScoreId] = useState(null);
+
   const load = useCallback(async () => {
     try {
       const data = await api.get(`/clubs/${clubId}/live-scores`);
@@ -2221,6 +2278,13 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
   }, [clubId]);
 
   useEffect(() => { load(); }, [load]);
+
+  /* Fetch all events for this club so coordinator can auto-fill the scoreboard form */
+  useEffect(() => {
+    api.get(`/events?clubId=${clubId}&limit=100`)
+      .then(data => setSportEvents(data.events || []))
+      .catch(() => {});
+  }, [clubId]);
 
   useEffect(() => {
     const onConnect = () => setConn('connected');
@@ -2267,7 +2331,7 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
     setForm({
       sport,
       matchTitle: '',
-      homeTeam: club?.name || 'Home Team',
+      homeTeam: '',
       awayTeam: '',
       venue: '',
       gameClock: '',
@@ -2297,6 +2361,79 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
     setForm(f => ({ ...f, [key]: f[key].map((p, i) => i === idx ? { ...p, [field]: value } : p) }));
   };
 
+  /* ── Event auto-fill handlers ── */
+  const applyFixtureToForm = (fixture, teams, evTitle) => {
+    const roundPart = fixture.round ? ` – ${fixture.round}` : '';
+    const matchTitle = evTitle
+      ? `${evTitle}${roundPart}: ${fixture.teamA} vs ${fixture.teamB}`
+      : `${fixture.teamA} vs ${fixture.teamB}`;
+    const homeObj = teams.find(t => t.name === fixture.teamA);
+    const awayObj = teams.find(t => t.name === fixture.teamB);
+    const toPlayers = (obj) => (obj?.members || []).map(m => ({ name: m.name, number: m.enrollmentNo || '', stats: {} }));
+    setLinkedFixtureId(fixture.id || null);
+    setForm(f => ({
+      ...f,
+      matchTitle,
+      homeTeam: fixture.teamA || '',
+      awayTeam: fixture.teamB || '',
+      venue: fixture.venue || f.venue,
+      homePlayers: toPlayers(homeObj),
+      awayPlayers: toPlayers(awayObj),
+    }));
+  };
+
+  const handleEventSelect = async (eventId) => {
+    setSelectedEventId(eventId);
+    setSelectedGameday('');
+    setGamedayMatches([]);
+    setSelectedMatchId('');
+    setGamedayOptions([]);
+    setEventFixtures([]);
+    setEventTeamsList([]);
+    setLinkedFixtureId(null);
+    if (!eventId) return;
+    setLoadingEventData(true);
+    try {
+      const [fixtureData, teamData] = await Promise.all([
+        api.get(`/events/${eventId}/fixtures`),
+        api.get(`/events/${eventId}/teams`),
+      ]);
+      const fixtures = fixtureData.fixtures || [];
+      const teams = teamData.teams || [];
+      setEventFixtures(fixtures);
+      setEventTeamsList(teams);
+      const dates = [...new Set(fixtures.filter(f => f.date).map(f => f.date))].sort();
+      setGamedayOptions(dates);
+      if (!dates.length) showToast('No fixtures with dates found for this event.');
+    } catch {
+      showToast('Could not load event data.');
+    } finally {
+      setLoadingEventData(false);
+    }
+  };
+
+  const handleGamedaySelect = (date, teams, fixtures) => {
+    const teamsToUse = teams || eventTeamsList;
+    const fixturesToUse = fixtures || eventFixtures;
+    setSelectedGameday(date);
+    setSelectedMatchId('');
+    if (!date) { setGamedayMatches([]); return; }
+    const matches = fixturesToUse.filter(f => f.date === date);
+    setGamedayMatches(matches);
+    if (matches.length === 1) {
+      const ev = sportEvents.find(e => String(e.id) === selectedEventId);
+      applyFixtureToForm(matches[0], teamsToUse, ev?.title || '');
+    }
+  };
+
+  const handleMatchSelect = (matchId) => {
+    setSelectedMatchId(matchId);
+    const match = gamedayMatches.find(m => m.id === matchId);
+    if (!match) return;
+    const ev = sportEvents.find(e => String(e.id) === selectedEventId);
+    applyFixtureToForm(match, eventTeamsList, ev?.title || '');
+  };
+
   const createBoard = async () => {
     if (!form.matchTitle.trim()) return showToast('Add game title first.');
     if (!form.homeTeam.trim() || !form.awayTeam.trim()) return showToast('Enter both team names.');
@@ -2305,6 +2442,8 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
       const { score } = await api.post(`/clubs/${clubId}/live-scores`, {
         ...form,
         opponentName: form.awayTeam,
+        fixtureId: linkedFixtureId || null,
+        eventId:   selectedEventId || null,
       });
       setScores(ss => [score, ...ss]);
       if (score.sport === 'basketball') setSelectedScoreId(score.id);
@@ -2437,12 +2576,13 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
     }
   };
 
-  const markEnded = async (scoreId) => {
+  const markEnded = async (scoreId, winnerName) => {
+    setEndingScoreId(null);
     setUpdatingId(scoreId);
     try {
-      const { score } = await api.post(`/clubs/${clubId}/live-scores/${scoreId}/end`);
+      const { score } = await api.post(`/clubs/${clubId}/live-scores/${scoreId}/end`, { winnerName: winnerName || null });
       setScores(ss => ss.map(x => x.id === scoreId ? score : x));
-      showToast('Game ended.');
+      showToast(winnerName ? `Game ended — ${winnerName} wins!` : 'Game ended.');
     } catch (e) {
       showToast(e.message || 'Could not end game.');
     } finally {
@@ -2511,6 +2651,58 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
     });
   };
 
+  /* Score points for a player AND update the team total simultaneously */
+  const scorePlayerPoints = (scoreId, side, playerIdx, value) => {
+    setScores(ss => {
+      const next = ss.map(x => {
+        if (x.id !== scoreId) return x;
+        const scoreStat = SPORT_SCORE_STAT[x.sport] || 'points';
+        const key = side === 'home' ? 'homePlayers' : 'awayPlayers';
+        const players = (x[key] || []).map((p, i) => {
+          if (i !== playerIdx) return p;
+          const cur = Number(p.stats?.[scoreStat] ?? 0);
+          return { ...p, stats: { ...(p.stats || {}), [scoreStat]: cur + value } };
+        });
+        const newHome = side === 'home' ? Math.max(0, Number(x.teamScore || 0) + value) : Number(x.teamScore || 0);
+        const newAway = side === 'away' ? Math.max(0, Number(x.opponentScore || 0) + value) : Number(x.opponentScore || 0);
+        return { ...x, [key]: players, teamScore: newHome, opponentScore: newAway };
+      });
+      const sc = next.find(x => x.id === scoreId);
+      if (sc) api.patch(`/clubs/${clubId}/live-scores/${scoreId}`, {
+        teamScore: sc.teamScore, opponentScore: sc.opponentScore,
+        homePlayers: sc.homePlayers, awayPlayers: sc.awayPlayers,
+      }).catch(() => {});
+      return next;
+    });
+  };
+
+  /* Undo last scoring point for a player (−1 from both player tally and team score) */
+  const undoPlayerPoint = (scoreId, side, playerIdx) => {
+    setScores(ss => {
+      const next = ss.map(x => {
+        if (x.id !== scoreId) return x;
+        const scoreStat = SPORT_SCORE_STAT[x.sport] || 'points';
+        const key = side === 'home' ? 'homePlayers' : 'awayPlayers';
+        const target = (x[key] || [])[playerIdx];
+        const curPts = Number(target?.stats?.[scoreStat] ?? 0);
+        if (curPts <= 0) return x;
+        const players = (x[key] || []).map((p, i) => {
+          if (i !== playerIdx) return p;
+          return { ...p, stats: { ...(p.stats || {}), [scoreStat]: curPts - 1 } };
+        });
+        const newHome = side === 'home' ? Math.max(0, Number(x.teamScore || 0) - 1) : Number(x.teamScore || 0);
+        const newAway = side === 'away' ? Math.max(0, Number(x.opponentScore || 0) - 1) : Number(x.opponentScore || 0);
+        return { ...x, [key]: players, teamScore: newHome, opponentScore: newAway };
+      });
+      const sc = next.find(x => x.id === scoreId);
+      if (sc) api.patch(`/clubs/${clubId}/live-scores/${scoreId}`, {
+        teamScore: sc.teamScore, opponentScore: sc.opponentScore,
+        homePlayers: sc.homePlayers, awayPlayers: sc.awayPlayers,
+      }).catch(() => {});
+      return next;
+    });
+  };
+
   const adjustName = (scoreId, field, value) => {
     setScores(ss => ss.map(x => x.id === scoreId ? { ...x, [field]: value } : x));
     api.patch(`/clubs/${clubId}/live-scores/${scoreId}`, { [field]: value }).catch(() => {});
@@ -2570,6 +2762,48 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
             </button>
           ))}
         </div>
+        {/* ── Auto-fill from fixture ── */}
+        <div className={s.field}>
+          <label>
+            Load from Sport Event
+            {loadingEventData && <span style={{ fontWeight: 400, color: '#6b7280', marginLeft: 6 }}>Loading…</span>}
+          </label>
+          <select value={selectedEventId} onChange={e => handleEventSelect(e.target.value)}>
+            <option value="">— Select an event to auto-fill —</option>
+            {sportEvents.map(ev => (
+              <option key={ev.id} value={String(ev.id)}>{ev.title}</option>
+            ))}
+          </select>
+        </div>
+
+        {selectedEventId && gamedayOptions.length > 0 && (
+          <div className={s.field}>
+            <label>Gameday</label>
+            <select value={selectedGameday} onChange={e => handleGamedaySelect(e.target.value)}>
+              <option value="">— Select a gameday —</option>
+              {gamedayOptions.map(d => (
+                <option key={d} value={d}>
+                  {new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {gamedayMatches.length > 1 && (
+          <div className={s.field}>
+            <label>Select Match</label>
+            <select value={selectedMatchId} onChange={e => handleMatchSelect(e.target.value)}>
+              <option value="">— Select a match —</option>
+              {gamedayMatches.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.teamA} vs {m.teamB}{m.round ? ` (${m.round})` : ''}{m.time ? ` @ ${m.time}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div className={s.field}>
           <label>Game Title</label>
           <input value={form.matchTitle} onChange={e => updateField('matchTitle', e.target.value)} placeholder="Inter-College Final / Semi Final / League Match" />
@@ -2664,7 +2898,7 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
                   {/* Home team */}
                   <div className={s.mcTeamCol}>
                     <InlineEdit
-                      value={sc.homeTeam || club?.name}
+                      value={sc.homeTeam}
                       placeholder="Home Team"
                       className={s.mcTeamLbl}
                       onSave={v => adjustName(sc.id, 'homeTeam', v)}
@@ -2677,6 +2911,18 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
                       <button className={s.mcScoreBtn} onClick={() => adjustScore(sc.id, 'home', 2)}>+2</button>
                       {sc.sport === 'basketball' && <button className={s.mcScoreBtn} onClick={() => adjustScore(sc.id, 'home', 3)}>+3</button>}
                     </div>
+                    {/* Foul indicator */}
+                    {(() => { const f = Number(sc.scoreData?.home?.fouls ?? 0); return f > 0 && (
+                      <div className={s.mcFoulRow}>
+                        <span className={s.mcFoulLabel}>FOULS</span>
+                        <div className={s.mcFoulDots}>
+                          {Array.from({ length: Math.min(f, 8) }).map((_, i) => (
+                            <span key={i} className={`${s.mcFoulDot} ${i < f ? s.mcFoulDotOn : ''} ${f >= 7 ? s.mcFoulDotBonus : ''}`} />
+                          ))}
+                        </div>
+                        <span className={s.mcFoulCount}>{f}</span>
+                      </div>
+                    ); })()}
                   </div>
 
                   {/* Timer center */}
@@ -2721,6 +2967,18 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
                       <button className={s.mcScoreBtn} onClick={() => adjustScore(sc.id, 'away', 2)}>+2</button>
                       {sc.sport === 'basketball' && <button className={s.mcScoreBtn} onClick={() => adjustScore(sc.id, 'away', 3)}>+3</button>}
                     </div>
+                    {/* Foul indicator */}
+                    {(() => { const f = Number(sc.scoreData?.away?.fouls ?? 0); return f > 0 && (
+                      <div className={s.mcFoulRow}>
+                        <span className={s.mcFoulLabel}>FOULS</span>
+                        <div className={s.mcFoulDots}>
+                          {Array.from({ length: Math.min(f, 8) }).map((_, i) => (
+                            <span key={i} className={`${s.mcFoulDot} ${i < f ? s.mcFoulDotOn : ''} ${f >= 7 ? s.mcFoulDotBonus : ''}`} />
+                          ))}
+                        </div>
+                        <span className={s.mcFoulCount}>{f}</span>
+                      </div>
+                    ); })()}
                   </div>
                 </div>
 
@@ -2728,7 +2986,7 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
                 <div className={s.mcCounters}>
                   <div className={s.mcCountersRow}>
                     <span className={s.mcRowLbl} />
-                    <span className={s.mcTeamColLbl}>{sc.homeTeam || club?.name || 'Team A'}</span>
+                    <span className={s.mcTeamColLbl}>{sc.homeTeam || 'Team A'}</span>
                     <span className={s.mcTeamColLbl}>{sc.opponentName || 'Team B'}</span>
                   </div>
                   <div className={s.mcCountersRow}>
@@ -2764,36 +3022,77 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
                   <div className={s.mcRosterSection}>
                     <div className={s.mcRosterGrid}>
                       {[
-                        { side: 'home', label: sc.homeTeam || club?.name || 'Home', players: sc.homePlayers || [] },
-                        { side: 'away', label: sc.opponentName || 'Away',            players: sc.awayPlayers || [] },
-                      ].map(({ side, label, players }) => (
-                        <div key={side} className={s.mcRosterCol}>
-                          <div className={s.mcRosterHead}>
-                            <span className={s.mcRosterTeamLbl}>{label}</span>
-                            <div className={s.mcRosterStatLabels}>
-                              <span>P</span><span>S</span><span>B</span>
-                            </div>
-                          </div>
-                          {players.map((p, idx) => (
-                            <div key={idx} className={s.mcRosterRow}>
-                              <div className={s.mcRosterName}>
-                                {p.number && <span className={s.mcRosterNum}>#{p.number}</span>}
-                                <span className={s.mcRosterPlayerName}>{p.name || '—'}</span>
+                        { side: 'home', label: sc.homeTeam || 'Home', players: sc.homePlayers || [] },
+                        { side: 'away', label: sc.opponentName || 'Away', players: sc.awayPlayers || [] },
+                      ].map(({ side, label, players }) => {
+                        const statFields  = PLAYER_STAT_FIELDS[sc.sport] || ['points'];
+                        const scoreStat   = SPORT_SCORE_STAT[sc.sport] || 'points';
+                        const otherStats  = statFields.filter(f => f !== scoreStat);
+                        const scoreBtns   = SPORT_SCORE_BUTTONS[sc.sport] || SPORT_SCORE_BUTTONS.general;
+                        return (
+                          <div key={side} className={s.mcRosterCol}>
+                            <div className={s.mcRosterHead}>
+                              <span className={s.mcRosterTeamLbl}>{label}</span>
+                              <div className={s.mcRosterStatLabels}>
+                                {otherStats.map(st => (
+                                  <span key={st}>{st.replace(/_/g,' ').replace(/(?:^|\s)\S/g,c=>c.toUpperCase()).slice(0,3)}</span>
+                                ))}
                               </div>
-                              {['points', 'steals', 'blocks'].map(stat => (
-                                <div key={stat} className={s.mcRosterStatCell}>
-                                  <button className={s.mcStatBtn} onClick={() => adjustPlayerStat(sc.id, side, idx, stat, -1)}>−</button>
-                                  <span className={s.mcStatNum}>{Number(p.stats?.[stat] ?? 0)}</span>
-                                  <button className={s.mcStatBtn} onClick={() => adjustPlayerStat(sc.id, side, idx, stat, 1)}>+</button>
-                                </div>
-                              ))}
                             </div>
-                          ))}
-                          {players.length === 0 && (
-                            <div className={s.mcRosterEmpty}>No players added</div>
-                          )}
-                        </div>
-                      ))}
+                            {players.map((p, idx) => {
+                              const scorePts = Number(p.stats?.[scoreStat] ?? 0);
+                              return (
+                                <div key={idx} className={s.mcRosterRow}>
+                                  {/* Player name (left, truncates) */}
+                                  <div className={s.mcRosterName}>
+                                    {p.number && <span className={s.mcRosterNum}>#{p.number}</span>}
+                                    <span className={s.mcRosterPlayerName}>{p.name || '—'}</span>
+                                  </div>
+
+                                  {/* Score category buttons — right of name */}
+                                  {scoreBtns.map(btn => (
+                                    <button
+                                      key={btn.label}
+                                      className={s.mcScoreValueBtn}
+                                      style={{ background: btn.color, borderColor: btn.color }}
+                                      title={btn.title || btn.label}
+                                      onClick={() => scorePlayerPoints(sc.id, side, idx, btn.value)}>
+                                      {btn.label}
+                                    </button>
+                                  ))}
+
+                                  {/* Running score badge */}
+                                  <span className={s.mcPlayerScoreBadge} title={`${scoreStat}: ${scorePts}`}>
+                                    {scorePts}
+                                  </span>
+
+                                  {/* Undo last point */}
+                                  {scorePts > 0 && (
+                                    <button
+                                      className={s.mcScoreValueBtnUndo}
+                                      title="Undo −1 point"
+                                      onClick={() => undoPlayerPoint(sc.id, side, idx)}>
+                                      ↩
+                                    </button>
+                                  )}
+
+                                  {/* Other tracking stats (rebounds, assists, etc.) */}
+                                  {otherStats.map(st => (
+                                    <div key={st} className={s.mcRosterStatCell}>
+                                      <button className={s.mcStatBtn} onClick={() => adjustPlayerStat(sc.id, side, idx, st, -1)}>−</button>
+                                      <span className={s.mcStatNum}>{Number(p.stats?.[st] ?? 0)}</span>
+                                      <button className={s.mcStatBtn} onClick={() => adjustPlayerStat(sc.id, side, idx, st, 1)}>+</button>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })}
+                            {players.length === 0 && (
+                              <div className={s.mcRosterEmpty}>No players added</div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -2805,10 +3104,41 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
                       ▶ Start Game
                     </button>
                   )}
-                  {sc.status === 'live' && (
-                    <button className={`${s.btn} ${s.btnDanger} ${s.btnSmall}`} disabled={updatingId === sc.id} onClick={() => markEnded(sc.id)}>
+                  {sc.status === 'live' && endingScoreId !== sc.id && (
+                    <button className={`${s.btn} ${s.btnDanger} ${s.btnSmall}`} disabled={updatingId === sc.id} onClick={() => {
+                      const home = sc.teamScore ?? 0;
+                      const away = sc.opponentScore ?? 0;
+                      if (home > away) markEnded(sc.id, sc.homeTeam || 'Home');
+                      else if (away > home) markEnded(sc.id, sc.opponentName || 'Away');
+                      else setEndingScoreId(sc.id); /* tied — manual pick */
+                    }}>
                       ⏹ End Game
                     </button>
+                  )}
+                  {sc.status === 'live' && endingScoreId === sc.id && (
+                    <div className={s.winnerPick}>
+                      <span className={s.winnerPickLabel}>Who won?</span>
+                      <button className={`${s.btn} ${s.btnSmall} ${s.btnSuccess}`}
+                        disabled={updatingId === sc.id}
+                        onClick={() => markEnded(sc.id, sc.homeTeam || 'Home')}>
+                        {sc.homeTeam || 'Home'}
+                      </button>
+                      <button className={`${s.btn} ${s.btnSmall} ${s.btnOutline}`}
+                        disabled={updatingId === sc.id}
+                        onClick={() => markEnded(sc.id, null)}>
+                        No Result
+                      </button>
+                      <button className={`${s.btn} ${s.btnSmall} ${s.btnSuccess}`}
+                        disabled={updatingId === sc.id}
+                        onClick={() => markEnded(sc.id, sc.opponentName)}>
+                        {sc.opponentName || 'Away'}
+                      </button>
+                      <button className={`${s.btn} ${s.btnSmall}`}
+                        style={{ color: '#6b7280' }}
+                        onClick={() => setEndingScoreId(null)}>
+                        Cancel
+                      </button>
+                    </div>
                   )}
                   <button className={`${s.btn} ${s.btnDanger} ${s.btnSmall}`} disabled={updatingId === sc.id} onClick={() => deleteBoard(sc.id)}>
                     Delete

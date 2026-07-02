@@ -3,7 +3,7 @@ const cache               = require('../services/cache');
 const { ensureSoacTables } = require('../services/soacData');
 const { getCoordClubIds }  = require('../services/coordAuth');
 
-/* Ensure fixtures table exists */
+/* Ensure fixtures table exists with result columns */
 pgPool.query(`
   CREATE TABLE IF NOT EXISTS event_fixtures (
     id          BIGSERIAL    PRIMARY KEY,
@@ -17,7 +17,12 @@ pgPool.query(`
     sort_order  INTEGER      NOT NULL DEFAULT 0,
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
   )
-`).catch(() => {});
+`).then(() => pgPool.query(`
+  ALTER TABLE event_fixtures
+    ADD COLUMN IF NOT EXISTS score_a     INTEGER      DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS score_b     INTEGER      DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS winner_name VARCHAR(255) DEFAULT NULL
+`)).catch(() => {});
 
 /* Verify this coordinator (or admin) has access to the event */
 const checkAccess = async (req, res) => {
@@ -140,10 +145,15 @@ const toggleClear = async (req, res, next) => {
   try {
     if (!await checkAccess(req, res)) return;
     const { rows } = await pgPool.query(
-      `UPDATE event_teams SET is_cleared = NOT is_cleared WHERE id = $1 AND event_id = $2 RETURNING id, is_cleared`,
+      `UPDATE event_teams SET is_cleared = NOT is_cleared WHERE id = $1 AND event_id = $2 RETURNING id, name, is_cleared`,
       [req.params.teamId, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Team not found.' });
+    const io = req.app.get('io');
+    if (io) io.emit('team:cleared:updated', {
+      eventId: String(req.params.id), teamId: String(rows[0].id),
+      isCleared: rows[0].is_cleared, teamName: rows[0].name,
+    });
     res.json({ isCleared: rows[0].is_cleared });
   } catch (err) { next(err); }
 };
@@ -184,6 +194,8 @@ const addMember = async (req, res, next) => {
        RETURNING id, registration_id, member_name, enrollment_no`,
       [req.params.teamId, reg.id, reg.name, reg.enrollment_no || '']
     );
+    const io = req.app.get('io');
+    if (io) io.emit('team:member:added', { eventId: String(req.params.id), teamId: String(req.params.teamId) });
     res.status(201).json({ member: mapMember(rows[0]) });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ message: 'This participant is already assigned to a team.' });
@@ -199,6 +211,8 @@ const removeMember = async (req, res, next) => {
       `DELETE FROM event_team_members WHERE id = $1 AND team_id = $2`,
       [req.params.memberId, req.params.teamId]
     );
+    const io = req.app.get('io');
+    if (io) io.emit('team:member:removed', { eventId: String(req.params.id), teamId: String(req.params.teamId) });
     res.json({ message: 'Member removed.' });
   } catch (err) { next(err); }
 };
@@ -208,14 +222,16 @@ const getFixtures = async (req, res, next) => {
   try {
     if (!await checkAccess(req, res)) return;
     const { rows } = await pgPool.query(
-      `SELECT id, team_a_name, team_b_name, match_date, match_time, venue, round, sort_order
+      `SELECT id, team_a_name, team_b_name, match_date, match_time, venue, round, sort_order,
+              score_a, score_b, winner_name
        FROM event_fixtures WHERE event_id = $1 ORDER BY sort_order ASC, created_at ASC`,
       [req.params.id]
     );
     res.json({ fixtures: rows.map(f => ({
       id: String(f.id), teamA: f.team_a_name, teamB: f.team_b_name,
-      date: f.match_date ? f.match_date.toISOString().slice(0,10) : '',
+      date: f.match_date ? String(f.match_date).slice(0, 10) : '',
       time: f.match_time || '', venue: f.venue || '', round: f.round || '',
+      scoreA: f.score_a ?? null, scoreB: f.score_b ?? null, winner: f.winner_name || null,
     })) });
   } catch (err) { next(err); }
 };
@@ -238,7 +254,8 @@ const getPublicFixtures = async (req, res, next) => {
         [eventId]
       ),
       pgPool.query(
-        `SELECT team_a_name, team_b_name, match_date, match_time, venue, round, sort_order
+        `SELECT team_a_name, team_b_name, match_date, match_time, venue, round, sort_order,
+                score_a, score_b, winner_name
          FROM event_fixtures WHERE event_id = $1 ORDER BY sort_order ASC, created_at ASC`,
         [eventId]
       ),
@@ -260,6 +277,7 @@ const getPublicFixtures = async (req, res, next) => {
       teamA: f.team_a_name, teamB: f.team_b_name,
       date: f.match_date ? new Date(f.match_date).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : '',
       time: f.match_time || '', venue: f.venue || '', round: f.round || '',
+      scoreA: f.score_a ?? null, scoreB: f.score_b ?? null, winner: f.winner_name || null,
     }));
 
     res.json({ teams, fixtures });
@@ -319,4 +337,66 @@ const saveAndDeclare = async (req, res, next) => {
   }
 };
 
-module.exports = { getTeams, createTeam, updateTeam, deleteTeam, toggleClear, addMember, removeMember, getFixtures, getPublicFixtures, saveAndDeclare };
+/* PATCH /api/events/:id/fixtures/:fixtureId/result  (coordinator) */
+const recordResult = async (req, res, next) => {
+  try {
+    if (!await checkAccess(req, res)) return;
+    const { scoreA, scoreB, winner } = req.body;
+    const { rows } = await pgPool.query(
+      `UPDATE event_fixtures
+       SET score_a = $1, score_b = $2, winner_name = $3
+       WHERE id = $4 AND event_id = $5
+       RETURNING id, team_a_name, team_b_name, score_a, score_b, winner_name`,
+      [
+        scoreA !== undefined && scoreA !== '' ? Number(scoreA) : null,
+        scoreB !== undefined && scoreB !== '' ? Number(scoreB) : null,
+        winner?.trim() || null,
+        req.params.fixtureId,
+        req.params.id,
+      ]
+    );
+    if (!rows.length) return res.status(404).json({ message: 'Fixture not found.' });
+    const r = rows[0];
+    /* Broadcast so open bracket previews auto-refresh */
+    const io = req.app.get('io');
+    if (io && r.winner_name) {
+      io.emit('bracket:result:updated', {
+        eventId:   String(req.params.id),
+        fixtureId: String(r.id),
+        winner:    r.winner_name,
+        teamA:     r.team_a_name || '',
+        teamB:     r.team_b_name || '',
+      });
+    }
+    res.json({ fixtureId: String(r.id), scoreA: r.score_a, scoreB: r.score_b, winner: r.winner_name });
+  } catch (err) { next(err); }
+};
+
+/* GET /api/events/:id/my-status  (student — check own registration status) */
+const getMyStatus = async (req, res, next) => {
+  try {
+    const email = req.user?.email;
+    if (!email) return res.status(401).json({ message: 'Not authenticated.' });
+    const { rows: regRows } = await pgPool.query(
+      `SELECT id FROM event_registrations WHERE event_id = $1 AND email = $2`,
+      [req.params.id, email]
+    );
+    if (!regRows.length) return res.json({ registered: false });
+    const { rows: memberRows } = await pgPool.query(
+      `SELECT et.name AS team_name, et.is_cleared
+       FROM event_team_members etm
+       JOIN event_teams et ON et.id = etm.team_id
+       WHERE etm.registration_id = $1`,
+      [regRows[0].id]
+    );
+    if (!memberRows.length) return res.json({ registered: true, status: 'registered' });
+    const team = memberRows[0];
+    return res.json({
+      registered: true,
+      status: team.is_cleared ? 'cleared' : 'team_assigned',
+      teamName: team.team_name,
+    });
+  } catch (err) { next(err); }
+};
+
+module.exports = { getTeams, createTeam, updateTeam, deleteTeam, toggleClear, addMember, removeMember, getFixtures, getPublicFixtures, saveAndDeclare, recordResult, getMyStatus };

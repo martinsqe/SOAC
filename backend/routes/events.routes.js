@@ -25,6 +25,9 @@ router.delete('/:id',  verifyToken, requireAdmin, ctrl.remove);
 router.post('/:id/register',     ctrl.register);                                         /* public            */
 router.get('/:id/registrations', verifyToken, requireCoordOrAdmin, ctrl.listRegistrations); /* admin + coord */
 
+/* Student status route */
+router.get   ('/:id/my-status',                          verifyToken, teamCtrl.getMyStatus);
+
 /* Team routes (coordinator/admin) */
 router.get   ('/:id/teams',                              verifyToken, requireCoordOrAdmin, teamCtrl.getTeams);
 router.post  ('/:id/teams',                              verifyToken, requireCoordOrAdmin, teamCtrl.createTeam);
@@ -35,9 +38,10 @@ router.post  ('/:id/teams/:teamId/members',              verifyToken, requireCoo
 router.delete('/:id/teams/:teamId/members/:memberId',    verifyToken, requireCoordOrAdmin, teamCtrl.removeMember);
 
 /* Fixtures routes */
-router.get ('/:id/public-fixtures',          teamCtrl.getPublicFixtures);                                   /* public */
-router.get ('/:id/fixtures',                 verifyToken, requireCoordOrAdmin, teamCtrl.getFixtures);        /* coord  */
-router.post('/:id/fixtures/save-declare',    verifyToken, requireCoordOrAdmin, teamCtrl.saveAndDeclare);     /* coord  */
+router.get  ('/:id/public-fixtures',                    teamCtrl.getPublicFixtures);                                    /* public */
+router.get  ('/:id/fixtures',                           verifyToken, requireCoordOrAdmin, teamCtrl.getFixtures);         /* coord  */
+router.post ('/:id/fixtures/save-declare',              verifyToken, requireCoordOrAdmin, teamCtrl.saveAndDeclare);      /* coord  */
+router.patch('/:id/fixtures/:fixtureId/result',         verifyToken, requireCoordOrAdmin, teamCtrl.recordResult);        /* coord  */
 
 /* Groups routes */
 router.get   ('/:id/public-groups',                       groupCtrl.getPublicGroups);                              /* public */

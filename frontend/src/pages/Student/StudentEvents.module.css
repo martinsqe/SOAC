@@ -273,6 +273,23 @@
 }
 .fixturesBtn:hover { border-color: #9ca3af; color: #111827; }
 
+/* ── Registration status flow (sports events) ── */
+.statusFooter {
+  display: flex; align-items: center; justify-content: space-between;
+  flex: 1; gap: 8px; flex-wrap: wrap;
+}
+.regStatusBadge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 20px; font-size: .72rem; font-weight: 600;
+  white-space: nowrap; flex-shrink: 0;
+}
+.regStatusRegistered { background: #f3f4f6; color: #6b7280; }
+.regStatusAssigned   { background: #dbeafe; color: #1d4ed8; }
+.regStatusCleared    { background: #dcfce7; color: #15803d; }
+.regStatusDot {
+  width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0;
+}
+
 /* ── Teams & Fixtures modal content ── */
 .fixtureLoading, .fixtureEmpty {
   padding: 32px;
@@ -488,4 +505,32 @@
 @media (max-width: 540px) {
   .fixtureTeamsList { grid-template-columns: 1fr; }
   .fixtureMatchMeta { gap: 10px; }
+}
+
+/* Match result styles */
+.fixtureMatchDone {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.fixtureMatchWinner {
+  color: #15803d;
+  font-weight: 800;
+}
+
+.fixtureMatchScore {
+  font-size: .82rem;
+  font-weight: 700;
+  color: #374151;
+  letter-spacing: 0.04em;
+}
+
+.fixtureWinnerRow {
+  margin-top: 4px;
+  font-size: .78rem;
+  color: #15803d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
 }

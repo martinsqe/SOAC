@@ -599,6 +599,271 @@
   border-bottom-color: #635bff;
 }
 
+/* ══ Scoreboard tab ══ */
+.scoreboardPanel {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  flex: 1;
+}
+.gamedayBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 0 6px;
+}
+.gamedaySection {
+  border-top: 1.5px solid #e5e7eb;
+  margin-top: 12px;
+  padding-top: 4px;
+}
+.gamedaySection:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+.gamedayLabel {
+  font-size: .82rem;
+  font-weight: 600;
+  color: #374151;
+  white-space: nowrap;
+}
+.gamedayInput {
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: .85rem;
+  color: #1f2937;
+  cursor: pointer;
+}
+.gamedayInput:focus { outline: none; border-color: #635bff; }
+.gamedayMatchCount {
+  font-size: .78rem;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+.scoreboardEmpty {
+  text-align: center;
+  color: #9ca3af;
+  padding: 40px 20px;
+  font-size: .9rem;
+}
+.matchCardList {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.matchCard {
+  border: 1.5px solid #e5e7eb;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+.matchCardDone {
+  border-color: #a7f3d0;
+  background: #f0fdf8;
+}
+.matchCardMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: #f9fafb;
+  border-bottom: 1px solid #f0f0f5;
+}
+.matchRoundLabel {
+  font-size: .75rem;
+  font-weight: 700;
+  color: #635bff;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.matchTimeLabel {
+  font-size: .75rem;
+  color: #6b7280;
+}
+.matchCardBody {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0;
+  min-height: 120px;
+}
+.matchTeamBlock {
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  transition: background .15s;
+}
+/* Right team column: right-aligned text */
+.matchTeamBlockRight {
+  align-items: flex-end;
+  text-align: right;
+}
+.matchTeamBlockRight .matchPlayerRow { flex-direction: row-reverse; }
+.matchTeamBlockRight .matchEnroll    { margin-left: 0; }
+.matchTeamWon {
+  background: #f0fdf8;
+}
+.matchTeamName {
+  font-size: .92rem;
+  font-weight: 700;
+  color: #111827;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+/* Big live score inside each team column */
+.liveTeamBigScore {
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 900;
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: 2px;
+}
+.liveTeamScoreBtns {
+  display: flex;
+  gap: 6px;
+}
+/* Centre column: timer + controls only */
+.matchCenterBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 10px;
+  border-left: 1px solid #f0f0f5;
+  border-right: 1px solid #f0f0f5;
+  min-width: 110px;
+  max-width: 160px;
+}
+/* Static "vs" divider */
+.matchVsDivider {
+  font-size: .75rem;
+  font-weight: 800;
+  color: #9ca3af;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+.matchPlayerList {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.matchPlayerRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .75rem;
+  color: #374151;
+}
+.matchPlayerNum {
+  font-size: .7rem;
+  color: #9ca3af;
+  min-width: 16px;
+}
+.matchPlayerName { font-weight: 500; }
+.matchEnroll {
+  font-size: .68rem;
+  color: #9ca3af;
+  background: #f3f4f6;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.matchScoreBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px 12px;
+  border-left: 1px solid #f0f0f5;
+  border-right: 1px solid #f0f0f5;
+  min-width: 110px;
+}
+.scoreRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.scoreInput {
+  width: 56px;
+  text-align: center;
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  padding: 6px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #111827;
+}
+.scoreInput:focus { outline: none; border-color: #635bff; }
+.scoreInput:disabled { background: #f9fafb; color: #6b7280; }
+.scoreDivider { font-size: 1.1rem; color: #9ca3af; font-weight: 600; }
+.winnerDisplay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.winnerBadge {
+  font-size: .82rem;
+  font-weight: 700;
+  color: #059669;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  padding: 4px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.editResultBtn {
+  font-size: .75rem;
+  color: #6b7280;
+  background: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.editResultBtn:hover { border-color: #9ca3af; color: #374151; }
+.winnerControls {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+}
+.winnerSelect {
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: .8rem;
+  color: #374151;
+  cursor: pointer;
+}
+.winnerSelect:focus { outline: none; border-color: #635bff; }
+.recordBtn {
+  background: #635bff;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: .82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .14s;
+}
+.recordBtn:hover:not(:disabled) { background: #4f46e5; }
+.recordBtn:disabled { background: #c7d2fe; cursor: not-allowed; }
+
 /* ══ Teams panel — full redesign with proper scroll chain ══ */
 .teamsPanel {
   display: flex;
@@ -1399,4 +1664,353 @@
   text-transform: uppercase;
   letter-spacing: .07em;
   margin-bottom: 16px;
+}
+
+/* ══════════════════════════════════════════════════════
+   LIVE MATCH CONTROL — styles
+══════════════════════════════════════════════════════ */
+
+/* Match card pulse when live */
+.matchCardLive {
+  border-color: #fca5a5;
+  box-shadow: 0 0 0 2px #fca5a520;
+  animation: livePulse 2s ease-in-out infinite;
+}
+@keyframes livePulse {
+  0%, 100% { box-shadow: 0 0 0 2px #fca5a520; }
+  50%       { box-shadow: 0 0 0 4px #fca5a540; }
+}
+
+/* Status badge in meta row */
+.liveStatusBadge {
+  margin-left: auto;
+  font-size: .68rem;
+  font-weight: 800;
+  padding: 2px 9px;
+  border-radius: 20px;
+  letter-spacing: .03em;
+}
+.liveStatusBadge_live  { background: #fee2e2; color: #dc2626; }
+.liveStatusBadge_draft { background: #f3f4f6; color: #6b7280; }
+.liveStatusBadge_ended { background: #d1fae5; color: #065f46; }
+
+/* Active live header above cards */
+.liveActiveHeader {
+  font-size: .75rem;
+  font-weight: 700;
+  color: #dc2626;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 4px 0;
+}
+
+/* ── Live control block (replaces static score block) ── */
+.liveControl {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+/* Big score row: [−] [N] [+]  timer  [−] [N] [+] */
+.liveScoreRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+}
+.liveTeamScoreWrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.liveBigScore {
+  font-size: 2rem;
+  font-weight: 900;
+  color: #111827;
+  min-width: 36px;
+  text-align: center;
+  line-height: 1;
+}
+.liveTimerCol {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 52px;
+}
+.liveTimer {
+  font-size: .95rem;
+  font-weight: 700;
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+}
+.liveTimerRunning {
+  color: #dc2626;
+}
+.liveWinnerLabel {
+  font-size: .75rem;
+  font-weight: 700;
+  color: #059669;
+  text-align: center;
+}
+
+/* +/− score buttons */
+.scoreMinus, .scorePlus {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1.5px solid #e5e7eb;
+  background: #f9fafb;
+  color: #374151;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background .1s, border-color .1s;
+  line-height: 1;
+}
+.scoreMinus:hover { background: #fee2e2; border-color: #fca5a5; color: #dc2626; }
+.scorePlus:hover  { background: #d1fae5; border-color: #6ee7b7; color: #059669; }
+.scoreMinus:disabled, .scorePlus:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Action button row */
+.liveActions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+.btnStartGame {
+  padding: 6px 16px;
+  background: #059669;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: .8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity .14s;
+}
+.btnStartGame:hover:not(:disabled) { opacity: .85; }
+.btnStartGame:disabled { opacity: .45; cursor: not-allowed; }
+
+.btnTimerStart {
+  padding: 5px 12px;
+  background: #ecfdf5;
+  color: #059669;
+  border: 1.5px solid #6ee7b7;
+  border-radius: 7px;
+  font-size: .78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .13s;
+}
+.btnTimerStart:hover:not(:disabled) { background: #d1fae5; }
+.btnTimerStart:disabled { opacity: .45; cursor: not-allowed; }
+
+.btnTimerStop {
+  padding: 5px 12px;
+  background: #fffbeb;
+  color: #b45309;
+  border: 1.5px solid #fde68a;
+  border-radius: 7px;
+  font-size: .78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .13s;
+}
+.btnTimerStop:hover:not(:disabled) { background: #fef3c7; }
+.btnTimerStop:disabled { opacity: .45; cursor: not-allowed; }
+
+.btnEndGame {
+  padding: 5px 12px;
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1.5px solid #fca5a5;
+  border-radius: 7px;
+  font-size: .78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .13s;
+}
+.btnEndGame:hover:not(:disabled) { background: #fecaca; }
+.btnEndGame:disabled { opacity: .45; cursor: not-allowed; }
+
+.liveDeleteBtn {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1.5px solid #e5e7eb;
+  background: none;
+  color: #9ca3af;
+  font-size: .78rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.liveDeleteBtn:hover { background: #fef2f2; border-color: #fca5a5; color: #dc2626; }
+.liveDeleteBtn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Winner picker */
+.liveWinnerPick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.liveWinnerPickLabel {
+  font-size: .72rem;
+  font-weight: 700;
+  color: #374151;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.liveWinnerBtns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+}
+.btnWin {
+  padding: 5px 10px;
+  background: #ecfdf5;
+  color: #059669;
+  border: 1.5px solid #6ee7b7;
+  border-radius: 7px;
+  font-size: .78rem;
+  font-weight: 700;
+  cursor: pointer;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background .12s;
+}
+.btnWin:hover { background: #d1fae5; }
+.btnNoResult {
+  padding: 5px 10px;
+  background: #f9fafb;
+  color: #6b7280;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 7px;
+  font-size: .78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .12s;
+}
+.btnNoResult:hover { background: #f3f4f6; }
+.btnCancelWin {
+  padding: 5px 10px;
+  background: none;
+  color: #9ca3af;
+  border: 1.5px solid transparent;
+  border-radius: 7px;
+  font-size: .75rem;
+  cursor: pointer;
+  transition: color .12s;
+}
+.btnCancelWin:hover { color: #374151; }
+
+/* Go Live button (below static score block) */
+.goLiveBtn {
+  width: 100%;
+  padding: 6px 0;
+  background: none;
+  border: 1.5px dashed #fca5a5;
+  border-radius: 8px;
+  color: #dc2626;
+  font-size: .78rem;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: .02em;
+  transition: background .13s, border-color .13s;
+  margin-top: 4px;
+}
+.goLiveBtn:hover:not(:disabled) { background: #fff5f5; border-color: #f87171; }
+.goLiveBtn:disabled { opacity: .4; cursor: not-allowed; }
+
+@media (max-width: 540px) {
+  .liveScoreRow { gap: 4px; }
+  .liveBigScore { font-size: 1.5rem; min-width: 28px; }
+  .liveWinnerBtns { flex-direction: column; align-items: stretch; }
+  .btnWin, .btnNoResult, .btnCancelWin { max-width: 100%; text-align: center; }
+}
+
+/* ── Match card responsive ── */
+@media (max-width: 680px) {
+  .scoreboardPanel   { padding: 14px 14px; gap: 12px; }
+  .matchCard         { border-radius: 10px; }
+  .matchCenterBlock  { min-width: 90px; padding: 12px 6px; gap: 8px; }
+  .matchTeamBlock    { padding: 12px 10px; gap: 6px; }
+  .matchTeamName     { font-size: .82rem; }
+  .liveTeamBigScore  { font-size: clamp(1.6rem, 5vw, 2.2rem); }
+  .liveTimer         { font-size: .82rem; padding: 4px 8px; }
+  .scoreInput        { width: 44px; font-size: .92rem; padding: 5px; }
+  .liveActions       { flex-wrap: wrap; gap: 4px; justify-content: center; }
+  .btnStartGame, .btnTimerStart, .btnTimerStop, .btnEndGame { font-size: .72rem; padding: 5px 8px; }
+  .goLiveBtn         { font-size: .78rem; padding: 7px; }
+  .winnerSelect      { font-size: .72rem; }
+  .recordBtn         { font-size: .72rem; padding: 5px 8px; }
+}
+
+@media (max-width: 500px) {
+  /* Stack match card: Team A top, Center middle, Team B bottom */
+  .matchCardBody {
+    grid-template-columns: 1fr;
+  }
+  .matchCenterBlock {
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+    border-left: none;
+    border-right: none;
+    border-top: 1px solid #f0f0f5;
+    border-bottom: 1px solid #f0f0f5;
+    padding: 12px 16px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+  .matchTeamBlock {
+    align-items: flex-start !important;
+    text-align: left !important;
+    padding: 10px 14px;
+    gap: 6px;
+  }
+  .matchTeamBlockRight {
+    align-items: flex-start !important;
+    text-align: left !important;
+  }
+  .matchTeamBlockRight .matchPlayerRow { flex-direction: row; }
+  .liveTeamBigScore  { font-size: 2rem; }
+  .liveTeamScoreBtns { gap: 8px; }
+  .matchPlayerList   { max-height: 80px; overflow-y: auto; }
+  .scoreboardPanel   { padding: 10px 10px; gap: 10px; }
+  .liveTimer         { font-size: .85rem; }
+  .liveWinnerBtns    { flex-direction: column; align-items: stretch; }
+  .btnWin, .btnNoResult, .btnCancelWin { max-width: 100%; text-align: center; }
+  .liveActions       { gap: 6px; }
+}
+
+@media (max-width: 360px) {
+  .scoreboardPanel   { padding: 8px; }
+  .matchCardMeta     { padding: 6px 10px; }
+  .matchTeamBlock    { padding: 8px 10px; }
+  .matchCenterBlock  { padding: 10px; }
+  .liveTeamBigScore  { font-size: 1.7rem; }
+  .scoreInput        { width: 38px; font-size: .85rem; }
+  .matchTeamName     { font-size: .78rem; }
 }

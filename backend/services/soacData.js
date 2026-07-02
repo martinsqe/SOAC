@@ -443,6 +443,10 @@ const ensureSoacTables = async () => {
   await pgPool.query(`ALTER TABLE club_live_scores ADD COLUMN IF NOT EXISTS time_remaining_seconds INTEGER NOT NULL DEFAULT 0`);
   await pgPool.query(`ALTER TABLE club_live_scores ADD COLUMN IF NOT EXISTS timer_running BOOLEAN NOT NULL DEFAULT false`);
   await pgPool.query(`ALTER TABLE club_live_scores ADD COLUMN IF NOT EXISTS timer_last_started_at TIMESTAMPTZ`);
+  await pgPool.query(`ALTER TABLE club_live_scores ADD COLUMN IF NOT EXISTS home_team   VARCHAR(255) NOT NULL DEFAULT ''`);
+  await pgPool.query(`ALTER TABLE club_live_scores ADD COLUMN IF NOT EXISTS winner_name VARCHAR(255) DEFAULT NULL`);
+  await pgPool.query(`ALTER TABLE club_live_scores ADD COLUMN IF NOT EXISTS fixture_id  BIGINT DEFAULT NULL`);
+  await pgPool.query(`ALTER TABLE club_live_scores ADD COLUMN IF NOT EXISTS event_id    BIGINT DEFAULT NULL`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_live_scores_club   ON club_live_scores(club_id, updated_at DESC)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_live_scores_status ON club_live_scores(status, updated_at DESC)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_live_scores_sport  ON club_live_scores(sport)`);

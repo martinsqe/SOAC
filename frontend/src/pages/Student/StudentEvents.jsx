@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
+import { getSocket } from '../../realtime/socket';
 import s from './StudentEvents.module.css';
 import TournamentBracket from '../../components/TournamentBracket/TournamentBracket';
 
@@ -31,6 +32,7 @@ export default function StudentEvents() {
   const [search,  setSearch]  = useState('');
 
   /* ── Registered events (persisted per user) ── */
+  const [regStatuses,   setRegStatuses]   = useState({});
   const [registeredIds, setRegisteredIds] = useState(() => {
     try {
       const stored = localStorage.getItem(`soac_ev_regs_${user?.id || 'guest'}`);
@@ -46,6 +48,37 @@ export default function StudentEvents() {
       if (stored) setRegisteredIds(new Set(JSON.parse(stored)));
     } catch (e) { void e; }
   }, [user?.id]);
+
+  /* Fetch my-status for all registered sports events whenever events or registrations change */
+  useEffect(() => {
+    if (!user?.email || !events.length) return;
+    events
+      .filter(ev => ev.category === 'sports' && registeredIds.has(String(ev._id)))
+      .forEach(ev => {
+        api.get(`/events/${ev._id}/my-status`)
+          .then(data => setRegStatuses(prev => ({ ...prev, [String(ev._id)]: data })))
+          .catch(() => {});
+      });
+  }, [user?.email, events, registeredIds]);
+
+  /* Real-time team assignment / clearance updates */
+  useEffect(() => {
+    if (!user?.email) return;
+    const socket = getSocket();
+    const refreshStatus = ({ eventId }) => {
+      api.get(`/events/${eventId}/my-status`)
+        .then(data => setRegStatuses(prev => ({ ...prev, [String(eventId)]: data })))
+        .catch(() => {});
+    };
+    socket.on('team:member:added',    refreshStatus);
+    socket.on('team:member:removed',  refreshStatus);
+    socket.on('team:cleared:updated', refreshStatus);
+    return () => {
+      socket.off('team:member:added',    refreshStatus);
+      socket.off('team:member:removed',  refreshStatus);
+      socket.off('team:cleared:updated', refreshStatus);
+    };
+  }, [user?.email]);
 
   const markRegistered = (eventId) => {
     setRegisteredIds(prev => {
@@ -83,6 +116,27 @@ export default function StudentEvents() {
     setFixtureLoading(false);
   };
 
+  /* Real-time bracket advancement: update winner in local state when a fixture result is broadcast */
+  useEffect(() => {
+    if (!fixtureModal) return;
+    const currentEventId = fixtureModal.id;
+    const socket = getSocket();
+    const onResult = ({ eventId, teamA, teamB, winner }) => {
+      if (String(currentEventId) !== String(eventId)) return;
+      setFixtureData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          fixtures: prev.fixtures.map(f =>
+            f.teamA === teamA && f.teamB === teamB ? { ...f, winner } : f
+          ),
+        };
+      });
+    };
+    socket.on('bracket:result:updated', onResult);
+    return () => socket.off('bracket:result:updated', onResult);
+  }, [fixtureModal]);
+
   useEffect(() => {
     api.get('/events')
       .then(({ events: data }) => setEvents(data || []))
@@ -103,7 +157,7 @@ export default function StudentEvents() {
   );
 
   const openReg = (ev) => {
-    setRegModal({ id: ev._id, title: ev.title });
+    setRegModal({ id: ev._id, title: ev.title, category: ev.category });
     setRegForm(EMPTY_FORM);
     setRegErr({});
     setRegApi('');
@@ -151,6 +205,9 @@ export default function StudentEvents() {
       if (!res.ok) throw new Error(data.message || 'Registration failed.');
       setRegDone(true);
       markRegistered(regModal.id);
+      if (regModal.category === 'sports') {
+        setRegStatuses(prev => ({ ...prev, [String(regModal.id)]: { registered: true, status: 'registered' } }));
+      }
     } catch (err) {
       setRegApi(err.message);
     } finally {
@@ -287,12 +344,36 @@ export default function StudentEvents() {
                   {(() => {
                     const isSports     = ev.category === 'sports';
                     const isRegistered = registeredIds.has(String(ev._id));
+                    const myStatus     = regStatuses[String(ev._id)];
 
                     if (isSports && isRegistered) {
+                      const st = myStatus?.status;
+                      if (st === 'cleared') {
+                        return (
+                          <div className={s.statusFooter}>
+                            <span className={`${s.regStatusBadge} ${s.regStatusCleared}`}>
+                              <span className={s.regStatusDot} />
+                              {myStatus.teamName} — Cleared!
+                            </span>
+                            <button className={s.fixturesBtn} onClick={() => openFixtures(ev)}>
+                              View Fixtures →
+                            </button>
+                          </div>
+                        );
+                      }
+                      if (st === 'team_assigned') {
+                        return (
+                          <span className={`${s.regStatusBadge} ${s.regStatusAssigned}`}>
+                            <span className={s.regStatusDot} />
+                            Team: {myStatus.teamName}
+                          </span>
+                        );
+                      }
                       return (
-                        <button className={s.fixturesBtn} onClick={() => openFixtures(ev)}>
-                          Teams &amp; Fixtures
-                        </button>
+                        <span className={`${s.regStatusBadge} ${s.regStatusRegistered}`}>
+                          <span className={s.regStatusDot} />
+                          Registered — awaiting team
+                        </span>
                       );
                     }
                     if (canRegister) {
@@ -323,9 +404,12 @@ export default function StudentEvents() {
               /* Success */
               <div className={s.success}>
                 <div className={s.successIcon}>✓</div>
-                <h3>You're Registered!</h3>
+                <h3>{regModal.category === 'sports' ? 'Registration Done!' : "You're Registered!"}</h3>
                 <p>Successfully registered for <strong>{regModal.title}</strong>.</p>
-                <p className={s.successSub}>Check your email for confirmation details.</p>
+                {regModal.category === 'sports'
+                  ? <p className={s.successSub}>Done — wait for your team assignment and fixture announcement.</p>
+                  : <p className={s.successSub}>Check your email for confirmation details.</p>
+                }
                 <button className={s.submitBtn} onClick={closeReg}>Done</button>
               </div>
             ) : (
@@ -507,11 +591,11 @@ export default function StudentEvents() {
                   </section>
                 )}
 
-                {/* Bracket — shown when 2+ groups exist */}
-                {fixtureData.groups?.length >= 2 && (
+                {/* Bracket — shown when at least 1 group exists */}
+                {fixtureData.groups?.length >= 1 && (
                   <section className={s.fixtureSection}>
                     <h3 className={s.fixtureSectionTitle}>Bracket</h3>
-                    <TournamentBracket groups={fixtureData.groups} />
+                    <TournamentBracket groups={fixtureData.groups} fixtures={fixtureData.fixtures || []} />
                   </section>
                 )}
 
@@ -537,14 +621,23 @@ export default function StudentEvents() {
                                   {groupVenue && <span className={s.fixtureDateVenue}>{groupVenue}</span>}
                                 </div>
                                 {group.matches.map((fix, i) => (
-                                  <div key={i} className={s.fixtureMatchRow}>
+                                  <div key={i} className={`${s.fixtureMatchRow} ${fix.winner ? s.fixtureMatchDone : ''}`}>
                                     {fix.round && <span className={s.fixtureRound}>{fix.round}</span>}
                                     <div className={s.fixtureMatchTeams}>
-                                      <span className={s.fixtureMatchTeam}>{fix.teamA || '—'}</span>
-                                      <span className={s.fixtureMatchVs}>vs</span>
-                                      <span className={s.fixtureMatchTeam}>{fix.teamB || '—'}</span>
+                                      <span className={`${s.fixtureMatchTeam} ${fix.winner === fix.teamA ? s.fixtureMatchWinner : ''}`}>{fix.teamA || '—'}</span>
+                                      <span className={s.fixtureMatchVs}>
+                                        {fix.scoreA != null && fix.scoreB != null
+                                          ? `${fix.scoreA} – ${fix.scoreB}`
+                                          : 'vs'}
+                                      </span>
+                                      <span className={`${s.fixtureMatchTeam} ${fix.winner === fix.teamB ? s.fixtureMatchWinner : ''}`}>{fix.teamB || '—'}</span>
                                     </div>
-                                    {fix.time && (
+                                    {fix.winner && (
+                                      <div className={s.fixtureWinnerRow}>
+                                        🏆 <strong>{fix.winner}</strong> wins
+                                      </div>
+                                    )}
+                                    {fix.time && !fix.winner && (
                                       <div className={s.fixtureMatchMeta}>
                                         <span>{fix.time}</span>
                                       </div>

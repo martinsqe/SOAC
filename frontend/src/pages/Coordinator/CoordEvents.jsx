@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useCoordClub } from '../../context/CoordClubContext';
 import api from '../../api/client';
+import { getSocket } from '../../realtime/socket';
 import s from './CoordSubPage.module.css';
 import es from './CoordEvents.module.css';
 import TournamentBracket from '../../components/TournamentBracket/TournamentBracket';
@@ -82,9 +83,23 @@ export default function CoordEvents() {
   const [groupsLoading, setGroupsLoading] = useState(false);
 
   /* ── Fixtures state ── */
-  const [fixtures,        setFixtures]        = useState([]); // [{teamA,teamB,date,time,venue,round}]
+  const [fixtures,         setFixtures]         = useState([]); // date-grouped for editing UI
+  const [flatFixtures,     setFlatFixtures]     = useState([]); // flat list with IDs + results
   const [fixturesDeclared, setFixturesDeclared] = useState(false);
-  const [declareLoading,  setDeclareLoading]  = useState(false);
+  const [declareLoading,   setDeclareLoading]   = useState(false);
+
+  /* ── Scoreboard tab state ── */
+  const [scoreInputs,     setScoreInputs]    = useState({}); // {fixtureId: {scoreA, scoreB}}
+  const [winnerInputs,    setWinnerInputs]   = useState({}); // {fixtureId: winner string}
+  const [recordingResult, setRecordingResult] = useState(null);
+
+  /* ── Live Match Control state ── */
+  const [eventLiveScores,   setEventLiveScores]   = useState([]);
+  const [liveScoresLoading, setLiveScoresLoading] = useState(false);
+  const [creatingLive,      setCreatingLive]      = useState(null); // fixtureId being created
+  const [liveEndingId,      setLiveEndingId]      = useState(null); // scoreId showing winner picker
+  const [liveUpdatingId,    setLiveUpdatingId]    = useState(null); // scoreId mid-API call
+  const liveTimerRef = useRef(null);
 
   /* ── Teams state ── */
   const [teams,          setTeams]         = useState([]);
@@ -113,7 +128,14 @@ export default function CoordEvents() {
       api.get(`/events?clubId=${club.id}`).catch(() => ({ events: [] })),
     ]).then(([rRes, eRes]) => {
       setReqs(rRes.requests || []);
-      setEvents(eRes.events || []);
+      const loadedEvents = eRes.events || [];
+      setEvents(loadedEvents);
+      /* Auto-resume the last-viewed event so bracket reflects latest results after navigation */
+      const savedId = sessionStorage.getItem('coord_last_event_id');
+      if (savedId) {
+        const ev = loadedEvents.find(e => String(e._id) === savedId);
+        if (ev) viewRegs(ev);
+      }
     }).finally(() => setLoading(false));
   }, [club]);
 
@@ -208,10 +230,14 @@ export default function CoordEvents() {
 
   /* ── View registrations + teams + fixtures for a published event ── */
   const viewRegs = (ev) => {
+    sessionStorage.setItem('coord_last_event_id', String(ev._id));
     setRegEvent(ev);
     setRegs([]);
     setTeams([]);
     setFixtures([]);
+    setFlatFixtures([]);
+    setScoreInputs({});
+    setWinnerInputs({});
     setFixturesDeclared(ev.fixtures_declared || false);
     setRegSearch('');
     setRegsTab('list');
@@ -236,6 +262,7 @@ export default function CoordEvents() {
     api.get(`/events/${ev._id}/fixtures`)
       .then(d => {
         const flat = d.fixtures || [];
+        setFlatFixtures(flat);
         /* Reconstruct date-groups from flat list */
         const groups = [];
         const byDate = {};
@@ -246,12 +273,30 @@ export default function CoordEvents() {
             byDate[key] = g;
             groups.push(g);
           }
-          byDate[key].matches.push({ teamA: fix.teamA || '', teamB: fix.teamB || '', time: fix.time || '', round: fix.round || '' });
+          byDate[key].matches.push({
+            id: fix.id, teamA: fix.teamA || '', teamB: fix.teamB || '',
+            time: fix.time || '', round: fix.round || '',
+            scoreA: fix.scoreA, scoreB: fix.scoreB, winner: fix.winner,
+          });
         });
         setFixtures(groups);
       })
-      .catch(() => setFixtures([]));
+      .catch(() => { setFixtures([]); setFlatFixtures([]); });
   };
+
+  /* ── Real-time bracket advancement via socket ── */
+  useEffect(() => {
+    if (!regEvent) return;
+    const socket = getSocket();
+    const onResult = ({ eventId, fixtureId, winner }) => {
+      if (String(regEvent._id) !== String(eventId)) return;
+      setFlatFixtures(prev => prev.map(f =>
+        String(f.id) === String(fixtureId) ? { ...f, winner } : f
+      ));
+    };
+    socket.on('bracket:result:updated', onResult);
+    return () => socket.off('bracket:result:updated', onResult);
+  }, [regEvent?._id]);
 
   /* ── Fixture helpers (date-grouped structure) ──
      fixtures = [{ date, venue, matches: [{teamA,teamB,time,round}] }]  */
@@ -295,6 +340,171 @@ export default function CoordEvents() {
     } finally {
       setDeclareLoading(false);
     }
+  };
+
+  /* ── Scoreboard / result actions ── */
+  const applyResult = (fixtureId, scoreA, scoreB, winner) => {
+    const update = f => f.id === fixtureId ? { ...f, scoreA, scoreB, winner } : f;
+    setFlatFixtures(prev => prev.map(update));
+    setFixtures(prev => prev.map(g => ({ ...g, matches: g.matches.map(update) })));
+  };
+
+  const handleRecordResult = async (fixtureId) => {
+    const si = scoreInputs[fixtureId] || {};
+    const winner = winnerInputs[fixtureId] || '';
+    if (!winner) return showToast('Select a winner first.', 'err');
+    setRecordingResult(fixtureId);
+    try {
+      await api.patch(`/events/${regEvent._id}/fixtures/${fixtureId}/result`, {
+        scoreA: si.scoreA !== '' ? si.scoreA : null,
+        scoreB: si.scoreB !== '' ? si.scoreB : null,
+        winner,
+      });
+      applyResult(fixtureId, si.scoreA ?? null, si.scoreB ?? null, winner);
+      setWinnerInputs(p => ({ ...p, [fixtureId]: '' }));
+      showToast(`Result recorded: ${winner} wins!`);
+    } catch (err) { showToast(err.message || 'Failed to record result.', 'err'); }
+    finally { setRecordingResult(null); }
+  };
+
+  const clearResult = async (fixtureId) => {
+    try {
+      await api.patch(`/events/${regEvent._id}/fixtures/${fixtureId}/result`, { scoreA: null, scoreB: null, winner: null });
+      applyResult(fixtureId, null, null, null);
+      setScoreInputs(p => ({ ...p, [fixtureId]: { scoreA: '', scoreB: '' } }));
+    } catch (err) { showToast(err.message || 'Failed to clear result.', 'err'); }
+  };
+
+  /* ══════════════════════════════════════════════════
+     LIVE MATCH CONTROL — helpers
+  ══════════════════════════════════════════════════ */
+
+  const fmtLiveTime = (s) => {
+    const sec = Math.max(0, Math.floor(s || 0));
+    const m   = Math.floor(sec / 60);
+    const ss  = sec % 60;
+    return `${m}:${ss.toString().padStart(2, '0')}`;
+  };
+
+  const detectSport = (ev) => {
+    const t = (ev?.title || '').toLowerCase();
+    if (t.includes('basketball')) return 'basketball';
+    if (t.includes('football') || t.includes('soccer')) return 'football';
+    if (t.includes('cricket'))   return 'cricket';
+    if (t.includes('badminton')) return 'badminton';
+    if (t.includes('volleyball')) return 'volleyball';
+    if (t.includes('kabaddi'))   return 'kabaddi';
+    return 'general';
+  };
+
+  /* Fetch live scores for this event whenever scoreboard tab is opened */
+  useEffect(() => {
+    if (regsTab !== 'scoreboard' || !regEvent || !club) return;
+    setLiveScoresLoading(true);
+    const evId = String(regEvent._id);
+    api.get(`/clubs/${club.id}/live-scores`)
+      .then(d => setEventLiveScores((d.scores || []).filter(s => s.eventId === evId)))
+      .catch(() => setEventLiveScores([]))
+      .finally(() => setLiveScoresLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [regsTab, regEvent?._id, club?.id]);
+
+  /* Subscribe to per-score socket channels for live updates */
+  useEffect(() => {
+    if (!eventLiveScores.length) return;
+    const socket = getSocket();
+    eventLiveScores.forEach(sc => {
+      socket.on(`score:${sc.id}`, ({ score }) => {
+        setEventLiveScores(prev => prev.map(x => x.id === score.id ? score : x));
+      });
+    });
+    return () => eventLiveScores.forEach(sc => socket.off(`score:${sc.id}`));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventLiveScores.map(s => s.id).join(',')]);
+
+  /* Client-side countdown for running timers */
+  useEffect(() => {
+    clearInterval(liveTimerRef.current);
+    const running = eventLiveScores.filter(s => s.timerRunning);
+    if (!running.length) return;
+    liveTimerRef.current = setInterval(() => {
+      setEventLiveScores(prev => prev.map(s =>
+        s.timerRunning ? { ...s, timeRemainingSeconds: Math.max(0, (s.timeRemainingSeconds || 0) - 1) } : s
+      ));
+    }, 1000);
+    return () => clearInterval(liveTimerRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventLiveScores.map(s => `${s.id}:${s.timerRunning}`).join(',')]);
+
+  const goLive = async (match) => {
+    const tA = teams.find(t => t.name === match.teamA);
+    const tB = teams.find(t => t.name === match.teamB);
+    const title = [regEvent.title, match.round].filter(Boolean).join(' – ')
+                + `: ${match.teamA} vs ${match.teamB}`;
+    setCreatingLive(match.id);
+    try {
+      const { score } = await api.post(`/clubs/${club.id}/live-scores`, {
+        sport:       detectSport(regEvent),
+        matchTitle:  title,
+        homeTeam:    match.teamA,
+        opponentName: match.teamB,
+        venue:       match.venue || regEvent?.venue || '',
+        gameClock:   '',
+        homePlayers: (tA?.members || []).map(m => ({ name: m.name, enrollmentNo: m.enrollmentNo || '' })),
+        awayPlayers: (tB?.members || []).map(m => ({ name: m.name, enrollmentNo: m.enrollmentNo || '' })),
+        fixtureId:   match.id,
+        eventId:     String(regEvent._id),
+      });
+      setEventLiveScores(prev => [score, ...prev]);
+      showToast('Live scoreboard created — press Start Game when ready.');
+    } catch (e) { showToast(e.message || 'Could not create live scoreboard.', 'err'); }
+    finally { setCreatingLive(null); }
+  };
+
+  const liveAdjustScore = (scoreId, side, delta) => {
+    setEventLiveScores(prev => {
+      const next = prev.map(s => {
+        if (s.id !== scoreId) return s;
+        if (side === 'home') return { ...s, teamScore: Math.max(0, (s.teamScore || 0) + delta) };
+        return { ...s, opponentScore: Math.max(0, (s.opponentScore || 0) + delta) };
+      });
+      const sc = next.find(s => s.id === scoreId);
+      if (sc) api.patch(`/clubs/${club.id}/live-scores/${scoreId}`, { teamScore: sc.teamScore, opponentScore: sc.opponentScore }).catch(() => {});
+      return next;
+    });
+  };
+
+  const liveAction = async (scoreId, endpoint) => {
+    setLiveUpdatingId(scoreId);
+    try {
+      const { score } = await api.post(`/clubs/${club.id}/live-scores/${scoreId}/${endpoint}`);
+      setEventLiveScores(prev => prev.map(s => s.id === scoreId ? score : s));
+    } catch (e) { showToast(e.message || 'Action failed.', 'err'); }
+    finally { setLiveUpdatingId(null); }
+  };
+
+  const liveEndGame = async (scoreId, winnerName) => {
+    setLiveEndingId(null);
+    setLiveUpdatingId(scoreId);
+    try {
+      const { score } = await api.post(`/clubs/${club.id}/live-scores/${scoreId}/end`, { winnerName: winnerName || null });
+      setEventLiveScores(prev => prev.map(s => s.id === scoreId ? score : s));
+      /* Mirror winner into static result display + bracket */
+      const ls = eventLiveScores.find(s => s.id === scoreId);
+      if (ls?.fixtureId && winnerName) applyResult(ls.fixtureId, score.teamScore, score.opponentScore, winnerName);
+      showToast(winnerName ? `${winnerName} wins!` : 'Game ended.');
+    } catch (e) { showToast(e.message || 'Error ending game.', 'err'); }
+    finally { setLiveUpdatingId(null); }
+  };
+
+  const liveDeleteScore = async (scoreId) => {
+    if (!window.confirm('Delete this live scoreboard?')) return;
+    setLiveUpdatingId(scoreId);
+    try {
+      await api.delete(`/clubs/${club.id}/live-scores/${scoreId}`);
+      setEventLiveScores(prev => prev.filter(s => s.id !== scoreId));
+    } catch (e) { showToast(e.message || 'Delete failed.', 'err'); }
+    finally { setLiveUpdatingId(null); }
   };
 
   /* ── Group actions ── */
@@ -678,6 +888,11 @@ export default function CoordEvents() {
                   onClick={() => setRegsTab('fixtures')}>
                   Fixtures {fixturesDeclared && <span className={es.declaredBadge}>Declared</span>}
                 </button>
+                <button
+                  className={`${es.regsSubTab} ${regsTab === 'scoreboard' ? es.regsSubTabOn : ''}`}
+                  onClick={() => setRegsTab('scoreboard')}>
+                  Scoreboard {eventLiveScores.some(s => s.status === 'live') && <span className={es.declaredBadge} style={{ background: '#fee2e2', color: '#dc2626' }}>🔴 Live</span>}
+                </button>
               </>)}
             </div>
 
@@ -809,10 +1024,10 @@ export default function CoordEvents() {
                 </div>
 
                 {/* Bracket preview */}
-                {groups.length >= 2 && (
+                {groups.length >= 1 && (
                   <div className={es.bracketPreview}>
                     <div className={es.bracketPreviewTitle}>Bracket Preview</div>
-                    <TournamentBracket groups={groups} />
+                    <TournamentBracket groups={groups} fixtures={flatFixtures} />
                   </div>
                 )}
               </div>
@@ -917,6 +1132,242 @@ export default function CoordEvents() {
                     {declareLoading ? 'Saving…' : fixturesDeclared ? '✓ Update & Re-declare' : 'Save & Declare'}
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* ── SCOREBOARD TAB ── */}
+            {regsTab === 'scoreboard' && (
+              <div className={es.scoreboardPanel}>
+
+                {liveScoresLoading && (
+                  <div style={{ textAlign: 'center', color: '#9ca3af', padding: '10px 0', fontSize: '.85rem' }}>
+                    Loading live scores…
+                  </div>
+                )}
+
+                {flatFixtures.length === 0 ? (
+                  <div className={es.scoreboardEmpty}>
+                    <div style={{ fontSize: '2rem', marginBottom: 8 }}>🏟️</div>
+                    <p>No fixtures yet. Add and declare fixtures in the Fixtures tab first.</p>
+                  </div>
+                ) : (
+                  /* Group by date — each date gets a header + match list */
+                  [...new Set(flatFixtures.map(f => f.date || '').filter(Boolean))].sort().map(date => (
+                    <div key={date} className={es.gamedaySection}>
+                      <div className={es.gamedayBar}>
+                        <span className={es.gamedayLabel} style={{ fontWeight: 700 }}>
+                          {new Date(date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                        </span>
+                        <span className={es.gamedayMatchCount}>
+                          {flatFixtures.filter(f => f.date === date).length} match(es)
+                        </span>
+                        {eventLiveScores.some(s => s.status === 'live' && flatFixtures.filter(f => f.date === date).some(m => m.id === s.fixtureId)) && (
+                          <span className={es.declaredBadge} style={{ background: '#fee2e2', color: '#dc2626', marginLeft: 8 }}>🔴 Live</span>
+                        )}
+                      </div>
+
+                      <div className={es.matchCardList}>
+                        {flatFixtures.filter(f => f.date === date).map(match => {
+                      const teamA      = teams.find(t => t.name === match.teamA);
+                      const teamB      = teams.find(t => t.name === match.teamB);
+                      const si         = scoreInputs[match.id] || { scoreA: match.scoreA ?? '', scoreB: match.scoreB ?? '' };
+                      const wi         = winnerInputs[match.id] ?? '';
+                      const isRecording = recordingResult === match.id;
+                      const ls         = eventLiveScores.find(s => s.fixtureId === match.id);
+                      const isLiveUpdating = liveUpdatingId === ls?.id;
+
+                      return (
+                        <div key={match.id} className={`${es.matchCard} ${match.winner ? es.matchCardDone : ls?.status === 'live' ? es.matchCardLive : ''}`}>
+                          {/* Round / time / live-status header */}
+                          {(match.round || match.time || ls) && (
+                            <div className={es.matchCardMeta}>
+                              {match.round && <span className={es.matchRoundLabel}>{match.round}</span>}
+                              {match.time  && <span className={es.matchTimeLabel}>{match.time}</span>}
+                              {ls && (
+                                <span className={`${es.liveStatusBadge} ${es[`liveStatusBadge_${ls.status}`]}`}>
+                                  {ls.status === 'live' ? '🔴 LIVE' : ls.status === 'ended' ? '✅ ENDED' : '⏸ DRAFT'}
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          <div className={es.matchCardBody}>
+
+                            {/* ── Team A column ── */}
+                            <div className={`${es.matchTeamBlock} ${(match.winner || ls?.winnerName) === match.teamA ? es.matchTeamWon : ''}`}>
+                              <div className={es.matchTeamName}>{match.teamA || '—'}</div>
+
+                              {ls ? (
+                                /* Live: big score + ± buttons in team column */
+                                <>
+                                  <div className={es.liveTeamBigScore}>{ls.teamScore ?? 0}</div>
+                                  {ls.status === 'live' && (
+                                    <div className={es.liveTeamScoreBtns}>
+                                      <button className={es.scoreMinus} disabled={isLiveUpdating} onClick={() => liveAdjustScore(ls.id, 'home', -1)}>−</button>
+                                      <button className={es.scorePlus}  disabled={isLiveUpdating} onClick={() => liveAdjustScore(ls.id, 'home', +1)}>+</button>
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                /* Static: score input */
+                                <input
+                                  type="number" min="0"
+                                  className={es.scoreInput}
+                                  value={si.scoreA}
+                                  disabled={!!match.winner}
+                                  onChange={e => setScoreInputs(p => ({ ...p, [match.id]: { ...si, scoreA: e.target.value } }))} />
+                              )}
+
+                              {teamA?.members?.length > 0 && (
+                                <div className={es.matchPlayerList}>
+                                  {teamA.members.map((m, i) => (
+                                    <div key={i} className={es.matchPlayerRow}>
+                                      <span className={es.matchPlayerNum}>{i + 1}</span>
+                                      <span className={es.matchPlayerName}>{m.name}</span>
+                                      {m.enrollmentNo && <span className={es.matchEnroll}>{m.enrollmentNo}</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* ── Centre: timer + game controls ── */}
+                            <div className={es.matchCenterBlock}>
+                              {ls ? (
+                                <>
+                                  {/* Timer / winner label */}
+                                  {ls.status !== 'ended' ? (
+                                    <span className={`${es.liveTimer} ${ls.timerRunning ? es.liveTimerRunning : ''}`}>
+                                      {fmtLiveTime(ls.timeRemainingSeconds)}
+                                    </span>
+                                  ) : (
+                                    ls.winnerName
+                                      ? <span className={es.liveWinnerLabel}>🏆 {ls.winnerName}</span>
+                                      : <span className={es.liveWinnerLabel}>ENDED</span>
+                                  )}
+
+                                  {/* Start Game (draft) */}
+                                  {ls.status === 'draft' && (
+                                    <div className={es.liveActions}>
+                                      <button className={es.btnStartGame} disabled={isLiveUpdating} onClick={() => liveAction(ls.id, 'start')}>▶ Start</button>
+                                      <button className={es.liveDeleteBtn} disabled={isLiveUpdating} onClick={() => liveDeleteScore(ls.id)} title="Remove">✕</button>
+                                    </div>
+                                  )}
+
+                                  {/* Pause / End Game (live) */}
+                                  {ls.status === 'live' && liveEndingId !== ls.id && (
+                                    <div className={es.liveActions}>
+                                      {ls.timerRunning
+                                        ? <button className={es.btnTimerStop}  disabled={isLiveUpdating} onClick={() => liveAction(ls.id, 'timer/stop')}>⏸</button>
+                                        : <button className={es.btnTimerStart} disabled={isLiveUpdating} onClick={() => liveAction(ls.id, 'timer/start')}>▶</button>
+                                      }
+                                      <button className={es.btnEndGame} disabled={isLiveUpdating} onClick={() => {
+                                        const home = ls.teamScore ?? 0;
+                                        const away = ls.opponentScore ?? 0;
+                                        if (home > away) liveEndGame(ls.id, match.teamA);
+                                        else if (away > home) liveEndGame(ls.id, match.teamB);
+                                        else setLiveEndingId(ls.id);
+                                      }}>⏹ End</button>
+                                    </div>
+                                  )}
+
+                                  {/* Tied — manual winner pick */}
+                                  {ls.status === 'live' && liveEndingId === ls.id && (
+                                    <div className={es.liveWinnerPick}>
+                                      <span className={es.liveWinnerPickLabel}>Who won?</span>
+                                      <div className={es.liveWinnerBtns}>
+                                        <button className={es.btnWin} onClick={() => liveEndGame(ls.id, match.teamA)}>{match.teamA || 'A'}</button>
+                                        <button className={es.btnNoResult} onClick={() => liveEndGame(ls.id, null)}>Draw</button>
+                                        <button className={es.btnWin} onClick={() => liveEndGame(ls.id, match.teamB)}>{match.teamB || 'B'}</button>
+                                        <button className={es.btnCancelWin} onClick={() => setLiveEndingId(null)}>✕</button>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Remove ended scoreboard */}
+                                  {ls.status === 'ended' && (
+                                    <button className={es.liveDeleteBtn} style={{ fontSize: '.7rem', padding: '3px 8px', width: 'auto' }} onClick={() => liveDeleteScore(ls.id)}>Remove</button>
+                                  )}
+                                </>
+                              ) : (
+                                /* Static: vs + winner controls + Go Live */
+                                <>
+                                  <span className={es.matchVsDivider}>vs</span>
+
+                                  {match.winner ? (
+                                    <div className={es.winnerDisplay}>
+                                      <span className={es.winnerBadge}>🏆 {match.winner}</span>
+                                      <button className={es.editResultBtn} onClick={() => clearResult(match.id)}>Edit</button>
+                                    </div>
+                                  ) : (
+                                    <div className={es.winnerControls}>
+                                      <select
+                                        className={es.winnerSelect}
+                                        value={wi}
+                                        onChange={e => setWinnerInputs(p => ({ ...p, [match.id]: e.target.value }))}>
+                                        <option value="">Winner…</option>
+                                        {match.teamA && <option value={match.teamA}>{match.teamA}</option>}
+                                        {match.teamB && <option value={match.teamB}>{match.teamB}</option>}
+                                      </select>
+                                      <button className={es.recordBtn} onClick={() => handleRecordResult(match.id)} disabled={!wi || isRecording}>
+                                        {isRecording ? '…' : 'Record'}
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {!match.winner && (
+                                    <button className={es.goLiveBtn} disabled={!!creatingLive} onClick={() => goLive(match)}>
+                                      {creatingLive === match.id ? '…' : '🔴 Go Live'}
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
+
+                            {/* ── Team B column ── */}
+                            <div className={`${es.matchTeamBlock} ${es.matchTeamBlockRight} ${(match.winner || ls?.winnerName) === match.teamB ? es.matchTeamWon : ''}`}>
+                              <div className={es.matchTeamName}>{match.teamB || '—'}</div>
+
+                              {ls ? (
+                                <>
+                                  <div className={es.liveTeamBigScore}>{ls.opponentScore ?? 0}</div>
+                                  {ls.status === 'live' && (
+                                    <div className={es.liveTeamScoreBtns}>
+                                      <button className={es.scoreMinus} disabled={isLiveUpdating} onClick={() => liveAdjustScore(ls.id, 'away', -1)}>−</button>
+                                      <button className={es.scorePlus}  disabled={isLiveUpdating} onClick={() => liveAdjustScore(ls.id, 'away', +1)}>+</button>
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                <input
+                                  type="number" min="0"
+                                  className={es.scoreInput}
+                                  value={si.scoreB}
+                                  disabled={!!match.winner}
+                                  onChange={e => setScoreInputs(p => ({ ...p, [match.id]: { ...si, scoreB: e.target.value } }))} />
+                              )}
+
+                              {teamB?.members?.length > 0 && (
+                                <div className={es.matchPlayerList}>
+                                  {teamB.members.map((m, i) => (
+                                    <div key={i} className={es.matchPlayerRow}>
+                                      <span className={es.matchPlayerNum}>{i + 1}</span>
+                                      <span className={es.matchPlayerName}>{m.name}</span>
+                                      {m.enrollmentNo && <span className={es.matchEnroll}>{m.enrollmentNo}</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                          </div>
+                        </div>
+                      );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             )}
 

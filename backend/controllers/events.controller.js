@@ -161,7 +161,7 @@ const SCORE_SELECT = `
   ls.time_remaining_seconds, ls.timer_running, ls.timer_last_started_at,
   ls.started_at, ls.ended_at, ls.updated_at,
   c.name AS club_name, c.logo,
-  COALESCE(ls.score_data->>'homeTeamName', c.name) AS home_team_name`;
+  COALESCE(NULLIF(ls.home_team, ''), c.name) AS home_team_name`;
 
 /* GET /api/events/live-scores (public)
    Returns live games + ended games within the past 24 hours. */
