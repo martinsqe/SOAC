@@ -14,8 +14,14 @@ const JR_COLS = [
   'message', 'status', 'created_at', 'updated_at',
 ].join(', ');
 
-/* idempotent migration */
-pgPool.query(`ALTER TABLE join_requests ADD COLUMN IF NOT EXISTS gender CHAR(1) DEFAULT NULL`).catch(() => {});
+(async () => {
+  try {
+    await pgPool.query(`ALTER TABLE join_requests ADD COLUMN IF NOT EXISTS gender CHAR(1) DEFAULT NULL`);
+    console.log('[requests] migrations ready');
+  } catch (err) {
+    console.error('[requests] migration failed:', err.message);
+  }
+})();
 
 /* ── Pagination helper ──────────────────────────────────────────────────────*/
 const parsePage = (query) => {

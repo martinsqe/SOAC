@@ -13,7 +13,15 @@ const EVENT_COLS = [
   'is_active', 'created_at', 'updated_at', 'fixtures_declared',
 ].join(', ');
 
-pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS fixtures_declared BOOLEAN NOT NULL DEFAULT false`).catch(() => {});
+(async () => {
+  try {
+    await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS fixtures_declared BOOLEAN NOT NULL DEFAULT false`);
+    await pgPool.query(`ALTER TABLE event_registrations ADD COLUMN IF NOT EXISTS gender CHAR(1) DEFAULT NULL`);
+    console.log('[events] migrations ready');
+  } catch (err) {
+    console.error('[events] migration failed:', err.message);
+  }
+})();
 
 const REG_COLS = [
   'id', 'event_id', 'event_title', 'name', 'enrollment_no',
