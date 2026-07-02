@@ -149,7 +149,7 @@ export default function AdminFame() {
   return (
     <div style={{ padding: 30 }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 30, gap: 16, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', margin: 0 }}>Wall of Fame</h1>
           <p style={{ color: '#64748b', fontSize: 14, marginTop: 4 }}>
@@ -168,8 +168,8 @@ export default function AdminFame() {
       {loading ? (
         <p style={{ color: '#64748b' }}>Loading…</p>
       ) : (
-        <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+        <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #e2e8f0', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          <table style={{ width: '100%', minWidth: 620, borderCollapse: 'collapse', fontSize: 14 }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                 <th style={{ padding: '14px 16px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Legend</th>
