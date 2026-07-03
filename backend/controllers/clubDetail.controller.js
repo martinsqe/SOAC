@@ -968,9 +968,123 @@ const endLiveScore = async (req, res, next) => {
       }
     }
 
+    /* Auto-detect MVP: player with highest score stat across both rosters */
+    try {
+      const sport     = current.sport || 'basketball';
+      const scoreStat = SPORT_SCORE_STAT[sport] || 'points';
+      const allPlayers = [
+        ...(current.home_players || []),
+        ...(current.away_players || []),
+      ].filter(p => p.name);
+      if (allPlayers.length) {
+        const mvp = allPlayers.reduce((best, p) => {
+          const pv = Number(p.stats?.[scoreStat] ?? 0);
+          const bv = Number(best?.stats?.[scoreStat] ?? -1);
+          return pv > bv ? p : best;
+        }, null);
+        if (mvp) {
+          const displayStats = buildMvpStats(sport, mvp.stats || {});
+          await pgPool.query(
+            `INSERT INTO match_mvp
+               (score_id, club_id, event_id, player_name, stats,
+                home_score, away_score, home_team, opponent_name, sport, match_title)
+             VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11)
+             ON CONFLICT (score_id) DO UPDATE SET
+               player_name   = EXCLUDED.player_name,
+               stats         = EXCLUDED.stats,
+               home_score    = EXCLUDED.home_score,
+               away_score    = EXCLUDED.away_score,
+               home_team     = EXCLUDED.home_team,
+               opponent_name = EXCLUDED.opponent_name,
+               sport         = EXCLUDED.sport,
+               match_title   = EXCLUDED.match_title,
+               event_id      = COALESCE(EXCLUDED.event_id, match_mvp.event_id),
+               updated_at    = NOW()`,
+            [
+              req.params.scoreId, req.params.id, current.event_id,
+              mvp.name, JSON.stringify(displayStats),
+              rows[0].team_score, rows[0].opponent_score,
+              rows[0].home_team || 'Home', rows[0].opponent_name || 'Away',
+              sport, current.match_title,
+            ]
+          );
+          console.log(`[mvp] saved MVP="${mvp.name}" score=${req.params.scoreId} event=${current.event_id} sport=${sport}`);
+        }
+      }
+    } catch (mvpErr) {
+      console.error('[mvp] auto-detect error:', mvpErr.message, mvpErr.stack);
+    }
+
     const score = mapLiveScore(withTimerComputed(rows[0]));
     emitScoreUpdate(req, req.params.scoreId, { score });
     res.json({ score });
+  } catch (err) { next(err); }
+};
+
+/* GET /api/clubs/:id/live-scores/:scoreId/mvp */
+const getMvp = async (req, res, next) => {
+  try {
+    const { rows } = await pgPool.query(
+      `SELECT * FROM match_mvp WHERE score_id = $1::bigint AND club_id = $2::bigint`,
+      [req.params.scoreId, req.params.id]
+    );
+    res.json({ mvp: rows[0] || null });
+  } catch (err) { next(err); }
+};
+
+/* GET /api/events/:id/mvp — returns all MVPs for every completed match in this event */
+const getEventMvp = async (req, res, next) => {
+  try {
+    const { rows } = await pgPool.query(
+      `SELECT DISTINCT ON (m.score_id) m.*
+       FROM match_mvp m
+       LEFT JOIN club_live_scores cls ON cls.id = m.score_id
+       WHERE m.event_id = $1::bigint
+          OR cls.event_id = $1::bigint
+       ORDER BY m.score_id, m.created_at ASC`,
+      [req.params.id]
+    );
+    console.log(`[mvp] getEventMvp event=${req.params.id} → ${rows.length} rows`);
+    res.json({ mvps: rows });
+  } catch (err) { next(err); }
+};
+
+/* PATCH /api/clubs/:id/live-scores/:scoreId/mvp/photo — coordinator uploads MVP photo */
+const uploadMvpPhotoCtrl = async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No photo uploaded.' });
+    const photoUrl = getFileValue(req.file);
+    const { rows } = await pgPool.query(
+      `UPDATE match_mvp SET player_photo = $1, updated_at = NOW()
+       WHERE score_id = $2::bigint AND club_id = $3::bigint RETURNING *`,
+      [photoUrl, req.params.scoreId, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ message: 'MVP record not found — end the game first.' });
+    res.json({ mvp: rows[0] });
+  } catch (err) { next(err); }
+};
+
+/* POST /api/clubs/:id/live-scores/:scoreId/mvp/player — coordinator changes MVP player */
+const setMvpPlayer = async (req, res, next) => {
+  try {
+    const { playerName } = req.body;
+    if (!playerName) return res.status(400).json({ message: 'playerName required.' });
+    /* Re-compute stats from live score record */
+    const { rows: sr } = await pgPool.query(
+      `SELECT home_players, away_players, sport FROM club_live_scores
+       WHERE id = $1::bigint AND club_id = $2::bigint`, [req.params.scoreId, req.params.id]
+    );
+    if (!sr.length) return res.status(404).json({ message: 'Score not found.' });
+    const allPlayers = [...(sr[0].home_players||[]), ...(sr[0].away_players||[])];
+    const player = allPlayers.find(p => p.name?.toLowerCase() === playerName.toLowerCase());
+    const displayStats = buildMvpStats(sr[0].sport || 'basketball', player?.stats || {});
+    const { rows } = await pgPool.query(
+      `UPDATE match_mvp SET player_name = $1, stats = $2::jsonb, updated_at = NOW()
+       WHERE score_id = $3::bigint AND club_id = $4::bigint RETURNING *`,
+      [playerName, JSON.stringify(displayStats), req.params.scoreId, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ message: 'MVP record not found.' });
+    res.json({ mvp: rows[0] });
   } catch (err) { next(err); }
 };
 
@@ -1059,6 +1173,26 @@ const SPORT_SCORE_STAT = {
   badminton:  'points',
   kabaddi:    'points',
 };
+
+/* Stats to display on MVP card per sport — ordered for display */
+const MVP_STAT_KEYS = {
+  basketball: [['points','PTS'],['assists','AST'],['rebounds','REB']],
+  football:   [['goals','GLS'],['assists','AST'],['yellow_cards','YC']],
+  cricket:    [['runs','RUNS'],['wickets','WKTS'],['balls','BALLS']],
+  volleyball: [['points','PTS'],['assists','AST'],['blocks','BLK']],
+  badminton:  [['points','PTS'],['winners','WIN'],['errors','ERR']],
+  kabaddi:    [['points','PTS'],['tackles','TKLS'],['raids','RAIDS']],
+};
+
+function buildMvpStats(sport, rawStats) {
+  const keys = MVP_STAT_KEYS[sport] || [['points','PTS']];
+  const out = {};
+  for (const [k, label] of keys) {
+    const v = Number(rawStats?.[k] ?? 0);
+    out[label] = v;
+  }
+  return out;
+}
 
 /* Award 62 coins to a player for a scoring action — fire-and-forget */
 async function awardMatchPerformanceCoins(scoreId, gameEventId, playerName, eventType) {
@@ -1411,4 +1545,5 @@ module.exports = {
   getProgress, upsertProgress,
   getLiveScores, createLiveScore, updateLiveScore, deleteLiveScore, startLiveScore, endLiveScore, startLiveTimer, stopLiveTimer, resetLiveTimer,
   getBasketballEvents, logBasketballEvent, editBasketballEvent, undoBasketballEvent, redoBasketballEvent,
+  getMvp, getEventMvp, uploadMvpPhotoCtrl, setMvpPlayer,
 };

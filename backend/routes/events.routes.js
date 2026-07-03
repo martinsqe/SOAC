@@ -2,6 +2,7 @@ const router      = require('express').Router();
 const ctrl        = require('../controllers/events.controller');
 const teamCtrl    = require('../controllers/eventTeams.controller');
 const groupCtrl   = require('../controllers/eventGroups.controller');
+const cd          = require('../controllers/clubDetail.controller');
 const { verifyToken }  = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/requireAdmin');
 const { uploadEvent }  = require('../config/multer');
@@ -42,6 +43,8 @@ router.get  ('/:id/public-fixtures',                    teamCtrl.getPublicFixtur
 router.get  ('/:id/fixtures',                           verifyToken, requireCoordOrAdmin, teamCtrl.getFixtures);         /* coord  */
 router.post ('/:id/fixtures/save-declare',              verifyToken, requireCoordOrAdmin, teamCtrl.saveAndDeclare);      /* coord  */
 router.patch('/:id/fixtures/:fixtureId/result',         verifyToken, requireCoordOrAdmin, teamCtrl.recordResult);        /* coord  */
+
+router.get('/:id/mvp', cd.getEventMvp); /* public — MVP card for any completed match in this event */
 
 /* Groups routes */
 router.get   ('/:id/public-groups',                       groupCtrl.getPublicGroups);                              /* public */

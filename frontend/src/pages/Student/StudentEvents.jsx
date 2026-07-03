@@ -107,11 +107,12 @@ export default function StudentEvents() {
     setFixtureLoading(true);
     setFixtureData(null);
     try {
-      const [fixtureRes, groupRes] = await Promise.all([
+      const [fixtureRes, groupRes, mvpRes] = await Promise.all([
         api.get(`/events/${ev._id}/public-fixtures`),
         api.get(`/events/${ev._id}/public-groups`),
+        api.get(`/events/${ev._id}/mvp`).catch(() => ({ mvps: [] })),
       ]);
-      setFixtureData({ ...fixtureRes, groups: groupRes.groups || [] });
+      setFixtureData({ ...fixtureRes, groups: groupRes.groups || [], mvps: mvpRes.mvps || [] });
     } catch (e) { void e; }
     setFixtureLoading(false);
   };
@@ -139,7 +140,9 @@ export default function StudentEvents() {
 
   useEffect(() => {
     api.get('/events')
-      .then(({ events: data }) => setEvents(data || []))
+      .then(({ events: data }) => {
+        setEvents(data || []);
+      })
       .catch(() => setEvents([]))
       .finally(() => setLoading(false));
   }, []);
@@ -652,11 +655,67 @@ export default function StudentEvents() {
                   );
                 })()}
 
+                {/* MVP Gallery — one card per completed match */}
+                {fixtureData.mvps?.length > 0 && (
+                  <section className={s.fixtureSection}>
+                    <h3 className={s.fixtureSectionTitle}>Match MVPs</h3>
+                    <div className={s.mvpGallery}>
+                      {fixtureData.mvps.map((mvp, i) => {
+                        const STAT_ORDER = ['PTS','AST','REB','GLS','RUNS','WKTS','TKLS','RAIDS','WIN','BLK'];
+                        const stats = Object.entries(mvp.stats || {})
+                          .sort(([a], [b]) => {
+                            const ai = STAT_ORDER.indexOf(a); const bi = STAT_ORDER.indexOf(b);
+                            return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+                          });
+                        const homeScore = Number(mvp.home_score ?? 0);
+                        const awayScore = Number(mvp.away_score ?? 0);
+                        const homeFaded = homeScore < awayScore;
+                        const awayFaded = awayScore < homeScore;
+                        return (
+                          <div key={i} className={s.mvpCardSmall}>
+                            {mvp.player_photo
+                              ? <img src={mvp.player_photo} alt={mvp.player_name} className={s.mvpBgPhoto} />
+                              : <div className={s.mvpBgFallback} />
+                            }
+                            <div className={s.mvpOverlaySmall}>
+                              {/* Top-left: player name */}
+                              <span className={s.mvpPlayerNameSmall}>
+                                {(mvp.player_name || '').split(' ').map((word, wi) => (
+                                  <span key={wi} style={{display:'block'}}>{word}</span>
+                                ))}
+                              </span>
+                              {/* Below name: stats */}
+                              <div className={s.mvpStatsSmall}>
+                                {stats.map(([label, val]) => (
+                                  <div key={label} className={s.mvpStatSmall}>
+                                    <span className={s.mvpStatValSmall}>{val}</span>
+                                    <span className={s.mvpStatLblSmall}>{label}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <div className={s.mvpScoreBarSmall}>
+                              <span className={s.mvpTeamSmall}>{mvp.home_team}</span>
+                              <div className={s.mvpScoreCenterSmall}>
+                                <span className={s.mvpScoreSmall} style={homeFaded ? {opacity:.35} : undefined}>{homeScore}</span>
+                                <span className={s.mvpFinalSmall}>FINAL</span>
+                                <span className={s.mvpScoreSmall} style={awayFaded ? {opacity:.35} : undefined}>{awayScore}</span>
+                              </div>
+                              <span className={s.mvpTeamSmall} style={{textAlign:'right'}}>{mvp.opponent_name}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
+
               </div>
             )}
           </div>
         </div>
       )}
+
     </div>
   );
 }

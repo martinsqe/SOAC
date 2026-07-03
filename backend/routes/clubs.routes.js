@@ -5,7 +5,7 @@ const perf   = require('../controllers/clubPerformance.controller');
 const { verifyToken }  = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/requireAdmin');
 const { requireCoordinatorOwnership } = require('../middleware/requireCoordinatorOwnership');
-const { uploadLogo, uploadLeadership } = require('../config/multer');
+const { uploadLogo, uploadLeadership, uploadMvpPhoto } = require('../config/multer');
 const msgRateLimit     = require('../middleware/msgRateLimit');
 
 const requireCoordOrAdmin = (req, res, next) => {
@@ -91,6 +91,11 @@ router.post('/:id/live-scores/:scoreId/events', verifyToken, requireCoordinatorO
 router.patch('/:id/live-scores/:scoreId/events/:eventId', verifyToken, requireCoordinatorOwnership, cd.editBasketballEvent);
 router.post('/:id/live-scores/:scoreId/undo', verifyToken, requireCoordinatorOwnership, cd.undoBasketballEvent);
 router.post('/:id/live-scores/:scoreId/redo', verifyToken, requireCoordinatorOwnership, cd.redoBasketballEvent);
+
+/* MVP */
+router.get  ('/:id/live-scores/:scoreId/mvp',        verifyToken, cd.getMvp);
+router.patch('/:id/live-scores/:scoreId/mvp/photo',   verifyToken, requireCoordinatorOwnership, uploadMvpPhoto.single('photo'), cd.uploadMvpPhotoCtrl);
+router.patch('/:id/live-scores/:scoreId/mvp/player',  verifyToken, requireCoordinatorOwnership, cd.setMvpPlayer);
 
 /* ── Admin-only club CRUD ── */
 router.post('/:id/assign-coordinator', verifyToken, requireAdmin, ctrl.assignCoordinator);

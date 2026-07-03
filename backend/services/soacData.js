@@ -721,6 +721,29 @@ const ensureSoacTables = async () => {
     )
   `);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_wall_of_fame_active ON wall_of_fame(is_active, sort_order, created_at DESC)`);
+
+  /* ── Match MVP ───────────────────────────────────────────────────────────── */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS match_mvp (
+      id             BIGSERIAL    PRIMARY KEY,
+      score_id       BIGINT       NOT NULL UNIQUE,
+      club_id        BIGINT       NOT NULL,
+      event_id       BIGINT,
+      player_name    VARCHAR(100),
+      player_photo   TEXT,
+      stats          JSONB        NOT NULL DEFAULT '{}'::jsonb,
+      home_score     INT,
+      away_score     INT,
+      home_team      VARCHAR(100),
+      opponent_name  VARCHAR(100),
+      sport          VARCHAR(50),
+      match_title    VARCHAR(200),
+      created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      updated_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_match_mvp_event_id ON match_mvp(event_id)`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_match_mvp_club_id  ON match_mvp(club_id)`);
 };
 
 const asClub = (row) => ({

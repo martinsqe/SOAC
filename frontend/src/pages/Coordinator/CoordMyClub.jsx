@@ -2266,11 +2266,20 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
   const [loadingEventData, setLoadingEventData] = useState(false);
   const [linkedFixtureId, setLinkedFixtureId] = useState(null);
   const [endingScoreId, setEndingScoreId] = useState(null);
+  const [mvpData,       setMvpData]       = useState({});   /* scoreId → mvp object */
+  const [mvpUploading,  setMvpUploading]  = useState(null); /* scoreId uploading photo */
 
   const load = useCallback(async () => {
     try {
       const data = await api.get(`/clubs/${clubId}/live-scores`);
-      setScores(data.scores || []);
+      const scores = data.scores || [];
+      setScores(scores);
+      /* Pre-load MVPs for any already-ended scoreboards */
+      scores.filter(sc => sc.status === 'ended').forEach(sc => {
+        api.get(`/clubs/${clubId}/live-scores/${sc.id}/mvp`)
+          .then(({ mvp }) => { if (mvp) setMvpData(prev => ({ ...prev, [sc.id]: mvp })); })
+          .catch(() => {});
+      });
     } catch {
       setScores([]);
     }
@@ -2583,10 +2592,36 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
       const { score } = await api.post(`/clubs/${clubId}/live-scores/${scoreId}/end`, { winnerName: winnerName || null });
       setScores(ss => ss.map(x => x.id === scoreId ? score : x));
       showToast(winnerName ? `Game ended — ${winnerName} wins!` : 'Game ended.');
+      /* Fetch auto-generated MVP */
+      try {
+        const { mvp } = await api.get(`/clubs/${clubId}/live-scores/${scoreId}/mvp`);
+        if (mvp) setMvpData(prev => ({ ...prev, [scoreId]: mvp }));
+      } catch { /* silent */ }
     } catch (e) {
       showToast(e.message || 'Could not end game.');
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const uploadMvpPhoto = async (scoreId, file) => {
+    if (!file) return;
+    setMvpUploading(scoreId);
+    try {
+      const fd = new FormData();
+      fd.append('photo', file);
+      const token = localStorage.getItem('soac_token') || sessionStorage.getItem('soac_token') || '';
+      const res = await fetch(`/api/clubs/${clubId}/live-scores/${scoreId}/mvp/photo`, {
+        method: 'PATCH', headers: { Authorization: `Bearer ${token}` }, body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Upload failed');
+      setMvpData(prev => ({ ...prev, [scoreId]: data.mvp }));
+      showToast('MVP photo updated!');
+    } catch (e) {
+      showToast(e.message || 'Photo upload failed.');
+    } finally {
+      setMvpUploading(null);
     }
   };
 
@@ -3144,6 +3179,67 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
                     Delete
                   </button>
                 </div>
+
+                {/* ── MVP Card (shown for ended games) ── */}
+                {sc.status === 'ended' && mvpData[sc.id] && (() => {
+                  const mvp = mvpData[sc.id];
+                  const STAT_ORDER = ['PTS','AST','REB','GLS','RUNS','WKTS','TKLS','RAIDS','WIN','BLK'];
+                  const statEntries = Object.entries(mvp.stats || {}).sort(([a],[b]) => {
+                    const ai = STAT_ORDER.indexOf(a); const bi = STAT_ORDER.indexOf(b);
+                    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+                  });
+                  const homeScore = Number(mvp.home_score ?? sc.teamScore ?? 0);
+                  const awayScore = Number(mvp.away_score ?? sc.opponentScore ?? 0);
+                  const homeFaded = homeScore < awayScore;
+                  const awayFaded = awayScore < homeScore;
+                  return (
+                    <div className={s.mvpCard}>
+                      {/* Full-bleed background photo */}
+                      {mvp.player_photo
+                        ? <img src={mvp.player_photo} alt={mvp.player_name} className={s.mvpBgPhoto} />
+                        : <div className={s.mvpBgFallback} />
+                      }
+
+                      {/* Photo upload — absolute top-right */}
+                      <label className={s.mvpPhotoBtn}>
+                        {mvpUploading === sc.id ? '…' : '📷 Add Photo'}
+                        <input type="file" accept="image/*" style={{display:'none'}}
+                          onChange={e => uploadMvpPhoto(sc.id, e.target.files?.[0])} />
+                      </label>
+
+                      {/* Gradient overlay + content */}
+                      <div className={s.mvpOverlay}>
+                        {/* Top-left: player name */}
+                        <span className={s.mvpPlayerName}>
+                          {(mvp.player_name || '').split(' ').map((word, i) => (
+                            <span key={i} style={{display:'block'}}>{word}</span>
+                          ))}
+                        </span>
+
+                        {/* Below name: player stats */}
+                        <div className={s.mvpStatsLeft}>
+                          {statEntries.map(([label, val]) => (
+                            <div key={label} className={s.mvpStat}>
+                              <span className={s.mvpStatVal}>{val}</span>
+                              <span className={s.mvpStatLbl}>{label}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Score bar — single row: name · [21 FINAL 24] · name */}
+                      <div className={s.mvpScoreBar}>
+                        <span className={s.mvpTeamLbl}>{mvp.home_team}</span>
+                        <div className={s.mvpScoreCenter}>
+                          <span className={s.mvpScoreNum} style={homeFaded ? {opacity:.35} : undefined}>{homeScore}</span>
+                          <span className={s.mvpFinalLbl}>FINAL</span>
+                          <span className={s.mvpScoreNum} style={awayFaded ? {opacity:.35} : undefined}>{awayScore}</span>
+                        </div>
+                        <span className={s.mvpTeamLbl} style={{textAlign:'right'}}>{mvp.opponent_name}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
 
               </div>
             ))}
