@@ -793,6 +793,23 @@ const updateLiveScore = async (req, res, next) => {
     if (sport && !SUPPORTED_SPORTS.has(sport)) {
       return res.status(400).json({ message: 'Invalid sport.' });
     }
+
+    /* Snapshot current player rosters before update so we can diff for coin awards */
+    let prevHome = null, prevAway = null, snapshotClubId = null, snapshotSport = null;
+    const willUpdatePlayers = updates.homePlayers !== undefined || updates.awayPlayers !== undefined;
+    if (willUpdatePlayers) {
+      const { rows: cur } = await pgPool.query(
+        `SELECT home_players, away_players, sport, club_id FROM club_live_scores WHERE id = $1::bigint AND club_id = $2::bigint`,
+        [req.params.scoreId, req.params.id]
+      );
+      if (cur.length) {
+        prevHome       = cur[0].home_players || [];
+        prevAway       = cur[0].away_players || [];
+        snapshotSport  = cur[0].sport;
+        snapshotClubId = cur[0].club_id;
+      }
+    }
+
     const { rows } = await pgPool.query(
       `UPDATE club_live_scores
        SET sport          = COALESCE($1, sport),
@@ -834,6 +851,31 @@ const updateLiveScore = async (req, res, next) => {
     if (!rows.length) return res.status(404).json({ message: 'Scoreboard not found.' });
     const score = mapLiveScore(withTimerComputed(rows[0]));
     emitScoreUpdate(req, req.params.scoreId, { score });
+
+    /* Detect any positive stat change and award 62 coins per stat milestone — fire-and-forget */
+    if (willUpdatePlayers && prevHome !== null) {
+      const cid       = rows[0].club_id || snapshotClubId;
+      const sid       = req.params.scoreId;
+      const checkDiff = (prev, next) => {
+        for (const np of (next || [])) {
+          if (!np.name) continue;
+          const pp       = (prev || []).find(p => p.name === np.name);
+          const oldStats = pp?.stats || {};
+          const newStats = np.stats  || {};
+          for (const stat of Object.keys(newStats)) {
+            if (NON_REWARD_STATS.has(stat)) continue;
+            const oldVal = Number(oldStats[stat] ?? 0);
+            const newVal = Number(newStats[stat] ?? 0);
+            if (newVal > oldVal) {
+              awardPlayerScoreCoins(sid, cid, np.name, stat, newVal).catch(() => {});
+            }
+          }
+        }
+      };
+      checkDiff(prevHome, rows[0].home_players || []);
+      checkDiff(prevAway, rows[0].away_players || []);
+    }
+
     res.json({ score });
   } catch (err) { next(err); }
 };
@@ -1002,6 +1044,116 @@ const resetLiveTimer = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+/* Basketball game-event types that earn 62 coins via the event log */
+const COIN_EARN_EVENTS = new Set(['shot_made', 'assist', 'block', 'steal', 'rebound_off', 'rebound_def']);
+
+/* Per-player stat button stats that do NOT earn coins (negative / neutral) */
+const NON_REWARD_STATS = new Set(['yellow_cards', 'errors', 'fouls', 'turnovers', 'balls']);
+
+/* Which per-player stat drives the team score for each sport */
+const SPORT_SCORE_STAT = {
+  basketball: 'points',
+  football:   'goals',
+  cricket:    'runs',
+  volleyball: 'points',
+  badminton:  'points',
+  kabaddi:    'points',
+};
+
+/* Award 62 coins to a player for a scoring action — fire-and-forget */
+async function awardMatchPerformanceCoins(scoreId, gameEventId, playerName, eventType) {
+  if (!COIN_EARN_EVENTS.has(eventType) || !playerName) return;
+  try {
+    /* Get club_id from the live score row */
+    const { rows: scoreRows } = await pgPool.query(
+      `SELECT club_id FROM club_live_scores WHERE id = $1::bigint LIMIT 1`, [scoreId]
+    );
+    if (!scoreRows.length) return;
+    const clubId = scoreRows[0].club_id;
+
+    /* Find the student user by name within this club */
+    const { rows: userRows } = await pgPool.query(
+      `SELECT DISTINCT u.id AS user_id
+       FROM users u
+       JOIN student_clubs sc ON sc.user_id = u.id AND sc.club_id = $1::bigint
+       WHERE u.is_active = true AND u.name ILIKE $2
+       LIMIT 1`,
+      [clubId, playerName.trim()]
+    );
+    if (!userRows.length) return;
+    const userId = userRows[0].user_id;
+    const entityId = String(gameEventId);
+
+    const actionLabel = eventType === 'shot_made' ? 'scoring' : eventType;
+    const ins = await pgPool.query(
+      `INSERT INTO coin_transactions (user_id, amount, reason, entity_type, entity_id, academic_year)
+       SELECT $1, 62, $2, 'match_performance', $3,
+              to_char(NOW(), 'YYYY') || '-' || to_char(NOW() + interval '1 year', 'YY')
+       WHERE NOT EXISTS (
+         SELECT 1 FROM coin_transactions
+         WHERE user_id = $1 AND entity_type = 'match_performance' AND entity_id = $3
+       )
+       RETURNING id`,
+      [userId, `Match performance (${actionLabel})`, entityId]
+    );
+  } catch (e) {
+    console.error('[coins] awardMatchPerformanceCoins error:', e.message);
+  }
+}
+
+/* Award 62 coins for any positive stat contribution via roster stat buttons.
+   entity_id format: ps|{scoreId}|{statName}|{newValue}
+   This prefix lets myActivity link back to events via club_live_scores.event_id */
+async function awardPlayerScoreCoins(scoreId, clubId, playerName, statName, newValue) {
+  if (!playerName) return;
+  try {
+    /* Try club member first, fall back to any active student with matching name */
+    let { rows: userRows } = await pgPool.query(
+      `SELECT DISTINCT u.id AS user_id
+       FROM users u
+       JOIN student_clubs sc ON sc.user_id = u.id AND sc.club_id = $1::bigint
+       WHERE u.is_active = true AND u.name ILIKE $2
+       LIMIT 1`,
+      [clubId, playerName.trim()]
+    );
+    if (!userRows.length) {
+      ({ rows: userRows } = await pgPool.query(
+        `SELECT id AS user_id FROM users
+         WHERE is_active = true AND name ILIKE $1
+         LIMIT 1`,
+        [playerName.trim()]
+      ));
+    }
+    if (!userRows.length) {
+      console.warn(`[coins] awardPlayerScoreCoins: no user found for player "${playerName}" (score ${scoreId}, stat ${statName})`);
+      return;
+    }
+    const userId   = userRows[0].user_id;
+    const entityId = `ps|${scoreId}|${statName}|${newValue}|${playerName.trim().toLowerCase()}`;
+    const statLabel = statName === 'goals' ? 'scoring a goal'
+                    : statName === 'points' ? 'scoring'
+                    : statName;
+    const ins = await pgPool.query(
+      `INSERT INTO coin_transactions (user_id, amount, reason, entity_type, entity_id, academic_year)
+       SELECT $1::int, 62, $2::text, 'player_score', $3::text,
+              to_char(NOW(), 'YYYY') || '-' || to_char(NOW() + interval '1 year', 'YY')
+       WHERE NOT EXISTS (
+         SELECT 1 FROM coin_transactions
+         WHERE user_id = $1::int AND entity_type = 'player_score' AND entity_id = $3::text
+       )
+       RETURNING id`,
+      [userId, `Match contribution (${statLabel})`, entityId]
+    );
+    if (ins.rowCount > 0) {
+      console.log(`[coins] +62 awarded to user ${userId} (${playerName}) for ${statLabel} — score ${scoreId}`);
+    } else {
+      console.log(`[coins] Duplicate skipped for user ${userId} (${playerName}) ${statLabel} val=${newValue}`);
+    }
+  } catch (e) {
+    console.error('[coins] awardPlayerScoreCoins error:', e.message, e.stack);
+  }
+}
+
 const BASKET_EVENT_TYPES = new Set([
   'shot_made', 'shot_missed', 'assist', 'rebound_off', 'rebound_def', 'foul', 'turnover', 'steal', 'block',
   'substitution', 'timeout',
@@ -1163,6 +1315,7 @@ const logBasketballEvent = async (req, res, next) => {
     );
     const score = await persistDerivedBasketballState(req.params.scoreId, req.params.id, req.user.id);
     emitScoreUpdate(req, req.params.scoreId, { score, event: evRows[0] });
+    awardMatchPerformanceCoins(req.params.scoreId, evRows[0].id, playerName, eventType).catch(() => {});
     res.status(201).json({ event: evRows[0], score });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ message: 'Duplicate event ignored.' });

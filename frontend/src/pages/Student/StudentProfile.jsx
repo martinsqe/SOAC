@@ -86,8 +86,12 @@ export default function StudentProfile() {
   const [pwOk,        setPwOk]        = useState(false);
 
   /* ── SOAC Coins (fetched from member_progress, not auth context) ── */
-  const [coinsData,   setCoinsData]   = useState(null);
-  const [coinsLoaded, setCoinsLoaded] = useState(false);
+  const [coinsData,    setCoinsData]    = useState(null);
+  const [coinsLoaded,  setCoinsLoaded]  = useState(false);
+
+  /* ── Activity history ── */
+  const [activityData,  setActivityData]  = useState(null);
+  const [expandedEvent, setExpandedEvent] = useState(null);
 
   /* ── clubs joined (for profile card) ── */
   const [myClubs, setMyClubs] = useState([]);
@@ -138,6 +142,7 @@ export default function StudentProfile() {
   useEffect(() => {
     api.get('/users/me/clubs').then(r => setMyClubs(r.clubs || [])).catch(() => {});
     api.get('/users/me/coins').then(r => { setCoinsData(r); setCoinsLoaded(true); }).catch(() => setCoinsLoaded(true));
+    api.get('/users/me/activity').then(r => setActivityData(r)).catch(() => {});
     api.get('/users/me/notifications').then(r => { if (r.isWallOfFamer) setIsWallOfFamer(true); }).catch(() => {});
     fetchEval('Week', new Date());
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -337,25 +342,6 @@ export default function StudentProfile() {
               <p className={s.coinsNoClubs}>Join a club to start earning coins.</p>
             )}
 
-            {coinsData?.eventRewards?.length > 0 && (
-              <div style={{ marginTop: 10 }}>
-                <div style={{ fontSize: '.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: '#9ca3af', marginBottom: 6 }}>
-                  Event Participation
-                </div>
-                {coinsData.eventRewards.map((r, i) => (
-                  <div key={i} className={s.coinsClubCard} style={{ marginBottom: 5 }}>
-                    <div className={s.coinsClubCardLeft}>
-                      <span className={s.coinsClubBar} style={{ background: '#059669' }} />
-                      <span className={s.coinsClubName}>{r.reason}</span>
-                    </div>
-                    <div className={s.coinsClubCardRight}>
-                      <span className={s.coinsClubAmount}>+{r.amount}</span>
-                      <span className={s.coinsClubUnit}>coins</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
 
             <div className={s.coinsTip} style={{marginTop:8}}>
               <span>🎁</span>
@@ -574,36 +560,100 @@ export default function StudentProfile() {
               </div>
             )}
 
-            {/* ── Event Participation Rewards (period-specific) ── */}
-            {weeklyData?.eventRewards?.list?.length > 0 && (
-              <div className={s.evalSection} style={{ marginTop: 14 }}>
-                <div className={s.evalSectionHead}>
-                  <span className={s.evalSectionIcon}>🏆</span>
-                  <span className={s.evalSectionTitle}>Event Participation Rewards</span>
-                  <span className={s.evalSectionCoins}>+{weeklyData.eventRewards.total} coins</span>
-                </div>
-                <div className={s.evalTaskList}>
-                  {weeklyData.eventRewards.list.map((r, i) => (
-                    <div key={i} className={s.evalTaskRow}>
-                      <span className={s.evalTaskCheck}>★</span>
-                      <span className={s.evalTaskName}>{r.reason}</span>
-                      <span className={s.evalTaskCoins}>+{r.amount} coins</span>
-                      {r.createdAt && (
-                        <span className={s.evalTaskDate}>
-                          {new Date(r.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                        </span>
+          </SectionCard>
+
+          {/* ── My Activity — Events, Contributions, Coins ── */}
+          <SectionCard icon="📋" title="My Activity" subtitle="All events you joined, your match contributions, and coins earned">
+
+            {!activityData ? (
+              <div className={s.weeklyLoading}>Loading activity…</div>
+            ) : (
+              <>
+                {/* ── Events Participated In ── */}
+                <div className={s.actSectionTitle}>Events Participated In</div>
+                {activityData.registrations?.length > 0 ? activityData.registrations.map((r, i) => {
+                  const open   = expandedEvent === i;
+                  const fmt    = d => d ? new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '—';
+                  const totalC = (r.regCoins || 0) + (r.clearCoins || 0) + (r.matchCoins || 0);
+                  return (
+                    <div key={i} className={s.actAccItem}>
+                      <button className={s.actAccHeader} onClick={() => setExpandedEvent(open ? null : i)}>
+                        <div className={s.actAccLeft}>
+                          <span className={s.actAccName}>{r.eventTitle}</span>
+                          <span className={s.actAccSub}>{r.clubName}{r.category ? ` · ${r.category}` : ''}</span>
+                        </div>
+                        <div className={s.actAccRight}>
+                          {totalC > 0
+                            ? <span className={s.actCoinBadge}>+{totalC} coins</span>
+                            : <span className={s.actCoinPending}>registered</span>
+                          }
+                          <span className={s.actAccChevron}>{open ? '▲' : '▼'}</span>
+                        </div>
+                      </button>
+                      {open && (
+                        <div className={s.actAccBody}>
+                          <div className={s.actAccGrid}>
+                            <div className={s.actAccField}><span className={s.actAccLabel}>Club</span><span>{r.clubName}</span></div>
+                            {r.category  && <div className={s.actAccField}><span className={s.actAccLabel}>Category</span><span>{r.category}</span></div>}
+                            {r.venue     && <div className={s.actAccField}><span className={s.actAccLabel}>Venue</span><span>{r.venue}</span></div>}
+                            {r.eventDate && <div className={s.actAccField}><span className={s.actAccLabel}>Event Date</span><span>{fmt(r.eventDate)}</span></div>}
+                            <div className={s.actAccField}><span className={s.actAccLabel}>Registered</span><span>{fmt(r.registeredAt)}</span></div>
+                          </div>
+                          <div className={s.actAccCoins}>
+                            {r.regCoins > 0 && (
+                              <div className={s.actAccCoinRow}>
+                                <span>Registration</span>
+                                <span className={s.actCoinBadge}>+{r.regCoins} coins</span>
+                              </div>
+                            )}
+                            {r.clearCoins > 0 && (
+                              <div className={s.actAccCoinRow}>
+                                <span>Team cleared</span>
+                                <span className={s.actCoinBadge}>+{r.clearCoins} coins</span>
+                              </div>
+                            )}
+                            {r.contributions?.length > 0 && (
+                              <>
+                                <div className={s.actAccCoinRow} style={{borderBottom:'1px solid #f3f4f6',paddingBottom:4,marginBottom:2}}>
+                                  <span style={{fontWeight:600}}>Match contributions</span>
+                                  <span className={s.actCoinBadge}>+{r.matchCoins} coins</span>
+                                </div>
+                                {r.contributions.map((c, ci) => (
+                                  <div key={ci} className={s.actAccCoinRow} style={{paddingLeft:12}}>
+                                    <span style={{color:'#6b7280'}}>{c.label}</span>
+                                    <span style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+                                      <span style={{fontSize:'.7rem',color:'#9ca3af'}}>
+                                        {new Date(c.createdAt).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}
+                                      </span>
+                                      <span className={s.actCoinBadge}>+{c.amount}</span>
+                                    </span>
+                                  </div>
+                                ))}
+                              </>
+                            )}
+                            {totalC === 0 && (
+                              <div className={s.actAccCoinRow}>
+                                <span style={{color:'#9ca3af',fontStyle:'italic'}}>Coins will appear here once processed</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       )}
                     </div>
-                  ))}
-                </div>
-              </div>
+                  );
+                }) : <p className={s.actEmpty}>You haven't registered for any events yet.</p>}
+
+                {activityData.registrations?.length === 0 && (
+                  <p className={s.actEmpty}>No activity yet. Register for events and join matches to see your history here.</p>
+                )}
+              </>
             )}
           </SectionCard>
 
           {/* ── Notifications (no heading) ── */}
-          {weeklyData?.notifications?.length > 0 && (
+          {weeklyData?.notifications?.filter(n => n.title !== 'Match Contribution' && n.title !== 'Match Performance Reward').length > 0 && (
             <div className={s.notifList}>
-              {weeklyData.notifications.map(n => (
+              {weeklyData.notifications.filter(n => n.title !== 'Match Contribution' && n.title !== 'Match Performance Reward').map(n => (
                 <div key={n.id} className={`${s.notifCard} ${n.isRead ? s.notifRead : s.notifUnread}`}>
                   <div className={s.notifCardTop}>
                     <span className={s.notifTitle}>{n.title}</span>

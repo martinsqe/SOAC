@@ -966,3 +966,137 @@
   .pageTitle { font-size: 1.3rem; }
   .evalPeriodTab { padding: 5px 10px; font-size: .72rem; }
 }
+
+
+/* ── My Activity accordion ── */
+.actSectionTitle {
+  font-size: .68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: #9ca3af;
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.actAccItem {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.actAccHeader {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background .15s;
+}
+.actAccHeader:hover { background: #f8fafc; }
+
+.actAccLeft {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.actAccName {
+  font-size: .875rem;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.actAccSub {
+  font-size: .72rem;
+  color: #6b7280;
+}
+
+.actAccRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.actAccChevron {
+  font-size: .65rem;
+  color: #9ca3af;
+}
+
+.actAccBody {
+  border-top: 1px solid #f1f5f9;
+  padding: 12px 14px;
+  background: #fafafa;
+}
+
+.actAccGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  margin-bottom: 10px;
+}
+.actAccField {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.actAccLabel {
+  font-size: .65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: #9ca3af;
+}
+.actAccField span:last-child {
+  font-size: .8rem;
+  color: #0f172a;
+  font-weight: 500;
+}
+
+.actAccCoins {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.actAccCoinRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: .8rem;
+  color: #374151;
+}
+
+.actCoinBadge {
+  display: inline-block;
+  font-size: .72rem;
+  font-weight: 700;
+  color: #059669;
+  background: #ecfdf5;
+  border: 1px solid #6ee7b7;
+  border-radius: 20px;
+  padding: 2px 10px;
+  white-space: nowrap;
+}
+.actCoinPending {
+  font-size: .72rem;
+  color: #9ca3af;
+  font-style: italic;
+}
+.actEmpty {
+  font-size: .875rem;
+  color: #9ca3af;
+  text-align: center;
+  padding: 16px 0;
+}

@@ -436,6 +436,39 @@ const remove = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+/* Award 55 coins when a student registers for any event — fire-and-forget */
+async function awardRegistrationCoins(eventId, eventTitle, email) {
+  try {
+    const { rows: userRows } = await pgPool.query(
+      `SELECT id FROM users WHERE LOWER(email) = $1 AND is_active = true LIMIT 1`, [email]
+    );
+    if (!userRows.length) return;
+    const userId = userRows[0].id;
+    const entityId = String(eventId);
+
+    const ins = await pgPool.query(
+      `INSERT INTO coin_transactions (user_id, amount, reason, entity_type, entity_id, academic_year)
+       SELECT $1, 55, $2, 'event_registration', $3,
+              to_char(NOW(), 'YYYY') || '-' || to_char(NOW() + interval '1 year', 'YY')
+       WHERE NOT EXISTS (
+         SELECT 1 FROM coin_transactions
+         WHERE user_id = $1 AND entity_type = 'event_registration' AND entity_id = $3
+       )
+       RETURNING id`,
+      [userId, `Event registration: ${eventTitle}`, entityId]
+    );
+    if (ins.rowCount > 0) {
+      await pgPool.query(
+        `INSERT INTO member_notifications (user_id, club_id, title, body, type)
+         VALUES ($1, NULL, 'Registration Reward', $2, 'achievement')`,
+        [userId, `You earned 55 coins for registering for "${eventTitle}"!`]
+      );
+    }
+  } catch (e) {
+    console.error('[coins] awardRegistrationCoins error:', e.message);
+  }
+}
+
 /* POST /api/events/:id/register  (public) */
 const register = async (req, res, next) => {
   try {
@@ -472,6 +505,7 @@ const register = async (req, res, next) => {
       ]
     );
     await cache.del(`events:${req.params.id}`);
+    awardRegistrationCoins(event.id, event.title, email.trim().toLowerCase()).catch(() => {});
     res.status(201).json({ message: 'Registration successful!', registration: rows[0] });
   } catch (err) {
     if (err.code === '23505') {

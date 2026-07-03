@@ -783,6 +783,34 @@ const ensureBaseIndexes = async () => {
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_audit_log_user        ON audit_log(user_id)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_student_clubs_user    ON student_clubs(user_id)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_student_clubs_club    ON student_clubs(club_id)`);
+
+  /* Column migrations — safe to run every startup (ADD COLUMN IF NOT EXISTS is idempotent) */
+  await pgPool.query(`ALTER TABLE coin_transactions ADD COLUMN IF NOT EXISTS entity_type   VARCHAR(50)`);
+  await pgPool.query(`ALTER TABLE coin_transactions ADD COLUMN IF NOT EXISTS entity_id     VARCHAR(100)`);
+  await pgPool.query(`ALTER TABLE coin_transactions ADD COLUMN IF NOT EXISTS academic_year VARCHAR(10)`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_coin_transactions_user ON coin_transactions(user_id)`);
+
+  /* Backfill 55 coins for every past event registration that never got coins
+     (safe to re-run — WHERE NOT EXISTS prevents duplicates) */
+  await pgPool.query(`
+    INSERT INTO coin_transactions (user_id, amount, reason, entity_type, entity_id, academic_year)
+    SELECT DISTINCT
+      u.id,
+      55,
+      'Event registration: ' || er.event_title,
+      'event_registration',
+      er.event_id::text,
+      to_char(er.registered_at, 'YYYY') || '-' ||
+        to_char(er.registered_at + interval '1 year', 'YY')
+    FROM event_registrations er
+    JOIN users u ON LOWER(u.email) = LOWER(er.email) AND u.is_active = true
+    WHERE NOT EXISTS (
+      SELECT 1 FROM coin_transactions ct
+      WHERE ct.user_id = u.id
+        AND ct.entity_type = 'event_registration'
+        AND ct.entity_id = er.event_id::text
+    )
+  `);
 };
 
 module.exports = { ensureSoacTables, ensureBaseIndexes, asClub, asEvent };

@@ -250,14 +250,15 @@ const myCoins = async (req, res, next) => {
     const eventCoins = ctRows[0]?.event_coins || 0;
     const totalCoins = xpCoins + eventCoins;
 
-    /* Event rewards list for wallet display */
+    /* All coin_transaction rewards list for wallet display */
     const { rows: eventRewardRows } = await pgPool.query(
-      `SELECT ct.amount, ct.reason, ct.created_at,
+      `SELECT ct.amount, ct.reason, ct.entity_type, ct.created_at,
               e.title AS event_title
        FROM coin_transactions ct
-       LEFT JOIN events e ON e.id::text = ct.entity_id AND ct.entity_type = 'event_clearance'
-       WHERE ct.user_id = $1 AND ct.entity_type = 'event_clearance'
-       ORDER BY ct.created_at DESC LIMIT 20`,
+       LEFT JOIN events e ON e.id::text = ct.entity_id
+         AND ct.entity_type IN ('event_clearance', 'event_registration')
+       WHERE ct.user_id = $1
+       ORDER BY ct.created_at DESC LIMIT 30`,
       [req.user.id]
     );
 
@@ -285,10 +286,148 @@ const myCoins = async (req, res, next) => {
       clubs: progRows,
       eventCoins,
       eventRewards: eventRewardRows.map(r => ({
-        amount:    r.amount,
-        reason:    r.event_title || r.reason,
+        amount:     r.amount,
+        entityType: r.entity_type,
+        reason:     r.event_title || r.reason,
         createdAt: r.created_at,
       })),
+    });
+  } catch (err) { next(err); }
+};
+
+/* GET /api/users/me/activity — full event + contribution + coin history */
+const myActivity = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    const { rows: uRows } = await pgPool.query(
+      `SELECT LOWER(email) AS email, name FROM users WHERE id = $1 AND is_active = true LIMIT 1`,
+      [userId]
+    );
+    if (!uRows.length) return res.status(404).json({ message: 'Not found.' });
+    const { email, name } = uRows[0];
+
+    const [regRes, psContribRes, bgeContribRes] = await Promise.all([
+      /* Events this student registered for — with all coin totals per event */
+      pgPool.query(
+        `SELECT er.event_id, er.event_title, er.registered_at,
+                e.date AS event_date, e.venue, e.category,
+                c.name AS club_name,
+                COALESCE(ct_reg.amount, 0)::int AS reg_coins,
+                COALESCE((
+                  SELECT SUM(ct2.amount)::int FROM coin_transactions ct2
+                  WHERE ct2.user_id = $1 AND ct2.entity_type = 'event_clearance'
+                    AND ct2.entity_id IN (
+                      SELECT et.id::text FROM event_teams et
+                      JOIN event_team_members etm ON etm.team_id = et.id
+                      JOIN event_registrations er2 ON er2.id = etm.registration_id
+                      WHERE et.event_id = er.event_id AND LOWER(er2.email) = $2
+                    )
+                ), 0)::int AS clear_coins,
+                COALESCE((
+                  SELECT SUM(ct3.amount)::int FROM coin_transactions ct3
+                  WHERE ct3.user_id = $1 AND ct3.entity_type = 'player_score'
+                    AND ct3.entity_id ~ '^ps\|\d'
+                    AND SPLIT_PART(ct3.entity_id, '|', 2)::bigint IN (
+                      SELECT cls.id FROM club_live_scores cls WHERE cls.event_id = er.event_id
+                    )
+                ), 0)::int AS match_stat_coins,
+                COALESCE((
+                  SELECT SUM(ct4.amount)::int FROM coin_transactions ct4
+                  JOIN basketball_game_events bge ON bge.id::text = ct4.entity_id
+                  JOIN club_live_scores cls2 ON cls2.id = bge.score_id AND cls2.event_id = er.event_id
+                  WHERE ct4.user_id = $1 AND ct4.entity_type = 'match_performance'
+                ), 0)::int AS game_event_coins
+         FROM event_registrations er
+         LEFT JOIN events e ON e.id = er.event_id
+         LEFT JOIN clubs c ON c.id = e.club_id
+         LEFT JOIN coin_transactions ct_reg
+           ON ct_reg.user_id = $1 AND ct_reg.entity_type = 'event_registration'
+          AND ct_reg.entity_id = er.event_id::text
+         WHERE LOWER(er.email) = $2
+         ORDER BY er.registered_at DESC`,
+        [userId, email]
+      ),
+      /* Stat-button match contributions (player_score) — per event, with stat detail */
+      pgPool.query(
+        `SELECT
+           ct.amount,
+           ct.created_at,
+           SPLIT_PART(ct.entity_id, '|', 3) AS stat_name,
+           SPLIT_PART(ct.entity_id, '|', 4) AS stat_value,
+           cls.event_id
+         FROM coin_transactions ct
+         JOIN club_live_scores cls
+           ON cls.id = SPLIT_PART(ct.entity_id, '|', 2)::bigint
+         WHERE ct.user_id = $1
+           AND ct.entity_type = 'player_score'
+           AND ct.entity_id ~ '^ps\\|\\d'
+         ORDER BY ct.created_at DESC`,
+        [userId]
+      ),
+      /* Game-event contributions (match_performance) — per event, with action detail */
+      pgPool.query(
+        `SELECT
+           ct.amount,
+           ct.created_at,
+           bge.event_type,
+           COALESCE(bge.points, 0)::int AS points,
+           bge.quarter,
+           cls.event_id
+         FROM coin_transactions ct
+         JOIN basketball_game_events bge ON bge.id::text = ct.entity_id
+         JOIN club_live_scores cls ON cls.id = bge.score_id
+         WHERE ct.user_id = $1
+           AND ct.entity_type = 'match_performance'
+         ORDER BY ct.created_at DESC`,
+        [userId]
+      ),
+    ]);
+
+    /* Build event_id → contributions[] map */
+    const contribMap = new Map();
+    const addContrib = (eventId, entry) => {
+      if (!eventId) return;
+      const key = String(eventId);
+      if (!contribMap.has(key)) contribMap.set(key, []);
+      contribMap.get(key).push(entry);
+    };
+    for (const r of psContribRes.rows) {
+      const statName  = r.stat_name  || 'contribution';
+      const statValue = Number(r.stat_value) || 0;
+      const label     = statName === 'points' || statName === 'goals'
+        ? `${statValue} pt${statValue !== 1 ? 's' : ''}`
+        : statName;
+      addContrib(r.event_id, { label, amount: r.amount, createdAt: r.created_at });
+    }
+    for (const r of bgeContribRes.rows) {
+      const label = r.event_type === 'shot_made'
+        ? `${r.points || 2} pt${(r.points || 2) !== 1 ? 's' : ''}${r.quarter ? ` (${r.quarter})` : ''}`
+        : r.event_type === 'assist' ? `Assist${r.quarter ? ` (${r.quarter})` : ''}`
+        : `Block${r.quarter ? ` (${r.quarter})` : ''}`;
+      addContrib(r.event_id, { label, amount: r.amount, createdAt: r.created_at });
+    }
+
+    res.json({
+      registrations: regRes.rows.map(r => {
+        const regCoins   = Number(r.reg_coins        || 0);
+        const clearCoins = Number(r.clear_coins       || 0);
+        const matchCoins = Number(r.match_stat_coins  || 0) + Number(r.game_event_coins || 0);
+        return {
+          eventId:       r.event_id,
+          eventTitle:    r.event_title,
+          clubName:      r.club_name || '—',
+          category:      r.category  || '',
+          venue:         r.venue     || '',
+          eventDate:     r.event_date,
+          registeredAt:  r.registered_at,
+          regCoins,
+          clearCoins,
+          matchCoins,
+          totalCoins:    regCoins + clearCoins + matchCoins,
+          contributions: contribMap.get(String(r.event_id)) || [],
+        };
+      }),
     });
   } catch (err) { next(err); }
 };
@@ -479,14 +618,14 @@ const weeklyEvaluation = async (req, res, next) => {
     );
     const progMap = Object.fromEntries(progRows.map(p => [String(p.club_id), p]));
 
-    /* Event participation coins earned in this period (not club-specific) */
+    /* All special coins earned in this period (registrations, clearances, match performance) */
     const { rows: evCoinRows } = await pgPool.query(
-      `SELECT ct.amount, ct.reason, ct.created_at,
+      `SELECT ct.amount, ct.reason, ct.entity_type, ct.created_at,
               e.title AS event_title
        FROM coin_transactions ct
-       LEFT JOIN events e ON e.id::text = ct.entity_id AND ct.entity_type = 'event_clearance'
+       LEFT JOIN events e ON e.id::text = ct.entity_id
+         AND ct.entity_type IN ('event_clearance', 'event_registration')
        WHERE ct.user_id = $1
-         AND ct.entity_type = 'event_clearance'
          AND ct.created_at::date BETWEEN $2::date AND $3::date
        ORDER BY ct.created_at ASC`,
       [userId, range.start, range.end]
@@ -572,9 +711,10 @@ const weeklyEvaluation = async (req, res, next) => {
       eventRewards: {
         total: evCoinRows.reduce((s, r) => s + (r.amount || 0), 0),
         list:  evCoinRows.map(r => ({
-          amount:    r.amount,
-          reason:    r.event_title || r.reason,
-          createdAt: r.created_at,
+          amount:     r.amount,
+          entityType: r.entity_type,
+          reason:     r.event_title || r.reason,
+          createdAt:  r.created_at,
         })),
       },
       notifications: notifs.map(n => ({
@@ -723,4 +863,4 @@ const assignClub = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, create, update, remove, stats, auditLog, myClubs, updateProfile, assignClub, myCoins, weeklyEvaluation, getNotifications, markNotificationRead };
+module.exports = { getAll, create, update, remove, stats, auditLog, myClubs, updateProfile, assignClub, myCoins, weeklyEvaluation, getNotifications, markNotificationRead, myActivity };
