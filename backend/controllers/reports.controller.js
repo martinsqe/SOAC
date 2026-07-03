@@ -49,6 +49,15 @@ const generateReport = async (req, res, next) => {
     const { eventId } = req.params;
     const clubId = req.body.clubId || req.query.clubId;
 
+    /* Block regeneration of submitted reports */
+    const { rows: existCheck } = await pgPool.query(
+      `SELECT submitted_at FROM event_reports WHERE event_id = $1::bigint`,
+      [eventId]
+    );
+    if (existCheck[0]?.submitted_at) {
+      return res.status(403).json({ message: 'Cannot regenerate a report that has been submitted to admin.' });
+    }
+
     /* ── Event meta ── */
     const { rows: evRows } = await pgPool.query(
       `SELECT id, title, category, status, start_date, venue, club_id FROM events WHERE id = $1::bigint`,
@@ -422,6 +431,23 @@ const updateMatchMvpPhoto = async (req, res, next) => {
 };
 
 /* ══════════════════════════════════════════════
+   DELETE /api/reports/events/:eventId
+   Coordinator deletes a report (only before submission)
+══════════════════════════════════════════════ */
+const deleteReport = async (req, res, next) => {
+  try {
+    const { rows } = await pgPool.query(
+      `SELECT submitted_at FROM event_reports WHERE event_id = $1::bigint`,
+      [req.params.eventId]
+    );
+    if (!rows.length) return res.status(404).json({ message: 'Report not found.' });
+    if (rows[0].submitted_at) return res.status(403).json({ message: 'Cannot delete a submitted report.' });
+    await pgPool.query(`DELETE FROM event_reports WHERE event_id = $1::bigint`, [req.params.eventId]);
+    res.json({ message: 'Report deleted.' });
+  } catch (err) { next(err); }
+};
+
+/* ══════════════════════════════════════════════
    POST /api/reports/events/:eventId/submit
    Coordinator submits a report to admin
 ══════════════════════════════════════════════ */
@@ -463,4 +489,4 @@ const getSubmittedReports = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getEventReport, listReports, generateReport, uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMatchMvpPhoto, submitReport, getSubmittedReports, getAnnualReport, getReportYears };
+module.exports = { getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMatchMvpPhoto, submitReport, getSubmittedReports, getAnnualReport, getReportYears };

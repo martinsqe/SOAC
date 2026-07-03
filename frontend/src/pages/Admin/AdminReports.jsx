@@ -210,7 +210,7 @@ function ReportDetail({ eventId }) {
       )}
 
       {/* Bracket */}
-      {data.fixtures?.length > 0 && data.groups?.length > 0 && (() => {
+      {data.fixtures?.length > 0 && (() => {
         const bf = data.fixtures.map(f => ({ id: String(f.id || ''), teamA: f.team_a_name, teamB: f.team_b_name, scoreA: f.score_a, scoreB: f.score_b, winner: f.winner_name || null, round: f.round || '' }));
         const bg = data.groups.map(g => ({ id: String(g.id || ''), name: g.name, sortOrder: g.sort_order ?? 0, teams: (g.teams || []).map(t => ({ id: String(t.id || ''), name: t.name })) }));
         return (
@@ -224,18 +224,23 @@ function ReportDetail({ eventId }) {
       {/* Winner */}
       {(() => {
         const fx = data.fixtures || [];
-        const completed = fx.filter(f => f.winner_name);
+        const completed = fx.filter(f =>
+          f.winner_name ||
+          (f.score_a != null && f.score_b != null && f.score_a !== f.score_b)
+        );
         if (!completed.length) return null;
         const finalFx = completed.find(f => /final/i.test(f.round || '') && !/semi|quarter/i.test(f.round || '')) || completed[completed.length - 1];
-        const opponent = finalFx.team_a_name === finalFx.winner_name ? finalFx.team_b_name : finalFx.team_a_name;
-        const hasScore = finalFx.score_a != null && (finalFx.score_a > 0 || finalFx.score_b > 0 || finalFx.winner_name);
+        const winnerName = finalFx.winner_name ||
+          (finalFx.score_a > finalFx.score_b ? finalFx.team_a_name : finalFx.team_b_name);
+        const opponent = winnerName === finalFx.team_a_name ? finalFx.team_b_name : finalFx.team_a_name;
+        const hasScore = finalFx.score_a != null && (finalFx.score_a > 0 || finalFx.score_b > 0);
         return (
           <div className={r.section}>
             <div className={r.sectionTitle}>Tournament Winner</div>
             <div className={r.winnerBanner}>
               <span className={r.winnerTrophy}>🏆</span>
               <div>
-                <div className={r.winnerName}>{finalFx.winner_name}</div>
+                <div className={r.winnerName}>{winnerName}</div>
                 <div className={r.winnerMeta}>{finalFx.round ? `${finalFx.round} · ` : ''}{hasScore ? `${finalFx.score_a} – ${finalFx.score_b} ` : ''}vs {opponent}</div>
               </div>
             </div>

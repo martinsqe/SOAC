@@ -4,7 +4,7 @@ const { verifyToken } = require('../middleware/auth');
 const { uploadReportPhoto } = require('../config/multer');
 const { uploadMvpPhoto } = require('../config/multer');
 const {
-  getEventReport, listReports, generateReport,
+  getEventReport, listReports, generateReport, deleteReport,
   uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMatchMvpPhoto,
   submitReport, getSubmittedReports, getAnnualReport, getReportYears,
 } = require('../controllers/reports.controller');
@@ -23,6 +23,9 @@ router.get('/events/:eventId', verifyToken, getEventReport);
 
 /* Generate / regenerate report for an event */
 router.post('/events/:eventId/generate', verifyToken, generateReport);
+
+/* Delete a report (only before submission) */
+router.delete('/events/:eventId', verifyToken, deleteReport);
 
 /* Upload photos for a report (max 5 at a time) */
 router.patch('/events/:eventId/photos', verifyToken,

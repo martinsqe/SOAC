@@ -663,18 +663,27 @@
   flex-direction: column;
   gap: 24px;
   overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 .reportPlaceholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   text-align: center;
   color: #9ca3af;
   padding: 40px 20px;
   font-size: .9rem;
+  gap: 4px;
 }
 .reportActions {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
+  padding: 16px 0 4px;
+  border-top: 1.5px solid #f0f0f5;
+  margin-top: 8px;
 }
 .reportGenBtn {
   padding: 9px 22px;
@@ -689,6 +698,28 @@
 }
 .reportGenBtn:hover:not(:disabled) { background: #4f46e5; }
 .reportGenBtn:disabled { opacity: .5; cursor: default; }
+.reportDeleteBtn {
+  padding: 9px 18px;
+  background: #fff;
+  color: #dc2626;
+  border: 1.5px solid #dc2626;
+  border-radius: 8px;
+  font-size: .85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.reportDeleteBtn:hover:not(:disabled) { background: #dc2626; color: #fff; }
+.reportDeleteBtn:disabled { opacity: .45; cursor: not-allowed; }
+.reportSubmittedBadge {
+  font-size: .78rem;
+  font-weight: 700;
+  color: #059669;
+  background: #ecfdf5;
+  border: 1.5px solid #6ee7b7;
+  border-radius: 20px;
+  padding: 3px 10px;
+}
 .reportSavedAt {
   font-size: .78rem;
   color: #9ca3af;

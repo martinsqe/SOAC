@@ -45,7 +45,18 @@ function computeRounds(seeds, winnerOf) {
 }
 
 export default function TournamentBracket({ groups = [], fixtures = [] }) {
-  if (!groups.length) return null;
+  /* If no explicit groups, synthesize one from fixture team names */
+  let effectiveGroups = groups;
+  if (!effectiveGroups.length && fixtures.length) {
+    const seen = new Set();
+    const teams = [];
+    fixtures.forEach(f => {
+      if (f.teamA && !seen.has(f.teamA)) { seen.add(f.teamA); teams.push({ id: f.teamA, name: f.teamA }); }
+      if (f.teamB && !seen.has(f.teamB)) { seen.add(f.teamB); teams.push({ id: f.teamB, name: f.teamB }); }
+    });
+    if (teams.length) effectiveGroups = [{ id: 'auto', name: '', sortOrder: 0, teams }];
+  }
+  if (!effectiveGroups.length) return null;
 
   /* Build winner lookup from recorded fixture results */
   const winnerOf = {};
@@ -59,15 +70,15 @@ export default function TournamentBracket({ groups = [], fixtures = [] }) {
   /* Split groups into left / right arms.
      With 1 group: split that group's teams evenly so both arms are populated. */
   let leftGroups, rightGroups;
-  if (groups.length === 1) {
-    const allTeams = groups[0].teams || [];
+  if (effectiveGroups.length === 1) {
+    const allTeams = effectiveGroups[0].teams || [];
     const mid      = Math.ceil(allTeams.length / 2);
-    leftGroups  = [{ ...groups[0], teams: allTeams.slice(0, mid) }];
-    rightGroups = allTeams.length > 1 ? [{ ...groups[0], name: '', teams: allTeams.slice(mid) }] : [];
+    leftGroups  = [{ ...effectiveGroups[0], teams: allTeams.slice(0, mid) }];
+    rightGroups = allTeams.length > 1 ? [{ ...effectiveGroups[0], name: '', teams: allTeams.slice(mid) }] : [];
   } else {
-    const half  = Math.ceil(groups.length / 2);
-    leftGroups  = groups.slice(0, half);
-    rightGroups = groups.slice(half);
+    const half  = Math.ceil(effectiveGroups.length / 2);
+    leftGroups  = effectiveGroups.slice(0, half);
+    rightGroups = effectiveGroups.slice(half);
   }
 
   const toNames = (gs) => gs.flatMap(g => (g.teams || []).map(t => t.name || String(t)));

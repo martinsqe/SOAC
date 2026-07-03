@@ -334,6 +334,16 @@ export default function CoordEvents() {
     } finally { setMvpPhotoUploading(false); }
   };
 
+  const handleDeleteReport = async () => {
+    if (!window.confirm('Delete this report? This cannot be undone.')) return;
+    try {
+      await api.delete(`/reports/events/${regEvent._id}`);
+      setEventReport(null);
+    } catch (err) {
+      alert(err?.message || 'Failed to delete report.');
+    }
+  };
+
   const handleReplaceSidePhoto = async (index, file) => {
     if (!file || !regEvent) return;
     const fd = new FormData();
@@ -1348,7 +1358,7 @@ export default function CoordEvents() {
                                     </div>
                                   )}
 
-                                  {/* Pause / End Game (live) */}
+                                  {/* Pause / End Game / Delete (live) */}
                                   {ls.status === 'live' && liveEndingId !== ls.id && (
                                     <div className={es.liveActions}>
                                       {ls.timerRunning
@@ -1362,6 +1372,7 @@ export default function CoordEvents() {
                                         else if (away > home) liveEndGame(ls.id, match.teamB);
                                         else setLiveEndingId(ls.id);
                                       }}>⏹ End</button>
+                                      <button className={es.liveDeleteBtn} disabled={isLiveUpdating} onClick={() => liveDeleteScore(ls.id)} title="Delete scoreboard">✕</button>
                                     </div>
                                   )}
 
@@ -1378,9 +1389,9 @@ export default function CoordEvents() {
                                     </div>
                                   )}
 
-                                  {/* Remove ended scoreboard */}
+                                  {/* Delete ended scoreboard */}
                                   {ls.status === 'ended' && (
-                                    <button className={es.liveDeleteBtn} style={{ fontSize: '.7rem', padding: '3px 8px', width: 'auto' }} onClick={() => liveDeleteScore(ls.id)}>Remove</button>
+                                    <button className={es.liveDeleteBtn} disabled={isLiveUpdating} onClick={() => liveDeleteScore(ls.id)} title="Delete scoreboard">✕</button>
                                   )}
                                 </>
                               ) : (
@@ -1470,28 +1481,18 @@ export default function CoordEvents() {
               <div className={es.reportPanel}>
                 {reportLoading ? (
                   <div className={es.reportPlaceholder}>Loading report…</div>
+                ) : !eventReport ? (
+                  <div className={es.reportPlaceholder}>
+                    <div>No report yet.</div>
+                    <button
+                      className={es.reportGenBtn}
+                      style={{ marginTop: 12 }}
+                      onClick={handleGenerateReport}
+                      disabled={reportGenerating}>
+                      {reportGenerating ? 'Generating…' : 'Generate Report'}
+                    </button>
+                  </div>
                 ) : (
-                  <>
-                    {/* Action bar */}
-                    <div className={es.reportActions}>
-                      <button
-                        className={es.reportGenBtn}
-                        onClick={handleGenerateReport}
-                        disabled={reportGenerating}>
-                        {reportGenerating ? 'Generating…' : eventReport ? 'Regenerate Report' : 'Generate Report'}
-                      </button>
-                      {eventReport && (
-                        <span className={es.reportSavedAt}>
-                          Saved {new Date(eventReport.updated_at).toLocaleString()}
-                        </span>
-                      )}
-                    </div>
-
-                    {!eventReport ? (
-                      <div className={es.reportPlaceholder}>
-                        No report yet. Click "Generate Report" to compile all event data.
-                      </div>
-                    ) : (
                       <>
                         {/* ── 1. PARTICIPANTS ── */}
                         {eventReport.participants?.length > 0 && (
@@ -1660,7 +1661,7 @@ export default function CoordEvents() {
                         )}
 
                         {/* ── 5. BRACKET PREVIEW (built from saved report data) ── */}
-                        {eventReport.fixtures?.length > 0 && eventReport.groups?.length > 0 && (() => {
+                        {eventReport.fixtures?.length > 0 && (() => {
                           /* Convert report snake_case → TournamentBracket camelCase format */
                           const bracketFixtures = eventReport.fixtures.map(f => ({
                             id:     String(f.id || ''),
@@ -1691,22 +1692,28 @@ export default function CoordEvents() {
                         {/* ── 5. TOURNAMENT WINNER ── */}
                         {(() => {
                           const fx = eventReport.fixtures || [];
-                          const completed = fx.filter(f => f.winner_name);
+                          /* count a fixture as completed if it has an explicit winner OR a decisive score */
+                          const completed = fx.filter(f =>
+                            f.winner_name ||
+                            (f.score_a != null && f.score_b != null && f.score_a !== f.score_b)
+                          );
                           if (!completed.length) return null;
                           /* prefer a fixture whose round says "final" (not semi/quarter) */
                           const finalFx =
                             completed.find(f => /final/i.test(f.round || '') && !/semi|quarter/i.test(f.round || '')) ||
                             completed[completed.length - 1];
-                          const opponent = finalFx.team_a_name === finalFx.winner_name
-                            ? finalFx.team_b_name : finalFx.team_a_name;
-                          const hasScore = finalFx.score_a != null && (finalFx.score_a > 0 || finalFx.score_b > 0 || finalFx.winner_name);
+                          /* infer winner from scores if not explicitly stored */
+                          const winnerName = finalFx.winner_name ||
+                            (finalFx.score_a > finalFx.score_b ? finalFx.team_a_name : finalFx.team_b_name);
+                          const opponent = winnerName === finalFx.team_a_name ? finalFx.team_b_name : finalFx.team_a_name;
+                          const hasScore = finalFx.score_a != null && (finalFx.score_a > 0 || finalFx.score_b > 0);
                           return (
                             <div className={es.reportSection}>
                               <div className={es.reportSectionTitle}>Tournament Winner</div>
                               <div className={es.reportWinnerBanner}>
                                 <span className={es.reportWinnerTrophy}>🏆</span>
                                 <div className={es.reportWinnerInfo}>
-                                  <div className={es.reportWinnerName}>{finalFx.winner_name}</div>
+                                  <div className={es.reportWinnerName}>{winnerName}</div>
                                   <div className={es.reportWinnerMeta}>
                                     {finalFx.round ? `${finalFx.round} · ` : ''}
                                     {hasScore ? `${finalFx.score_a} – ${finalFx.score_b} ` : ''}
@@ -1823,10 +1830,31 @@ export default function CoordEvents() {
                             )}
                           </div>
                         </div>
+                        {/* ── ACTION BAR (bottom of report) ── */}
+                        <div className={es.reportActions}>
+                          <button
+                            className={es.reportGenBtn}
+                            onClick={handleGenerateReport}
+                            disabled={reportGenerating || !!eventReport.submitted_at}
+                            title={eventReport.submitted_at ? 'Cannot regenerate a submitted report' : ''}>
+                            {reportGenerating ? 'Generating…' : 'Regenerate Report'}
+                          </button>
+                          <button
+                            className={es.reportDeleteBtn}
+                            onClick={handleDeleteReport}
+                            disabled={!!eventReport.submitted_at}
+                            title={eventReport.submitted_at ? 'Cannot delete: report has been submitted to admin' : ''}>
+                            Delete Report
+                          </button>
+                          {eventReport.submitted_at && (
+                            <span className={es.reportSubmittedBadge}>✓ Submitted</span>
+                          )}
+                          <span className={es.reportSavedAt}>
+                            Saved {new Date(eventReport.updated_at).toLocaleString()}
+                          </span>
+                        </div>
                       </>
                     )}
-                  </>
-                )}
               </div>
             )}
 
