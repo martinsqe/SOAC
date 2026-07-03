@@ -276,6 +276,7 @@ export default function CoordRequests() {
                       <div className={s.mName}>{r.name}</div>
                       <div className={s.mMeta}>
                         {[r.dept, r.year, r.enrollmentNo].filter(Boolean).join(' · ')}
+                        {r.gender && <span style={{ marginLeft: 6 }}>{r.gender}</span>}
                       </div>
                       {r.email && <div style={{ fontSize:11, color:'#888', marginTop:2 }}>{r.email}</div>}
                     </div>

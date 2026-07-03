@@ -207,9 +207,10 @@ function JoinRequestsPanel() {
                   "{r.message}"
                 </div>
               )}
-              <div style={{ marginTop:12, display:'flex', gap:10, fontSize:11, color:'#6b7280' }}>
+              <div style={{ marginTop:12, display:'flex', gap:10, fontSize:11, color:'#6b7280', flexWrap:'wrap', alignItems:'center' }}>
                 <span>ID: {r.enrollment_no}</span>
                 <span>{r.dept} · {r.year}</span>
+                {r.gender && <span>{r.gender}</span>}
               </div>
               {r.status === 'pending' && (
                 <div style={{ marginTop:16, display:'flex', gap:10 }}>

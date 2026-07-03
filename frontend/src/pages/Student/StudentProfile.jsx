@@ -337,9 +337,29 @@ export default function StudentProfile() {
               <p className={s.coinsNoClubs}>Join a club to start earning coins.</p>
             )}
 
+            {coinsData?.eventRewards?.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: '.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: '#9ca3af', marginBottom: 6 }}>
+                  Event Participation
+                </div>
+                {coinsData.eventRewards.map((r, i) => (
+                  <div key={i} className={s.coinsClubCard} style={{ marginBottom: 5 }}>
+                    <div className={s.coinsClubCardLeft}>
+                      <span className={s.coinsClubBar} style={{ background: '#059669' }} />
+                      <span className={s.coinsClubName}>{r.reason}</span>
+                    </div>
+                    <div className={s.coinsClubCardRight}>
+                      <span className={s.coinsClubAmount}>+{r.amount}</span>
+                      <span className={s.coinsClubUnit}>coins</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className={s.coinsTip} style={{marginTop:8}}>
               <span>🎁</span>
-              <span>Earn coins by attending sessions &amp; completing tasks</span>
+              <span>Earn coins by attending sessions, completing tasks &amp; joining events</span>
             </div>
           </div>
 
@@ -551,6 +571,31 @@ export default function StudentProfile() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* ── Event Participation Rewards (period-specific) ── */}
+            {weeklyData?.eventRewards?.list?.length > 0 && (
+              <div className={s.evalSection} style={{ marginTop: 14 }}>
+                <div className={s.evalSectionHead}>
+                  <span className={s.evalSectionIcon}>🏆</span>
+                  <span className={s.evalSectionTitle}>Event Participation Rewards</span>
+                  <span className={s.evalSectionCoins}>+{weeklyData.eventRewards.total} coins</span>
+                </div>
+                <div className={s.evalTaskList}>
+                  {weeklyData.eventRewards.list.map((r, i) => (
+                    <div key={i} className={s.evalTaskRow}>
+                      <span className={s.evalTaskCheck}>★</span>
+                      <span className={s.evalTaskName}>{r.reason}</span>
+                      <span className={s.evalTaskCoins}>+{r.amount} coins</span>
+                      {r.createdAt && (
+                        <span className={s.evalTaskDate}>
+                          {new Date(r.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </SectionCard>

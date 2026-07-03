@@ -425,12 +425,13 @@ const getMembers = async (req, res, next) => {
          COALESCE(jr.year,          '') AS year,
          COALESCE(jr.phone,         '') AS phone,
          COALESCE(jr.enrollment_no, '') AS "enrollmentNo",
+         COALESCE(jr.gender,        '') AS gender,
          COALESCE(jr.message,       '') AS message,
          COUNT(*) OVER()               AS total_count
        FROM student_clubs sc
        JOIN users u ON u.id = sc.user_id
        LEFT JOIN LATERAL (
-         SELECT dept, year, phone, enrollment_no, message
+         SELECT dept, year, phone, enrollment_no, gender, message
          FROM   join_requests
          WHERE  club_id = $1::bigint
            AND  email   = u.email
@@ -502,12 +503,13 @@ const getAllMembers = async (req, res, next) => {
          COALESCE(jr.year,          '') AS year,
          COALESCE(jr.phone,         '') AS phone,
          COALESCE(jr.enrollment_no, '') AS "enrollmentNo",
+         COALESCE(jr.gender,        '') AS gender,
          COALESCE(jr.message,       '') AS message,
          COUNT(*) OVER()               AS total_count
        FROM student_clubs sc
        JOIN users u ON u.id = sc.user_id
        LEFT JOIN LATERAL (
-         SELECT dept, year, phone, enrollment_no, message
+         SELECT dept, year, phone, enrollment_no, gender, message
          FROM   join_requests
          WHERE  club_id = sc.club_id
            AND  email   = u.email

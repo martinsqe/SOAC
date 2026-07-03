@@ -133,7 +133,7 @@ function ClubCard({ club, clubId, enrolled, maxReached, onJoin }) {
 
 const CATS = ['sports', 'cultural', 'social', 'academic'];
 
-const EMPTY_FORM = { name: '', email: '', phone: '', enrollmentNo: '', dept: '', year: '', message: '' };
+const EMPTY_FORM = { name: '', email: '', phone: '', enrollmentNo: '', dept: '', year: '', gender: '', message: '' };
 
 const EMPTY_PROPOSAL = {
   club_name: '', category: 'academic', color: '#635BFF',
@@ -213,8 +213,9 @@ export default function StudentClubs() {
     } else if (!form.email.trim().toLowerCase().endsWith('@rku.ac.in')) {
       e.email = 'Only RKU institutional emails are accepted (e.g. yourname@rku.ac.in)';
     }
-    if (!form.dept)         e.dept  = 'Required';
-    if (!form.year)         e.year  = 'Required';
+    if (!form.dept)         e.dept   = 'Required';
+    if (!form.year)         e.year   = 'Required';
+    if (!form.gender)       e.gender = 'Required';
     setFormErr(e);
     return Object.keys(e).length === 0;
   };
@@ -233,6 +234,7 @@ export default function StudentClubs() {
         enrollmentNo:form.enrollmentNo.trim(),
         dept:        form.dept,
         year:        form.year,
+        gender:      form.gender,
         message:     form.message.trim(),
       });
       setJoinClub(null);
@@ -601,6 +603,15 @@ export default function StudentClubs() {
                   </select>
                   {formErr.year && <span className={s.mErr}>{formErr.year}</span>}
                 </div>
+              </div>
+              <div className={s.mField}>
+                <label>Gender *</label>
+                <select value={form.gender} onChange={sf('gender')}>
+                  <option value="">Select gender…</option>
+                  <option value="M">Male (M)</option>
+                  <option value="F">Female (F)</option>
+                </select>
+                {formErr.gender && <span className={s.mErr}>{formErr.gender}</span>}
               </div>
               <div className={s.mField}>
                 <label>Why do you want to join? (optional)</label>

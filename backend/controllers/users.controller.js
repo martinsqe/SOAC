@@ -240,15 +240,36 @@ const myCoins = async (req, res, next) => {
       [req.user.id]
     );
 
-    const totalCoins = progRows.reduce((s, r) => s + (r.coins || 0), 0);
+    const xpCoins    = progRows.reduce((s, r) => s + (r.coins || 0), 0);
 
-    /* Global rank — count students with more coins */
+    /* Event participation coins from coin_transactions */
+    const { rows: ctRows } = await pgPool.query(
+      `SELECT COALESCE(SUM(amount), 0)::int AS event_coins FROM coin_transactions WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const eventCoins = ctRows[0]?.event_coins || 0;
+    const totalCoins = xpCoins + eventCoins;
+
+    /* Event rewards list for wallet display */
+    const { rows: eventRewardRows } = await pgPool.query(
+      `SELECT ct.amount, ct.reason, ct.created_at,
+              e.title AS event_title
+       FROM coin_transactions ct
+       LEFT JOIN events e ON e.id::text = ct.entity_id AND ct.entity_type = 'event_clearance'
+       WHERE ct.user_id = $1 AND ct.entity_type = 'event_clearance'
+       ORDER BY ct.created_at DESC LIMIT 20`,
+      [req.user.id]
+    );
+
+    /* Global rank — count students with more coins (includes event coins) */
     const { rows: rankRows } = await pgPool.query(
       `SELECT COUNT(*)::int AS ahead
        FROM (
-         SELECT FLOOR(SUM(COALESCE(mp2.xp,0)::float * CASE COALESCE(mp2.level,'Beginner')
-           WHEN 'Expert' THEN 3 WHEN 'Advanced' THEN 2 WHEN 'Alumni' THEN 2
-           WHEN 'Intermediate' THEN 1.5 ELSE 1 END))::int AS c
+         SELECT sc2.user_id,
+                FLOOR(SUM(COALESCE(mp2.xp,0)::float * CASE COALESCE(mp2.level,'Beginner')
+                  WHEN 'Expert' THEN 3 WHEN 'Advanced' THEN 2 WHEN 'Alumni' THEN 2
+                  WHEN 'Intermediate' THEN 1.5 ELSE 1 END))::int +
+                COALESCE((SELECT SUM(ct.amount) FROM coin_transactions ct WHERE ct.user_id = sc2.user_id), 0)::int AS c
          FROM student_clubs sc2
          JOIN users u2 ON u2.id = sc2.user_id AND u2.is_active = true AND u2.role = 'student'
          LEFT JOIN member_progress mp2 ON mp2.user_id = sc2.user_id AND mp2.club_id = sc2.club_id
@@ -258,7 +279,17 @@ const myCoins = async (req, res, next) => {
     );
     const rank = (rankRows[0]?.ahead ?? 0) + 1;
 
-    res.json({ coins: totalCoins, rank, clubs: progRows });
+    res.json({
+      coins: totalCoins,
+      rank,
+      clubs: progRows,
+      eventCoins,
+      eventRewards: eventRewardRows.map(r => ({
+        amount:    r.amount,
+        reason:    r.event_title || r.reason,
+        createdAt: r.created_at,
+      })),
+    });
   } catch (err) { next(err); }
 };
 
@@ -448,6 +479,19 @@ const weeklyEvaluation = async (req, res, next) => {
     );
     const progMap = Object.fromEntries(progRows.map(p => [String(p.club_id), p]));
 
+    /* Event participation coins earned in this period (not club-specific) */
+    const { rows: evCoinRows } = await pgPool.query(
+      `SELECT ct.amount, ct.reason, ct.created_at,
+              e.title AS event_title
+       FROM coin_transactions ct
+       LEFT JOIN events e ON e.id::text = ct.entity_id AND ct.entity_type = 'event_clearance'
+       WHERE ct.user_id = $1
+         AND ct.entity_type = 'event_clearance'
+         AND ct.created_at::date BETWEEN $2::date AND $3::date
+       ORDER BY ct.created_at ASC`,
+      [userId, range.start, range.end]
+    );
+
     /* Motivational message for this period */
     const motMsg = getMotivationalMsg(period, range);
 
@@ -525,6 +569,14 @@ const weeklyEvaluation = async (req, res, next) => {
       period,
       dateRange: range,
       clubs: clubData,
+      eventRewards: {
+        total: evCoinRows.reduce((s, r) => s + (r.amount || 0), 0),
+        list:  evCoinRows.map(r => ({
+          amount:    r.amount,
+          reason:    r.event_title || r.reason,
+          createdAt: r.created_at,
+        })),
+      },
       notifications: notifs.map(n => ({
         id:        String(n.id),
         clubId:    n.club_id ? String(n.club_id) : null,

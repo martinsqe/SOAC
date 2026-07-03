@@ -651,13 +651,14 @@ export default function CoordEvents() {
 
   const exportCSV = () => {
     if (!regs.length) return;
-    const headers = ['#', 'Name', 'Enrollment No', 'Department', 'Course', 'Mobile', 'Email', 'Registered At'];
+    const headers = ['#', 'Name', 'Enrollment No', 'Department', 'Course', 'Gender', 'Mobile', 'Email', 'Registered At'];
     const rows2 = regs.map((r, i) => [
       i + 1,
       `"${r.name || ''}"`,
       r.enrollment_no || '',
       r.dept || '',
       `"${r.course || ''}"`,
+      r.gender || '',
       r.phone || '',
       r.email || '',
       r.registered_at ? new Date(r.registered_at).toLocaleString('en-IN') : '',
@@ -920,7 +921,7 @@ export default function CoordEvents() {
                     <thead>
                       <tr>
                         <th>#</th><th>Name</th><th>Enrollment No.</th>
-                        <th>Dept</th><th>Course</th><th>Mobile</th>
+                        <th>Dept</th><th>Course</th><th>Gender</th><th>Mobile</th>
                         <th>Email</th><th>Registered At</th>
                       </tr>
                     </thead>
@@ -932,6 +933,7 @@ export default function CoordEvents() {
                           <td><span className={es.regsBadge}>{r.enrollment_no || '—'}</span></td>
                           <td><span className={es.regsDept}>{r.dept || '—'}</span></td>
                           <td>{r.course || '—'}</td>
+                          <td>{r.gender || '—'}</td>
                           <td>{r.phone || '—'}</td>
                           <td className={es.regsEmail}>{r.email || '—'}</td>
                           <td className={es.regsDate}>

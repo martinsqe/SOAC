@@ -96,9 +96,9 @@ export default function CoordMembers() {
 
   /* ── CSV export ── */
   const exportCSV = () => {
-    const header = 'Name,Enrollment No,Email,Phone,Department,Year,Club,Joined';
+    const header = 'Name,Enrollment No,Email,Phone,Department,Year,Gender,Club,Joined';
     const rows   = members.map(m =>
-      [m.name, m.enrollmentNo, m.email, m.phone, m.dept, m.year, m.club_name, fmt(m.joined_at)]
+      [m.name, m.enrollmentNo, m.email, m.phone, m.dept, m.year, m.gender || '', m.club_name, fmt(m.joined_at)]
         .map(v => `"${String(v || '').replace(/"/g, '""')}"`)
         .join(',')
     );
@@ -225,7 +225,7 @@ export default function CoordMembers() {
         </div>
       ) : (
         <div className={s.tableCard} style={{ overflowX: 'auto' }}>
-          <table className={s.table} style={{ minWidth: 780 }}>
+          <table className={s.table} style={{ minWidth: 860 }}>
             <thead>
               <tr>
                 <th style={{ width: 40 }}>#</th>
@@ -234,6 +234,7 @@ export default function CoordMembers() {
                 <th>Phone</th>
                 <th>Department</th>
                 <th>Year</th>
+                <th>Gender</th>
                 <th>Joined</th>
               </tr>
             </thead>
@@ -279,6 +280,7 @@ export default function CoordMembers() {
                       ? <span style={{ background: '#f0fdf4', color: '#15803d', padding: '2px 9px', borderRadius: 4, fontSize: '.78rem', fontWeight: 600 }}>{m.year}</span>
                       : <span className={s.muted}>—</span>}
                   </td>
+                  <td className={s.muted}>{m.gender || '—'}</td>
                   <td className={s.muted} style={{ whiteSpace: 'nowrap' }}>{fmt(m.joined_at)}</td>
                 </tr>
               ))}
@@ -340,6 +342,7 @@ export default function CoordMembers() {
                   { label: 'Phone',         value: detail.phone        || '—' },
                   { label: 'Department',    value: detail.dept         || '—' },
                   { label: 'Year',          value: detail.year         || '—' },
+                  { label: 'Gender',        value: detail.gender       || '—' },
                   { label: 'Club',          value: detail.club_name    || '—' },
                   { label: 'Joined',        value: fmt(detail.joined_at) },
                 ].map(({ label, value, mono }) => (

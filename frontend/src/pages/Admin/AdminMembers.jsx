@@ -360,9 +360,9 @@ function ClubMembersTab({ clubs }) {
 
   /* CSV export */
   const exportCSV = () => {
-    const header = 'Name,Enrollment No,Email,Phone,Department,Year,Club,Joined';
+    const header = 'Name,Enrollment No,Email,Phone,Department,Year,Gender,Club,Joined';
     const rows   = members.map(m =>
-      [m.name, m.enrollmentNo, m.email, m.phone, m.dept, m.year, m.club_name, fmtDate(m.joined_at)]
+      [m.name, m.enrollmentNo, m.email, m.phone, m.dept, m.year, m.gender || '', m.club_name, fmtDate(m.joined_at)]
         .map(v => `"${String(v||'').replace(/"/g,'""')}"`)
         .join(',')
     );
@@ -473,6 +473,7 @@ function ClubMembersTab({ clubs }) {
                 <th>Phone</th>
                 <th>Department</th>
                 <th>Year</th>
+                <th>Gender</th>
                 <th>Club</th>
                 <th>Joined</th>
               </tr>
@@ -510,6 +511,7 @@ function ClubMembersTab({ clubs }) {
                       ? <span style={{ background:'#f0fdf4', color:'#15803d', padding:'2px 9px', borderRadius:6, fontSize:'.78rem', fontWeight:600 }}>{m.year}</span>
                       : <span className={s.muted}>—</span>}
                   </td>
+                  <td data-label="Gender" className={s.muted}>{m.gender || '—'}</td>
                   <td data-label="Club">
                     <span style={{ background:'#faf5ff', color:'#7c3aed', padding:'2px 9px', borderRadius:6, fontSize:'.78rem', fontWeight:600 }}>
                       {m.club_name}
@@ -578,6 +580,7 @@ function ClubMembersTab({ clubs }) {
                 { label:'Phone',         value: detail.phone        || '—' },
                 { label:'Department',    value: detail.dept         || '—' },
                 { label:'Year',          value: detail.year         || '—' },
+                { label:'Gender',        value: detail.gender       || '—' },
                 { label:'Club',          value: detail.club_name    || '—' },
                 { label:'Joined',        value: fmtDate(detail.joined_at) },
               ].map(({ label, value, mono }) => (
