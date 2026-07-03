@@ -21,6 +21,7 @@ const NAV = [
   { to: '/coordinator/calendar',  label: 'College Calendar'    },
   { to: '/coordinator/fame',      label: 'Wall of Fame'        },
   { to: '/coordinator/my-club',   label: 'My Club'             },
+  { to: '/coordinator/reports',   label: 'Reports'             },
 ];
 
 /* Renders page content or a gate screen if the coordinator has no club assigned */

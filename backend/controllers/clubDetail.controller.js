@@ -946,23 +946,26 @@ const endLiveScore = async (req, res, next) => {
         }
       };
 
+      const homeScore = Number(current.team_score     || 0);
+      const awayScore = Number(current.opponent_score || 0);
+
       if (current.fixture_id) {
-        /* Explicitly linked fixture — update directly */
+        /* Explicitly linked fixture — update winner + scores */
         pgPool.query(
-          `UPDATE event_fixtures SET winner_name = $1 WHERE id = $2::bigint`,
-          [winnerName, current.fixture_id]
+          `UPDATE event_fixtures SET winner_name = $1, score_a = $2, score_b = $3 WHERE id = $4::bigint`,
+          [winnerName, homeScore, awayScore, current.fixture_id]
         ).then(() => broadcastResult(current.fixture_id, current.event_id)).catch(() => {});
       } else if (current.home_team && current.opponent_name) {
-        /* No fixture link — try to find a unique match by team names */
+        /* No fixture link — find by team names and write scores too */
         pgPool.query(
           `SELECT id, event_id FROM event_fixtures
            WHERE winner_name IS NULL AND team_a_name = $1 AND team_b_name = $2`,
           [current.home_team, current.opponent_name]
         ).then(({ rows: fx }) => {
-          if (fx.length !== 1) return; // ambiguous or not found — skip
+          if (fx.length !== 1) return;
           return pgPool.query(
-            `UPDATE event_fixtures SET winner_name = $1 WHERE id = $2::bigint`,
-            [winnerName, fx[0].id]
+            `UPDATE event_fixtures SET winner_name = $1, score_a = $2, score_b = $3 WHERE id = $4::bigint`,
+            [winnerName, homeScore, awayScore, fx[0].id]
           ).then(() => broadcastResult(fx[0].id, fx[0].event_id));
         }).catch(() => {});
       }

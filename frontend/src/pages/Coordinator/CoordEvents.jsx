@@ -76,7 +76,14 @@ export default function CoordEvents() {
   const [regs,        setRegs]        = useState([]);
   const [regsLoading, setRegsLoading] = useState(false);
   const [regSearch,   setRegSearch]   = useState('');
-  const [regsTab,     setRegsTab]     = useState('list'); // 'list' | 'teams' | 'groups' | 'fixtures'
+  const [regsTab,     setRegsTab]     = useState('list'); // 'list' | 'teams' | 'groups' | 'fixtures' | 'scoreboard' | 'report'
+
+  /* ── Report state ── */
+  const [eventReport,     setEventReport]     = useState(null);
+  const [reportLoading,   setReportLoading]   = useState(false);
+  const [reportGenerating, setReportGenerating] = useState(false);
+  const [reportPhotoFiles, setReportPhotoFiles] = useState([]);
+  const [mvpPhotoUploading, setMvpPhotoUploading] = useState(false);
 
   /* ── Groups state ── */
   const [groups,       setGroups]      = useState([]);
@@ -241,6 +248,8 @@ export default function CoordEvents() {
     setFixturesDeclared(ev.fixtures_declared || false);
     setRegSearch('');
     setRegsTab('list');
+    setEventReport(null);
+    setReportPhotoFiles([]);
     setExpandedTeams(new Set());
     setNewTeamName('');
     setNewTeamSize('');
@@ -282,6 +291,64 @@ export default function CoordEvents() {
         setFixtures(groups);
       })
       .catch(() => { setFixtures([]); setFlatFixtures([]); });
+  };
+
+  const loadEventReport = async (eventId) => {
+    setReportLoading(true);
+    try {
+      const d = await api.get(`/reports/events/${eventId}`);
+      setEventReport(d.report || null);
+    } catch { setEventReport(null); }
+    finally { setReportLoading(false); }
+  };
+
+  const handleGenerateReport = async () => {
+    if (!regEvent) return;
+    setReportGenerating(true);
+    try {
+      const d = await api.post(`/reports/events/${regEvent._id}/generate`, { clubId: regEvent.club_id || regEvent.clubId });
+      setEventReport(d.report);
+    } catch (err) {
+      alert(err?.message || 'Failed to generate report.');
+    } finally { setReportGenerating(false); }
+  };
+
+  const handleMvpPhotoUpload = async (file) => {
+    if (!file || !regEvent) return;
+    setMvpPhotoUploading(true);
+    const fd = new FormData();
+    fd.append('photo', file);
+    try {
+      const d = await api.patchForm(`/reports/events/${regEvent._id}/mvp-photo`, fd);
+      setEventReport(d.report);
+    } catch (err) {
+      alert(err?.message || 'Failed to upload MVP photo.');
+    } finally { setMvpPhotoUploading(false); }
+  };
+
+  const handleReplaceSidePhoto = async (index, file) => {
+    if (!file || !regEvent) return;
+    const fd = new FormData();
+    fd.append('photo', file);
+    try {
+      const d = await api.patchForm(`/reports/events/${regEvent._id}/photos/${index}`, fd);
+      setEventReport(d.report);
+    } catch (err) {
+      alert(err?.message || 'Failed to upload photo.');
+    }
+  };
+
+  const handleUploadReportPhotos = async () => {
+    if (!reportPhotoFiles.length || !regEvent) return;
+    const fd = new FormData();
+    reportPhotoFiles.forEach(f => fd.append('photos', f));
+    try {
+      const d = await api.patchForm(`/reports/events/${regEvent._id}/photos`, fd);
+      setEventReport(d.report);
+      setReportPhotoFiles([]);
+    } catch (err) {
+      alert(err?.message || 'Failed to upload photos.');
+    }
   };
 
   /* ── Real-time bracket advancement via socket ── */
@@ -894,6 +961,11 @@ export default function CoordEvents() {
                   onClick={() => setRegsTab('scoreboard')}>
                   Scoreboard {eventLiveScores.some(s => s.status === 'live') && <span className={es.declaredBadge} style={{ background: '#fee2e2', color: '#dc2626' }}>🔴 Live</span>}
                 </button>
+                <button
+                  className={`${es.regsSubTab} ${regsTab === 'report' ? es.regsSubTabOn : ''}`}
+                  onClick={() => { setRegsTab('report'); if (!eventReport) loadEventReport(regEvent._id); }}>
+                  Report {eventReport && <span className={es.declaredBadge} style={{ background: '#dcfce7', color: '#16a34a' }}>Saved</span>}
+                </button>
               </>)}
             </div>
 
@@ -1369,6 +1441,324 @@ export default function CoordEvents() {
                       </div>
                     </div>
                   ))
+                )}
+              </div>
+            )}
+
+            {/* ── REPORT TAB ── */}
+            {regsTab === 'report' && (
+              <div className={es.reportPanel}>
+                {reportLoading ? (
+                  <div className={es.reportPlaceholder}>Loading report…</div>
+                ) : (
+                  <>
+                    {/* Action bar */}
+                    <div className={es.reportActions}>
+                      <button
+                        className={es.reportGenBtn}
+                        onClick={handleGenerateReport}
+                        disabled={reportGenerating}>
+                        {reportGenerating ? 'Generating…' : eventReport ? 'Regenerate Report' : 'Generate Report'}
+                      </button>
+                      {eventReport && (
+                        <span className={es.reportSavedAt}>
+                          Saved {new Date(eventReport.updated_at).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+
+                    {!eventReport ? (
+                      <div className={es.reportPlaceholder}>
+                        No report yet. Click "Generate Report" to compile all event data.
+                      </div>
+                    ) : (
+                      <>
+                        {/* ── 1. PARTICIPANTS ── */}
+                        {eventReport.participants?.length > 0 && (
+                          <div className={es.reportSection}>
+                            <div className={es.reportSectionTitle}>Participants ({eventReport.participants.length})</div>
+                            <div className={es.reportTableWrap}>
+                              <table className={es.reportTable}>
+                                <thead>
+                                  <tr>
+                                    <th>#</th><th>Name</th><th>Enrollment</th><th>Gender</th><th>Dept</th><th>Course</th>
+                                    <th>PTS</th><th>AST</th><th>REB</th><th>STL</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(() => {
+                                    const statMap = {};
+                                    (eventReport.match_mvps || []).forEach(m => {
+                                      if (!m.player_name) return;
+                                      const k = m.player_name.trim().toLowerCase();
+                                      if (!statMap[k]) statMap[k] = { PTS:0, AST:0, REB:0, STL:0 };
+                                      statMap[k].PTS += Number(m.stats?.PTS ?? 0);
+                                      statMap[k].AST += Number(m.stats?.AST ?? 0);
+                                      statMap[k].REB += Number(m.stats?.REB ?? 0);
+                                      statMap[k].STL += Number(m.stats?.STL ?? 0);
+                                    });
+                                    const genderLabel = g => g === 'M' ? 'Male' : g === 'F' ? 'Female' : g === 'O' ? 'Other' : '—';
+                                    return eventReport.participants.map((p, i) => {
+                                      const st = statMap[p.name?.trim().toLowerCase()] || {};
+                                      return (
+                                        <tr key={p.id || i}>
+                                          <td>{i + 1}</td>
+                                          <td>{p.name}</td>
+                                          <td>{p.enrollment_no || '—'}</td>
+                                          <td>{genderLabel(p.gender)}</td>
+                                          <td>{p.dept || '—'}</td>
+                                          <td>{p.course || '—'}</td>
+                                          <td className={es.reportStatCell}>{st.PTS || '—'}</td>
+                                          <td className={es.reportStatCell}>{st.AST || '—'}</td>
+                                          <td className={es.reportStatCell}>{st.REB || '—'}</td>
+                                          <td className={es.reportStatCell}>{st.STL || '—'}</td>
+                                        </tr>
+                                      );
+                                    });
+                                  })()}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* ── 2. GROUPS & TEAMS ── */}
+                        {(eventReport.groups?.length > 0 || eventReport.teams?.length > 0) && (
+                          <div className={es.reportSection}>
+                            <div className={es.reportSectionTitle}>Groups &amp; Teams</div>
+                            {eventReport.groups?.length > 0 ? (
+                              <div className={es.reportGroupsWrap}>
+                                {eventReport.groups.map(g => (
+                                  <div key={g.id} className={es.reportGroupBlock}>
+                                    <div className={es.reportGroupName}>{g.name}</div>
+                                    <div className={es.reportTeamsGrid}>
+                                      {(g.teams || []).map(t => (
+                                        <div key={t.id} className={es.reportTeamCard}>
+                                          <div className={es.reportTeamName}>{t.name}</div>
+                                          {t.members?.length > 0 && (
+                                            <ul className={es.reportTeamMembers}>
+                                              {t.members.map((m, i) => <li key={i}>{m.name}</li>)}
+                                            </ul>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className={es.reportTeamsGrid}>
+                                {eventReport.teams.map(t => (
+                                  <div key={t.id} className={es.reportTeamCard}>
+                                    <div className={es.reportTeamName}>{t.name}</div>
+                                    {t.members?.length > 0 && (
+                                      <ul className={es.reportTeamMembers}>
+                                        {t.members.map((m, i) => <li key={i}>{m.name}</li>)}
+                                      </ul>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* ── 3. FIXTURES / RESULTS ── */}
+                        {eventReport.fixtures?.length > 0 && (
+                          <div className={es.reportSection}>
+                            <div className={es.reportSectionTitle}>Match Results</div>
+                            <div className={es.reportTableWrap}>
+                              <table className={es.reportTable}>
+                                <thead>
+                                  <tr>
+                                    <th>Round</th><th>Team A</th><th>Score</th><th>Team B</th><th>Winner</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {eventReport.fixtures.map((f, i) => (
+                                    <tr key={f.id || i}>
+                                      <td>{f.round || '—'}</td>
+                                      <td>{f.team_a_name}</td>
+                                      <td className={es.reportScore}>
+                                        {f.winner_name && f.score_a != null ? `${f.score_a} – ${f.score_b}` : f.score_a != null && (f.score_a > 0 || f.score_b > 0) ? `${f.score_a} – ${f.score_b}` : 'vs'}
+                                      </td>
+                                      <td>{f.team_b_name}</td>
+                                      <td>{f.winner_name || '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* ── 4. BRACKET PREVIEW (built from saved report data) ── */}
+                        {eventReport.fixtures?.length > 0 && eventReport.groups?.length > 0 && (() => {
+                          /* Convert report snake_case → TournamentBracket camelCase format */
+                          const bracketFixtures = eventReport.fixtures.map(f => ({
+                            id:     String(f.id || ''),
+                            teamA:  f.team_a_name,
+                            teamB:  f.team_b_name,
+                            scoreA: f.score_a,
+                            scoreB: f.score_b,
+                            winner: f.winner_name || null,
+                            round:  f.round || '',
+                          }));
+                          /* Groups: keep only id/name/teams — members not needed by bracket */
+                          const bracketGroups = eventReport.groups.map(g => ({
+                            id:   String(g.id || ''),
+                            name: g.name,
+                            sortOrder: g.sort_order ?? g.sortOrder ?? 0,
+                            teams: (g.teams || []).map(t => ({ id: String(t.id || ''), name: t.name })),
+                          }));
+                          return (
+                            <div className={es.reportSection}>
+                              <div className={es.reportSectionTitle}>Tournament Bracket</div>
+                              <div className={es.reportBracketWrap}>
+                                <TournamentBracket groups={bracketGroups} fixtures={bracketFixtures} />
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* ── 5. TOURNAMENT WINNER ── */}
+                        {(() => {
+                          const fx = eventReport.fixtures || [];
+                          const completed = fx.filter(f => f.winner_name);
+                          if (!completed.length) return null;
+                          /* prefer a fixture whose round says "final" (not semi/quarter) */
+                          const finalFx =
+                            completed.find(f => /final/i.test(f.round || '') && !/semi|quarter/i.test(f.round || '')) ||
+                            completed[completed.length - 1];
+                          const opponent = finalFx.team_a_name === finalFx.winner_name
+                            ? finalFx.team_b_name : finalFx.team_a_name;
+                          const hasScore = finalFx.score_a != null && (finalFx.score_a > 0 || finalFx.score_b > 0 || finalFx.winner_name);
+                          return (
+                            <div className={es.reportSection}>
+                              <div className={es.reportSectionTitle}>Tournament Winner</div>
+                              <div className={es.reportWinnerBanner}>
+                                <span className={es.reportWinnerTrophy}>🏆</span>
+                                <div className={es.reportWinnerInfo}>
+                                  <div className={es.reportWinnerName}>{finalFx.winner_name}</div>
+                                  <div className={es.reportWinnerMeta}>
+                                    {finalFx.round ? `${finalFx.round} · ` : ''}
+                                    {hasScore ? `${finalFx.score_a} – ${finalFx.score_b} ` : ''}
+                                    vs {opponent}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* ── 6. TOURNAMENT MVP CARD ── */}
+                        {eventReport.tournament_mvp && (
+                          <div className={es.reportSection}>
+                            <div className={es.reportSectionTitle}>Tournament MVP</div>
+                            <div className={es.reportMvpCardWrap}>
+                              <div className={es.reportMvpSideWrap}>
+                                {eventReport.photos?.[0]
+                                  ? <img src={eventReport.photos[0]} alt="" className={es.reportMvpSidePhoto} />
+                                  : <div className={es.reportMvpSideFallback} />
+                                }
+                                <label className={es.reportMvpSideBtn}>
+                                  📷 Set Photo
+                                  <input type="file" accept="image/*" style={{ display: 'none' }}
+                                    onChange={e => e.target.files[0] && handleReplaceSidePhoto(0, e.target.files[0])} />
+                                </label>
+                              </div>
+                              <div className={es.reportMvpCard8}>
+                                {/* Full-bleed background photo */}
+                                {eventReport.tournament_mvp.photo
+                                  ? <img src={eventReport.tournament_mvp.photo} alt="mvp bg" className={es.reportMvpBg} />
+                                  : <div className={es.reportMvpBgFallback} />
+                                }
+                                {/* Dark gradient overlay */}
+                                <div className={es.reportMvpOverlay} />
+
+                                {/* Photo upload strip — bottom of card */}
+                                <label className={es.reportMvpUploadBtn}>
+                                  {mvpPhotoUploading ? 'Uploading…' : '📷 Set MVP Photo'}
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    style={{ display: 'none' }}
+                                    disabled={mvpPhotoUploading}
+                                    onChange={e => e.target.files[0] && handleMvpPhotoUpload(e.target.files[0])}
+                                  />
+                                </label>
+
+                                {/* Content */}
+                                <div className={es.reportMvpContent}>
+                                  <div className={es.reportMvpLabel}>MVP</div>
+                                  <div className={es.reportMvpCardName}>
+                                    {(eventReport.tournament_mvp.player_name || '').split(' ').map((w, i) => (
+                                      <span key={i} style={{ display: 'block' }}>{w}</span>
+                                    ))}
+                                  </div>
+                                  <div className={es.reportMvpCardStats}>
+                                    {[['PTS', eventReport.tournament_mvp.stats?.PTS],
+                                      ['AST', eventReport.tournament_mvp.stats?.AST],
+                                      ['REB', eventReport.tournament_mvp.stats?.REB],
+                                      ['STL', eventReport.tournament_mvp.stats?.STL],
+                                    ].filter(([, v]) => v > 0).map(([k, v]) => (
+                                      <div key={k} className={es.reportMvpCardChip}>
+                                        <span className={es.reportMvpCardVal}>{v}</span>
+                                        <span className={es.reportMvpCardKey}>{k}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className={es.reportMvpSideWrap}>
+                                {eventReport.photos?.[1]
+                                  ? <img src={eventReport.photos[1]} alt="" className={es.reportMvpSidePhoto} />
+                                  : <div className={es.reportMvpSideFallback} />
+                                }
+                                <label className={es.reportMvpSideBtn}>
+                                  📷 Set Photo
+                                  <input type="file" accept="image/*" style={{ display: 'none' }}
+                                    onChange={e => e.target.files[0] && handleReplaceSidePhoto(1, e.target.files[0])} />
+                                </label>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* ── 6. EVENT PHOTOS ── */}
+                        <div className={es.reportSection}>
+                          <div className={es.reportSectionTitle}>Event Photos</div>
+                          {eventReport.photos?.length > 0 && (
+                            <div className={es.reportPhotosRow}>
+                              {eventReport.photos.map((url, i) => (
+                                <img key={i} src={url} alt={`photo-${i}`} className={es.reportPhotoCard} />
+                              ))}
+                            </div>
+                          )}
+                          <div className={es.reportPhotoUpload}>
+                            <label className={es.reportPhotoLabel}>
+                              Choose photos (up to 5)
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                style={{ display: 'none' }}
+                                onChange={e => setReportPhotoFiles(Array.from(e.target.files).slice(0, 5))}
+                              />
+                            </label>
+                            {reportPhotoFiles.length > 0 && (
+                              <>
+                                <span className={es.reportSavedAt}>{reportPhotoFiles.length} file{reportPhotoFiles.length > 1 ? 's' : ''} selected</span>
+                                <button className={es.reportGenBtn} onClick={handleUploadReportPhotos}>
+                                  Upload
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </>
                 )}
               </div>
             )}

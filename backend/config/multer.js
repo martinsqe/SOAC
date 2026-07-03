@@ -69,6 +69,7 @@ const uploadLeadership = multer({ storage: makeStorage('leadership'), fileFilter
    inside a proper try/catch — avoids the "socket hang up" crash from unhandled
    stream errors that multer-storage-cloudinary can emit. */
 const uploadAvatar   = multer({ storage: multer.memoryStorage(), fileFilter: imageFilter, limits: { fileSize: 5 * 1024 * 1024 } });
-const uploadMvpPhoto = multer({ storage: makeStorage('mvp'),    fileFilter: imageFilter, limits: { fileSize: 5 * 1024 * 1024 } });
+const uploadMvpPhoto    = multer({ storage: makeStorage('mvp'),           fileFilter: imageFilter, limits: { fileSize: 5  * 1024 * 1024 } });
+const uploadReportPhoto = multer({ storage: makeStorage('report-photos'), fileFilter: imageFilter, limits: { fileSize: 10 * 1024 * 1024 } });
 
-module.exports = { uploadLogo, uploadEvent, uploadAvatar, uploadFame, uploadLeadership, uploadMvpPhoto, getFileValue, cloudinaryInstance, useCloudinary };
+module.exports = { uploadLogo, uploadEvent, uploadAvatar, uploadFame, uploadLeadership, uploadMvpPhoto, uploadReportPhoto, getFileValue, cloudinaryInstance, useCloudinary };

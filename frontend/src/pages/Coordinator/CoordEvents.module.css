@@ -655,6 +655,403 @@
   padding: 40px 20px;
   font-size: .9rem;
 }
+
+/* ══ Report tab ══ */
+.reportPanel {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  overflow-y: auto;
+}
+.reportPlaceholder {
+  text-align: center;
+  color: #9ca3af;
+  padding: 40px 20px;
+  font-size: .9rem;
+}
+.reportActions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.reportGenBtn {
+  padding: 9px 22px;
+  background: #635bff;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: .85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s;
+}
+.reportGenBtn:hover:not(:disabled) { background: #4f46e5; }
+.reportGenBtn:disabled { opacity: .5; cursor: default; }
+.reportSavedAt {
+  font-size: .78rem;
+  color: #9ca3af;
+}
+.reportSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.reportSectionTitle {
+  font-size: .78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: #635bff;
+  border-bottom: 2px solid #635bff22;
+  padding-bottom: 7px;
+}
+/* Participants table */
+.reportTableWrap {
+  overflow-x: auto;
+  border-radius: 10px;
+  border: 1.5px solid #e5e7eb;
+}
+.reportTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .8rem;
+}
+.reportTable th {
+  background: #f4f3ff;
+  color: #374151;
+  font-weight: 700;
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1.5px solid #e5e7eb;
+  white-space: nowrap;
+}
+.reportTable td {
+  padding: 7px 12px;
+  border-bottom: 1px solid #f0f0f5;
+  color: #374151;
+}
+.reportTable tr:last-child td { border-bottom: none; }
+.reportScore {
+  font-weight: 800;
+  color: #635bff;
+  text-align: center;
+}
+.reportStatCell {
+  text-align: center;
+  font-weight: 700;
+  color: #635bff;
+  font-size: .78rem;
+}
+/* Groups & teams */
+.reportGroupsWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.reportGroupBlock {
+  background: #f4f3ff;
+  border: 1.5px solid #635bff22;
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.reportGroupName {
+  font-size: .8rem;
+  font-weight: 800;
+  color: #635bff;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-bottom: 7px;
+}
+.reportTeamsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.reportTeamPill {
+  background: #fff;
+  border: 1.5px solid #635bff44;
+  border-radius: 20px;
+  padding: 3px 12px;
+  font-size: .75rem;
+  font-weight: 700;
+  color: #1e1b4b;
+}
+.reportTeamsGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.reportTeamCard {
+  background: #f8f9fc;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 14px;
+  min-width: 140px;
+}
+.reportTeamName {
+  font-size: .82rem;
+  font-weight: 800;
+  color: #1e1b4b;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+.reportTeamMembers {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.reportTeamMembers li {
+  font-size: .75rem;
+  color: #4b5563;
+}
+/* Bracket */
+.reportBracketWrap {
+  overflow-x: auto;
+  padding: 4px 0;
+}
+/* Tournament winner banner */
+.reportWinnerBanner {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  background: linear-gradient(120deg, #b45309 0%, #d97706 50%, #f59e0b 100%);
+  border-radius: 14px;
+  padding: 18px 24px;
+  color: #fff;
+}
+.reportWinnerTrophy {
+  font-size: 2.4rem;
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,.25));
+}
+.reportWinnerInfo { flex: 1; }
+.reportWinnerName {
+  font-size: 1.4rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  line-height: 1;
+  margin-bottom: 5px;
+  text-shadow: 0 1px 3px rgba(0,0,0,.2);
+}
+.reportWinnerMeta {
+  font-size: .78rem;
+  font-weight: 600;
+  color: rgba(255,255,255,.8);
+  text-transform: capitalize;
+}
+
+/* Tournament MVP — 8cm × 9cm portrait card, centered, sharp corners */
+.reportMvpCardWrap {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 10px;
+}
+.reportMvpSideWrap {
+  position: relative;
+  width: 8cm;
+  height: 9cm;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.reportMvpSidePhoto {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.reportMvpSideFallback {
+  width: 100%;
+  height: 100%;
+  background: #1e1b4b;
+}
+.reportMvpSideBtn {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  background: rgba(0,0,0,.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  color: #fff;
+  cursor: pointer;
+  border-top: 1px solid rgba(255,255,255,.18);
+  transition: background .15s;
+  text-transform: uppercase;
+  z-index: 1;
+}
+.reportMvpSideBtn:hover { background: rgba(0,0,0,.78); }
+.reportMvpCard8 {
+  position: relative;
+  width: 8cm;
+  height: 9cm;
+  border-radius: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+.reportMvpBg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+.reportMvpBgFallback {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(160deg, #1e1b4b 0%, #312e81 100%);
+  z-index: 0;
+}
+.reportMvpOverlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(0,0,0,.65) 0%,
+    rgba(0,0,0,.15) 45%,
+    rgba(0,0,0,.7)  100%
+  );
+  z-index: 1;
+}
+/* Upload button — bottom strip across full card width */
+.reportMvpUploadBtn {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  height: 32px;
+  background: rgba(0,0,0,.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  color: #fff;
+  cursor: pointer;
+  border-top: 1px solid rgba(255,255,255,.18);
+  transition: background .15s;
+  text-transform: uppercase;
+}
+.reportMvpUploadBtn:hover { background: rgba(0,0,0,.78); }
+/* Text content */
+.reportMvpContent {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: 14px 12px 44px; /* 44px bottom = 32px strip + gap */
+  color: #fff;
+  height: 100%;
+}
+.reportMvpLabel {
+  font-size: 1.05rem;
+  font-weight: 900;
+  letter-spacing: .28em;
+  text-transform: uppercase;
+  color: #fde68a;
+  text-shadow: 0 1px 4px rgba(0,0,0,.5);
+  margin-bottom: 4px;
+}
+.reportMvpCardName {
+  font-size: 1.1rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  text-align: center;
+  line-height: 1.15;
+  letter-spacing: .04em;
+  text-shadow: 0 1px 4px rgba(0,0,0,.6);
+}
+/* Stats pushed to bottom */
+.reportMvpCardStats {
+  margin-top: auto;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding-bottom: 4px;
+}
+.reportMvpCardChip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(255,255,255,.15);
+  border-radius: 0;
+  padding: 5px 12px;
+  min-width: 42px;
+  border: 1px solid rgba(255,255,255,.25);
+}
+.reportMvpCardVal {
+  font-size: 1rem;
+  font-weight: 900;
+  line-height: 1;
+  color: #fff;
+}
+.reportMvpCardKey {
+  font-size: .55rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: rgba(255,255,255,.7);
+  margin-top: 2px;
+}
+/* Photos — single row, 7cm × 8cm, sharp corners */
+.reportPhotosRow {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.reportPhotoCard {
+  width: 7cm;
+  height: 8cm;
+  object-fit: cover;
+  border-radius: 0;
+  border: 2px solid #e5e7eb;
+  flex-shrink: 0;
+}
+.reportPhotoUpload {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.reportPhotoLabel {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 16px;
+  background: #f4f3ff;
+  border: 1.5px solid #635bff44;
+  border-radius: 8px;
+  font-size: .8rem;
+  font-weight: 700;
+  color: #635bff;
+  cursor: pointer;
+  transition: background .13s;
+}
+.reportPhotoLabel:hover { background: #ede9fe; }
+
 .matchCardList {
   display: flex;
   flex-direction: column;

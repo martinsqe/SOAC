@@ -58,6 +58,7 @@ import CoordLeaders   from './pages/Coordinator/CoordLeaders';
 import CoordSOAC      from './pages/Coordinator/CoordSOAC';
 import CoordMessages  from './pages/Coordinator/CoordMessages';
 import CoordMyClub    from './pages/Coordinator/CoordMyClub';
+import CoordReports   from './pages/Coordinator/CoordReports';
 
 /* Shared calendar view (student + coordinator) */
 import CalendarView from './components/CalendarView/CalendarView';
@@ -201,6 +202,7 @@ function AppInner() {
           <Route path="fame"         element={<WallOfFame />} />
           <Route path="my-club"      element={<CoordMyClub />} />
           <Route path="calendar"     element={<CalendarView />} />
+          <Route path="reports"      element={<CoordReports />} />
         </Route>
       </Routes>
     </Router>

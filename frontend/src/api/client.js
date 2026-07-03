@@ -221,8 +221,9 @@ export const api = {
   put:    (path, body)        => request('PUT',    path, body),
   patch:  (path, body)        => request('PATCH',  path, body),
   delete: (path)              => request('DELETE', path),
-  postForm: (path, formData)  => request('POST',   path, formData, true),
-  putForm:  (path, formData)  => request('PUT',    path, formData, true),
+  postForm:  (path, formData) => request('POST',  path, formData, true),
+  putForm:   (path, formData) => request('PUT',   path, formData, true),
+  patchForm: (path, formData) => request('PATCH', path, formData, true),
 };
 
 export default api;

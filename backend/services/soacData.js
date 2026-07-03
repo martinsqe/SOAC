@@ -744,6 +744,30 @@ const ensureSoacTables = async () => {
   `);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_match_mvp_event_id ON match_mvp(event_id)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_match_mvp_club_id  ON match_mvp(club_id)`);
+
+  /* ── Event Reports ───────────────────────────────────────────────────────── */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS event_reports (
+      id              BIGSERIAL    PRIMARY KEY,
+      event_id        BIGINT       NOT NULL UNIQUE,
+      club_id         BIGINT       NOT NULL,
+      event_title     TEXT,
+      academic_year   TEXT,
+      participants    JSONB        NOT NULL DEFAULT '[]',
+      teams           JSONB        NOT NULL DEFAULT '[]',
+      groups          JSONB        NOT NULL DEFAULT '[]',
+      fixtures        JSONB        NOT NULL DEFAULT '[]',
+      match_mvps      JSONB        NOT NULL DEFAULT '[]',
+      tournament_mvp  JSONB,
+      photos          TEXT[]       NOT NULL DEFAULT '{}',
+      summary_stats   JSONB        NOT NULL DEFAULT '{}',
+      created_by      BIGINT,
+      generated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_reports_club_id       ON event_reports(club_id)`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_reports_academic_year  ON event_reports(academic_year)`);
 };
 
 const asClub = (row) => ({

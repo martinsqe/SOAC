@@ -1,0 +1,441 @@
+/* ── Year tabs ── */
+.yearTabBar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.yearTab {
+  padding: 7px 20px;
+  border-radius: 20px;
+  border: 1.5px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+  font-size: .82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+}
+.yearTab:hover { border-color: #635bff; color: #635bff; }
+.yearTabOn {
+  background: #635bff;
+  border-color: #635bff;
+  color: #fff;
+}
+
+/* ── Annual card ── */
+.annualCard {
+  background: linear-gradient(135deg, #635bff 0%, #818cf8 100%);
+  border-radius: 14px;
+  padding: 22px 26px;
+  margin-bottom: 24px;
+  color: #fff;
+}
+.annualTitle {
+  font-size: .82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  margin-bottom: 14px;
+  opacity: .85;
+}
+.annualStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.annualStat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(255,255,255,.15);
+  border-radius: 10px;
+  padding: 10px 18px;
+  min-width: 80px;
+}
+.annualStatNum {
+  font-size: 1.6rem;
+  font-weight: 900;
+  line-height: 1;
+}
+.annualStatLbl {
+  font-size: .65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-top: 4px;
+  opacity: .8;
+}
+
+/* ── Misc ── */
+.loadingText {
+  color: #9ca3af;
+  font-size: .85rem;
+  padding: 20px 0;
+  text-align: center;
+}
+.empty {
+  text-align: center;
+  color: #9ca3af;
+  padding: 48px 20px;
+  font-size: .9rem;
+  border: 1.5px dashed #e5e7eb;
+  border-radius: 14px;
+}
+
+/* ── Report list ── */
+.reportList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.reportCard {
+  border: 1.5px solid #e5e7eb;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+.reportCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  cursor: pointer;
+  transition: background .12s;
+}
+.reportCardHeader:hover { background: #f8f9fc; }
+.reportCardLeft { flex: 1; min-width: 0; }
+.reportCardTitle {
+  font-size: .95rem;
+  font-weight: 800;
+  color: #1e1b4b;
+  margin-bottom: 3px;
+}
+.reportCardMeta {
+  font-size: .75rem;
+  color: #9ca3af;
+}
+.reportCardStats {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.statPill {
+  font-size: .72rem;
+  font-weight: 700;
+  color: #635bff;
+  background: #f0f0ff;
+  border-radius: 20px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+.chevron {
+  font-size: .75rem;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+/* ── Report detail ── */
+.reportDetail {
+  border-top: 1.5px solid #f0f0f5;
+  padding: 20px 20px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.detailLoading {
+  padding: 20px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: .85rem;
+}
+.detailSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.detailSectionTitle {
+  font-size: .75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: #635bff;
+  border-bottom: 2px solid #635bff22;
+  padding-bottom: 6px;
+}
+
+/* ── Table ── */
+.tableWrap {
+  overflow-x: auto;
+  border-radius: 10px;
+  border: 1.5px solid #e5e7eb;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .8rem;
+}
+.table th {
+  background: #f4f3ff;
+  color: #374151;
+  font-weight: 700;
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1.5px solid #e5e7eb;
+  white-space: nowrap;
+}
+.table td {
+  padding: 7px 12px;
+  border-bottom: 1px solid #f0f0f5;
+  color: #374151;
+}
+.table tr:last-child td { border-bottom: none; }
+.score {
+  font-weight: 800;
+  color: #635bff;
+  text-align: center;
+}
+.statCell {
+  text-align: center;
+  font-weight: 700;
+  color: #635bff;
+  font-size: .78rem;
+}
+
+/* ── Groups ── */
+.groupsWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.groupBlock {
+  background: #f4f3ff;
+  border: 1.5px solid #635bff22;
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.groupName {
+  font-size: .8rem;
+  font-weight: 800;
+  color: #635bff;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-bottom: 8px;
+}
+.teamsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.teamPill {
+  background: #fff;
+  border: 1.5px solid #635bff44;
+  border-radius: 20px;
+  padding: 3px 12px;
+  font-size: .75rem;
+  font-weight: 700;
+  color: #1e1b4b;
+}
+.teamsGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.teamCard {
+  background: #f8f9fc;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 14px;
+  min-width: 140px;
+}
+.teamName {
+  font-size: .82rem;
+  font-weight: 800;
+  color: #1e1b4b;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+.teamMembers {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.teamMembers li {
+  font-size: .75rem;
+  color: #4b5563;
+}
+
+/* ── Bracket ── */
+.bracketWrap {
+  overflow-x: auto;
+  padding: 4px 0;
+}
+
+/* ── Tournament winner banner ── */
+.winnerBanner {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  background: linear-gradient(120deg, #b45309 0%, #d97706 50%, #f59e0b 100%);
+  border-radius: 14px;
+  padding: 18px 24px;
+  color: #fff;
+}
+.winnerTrophy {
+  font-size: 2.4rem;
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,.25));
+}
+.winnerInfo { flex: 1; }
+.winnerName {
+  font-size: 1.4rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  line-height: 1;
+  margin-bottom: 5px;
+  text-shadow: 0 1px 3px rgba(0,0,0,.2);
+}
+.winnerMeta {
+  font-size: .78rem;
+  font-weight: 600;
+  color: rgba(255,255,255,.8);
+  text-transform: capitalize;
+}
+
+/* ── Tournament MVP — 8cm × 9cm portrait card, centered, sharp corners ── */
+.mvpCardWrap {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 10px;
+}
+.mvpSidePhoto {
+  width: 8cm;
+  height: 9cm;
+  object-fit: cover;
+  flex-shrink: 0;
+  display: block;
+}
+.mvpCard8 {
+  position: relative;
+  width: 8cm;
+  height: 9cm;
+  border-radius: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+.mvpBg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+.mvpBgFallback {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(160deg, #1e1b4b 0%, #312e81 100%);
+  z-index: 0;
+}
+.mvpOverlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(0,0,0,.65) 0%,
+    rgba(0,0,0,.15) 45%,
+    rgba(0,0,0,.7)  100%
+  );
+  z-index: 1;
+}
+.mvpContent {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: 14px 12px 12px;
+  color: #fff;
+  height: 100%;
+}
+.mvpLabel {
+  font-size: 1.05rem;
+  font-weight: 900;
+  letter-spacing: .28em;
+  text-transform: uppercase;
+  color: #fde68a;
+  text-shadow: 0 1px 4px rgba(0,0,0,.5);
+  margin-bottom: 4px;
+}
+.mvpCardName {
+  font-size: 1.1rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  text-align: center;
+  line-height: 1.15;
+  letter-spacing: .04em;
+  text-shadow: 0 1px 4px rgba(0,0,0,.6);
+}
+.mvpCardStats {
+  margin-top: auto;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding-bottom: 4px;
+}
+.mvpCardChip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(255,255,255,.15);
+  border-radius: 0;
+  padding: 5px 12px;
+  min-width: 42px;
+  border: 1px solid rgba(255,255,255,.25);
+}
+.mvpCardVal {
+  font-size: 1rem;
+  font-weight: 900;
+  line-height: 1;
+  color: #fff;
+}
+.mvpCardKey {
+  font-size: .55rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: rgba(255,255,255,.7);
+  margin-top: 2px;
+}
+
+/* ── Photos row — 7cm × 8cm, sharp corners ── */
+.photosRow {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.photoCard {
+  width: 7cm;
+  height: 8cm;
+  object-fit: cover;
+  border-radius: 0;
+  border: 2px solid #e5e7eb;
+  flex-shrink: 0;
+}
+
+@media (max-width: 600px) {
+  .annualStats     { gap: 8px; }
+  .annualStat      { min-width: 60px; padding: 8px 10px; }
+  .reportCardStats { display: none; }
+}
