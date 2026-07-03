@@ -338,6 +338,18 @@ export default function CoordEvents() {
     }
   };
 
+  const handleMatchMvpPhotoUpload = async (scoreId, file) => {
+    if (!file || !regEvent) return;
+    const fd = new FormData();
+    fd.append('photo', file);
+    try {
+      const d = await api.patchForm(`/reports/events/${regEvent._id}/match-mvps/${scoreId}/photo`, fd);
+      setEventReport(d.report);
+    } catch (err) {
+      alert(err?.message || 'Failed to upload MVP photo.');
+    }
+  };
+
   const handleUploadReportPhotos = async () => {
     if (!reportPhotoFiles.length || !regEvent) return;
     const fd = new FormData();
@@ -1592,7 +1604,54 @@ export default function CoordEvents() {
                           </div>
                         )}
 
-                        {/* ── 4. BRACKET PREVIEW (built from saved report data) ── */}
+                        {/* ── 4. GAME MVPs ── */}
+                        {eventReport.match_mvps?.length > 0 && (
+                          <div className={es.reportSection}>
+                            <div className={es.reportSectionTitle}>Game MVPs</div>
+                            <div className={es.reportGameMvpRow}>
+                              {eventReport.match_mvps.map((m, i) => (
+                                <div key={m.score_id || i} className={es.reportGameMvpCard}>
+                                  {m.player_photo
+                                    ? <img src={m.player_photo} alt="" className={es.reportGameMvpBg} />
+                                    : <div className={es.reportGameMvpBgFallback} />
+                                  }
+                                  <div className={es.reportGameMvpOverlay} />
+                                  <div className={es.reportGameMvpContent}>
+                                    <div className={es.reportGameMvpLabel}>MVP</div>
+                                    <div className={es.reportGameMvpName}>
+                                      {(m.player_name || '').split(' ').map((w, wi) => (
+                                        <span key={wi} style={{ display: 'block' }}>{w}</span>
+                                      ))}
+                                    </div>
+                                    <div className={es.reportGameMvpMeta}>
+                                      {m.home_team} vs {m.opponent_name}
+                                    </div>
+                                    <div className={es.reportGameMvpStats}>
+                                      {[['PTS', m.stats?.PTS], ['AST', m.stats?.AST],
+                                        ['REB', m.stats?.REB], ['STL', m.stats?.STL]]
+                                        .filter(([, v]) => v > 0).map(([k, v]) => (
+                                          <div key={k} className={es.reportGameMvpChip}>
+                                            <span className={es.reportGameMvpVal}>{v}</span>
+                                            <span className={es.reportGameMvpKey}>{k}</span>
+                                          </div>
+                                        ))
+                                      }
+                                    </div>
+                                  </div>
+                                  {m.score_id && (
+                                    <label className={es.reportGameMvpUploadBtn}>
+                                      📷 Set Photo
+                                      <input type="file" accept="image/*" style={{ display: 'none' }}
+                                        onChange={e => e.target.files[0] && handleMatchMvpPhotoUpload(m.score_id, e.target.files[0])} />
+                                    </label>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* ── 5. BRACKET PREVIEW (built from saved report data) ── */}
                         {eventReport.fixtures?.length > 0 && eventReport.groups?.length > 0 && (() => {
                           /* Convert report snake_case → TournamentBracket camelCase format */
                           const bracketFixtures = eventReport.fixtures.map(f => ({

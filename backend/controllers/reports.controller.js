@@ -140,7 +140,7 @@ const generateReport = async (req, res, next) => {
 
     /* ── Match MVPs (with stats) ── */
     const { rows: matchMvps } = await pgPool.query(
-      `SELECT m.player_name, m.stats, m.player_photo,
+      `SELECT m.score_id, m.player_name, m.stats, m.player_photo,
               m.home_team, m.opponent_name, m.home_score, m.away_score,
               m.sport, m.match_title, m.created_at
        FROM match_mvp m
@@ -382,4 +382,43 @@ const updateMvpPhoto = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getEventReport, listReports, generateReport, uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, getAnnualReport, getReportYears };
+/* ══════════════════════════════════════════════
+   PATCH /api/reports/events/:eventId/match-mvps/:scoreId/photo
+   Coordinator sets photo for a specific game MVP
+══════════════════════════════════════════════ */
+const updateMatchMvpPhoto = async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No photo uploaded.' });
+    const { eventId, scoreId } = req.params;
+    const photoUrl = getFileValue(req.file);
+
+    /* Update the source match_mvp record */
+    await pgPool.query(
+      `UPDATE match_mvp SET player_photo = $1, updated_at = NOW()
+       WHERE score_id = $2::bigint`,
+      [photoUrl, scoreId]
+    );
+
+    /* Re-fetch all match MVPs for this event and refresh the report JSONB */
+    const { rows: matchMvps } = await pgPool.query(
+      `SELECT m.score_id, m.player_name, m.stats, m.player_photo,
+              m.home_team, m.opponent_name, m.home_score, m.away_score,
+              m.sport, m.match_title, m.created_at
+       FROM match_mvp m
+       LEFT JOIN club_live_scores cls ON cls.id = m.score_id
+       WHERE m.event_id = $1::bigint OR cls.event_id = $1::bigint
+       ORDER BY m.created_at`,
+      [eventId]
+    );
+
+    const { rows } = await pgPool.query(
+      `UPDATE event_reports SET match_mvps = $1::jsonb, updated_at = NOW()
+       WHERE event_id = $2::bigint RETURNING *`,
+      [JSON.stringify(matchMvps), eventId]
+    );
+    if (!rows.length) return res.status(404).json({ message: 'Generate the report first.' });
+    res.json({ report: rows[0] });
+  } catch (err) { next(err); }
+};
+
+module.exports = { getEventReport, listReports, generateReport, uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMatchMvpPhoto, getAnnualReport, getReportYears };

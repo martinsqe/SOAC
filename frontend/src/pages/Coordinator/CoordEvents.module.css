@@ -846,6 +846,128 @@
   text-transform: capitalize;
 }
 
+/* ── Game MVP cards — horizontal scrollable row of 6cm × 8cm portrait cards ── */
+.reportGameMvpRow {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.reportGameMvpCard {
+  position: relative;
+  width: 6cm;
+  height: 8cm;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.reportGameMvpBg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+.reportGameMvpBgFallback {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(160deg, #1e1b4b 0%, #312e81 100%);
+  z-index: 0;
+}
+.reportGameMvpOverlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, rgba(0,0,0,.6) 0%, rgba(0,0,0,.1) 40%, rgba(0,0,0,.65) 100%);
+  z-index: 1;
+}
+.reportGameMvpContent {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  padding: 12px 10px 44px;
+  color: #fff;
+}
+.reportGameMvpLabel {
+  font-size: .8rem;
+  font-weight: 900;
+  letter-spacing: .25em;
+  text-transform: uppercase;
+  color: #fde68a;
+  text-shadow: 0 1px 3px rgba(0,0,0,.5);
+  margin-bottom: 3px;
+}
+.reportGameMvpName {
+  font-size: .95rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  text-align: center;
+  line-height: 1.15;
+  letter-spacing: .03em;
+  text-shadow: 0 1px 4px rgba(0,0,0,.6);
+}
+.reportGameMvpMeta {
+  font-size: .62rem;
+  font-weight: 600;
+  color: rgba(255,255,255,.75);
+  text-align: center;
+  margin-top: 6px;
+}
+.reportGameMvpStats {
+  margin-top: auto;
+  display: flex;
+  gap: 5px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.reportGameMvpChip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(255,255,255,.15);
+  border: 1px solid rgba(255,255,255,.22);
+  padding: 4px 9px;
+  min-width: 36px;
+}
+.reportGameMvpVal {
+  font-size: .88rem;
+  font-weight: 900;
+  line-height: 1;
+  color: #fff;
+}
+.reportGameMvpKey {
+  font-size: .5rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: rgba(255,255,255,.7);
+  margin-top: 2px;
+}
+.reportGameMvpUploadBtn {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  height: 32px;
+  background: rgba(0,0,0,.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  color: #fff;
+  cursor: pointer;
+  border-top: 1px solid rgba(255,255,255,.18);
+  transition: background .15s;
+  text-transform: uppercase;
+}
+.reportGameMvpUploadBtn:hover { background: rgba(0,0,0,.78); }
+
 /* Tournament MVP — 8cm × 9cm portrait card, centered, sharp corners */
 .reportMvpCardWrap {
   display: flex;

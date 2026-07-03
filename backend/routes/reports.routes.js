@@ -5,7 +5,7 @@ const { uploadReportPhoto } = require('../config/multer');
 const { uploadMvpPhoto } = require('../config/multer');
 const {
   getEventReport, listReports, generateReport,
-  uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, getAnnualReport, getReportYears,
+  uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMatchMvpPhoto, getAnnualReport, getReportYears,
 } = require('../controllers/reports.controller');
 
 /* List all reports for a club */
@@ -35,10 +35,16 @@ router.patch('/events/:eventId/photos/:index', verifyToken,
   replaceReportPhoto,
 );
 
-/* Upload / replace MVP photo */
+/* Upload / replace tournament MVP photo */
 router.patch('/events/:eventId/mvp-photo', verifyToken,
   uploadMvpPhoto.single('photo'),
   updateMvpPhoto,
+);
+
+/* Upload / replace a specific game MVP's player photo */
+router.patch('/events/:eventId/match-mvps/:scoreId/photo', verifyToken,
+  uploadMvpPhoto.single('photo'),
+  updateMatchMvpPhoto,
 );
 
 module.exports = router;

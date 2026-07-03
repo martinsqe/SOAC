@@ -233,6 +233,44 @@ function ReportDetail({ eventId }) {
         </div>
       )}
 
+      {/* Game MVPs */}
+      {data.match_mvps?.length > 0 && (
+        <div className={r.detailSection}>
+          <div className={r.detailSectionTitle}>Game MVPs</div>
+          <div className={r.gameMvpRow}>
+            {data.match_mvps.map((m, i) => (
+              <div key={m.score_id || i} className={r.gameMvpCard}>
+                {m.player_photo
+                  ? <img src={m.player_photo} alt="" className={r.gameMvpBg} />
+                  : <div className={r.gameMvpBgFallback} />
+                }
+                <div className={r.gameMvpOverlay} />
+                <div className={r.gameMvpContent}>
+                  <div className={r.gameMvpLabel}>MVP</div>
+                  <div className={r.gameMvpName}>
+                    {(m.player_name || '').split(' ').map((w, wi) => (
+                      <span key={wi} style={{ display: 'block' }}>{w}</span>
+                    ))}
+                  </div>
+                  <div className={r.gameMvpMeta}>{m.home_team} vs {m.opponent_name}</div>
+                  <div className={r.gameMvpStats}>
+                    {[['PTS', m.stats?.PTS], ['AST', m.stats?.AST],
+                      ['REB', m.stats?.REB], ['STL', m.stats?.STL]]
+                      .filter(([, v]) => v > 0).map(([k, v]) => (
+                        <div key={k} className={r.gameMvpChip}>
+                          <span className={r.gameMvpVal}>{v}</span>
+                          <span className={r.gameMvpKey}>{k}</span>
+                        </div>
+                      ))
+                    }
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Fixtures */}
       {data.fixtures?.length > 0 && (
         <div className={r.detailSection}>
