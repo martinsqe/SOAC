@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useCoordClub } from '../../context/CoordClubContext';
 import api from '../../api/client';
 import TournamentBracket from '../../components/TournamentBracket/TournamentBracket';
@@ -129,8 +129,10 @@ export default function CoordReports() {
 }
 
 function ReportDetail({ eventId }) {
-  const [data,    setData]    = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [data,       setData]       = useState(null);
+  const [loading,    setLoading]    = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const mvpCardRef = useRef(null);
 
   useEffect(() => {
     api.get(`/reports/events/${eventId}`)
@@ -138,6 +140,24 @@ function ReportDetail({ eventId }) {
       .catch(() => setData(null))
       .finally(() => setLoading(false));
   }, [eventId]);
+
+  /* Center the tournament MVP card in its row after data loads */
+  useEffect(() => {
+    if (mvpCardRef.current) {
+      mvpCardRef.current.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'center' });
+    }
+  }, [data]);
+
+  const handleSubmit = async () => {
+    if (!window.confirm('Submit this report to the admin? It cannot be edited after submission.')) return;
+    setSubmitting(true);
+    try {
+      const d = await api.post(`/reports/events/${eventId}/submit`);
+      if (d?.report) setData(d.report);
+    } catch (err) {
+      alert(err?.message || 'Already submitted or failed to submit.');
+    } finally { setSubmitting(false); }
+  };
 
   if (loading) return <div className={r.detailLoading}>Loading…</div>;
   if (!data)   return <div className={r.detailLoading}>Report data not found.</div>;
@@ -359,7 +379,7 @@ function ReportDetail({ eventId }) {
             {data.photos?.[0] && (
               <img src={data.photos[0]} alt="" className={r.mvpSidePhoto} />
             )}
-            <div className={r.mvpCard8}>
+            <div className={r.mvpCard8} ref={mvpCardRef}>
               {data.tournament_mvp.photo
                 ? <img src={data.tournament_mvp.photo} alt="mvp bg" className={r.mvpBg} />
                 : <div className={r.mvpBgFallback} />
@@ -404,6 +424,19 @@ function ReportDetail({ eventId }) {
           </div>
         </div>
       )}
+
+      {/* Submit to admin */}
+      <div className={r.submitSection}>
+        {data.submitted_at ? (
+          <div className={r.submittedBadge}>
+            ✓ Submitted to admin on {new Date(data.submitted_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+          </div>
+        ) : (
+          <button className={r.submitBtn} onClick={handleSubmit} disabled={submitting}>
+            {submitting ? 'Submitting…' : 'Submit Report to Admin'}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

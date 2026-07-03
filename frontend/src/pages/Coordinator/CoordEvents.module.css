@@ -812,7 +812,8 @@
 /* Bracket */
 .reportBracketWrap {
   overflow-x: auto;
-  padding: 4px 0;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 0 10px;
 }
 /* Tournament winner banner */
 .reportWinnerBanner {
@@ -851,7 +852,9 @@
   display: flex;
   gap: 10px;
   overflow-x: auto;
-  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
+  padding: 0 2px 14px;
 }
 .reportGameMvpCard {
   position: relative;
@@ -859,6 +862,7 @@
   height: 8cm;
   flex-shrink: 0;
   overflow: hidden;
+  scroll-snap-align: start;
 }
 .reportGameMvpBg {
   position: absolute;
@@ -968,12 +972,16 @@
 }
 .reportGameMvpUploadBtn:hover { background: rgba(0,0,0,.78); }
 
-/* Tournament MVP — 8cm × 9cm portrait card, centered, sharp corners */
+/* Tournament MVP — 8cm × 9cm portrait card row, horizontally scrollable on mobile */
 .reportMvpCardWrap {
   display: flex;
   align-items: stretch;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 10px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
+  padding: 0 2px 14px;
 }
 .reportMvpSideWrap {
   position: relative;
@@ -981,6 +989,7 @@
   height: 9cm;
   flex-shrink: 0;
   overflow: hidden;
+  scroll-snap-align: start;
 }
 .reportMvpSidePhoto {
   width: 100%;
@@ -1024,6 +1033,7 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  scroll-snap-align: start;
 }
 .reportMvpBg {
   position: absolute;
@@ -1142,7 +1152,9 @@
   flex-direction: row;
   gap: 10px;
   overflow-x: auto;
-  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
+  padding: 0 2px 14px;
 }
 .reportPhotoCard {
   width: 7cm;
@@ -1151,6 +1163,7 @@
   border-radius: 0;
   border: 2px solid #e5e7eb;
   flex-shrink: 0;
+  scroll-snap-align: start;
 }
 .reportPhotoUpload {
   display: flex;

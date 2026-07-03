@@ -5,7 +5,8 @@ const { uploadReportPhoto } = require('../config/multer');
 const { uploadMvpPhoto } = require('../config/multer');
 const {
   getEventReport, listReports, generateReport,
-  uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMatchMvpPhoto, getAnnualReport, getReportYears,
+  uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMatchMvpPhoto,
+  submitReport, getSubmittedReports, getAnnualReport, getReportYears,
 } = require('../controllers/reports.controller');
 
 /* List all reports for a club */
@@ -46,5 +47,11 @@ router.patch('/events/:eventId/match-mvps/:scoreId/photo', verifyToken,
   uploadMvpPhoto.single('photo'),
   updateMatchMvpPhoto,
 );
+
+/* Coordinator submits a report to admin */
+router.post('/events/:eventId/submit', verifyToken, submitReport);
+
+/* Admin: list all submitted reports */
+router.get('/submitted', verifyToken, getSubmittedReports);
 
 module.exports = router;

@@ -271,7 +271,8 @@
 /* ── Bracket ── */
 .bracketWrap {
   overflow-x: auto;
-  padding: 4px 0;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 0 10px;
 }
 
 /* ── Game MVP cards — read-only horizontal row ── */
@@ -279,7 +280,9 @@
   display: flex;
   gap: 10px;
   overflow-x: auto;
-  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
+  padding: 0 2px 14px;
 }
 .gameMvpCard {
   position: relative;
@@ -287,6 +290,7 @@
   height: 8cm;
   flex-shrink: 0;
   overflow: hidden;
+  scroll-snap-align: start;
 }
 .gameMvpBg {
   position: absolute;
@@ -406,12 +410,16 @@
   text-transform: capitalize;
 }
 
-/* ── Tournament MVP — 8cm × 9cm portrait card, centered, sharp corners ── */
+/* ── Tournament MVP — 8cm × 9cm portrait card row, horizontally scrollable on mobile ── */
 .mvpCardWrap {
   display: flex;
   align-items: stretch;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 10px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
+  padding: 0 2px 14px;
 }
 .mvpSidePhoto {
   width: 8cm;
@@ -419,6 +427,7 @@
   object-fit: cover;
   flex-shrink: 0;
   display: block;
+  scroll-snap-align: start;
 }
 .mvpCard8 {
   position: relative;
@@ -426,6 +435,7 @@
   height: 9cm;
   border-radius: 0;
   overflow: hidden;
+  scroll-snap-align: start;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -523,15 +533,53 @@
   flex-direction: row;
   gap: 10px;
   overflow-x: auto;
-  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
+  padding: 0 2px 14px;
 }
 .photoCard {
   width: 7cm;
   height: 8cm;
   object-fit: cover;
   border-radius: 0;
+  scroll-snap-align: start;
   border: 2px solid #e5e7eb;
   flex-shrink: 0;
+}
+
+/* ── Submit section ── */
+.submitSection {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 4px;
+  border-top: 1.5px solid #f0f0f5;
+  margin-top: 8px;
+}
+.submitBtn {
+  padding: 11px 32px;
+  background: #635bff;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: .88rem;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: .02em;
+  transition: background .15s, transform .1s;
+}
+.submitBtn:hover:not(:disabled) { background: #4f46e5; transform: translateY(-1px); }
+.submitBtn:disabled { opacity: .6; cursor: not-allowed; }
+.submittedBadge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: #ecfdf5;
+  color: #059669;
+  border-radius: 8px;
+  font-size: .85rem;
+  font-weight: 700;
+  border: 1.5px solid #d1fae5;
 }
 
 @media (max-width: 600px) {

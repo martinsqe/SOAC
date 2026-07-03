@@ -84,6 +84,7 @@ export default function CoordEvents() {
   const [reportGenerating, setReportGenerating] = useState(false);
   const [reportPhotoFiles, setReportPhotoFiles] = useState([]);
   const [mvpPhotoUploading, setMvpPhotoUploading] = useState(false);
+  const mvpCardRef = useRef(null);
 
   /* ── Groups state ── */
   const [groups,       setGroups]      = useState([]);
@@ -292,6 +293,13 @@ export default function CoordEvents() {
       })
       .catch(() => { setFixtures([]); setFlatFixtures([]); });
   };
+
+  /* Scroll tournament MVP card to center of its row after report loads */
+  useEffect(() => {
+    if (mvpCardRef.current) {
+      mvpCardRef.current.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'center' });
+    }
+  }, [eventReport]);
 
   const loadEventReport = async (eventId) => {
     setReportLoading(true);
@@ -1726,7 +1734,7 @@ export default function CoordEvents() {
                                     onChange={e => e.target.files[0] && handleReplaceSidePhoto(0, e.target.files[0])} />
                                 </label>
                               </div>
-                              <div className={es.reportMvpCard8}>
+                              <div className={es.reportMvpCard8} ref={mvpCardRef}>
                                 {/* Full-bleed background photo */}
                                 {eventReport.tournament_mvp.photo
                                   ? <img src={eventReport.tournament_mvp.photo} alt="mvp bg" className={es.reportMvpBg} />

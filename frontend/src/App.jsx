@@ -29,6 +29,7 @@ import AdminApprovals      from './pages/Admin/AdminApprovals';
 import AdminFame           from './pages/Admin/AdminFame';
 import AdminMonitorChats   from './pages/Admin/AdminMonitorChats';
 import AdminCoins          from './pages/Admin/AdminCoins';
+import AdminReports        from './pages/Admin/AdminReports';
 import GuestGallery   from './pages/Guest/GuestGallery';
 import GuestContact   from './pages/Guest/GuestContact';
 
@@ -174,6 +175,7 @@ function AppInner() {
           <Route path="coins"           element={<AdminCoins />} />
           <Route path="suspensions"     element={<SUSPENSIONS_PAGE />} />
           <Route path="chats"           element={<AdminMonitorChats />} />
+          <Route path="reports"         element={<AdminReports />} />
           <Route path="audit"           element={<AdminAuditLog />} />
         </Route>
 

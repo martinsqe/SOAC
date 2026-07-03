@@ -1,0 +1,79 @@
+.empty { text-align: center; color: #9ca3af; padding: 48px 20px; font-size: .9rem; }
+
+/* ── Report list ── */
+.list { display: flex; flex-direction: column; gap: 12px; }
+.card { border: 1.5px solid #e5e7eb; border-radius: 12px; overflow: hidden; background: #fff; }
+.cardHeader { display: flex; align-items: center; gap: 14px; padding: 16px 20px; cursor: pointer; transition: background .12s; }
+.cardHeader:hover { background: #f8f9fc; }
+.cardLeft { flex: 1; min-width: 0; }
+.cardTitle { font-size: .95rem; font-weight: 800; color: #1e1b4b; margin-bottom: 3px; }
+.cardMeta { font-size: .75rem; color: #9ca3af; }
+.cardPills { display: flex; gap: 8px; flex-shrink: 0; }
+.pill { font-size: .72rem; font-weight: 700; color: #635bff; background: #f0f0ff; border-radius: 20px; padding: 3px 10px; white-space: nowrap; }
+.chevron { font-size: .75rem; color: #9ca3af; flex-shrink: 0; }
+
+/* ── Detail ── */
+.detail { border-top: 1.5px solid #f0f0f5; padding: 20px 20px 26px; display: flex; flex-direction: column; gap: 24px; }
+.detailLoading { padding: 20px; text-align: center; color: #9ca3af; font-size: .85rem; }
+.section { display: flex; flex-direction: column; gap: 10px; }
+.sectionTitle { font-size: .75rem; font-weight: 800; text-transform: uppercase; letter-spacing: .12em; color: #635bff; border-bottom: 2px solid #635bff22; padding-bottom: 6px; }
+
+/* ── Table ── */
+.tableWrap { overflow-x: auto; border-radius: 10px; border: 1.5px solid #e5e7eb; -webkit-overflow-scrolling: touch; }
+.table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+.table th { background: #f4f3ff; color: #374151; font-weight: 700; padding: 8px 12px; text-align: left; border-bottom: 1.5px solid #e5e7eb; white-space: nowrap; }
+.table td { padding: 7px 12px; border-bottom: 1px solid #f0f0f5; color: #374151; }
+.table tr:last-child td { border-bottom: none; }
+.score { font-weight: 800; color: #635bff; text-align: center; }
+.stat { text-align: center; font-weight: 700; color: #635bff; font-size: .78rem; }
+
+/* ── Groups ── */
+.groupsWrap { display: flex; flex-direction: column; gap: 10px; }
+.groupBlock { background: #f4f3ff; border: 1.5px solid #635bff22; border-radius: 12px; padding: 14px 16px; }
+.groupName { font-size: .8rem; font-weight: 800; color: #635bff; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
+.teamsGrid { display: flex; flex-wrap: wrap; gap: 12px; }
+.teamCard { background: #f8f9fc; border: 1.5px solid #e5e7eb; border-radius: 10px; padding: 10px 14px; min-width: 140px; }
+.teamName { font-size: .82rem; font-weight: 800; color: #1e1b4b; margin-bottom: 6px; text-transform: uppercase; }
+.members { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 3px; }
+.members li { font-size: .75rem; color: #4b5563; }
+
+/* ── Bracket ── */
+.bracketWrap { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 4px 0 10px; }
+
+/* ── Winner banner ── */
+.winnerBanner { display: flex; align-items: center; gap: 18px; background: linear-gradient(120deg, #b45309 0%, #d97706 50%, #f59e0b 100%); border-radius: 14px; padding: 18px 24px; color: #fff; }
+.winnerTrophy { font-size: 2.4rem; flex-shrink: 0; }
+.winnerName { font-size: 1.4rem; font-weight: 900; text-transform: uppercase; line-height: 1; margin-bottom: 5px; }
+.winnerMeta { font-size: .78rem; font-weight: 600; color: rgba(255,255,255,.8); }
+
+/* ── Game MVP row ── */
+.mvpRow { display: flex; gap: 10px; overflow-x: auto; -webkit-overflow-scrolling: touch; scroll-snap-type: x mandatory; padding: 0 2px 14px; }
+.mvpCard { position: relative; width: 6cm; height: 8cm; flex-shrink: 0; overflow: hidden; scroll-snap-align: start; }
+.mvpBg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
+.mvpBgFallback { position: absolute; inset: 0; background: linear-gradient(160deg, #1e1b4b, #312e81); z-index: 0; }
+.mvpOverlay { position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,.6) 0%, rgba(0,0,0,.1) 40%, rgba(0,0,0,.65) 100%); z-index: 1; }
+.mvpContent { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; height: 100%; padding: 12px 10px 14px; color: #fff; }
+.mvpLabelSm { font-size: .8rem; font-weight: 900; letter-spacing: .25em; text-transform: uppercase; color: #fde68a; margin-bottom: 3px; }
+.mvpName { font-size: .95rem; font-weight: 900; text-transform: uppercase; text-align: center; line-height: 1.15; }
+.mvpMeta { font-size: .62rem; font-weight: 600; color: rgba(255,255,255,.75); text-align: center; margin-top: 6px; }
+.mvpStats { margin-top: auto; display: flex; gap: 5px; justify-content: center; flex-wrap: wrap; }
+.mvpChip { display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.22); padding: 4px 9px; min-width: 36px; }
+.mvpVal { font-size: .88rem; font-weight: 900; line-height: 1; color: #fff; }
+.mvpKey { font-size: .5rem; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: rgba(255,255,255,.7); margin-top: 2px; }
+
+/* ── Tournament MVP (8cm×9cm, three-card row) ── */
+.tourneyMvpWrap { display: flex; align-items: stretch; justify-content: flex-start; gap: 10px; overflow-x: auto; -webkit-overflow-scrolling: touch; scroll-snap-type: x mandatory; padding: 0 2px 14px; }
+.tourneyMvpSide { width: 8cm; height: 9cm; object-fit: cover; flex-shrink: 0; display: block; scroll-snap-align: start; }
+.tourneyMvpCard { position: relative; width: 8cm; height: 9cm; flex-shrink: 0; overflow: hidden; scroll-snap-align: start; }
+.tourneyMvpContent { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; height: 100%; padding: 14px 12px 12px; color: #fff; }
+.tourneyLabel { font-size: 1.05rem; font-weight: 900; letter-spacing: .28em; text-transform: uppercase; color: #fde68a; margin-bottom: 4px; }
+.tourneyName { font-size: 1.1rem; font-weight: 900; text-transform: uppercase; text-align: center; line-height: 1.15; }
+
+/* ── Event photos ── */
+.photosRow { display: flex; gap: 10px; overflow-x: auto; -webkit-overflow-scrolling: touch; scroll-snap-type: x mandatory; padding: 0 2px 14px; }
+.photoCard { width: 7cm; height: 8cm; object-fit: cover; flex-shrink: 0; scroll-snap-align: start; border: 2px solid #e5e7eb; }
+
+@media (max-width: 600px) {
+  .cardPills { display: none; }
+  .detail { padding: 14px 12px 20px; gap: 18px; }
+}

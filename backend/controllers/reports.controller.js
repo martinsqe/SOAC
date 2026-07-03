@@ -421,4 +421,46 @@ const updateMatchMvpPhoto = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getEventReport, listReports, generateReport, uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMatchMvpPhoto, getAnnualReport, getReportYears };
+/* ══════════════════════════════════════════════
+   POST /api/reports/events/:eventId/submit
+   Coordinator submits a report to admin
+══════════════════════════════════════════════ */
+const submitReport = async (req, res, next) => {
+  try {
+    const { rows: check } = await pgPool.query(
+      `SELECT id, submitted_at FROM event_reports WHERE event_id = $1::bigint`,
+      [req.params.eventId]
+    );
+    if (!check.length) return res.status(404).json({ message: 'Generate the report first.' });
+    if (check[0].submitted_at) return res.status(409).json({ message: 'Already submitted.' });
+
+    const { rows } = await pgPool.query(
+      `UPDATE event_reports
+       SET submitted_at = NOW(), submitted_by = $1, updated_at = NOW()
+       WHERE event_id = $2::bigint RETURNING *`,
+      [req.user?.id, req.params.eventId]
+    );
+    res.json({ report: rows[0] });
+  } catch (err) { next(err); }
+};
+
+/* ══════════════════════════════════════════════
+   GET /api/reports/submitted  (admin)
+══════════════════════════════════════════════ */
+const getSubmittedReports = async (req, res, next) => {
+  try {
+    const { rows } = await pgPool.query(
+      `SELECT er.id, er.event_id, er.event_title, er.academic_year,
+              er.summary_stats, er.photos, er.tournament_mvp,
+              er.generated_at, er.submitted_at, er.club_id,
+              c.name AS club_name
+       FROM event_reports er
+       LEFT JOIN clubs c ON c.id = er.club_id
+       WHERE er.submitted_at IS NOT NULL
+       ORDER BY er.submitted_at DESC`
+    );
+    res.json({ reports: rows });
+  } catch (err) { next(err); }
+};
+
+module.exports = { getEventReport, listReports, generateReport, uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMatchMvpPhoto, submitReport, getSubmittedReports, getAnnualReport, getReportYears };

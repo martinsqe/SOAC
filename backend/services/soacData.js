@@ -768,6 +768,8 @@ const ensureSoacTables = async () => {
   `);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_reports_club_id       ON event_reports(club_id)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_reports_academic_year  ON event_reports(academic_year)`);
+  await pgPool.query(`ALTER TABLE event_reports ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ`);
+  await pgPool.query(`ALTER TABLE event_reports ADD COLUMN IF NOT EXISTS submitted_by BIGINT`);
 };
 
 const asClub = (row) => ({

@@ -20,6 +20,7 @@ const NAV = [
   {
     section: 'Manage', items: [
       { to: '/admin/approvals',      label: 'Approvals'      },
+      { to: '/admin/reports',        label: 'Event Reports'  },
       { to: '/admin/fame',           label: 'Wall of Fame'   },
       { to: '/admin/broadcast',      label: 'Broadcast'      },
       { to: '/admin/coins',          label: 'Coins Monitor'  },
