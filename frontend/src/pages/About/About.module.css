@@ -528,10 +528,68 @@
   border-top: 1px solid var(--border);
 }
 
+.hierarchyLayout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 64px;
+  align-items: start;
+}
+
+.hodImgWrap {
+  position: sticky;
+  top: 80px;
+}
+
+.hodImgStack {
+  position: relative;
+  height: 520px;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 22px 56px rgba(0,0,0,.15);
+}
+
+.hodImg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: top center;
+}
+
+.hodLabel {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 32px 18px 16px;
+  background: linear-gradient(to top, rgba(0,0,0,.72) 0%, transparent 100%);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.hodLabelRole {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  letter-spacing: .01em;
+}
+
+.hodLabelDot {
+  color: rgba(255,255,255,.5);
+  font-size: 14px;
+}
+
+.hodLabelSub {
+  color: rgba(255,255,255,.72);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+}
+
 .htree {
   position: relative;
-  max-width: 860px;
-  margin: 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -577,7 +635,7 @@
   border-radius: 20px;
   padding: 22px 32px;
   text-align: center;
-  width: 300px;
+  width: min(300px, 100%);
   box-shadow: 0 8px 32px rgba(0,0,0,.06);
   transition: .2s;
 }
@@ -746,6 +804,8 @@
 }
 
 /* ── RESPONSIVE ── */
+
+/* Tablet landscape / small desktop */
 @media (max-width: 1024px) {
   .tfgrid {
     display: flex;
@@ -759,9 +819,24 @@
   .tfgrid::-webkit-scrollbar { display: none; }
   .tfc { flex: 0 0 100px; min-width: 0; }
   .aobjgrid { grid-template-columns: repeat(2, 1fr); }
-  .hcard { width: 260px; }
+
+  /* Hierarchy: tighten gap, shrink image */
+  .hierarchyLayout { gap: 40px; }
+  .hodImgStack { height: 440px; }
+  .hcard { width: min(240px, 100%); }
 }
 
+/* Tablet portrait */
+@media (max-width: 900px) {
+  /* Switch hierarchy to single column so image stays full-width above tree */
+  .hierarchyLayout { grid-template-columns: 1fr; gap: 32px; }
+  .hodImgWrap { position: static; }
+  .hodImgStack { height: 340px; border-radius: 14px; }
+  .htree { width: 100%; }
+  .hcard { width: min(300px, 100%); padding: 20px 24px; }
+}
+
+/* Large phone / tablet portrait (existing breakpoint) */
 @media (max-width: 768px) {
   .a2col { grid-template-columns: 1fr; }
   .istack { height: 280px; margin-bottom: 24px; }
@@ -769,6 +844,8 @@
   .hlevel3 { grid-template-columns: 1fr; }
   .hcard { width: 100%; padding: 18px 20px; }
   .hspine { display: none; }
+  .hconnector { height: 28px; }
+  .hodImgStack { height: 300px; }
   .ctaInner { padding: 52px 28px; }
   .caption { padding: 0 28px; }
   .atabs { width: 100%; }
@@ -779,14 +856,24 @@
   .aobj { padding: 56px 0; }
   .ach { padding: 56px 0; }
   .tf { padding: 56px 0; }
-  .hierarchy { padding: 56px 0; }
+  .hierarchy { padding: 48px 0; }
   .aboutCta { padding: 72px 0; }
   .achHeader { flex-direction: column; }
 }
 
+/* Small phone */
 @media (max-width: 480px) {
   .aobjgrid { grid-template-columns: 1fr; }
   .caption { padding: 0 16px; bottom: 48px; }
   .carousel { height: 320px; }
   .ctaInner { border-radius: 20px; }
+
+  .hodImgStack { height: 240px; border-radius: 12px; }
+  .hodLabelRole { font-size: 15px; }
+  .hodLabelSub { font-size: 11px; }
+  .hcard { padding: 16px; border-radius: 14px; }
+  .hcardTitle { font-size: 15px; }
+  .hcardDesc { font-size: 11px; }
+  .hcardLoc { font-size: 11px; }
+  .hierarchy { padding: 40px 0; }
 }

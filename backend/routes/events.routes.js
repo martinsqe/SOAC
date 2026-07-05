@@ -42,7 +42,8 @@ router.delete('/:id/teams/:teamId/members/:memberId',    verifyToken, requireCoo
 router.get  ('/:id/public-fixtures',                    teamCtrl.getPublicFixtures);                                    /* public */
 router.get  ('/:id/fixtures',                           verifyToken, requireCoordOrAdmin, teamCtrl.getFixtures);         /* coord  */
 router.post ('/:id/fixtures/save-declare',              verifyToken, requireCoordOrAdmin, teamCtrl.saveAndDeclare);      /* coord  */
-router.patch('/:id/fixtures/:fixtureId/result',         verifyToken, requireCoordOrAdmin, teamCtrl.recordResult);        /* coord  */
+router.patch ('/:id/fixtures/:fixtureId/result',        verifyToken, requireCoordOrAdmin, teamCtrl.recordResult);        /* coord  */
+router.delete('/:id/fixtures/:fixtureId',               verifyToken, requireCoordOrAdmin, teamCtrl.deleteFixture);       /* coord  */
 
 router.get('/:id/mvp', cd.getEventMvp); /* public — MVP card for any completed match in this event */
 

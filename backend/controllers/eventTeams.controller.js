@@ -277,14 +277,16 @@ const getFixtures = async (req, res, next) => {
   try {
     if (!await checkAccess(req, res)) return;
     const { rows } = await pgPool.query(
-      `SELECT id, team_a_name, team_b_name, match_date, match_time, venue, round, sort_order,
+      `SELECT id, team_a_name, team_b_name,
+              TO_CHAR(match_date, 'YYYY-MM-DD') AS match_date,
+              match_time, venue, round, sort_order,
               score_a, score_b, winner_name
        FROM event_fixtures WHERE event_id = $1 ORDER BY sort_order ASC, created_at ASC`,
       [req.params.id]
     );
     res.json({ fixtures: rows.map(f => ({
       id: String(f.id), teamA: f.team_a_name, teamB: f.team_b_name,
-      date: f.match_date ? String(f.match_date).slice(0, 10) : '',
+      date: f.match_date || '',
       time: f.match_time || '', venue: f.venue || '', round: f.round || '',
       scoreA: f.score_a ?? null, scoreB: f.score_b ?? null, winner: f.winner_name || null,
     })) });
@@ -347,6 +349,13 @@ const saveAndDeclare = async (req, res, next) => {
     const { fixtures = [] } = req.body; // [{teamA, teamB, date, time, venue, round}]
 
     await pgClient.query('BEGIN');
+
+    /* Remove draft/ended scoreboards for this event so re-declared fixtures start clean.
+       Live scoreboards are left untouched to avoid disrupting ongoing games. */
+    await pgClient.query(
+      `DELETE FROM club_live_scores WHERE event_id = $1 AND status IN ('draft','ended')`,
+      [req.params.id]
+    );
 
     /* Replace all fixtures for this event */
     await pgClient.query(`DELETE FROM event_fixtures WHERE event_id = $1`, [req.params.id]);
@@ -427,6 +436,19 @@ const recordResult = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+/* DELETE /api/events/:id/fixtures/:fixtureId  (coordinator — remove single fixture) */
+const deleteFixture = async (req, res, next) => {
+  try {
+    if (!await checkAccess(req, res)) return;
+    const { rows } = await pgPool.query(
+      `DELETE FROM event_fixtures WHERE id = $1 AND event_id = $2 RETURNING id`,
+      [req.params.fixtureId, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ message: 'Fixture not found.' });
+    res.json({ message: 'Fixture deleted.' });
+  } catch (err) { next(err); }
+};
+
 /* GET /api/events/:id/my-status  (student — check own registration status) */
 const getMyStatus = async (req, res, next) => {
   try {
@@ -454,4 +476,4 @@ const getMyStatus = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getTeams, createTeam, updateTeam, deleteTeam, toggleClear, addMember, removeMember, getFixtures, getPublicFixtures, saveAndDeclare, recordResult, getMyStatus };
+module.exports = { getTeams, createTeam, updateTeam, deleteTeam, toggleClear, addMember, removeMember, getFixtures, getPublicFixtures, saveAndDeclare, recordResult, deleteFixture, getMyStatus };

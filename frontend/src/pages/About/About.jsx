@@ -316,6 +316,17 @@ const About = () => {
               Every student has a clear path to get support. Here's the hierarchy for one club — the same structure applies across all 30+ SOAC clubs.
             </p>
           </div>
+          <div className={styles.hierarchyLayout}>
+          <div className={styles.hodImgWrap}>
+            <div className={styles.hodImgStack}>
+              <img src="/hod.png" alt="Head of SOAC" className={styles.hodImg} />
+              <div className={styles.hodLabel}>
+                <span className={styles.hodLabelRole}>Bhavna Patel</span>
+                <span className={styles.hodLabelDot}>·</span>
+                <span className={styles.hodLabelSub}>Head of SOAC</span>
+              </div>
+            </div>
+          </div>
           <div className={styles.htree}>
             <div className={styles.hspine} />
             <div className={styles.hlevel}>
@@ -375,6 +386,7 @@ const About = () => {
                 </div>
               </div>
             </div>
+          </div>
           </div>
         </div>
       </div>

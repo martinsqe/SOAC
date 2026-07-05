@@ -604,6 +604,14 @@ export default function CoordEvents() {
     finally { setLiveUpdatingId(null); }
   };
 
+  const handleDeleteFixture = async (fixtureId) => {
+    if (!window.confirm('Delete this fixture? This cannot be undone.')) return;
+    try {
+      await api.delete(`/events/${regEvent._id}/fixtures/${fixtureId}`);
+      setFlatFixtures(prev => prev.filter(f => f.id !== fixtureId));
+    } catch (e) { showToast(e.message || 'Delete failed.', 'err'); }
+  };
+
   /* ── Group actions ── */
   const handleCreateGroup = async () => {
     try {
@@ -785,7 +793,9 @@ export default function CoordEvents() {
 
   const fmtDate = (d) => {
     if (!d) return '—';
-    if (/^\d{4}-/.test(String(d))) return new Date(d).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
+    const s = String(d).slice(0, 10);
+    const parsed = new Date(s + 'T00:00:00');
+    if (!isNaN(parsed.getTime())) return parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
     return d;
   };
 
@@ -1256,11 +1266,16 @@ export default function CoordEvents() {
                   </div>
                 ) : (
                   /* Group by date — each date gets a header + match list */
-                  [...new Set(flatFixtures.map(f => f.date || '').filter(Boolean))].sort().map(date => (
+                  [...new Set(flatFixtures.map(f => f.date || '').filter(Boolean))].sort().map(date => {
+                    const parsedDate = new Date(date + 'T00:00:00');
+                    const dateLabel = isNaN(parsedDate.getTime())
+                      ? (date || 'Date Not Set')
+                      : parsedDate.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+                    return (
                     <div key={date} className={es.gamedaySection}>
                       <div className={es.gamedayBar}>
                         <span className={es.gamedayLabel} style={{ fontWeight: 700 }}>
-                          {new Date(date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                          {dateLabel}
                         </span>
                         <span className={es.gamedayMatchCount}>
                           {flatFixtures.filter(f => f.date === date).length} match(es)
@@ -1282,18 +1297,32 @@ export default function CoordEvents() {
 
                       return (
                         <div key={match.id} className={`${es.matchCard} ${match.winner ? es.matchCardDone : ls?.status === 'live' ? es.matchCardLive : ''}`}>
-                          {/* Round / time / live-status header */}
-                          {(match.round || match.time || ls) && (
-                            <div className={es.matchCardMeta}>
-                              {match.round && <span className={es.matchRoundLabel}>{match.round}</span>}
-                              {match.time  && <span className={es.matchTimeLabel}>{match.time}</span>}
-                              {ls && (
-                                <span className={`${es.liveStatusBadge} ${es[`liveStatusBadge_${ls.status}`]}`}>
-                                  {ls.status === 'live' ? '🔴 LIVE' : ls.status === 'ended' ? '✅ ENDED' : '⏸ DRAFT'}
-                                </span>
-                              )}
-                            </div>
-                          )}
+                          {/* Round / time / live-status / delete header — always shown */}
+                          <div className={es.matchCardMeta}>
+                            {match.round && <span className={es.matchRoundLabel}>{match.round}</span>}
+                            {match.time  && <span className={es.matchTimeLabel}>{match.time}</span>}
+                            {ls && (
+                              <span className={`${es.liveStatusBadge} ${es[`liveStatusBadge_${ls.status}`]}`}>
+                                {ls.status === 'live' ? '🔴 LIVE' : ls.status === 'ended' ? '✅ ENDED' : '⏸ DRAFT'}
+                              </span>
+                            )}
+                            {ls ? (
+                              <button
+                                className={es.scoreDeleteBtn}
+                                disabled={isLiveUpdating}
+                                onClick={() => liveDeleteScore(ls.id)}
+                                title="Delete scoreboard">
+                                ✕ Delete Scoreboard
+                              </button>
+                            ) : (
+                              <button
+                                className={es.scoreDeleteBtn}
+                                onClick={() => handleDeleteFixture(match.id)}
+                                title="Delete this fixture">
+                                ✕
+                              </button>
+                            )}
+                          </div>
 
                           <div className={es.matchCardBody}>
 
@@ -1471,8 +1500,51 @@ export default function CoordEvents() {
                         })}
                       </div>
                     </div>
-                  ))
+                    );
+                  })
                 )}
+
+                {/* ── Orphaned scoreboards (fixture was deleted/changed after scoreboard was created) ── */}
+                {(() => {
+                  const fixtureIds = new Set(flatFixtures.map(f => f.id));
+                  const orphans = eventLiveScores.filter(s => s.fixtureId && !fixtureIds.has(s.fixtureId));
+                  if (!orphans.length) return null;
+                  return (
+                    <div className={es.gamedaySection} style={{ marginTop: 16 }}>
+                      <div className={es.gamedayBar}>
+                        <span className={es.gamedayLabel} style={{ fontWeight: 700, color: '#d97706' }}>
+                          ⚠ Fixture Changed
+                        </span>
+                        <span className={es.gamedayMatchCount}>{orphans.length} scoreboard(s) no longer match a fixture</span>
+                      </div>
+                      <div className={es.matchCardList}>
+                        {orphans.map(ls => (
+                          <div key={ls.id} className={es.matchCard} style={{ opacity: 0.75 }}>
+                            <div className={es.matchCardMeta}>
+                              <span className={es.matchRoundLabel}>{ls.matchTitle || 'Scoreboard'}</span>
+                              <span className={`${es.liveStatusBadge} ${es[`liveStatusBadge_${ls.status}`]}`}>
+                                {ls.status === 'live' ? '🔴 LIVE' : ls.status === 'ended' ? '✅ ENDED' : '⏸ DRAFT'}
+                              </span>
+                            </div>
+                            <div className={es.matchCardBody} style={{ justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px' }}>
+                              <div>
+                                <div className={es.matchTeamName}>{ls.homeTeam}</div>
+                                <div style={{ fontSize: '.78rem', color: '#9ca3af' }}>vs {ls.opponentName}</div>
+                              </div>
+                              <button
+                                className={es.reportDeleteBtn}
+                                onClick={() => liveDeleteScore(ls.id)}
+                                title="Delete this orphaned scoreboard">
+                                ✕ Delete
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
               </div>
             )}
 
@@ -1841,9 +1913,7 @@ export default function CoordEvents() {
                           </button>
                           <button
                             className={es.reportDeleteBtn}
-                            onClick={handleDeleteReport}
-                            disabled={!!eventReport.submitted_at}
-                            title={eventReport.submitted_at ? 'Cannot delete: report has been submitted to admin' : ''}>
+                            onClick={handleDeleteReport}>
                             Delete Report
                           </button>
                           {eventReport.submitted_at && (

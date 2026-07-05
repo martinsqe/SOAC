@@ -432,17 +432,14 @@ const updateMatchMvpPhoto = async (req, res, next) => {
 
 /* ══════════════════════════════════════════════
    DELETE /api/reports/events/:eventId
-   Coordinator deletes a report (only before submission)
 ══════════════════════════════════════════════ */
 const deleteReport = async (req, res, next) => {
   try {
     const { rows } = await pgPool.query(
-      `SELECT submitted_at FROM event_reports WHERE event_id = $1::bigint`,
+      `DELETE FROM event_reports WHERE event_id = $1::bigint RETURNING id`,
       [req.params.eventId]
     );
     if (!rows.length) return res.status(404).json({ message: 'Report not found.' });
-    if (rows[0].submitted_at) return res.status(403).json({ message: 'Cannot delete a submitted report.' });
-    await pgPool.query(`DELETE FROM event_reports WHERE event_id = $1::bigint`, [req.params.eventId]);
     res.json({ message: 'Report deleted.' });
   } catch (err) { next(err); }
 };
