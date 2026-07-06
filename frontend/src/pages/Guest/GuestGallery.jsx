@@ -1,4 +1,3 @@
-import s from '../Home/Home.module.css';
 
 const GALLERY = [
   { url: '/images/gallery-1.png', label: 'Tech Fest 2024' },

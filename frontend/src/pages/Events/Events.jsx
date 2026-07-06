@@ -268,17 +268,6 @@ const CAT_COLOR = {
   leadership: '#4B6E2E',
 };
 
-const GALLERY = [
-  '/images/i9.png',
-  '/images/asset-32.jpeg',
-  '/images/img3.png',
-  '/images/i13.png',
-  '/images/asset-35.jpeg',
-  '/images/img4.png',
-  '/images/asset-30.jpeg',
-  '/images/i18.png',
-  '/images/asset-28.jpeg',
-];
 
 /* ── Main Events Page ────────────────────────────────── */
 /* Normalise API event to match existing component shape */
@@ -838,17 +827,6 @@ const Events = () => {
             </div>
           )}
 
-          {/* Gallery strip */}
-          <div className={styles.galleryWrap}>
-            <p className={styles.galleryLabel}>Photo Gallery</p>
-            <div className={styles.gallery}>
-              {GALLERY.map((src, i) => (
-                <div key={i} className={styles.galleryItem}>
-                  <img src={src} alt={`Event ${i + 1}`} loading="lazy" />
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
 

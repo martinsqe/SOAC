@@ -13,6 +13,7 @@ import About   from './pages/About/About';
 import Clubs   from './pages/Clubs/Clubs';
 import Events     from './pages/Events/Events';
 import LiveGames  from './pages/LiveGames/LiveGames';
+import Explore    from './pages/Explore/Explore';
 import Login   from './pages/Login/Login';
 import ResetPassword from './pages/ResetPassword/ResetPassword';
 
@@ -157,6 +158,7 @@ function AppInner() {
         <Route path="/clubs"   element={<GuestLayout><Clubs   /></GuestLayout>} />
         <Route path="/events"      element={<GuestLayout><Events    /></GuestLayout>} />
         <Route path="/events/live" element={<GuestLayout><LiveGames /></GuestLayout>} />
+        <Route path="/explore"     element={<GuestLayout><Explore   /></GuestLayout>} />
         <Route path="/gallery" element={<GuestLayout><Gallery /></GuestLayout>} />
         <Route path="/contact" element={<GuestLayout><Contact /></GuestLayout>} />
         <Route path="/login"   element={<NavOnlyLayout><Login /></NavOnlyLayout>} />

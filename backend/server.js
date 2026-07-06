@@ -128,6 +128,7 @@ app.use('/api/calendar',       require('./routes/calendar.routes'));
 app.use('/api/event-requests',  require('./routes/eventRequests.routes'));
 app.use('/api/club-proposals',  require('./routes/clubProposals.routes'));
 app.use('/api/reports',         require('./routes/reports.routes'));
+app.use('/api/explore',         require('./routes/explore.routes'));
 
 
 

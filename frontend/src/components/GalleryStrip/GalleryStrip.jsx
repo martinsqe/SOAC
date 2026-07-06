@@ -3,12 +3,12 @@ import styles from './GalleryStrip.module.css';
 
 const GalleryStrip = () => {
   const images = [
-    { src: '/images/gallery-1.png', label: 'Annual Sports Meet' },
-    { src: '/images/gallery-2.png', label: 'Tech Expo 2023' },
-    { src: '/images/gallery-3.png', label: 'Cultural Fest' },
-    { src: '/images/gallery-4.png', label: 'NCC Drill' },
-    { src: '/images/gallery-5.png', label: 'IEEE Workshop' },
-    { src: '/images/gallery-6.png', label: 'Health Awareness' },
+    { src: '/images/gallery-1.png' },
+    { src: '/images/gallery-2.png' },
+    { src: '/images/gallery-3.png' },
+    { src: '/images/gallery-4.png' },
+    { src: '/images/gallery-5.png' },
+    { src: '/images/gallery-6.png' },
   ];
 
   return (

@@ -17,10 +17,11 @@ const Navbar = () => {
   }, [open]);
 
   const links = [
-    { to: '/',       label: 'Home'   },
-    { to: '/about',  label: 'About'  },
-    { to: '/clubs',  label: 'Clubs'  },
-    { to: '/events', label: 'Events' },
+    { to: '/',        label: 'Home'    },
+    { to: '/about',   label: 'About'   },
+    { to: '/clubs',   label: 'Clubs'   },
+    { to: '/events',  label: 'Events'  },
+    { to: '/explore', label: 'Gallery' },
   ];
 
   return (

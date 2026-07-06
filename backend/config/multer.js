@@ -71,5 +71,6 @@ const uploadLeadership = multer({ storage: makeStorage('leadership'), fileFilter
 const uploadAvatar   = multer({ storage: multer.memoryStorage(), fileFilter: imageFilter, limits: { fileSize: 5 * 1024 * 1024 } });
 const uploadMvpPhoto    = multer({ storage: makeStorage('mvp'),           fileFilter: imageFilter, limits: { fileSize: 5  * 1024 * 1024 } });
 const uploadReportPhoto = multer({ storage: makeStorage('report-photos'), fileFilter: imageFilter, limits: { fileSize: 10 * 1024 * 1024 } });
+const uploadExplore     = multer({ storage: makeStorage('explore'),       fileFilter: imageFilter, limits: { fileSize: 10 * 1024 * 1024 } });
 
-module.exports = { uploadLogo, uploadEvent, uploadAvatar, uploadFame, uploadLeadership, uploadMvpPhoto, uploadReportPhoto, getFileValue, cloudinaryInstance, useCloudinary };
+module.exports = { uploadLogo, uploadEvent, uploadAvatar, uploadFame, uploadLeadership, uploadMvpPhoto, uploadReportPhoto, uploadExplore, getFileValue, cloudinaryInstance, useCloudinary };
