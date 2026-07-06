@@ -9,6 +9,8 @@ const PHOTOS = [
   { url: '/images/i14.png',       label: 'Inter-Department Football'                                       },
   { url: '/images/asset-2.png',   label: 'Galore 2025 — Official Event Poster',             span: 'wide' },
   { url: '/images/img4.png',      label: 'Basketball Championship',                          span: 'tall' },
+    { url: '/Rasotsav2.png',        label: 'Rasotsav — Men in Traditional Garba Attire',      span: 'big' },
+
   { url: '/images/asset-5.png',   label: 'Echoes of Independence — Dance Tribute, Aug 2024', span: 'wide' },
   { url: '/images/i15.png',       label: 'NCC Guard of Honour',                             span: 'tall'  },
   { url: '/images/img8.png',      label: 'Cricket League — 300+ Spectators',                span: 'wide' },
@@ -19,6 +21,8 @@ const PHOTOS = [
   { url: '/images/img7.png',      label: 'Chess — Three Members in Top 5'                                  },
   { url: '/images/asset-9.png',   label: 'NCC Cadets — Group Photo at RK University',       span: 'wide' },
   { url: '/images/asset-6.png',   label: "Volleyball — Sports Fiesta '25"                                  },
+    { url: '/Rasotsav3.png',        label: 'Rasotsav — Women Dancing Under Fairy Lights',     span: 'big' },
+
   { url: '/images/asset-10.png',  label: 'Student Entrepreneurship Exhibition'                              },
   { url: '/images/i24.png',       label: 'Table Tennis Championship',                       span: 'tall' },
   { url: '/images/asset-11.png',  label: 'Mime Theatre — Galore Stage Performance'                         },
@@ -26,6 +30,8 @@ const PHOTOS = [
   { url: '/images/asset-14.png',  label: 'NCC Cadet Badge Presentation Ceremony',           span: 'tall' },
   { url: '/images/asset-32.jpeg', label: 'Inter-Department Football Match',                  span: 'wide' },
   { url: '/images/img3.png',      label: 'Art & Imagination Exhibition'                                     },
+    { url: '/Rasotsav1.png',        label: 'Rasotsav — Aerial View of RKU Garba Night',       span: 'big' },
+
   { url: '/images/i13.png',       label: 'Student Activities',                              span: 'tall' },
   { url: '/images/asset-17.png',  label: "Volleyball Spike — Sports Fiesta '25",            span: 'wide' },
   { url: '/images/img5.png',      label: 'Basketball Layup — RKU Outdoor Court'                             },
