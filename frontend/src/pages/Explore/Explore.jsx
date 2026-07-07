@@ -61,7 +61,7 @@ export default function Explore() {
 
         <div className={s.header}>
           <h1 className={s.title}>Discover, Invent and Create your Passion.</h1>
-          <p className={s.sub}>SOAC is here to make it possible. Expore your interests.</p>
+          <p className={s.sub}>SOAC is here to make it possible. Expore your interests and Joint a Club.</p>
         </div>
 
         <div className={s.grid}>

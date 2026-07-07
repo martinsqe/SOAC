@@ -22,7 +22,7 @@ const Navbar = () => {
     { to: '/clubs',   label: 'Clubs'   },
     { to: '/events',  label: 'Events'  },
     { to: '/explore', label: 'Gallery' },
-  ];
+  ].map(l => ({ ...l, end: true }));
 
   return (
     <>
@@ -37,7 +37,7 @@ const Navbar = () => {
             <NavLink
               key={l.to}
               to={l.to}
-              end={l.to === '/'}
+              end={l.end}
               className={({ isActive }) => `${styles.nl} ${isActive ? styles.on : ''}`}
             >
               {l.label}
@@ -67,7 +67,7 @@ const Navbar = () => {
             <NavLink
               key={l.to}
               to={l.to}
-              end={l.to === '/'}
+              end={l.end}
               className={({ isActive }) => `${styles.dlink} ${isActive ? styles.dlinkOn : ''}`}
             >
               {l.label}

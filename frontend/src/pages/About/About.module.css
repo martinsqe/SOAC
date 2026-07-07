@@ -531,7 +531,7 @@
 .hierarchyLayout {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 64px;
+  gap: 36px;
   align-items: start;
 }
 
@@ -714,23 +714,27 @@
 
 .hcardTags {
   display: flex;
-  gap: 5px;
-  justify-content: center;
   flex-wrap: wrap;
-  margin-top: 10px;
+  justify-content: center;
+  gap: 0;
+  margin-top: 6px;
 }
 
 .htag {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 4px 10px;
-  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  background: none;
+  padding: 0;
+  border-radius: 0;
 }
 
-.htagGreen  { background: rgba(61,220,132,.1); color: #1a7a44; }
-.htagPurple { background: rgba(99,91,255,.09); color: #4b44bb; }
-.htagBlue   { background: rgba(0,170,221,.1); color: #005577; }
-.htagDark   { background: rgba(0,0,0,.06); color: var(--mid); }
+.htag:not(:last-child)::after { content: ',\00a0'; }
+
+.htagGreen  { color: var(--muted); }
+.htagPurple { color: var(--muted); }
+.htagBlue   { color: var(--muted); }
+.htagDark   { color: var(--muted); }
 
 /* ── CTA BAND ── */
 .aboutCta {

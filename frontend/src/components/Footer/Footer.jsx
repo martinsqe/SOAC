@@ -36,6 +36,12 @@ const Footer = () => {
             <a href="https://twitter.com" target="_blank" rel="noreferrer">Twitter</a>
             <a href="https://facebook.com" target="_blank" rel="noreferrer">Facebook</a>
           </div>
+
+          <div className={styles.fcol}>
+            <h4>Contact</h4>
+            <a href="https://soac.rku.ac.in" target="_blank" rel="noreferrer">soac.rku.ac.in</a>
+            <a href="tel:+919327606017">+91 93276 06017</a>
+          </div>
         </div>
         
         <div className={styles.fcopy}>

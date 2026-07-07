@@ -15,10 +15,14 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html {
   scroll-behavior: smooth;
+  overflow-x: hidden;
+  /* prevent iOS rubber-band from revealing bare background */
+  background: #fff;
 }
 
 body {
@@ -26,6 +30,18 @@ body {
   color: var(--ink);
   background: #fff;
   overflow-x: hidden;
+  /* iOS momentum scroll */
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent iOS Safari from zooming on input focus (requires font-size >= 16px) */
+input, textarea, select {
+  font-size: 16px;
+}
+
+/* Remove 300ms tap delay on interactive elements */
+a, button, [role="button"] {
+  touch-action: manipulation;
 }
 
 ::-webkit-scrollbar {
