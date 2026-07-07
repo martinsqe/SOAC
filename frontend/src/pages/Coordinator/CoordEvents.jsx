@@ -109,6 +109,12 @@ export default function CoordEvents() {
   const [liveUpdatingId,    setLiveUpdatingId]    = useState(null); // scoreId mid-API call
   const liveTimerRef = useRef(null);
 
+  /* ── MVP selection state ── */
+  const [matchMvpData,   setMatchMvpData]   = useState({}); // {scoreId → mvp row}
+  const [mvpPickScoreId, setMvpPickScoreId] = useState(null);
+  const [mvpPickPlayer,  setMvpPickPlayer]  = useState('');
+  const [mvpChanging,    setMvpChanging]    = useState(false);
+
   /* ── Teams state ── */
   const [teams,          setTeams]         = useState([]);
   const [teamsLoading,   setTeamsLoading]  = useState(false);
@@ -254,6 +260,9 @@ export default function CoordEvents() {
     setExpandedTeams(new Set());
     setNewTeamName('');
     setNewTeamSize('');
+    setEventLiveScores([]);
+    setMatchMvpData({});
+    setMvpPickScoreId(null);
     setRegsLoading(true);
     setTeamsLoading(true);
     setGroupsLoading(true);
@@ -494,13 +503,27 @@ export default function CoordEvents() {
     return 'general';
   };
 
+  /* Load MVP for a single ended scoreboard */
+  const loadMatchMvp = async (scoreId) => {
+    if (!club) return;
+    try {
+      const d = await api.get(`/clubs/${club.id}/live-scores/${scoreId}/mvp`);
+      if (d.mvp) setMatchMvpData(prev => ({ ...prev, [String(scoreId)]: d.mvp }));
+    } catch {}
+  };
+
   /* Fetch live scores for this event whenever scoreboard tab is opened */
   useEffect(() => {
     if (regsTab !== 'scoreboard' || !regEvent || !club) return;
     setLiveScoresLoading(true);
     const evId = String(regEvent._id);
     api.get(`/clubs/${club.id}/live-scores`)
-      .then(d => setEventLiveScores((d.scores || []).filter(s => s.eventId === evId)))
+      .then(d => {
+        const scores = (d.scores || []).filter(s => s.eventId === evId);
+        setEventLiveScores(scores);
+        /* Pre-load MVPs for any already-ended scoreboards */
+        scores.filter(s => s.status === 'ended').forEach(s => loadMatchMvp(s.id));
+      })
       .catch(() => setEventLiveScores([]))
       .finally(() => setLiveScoresLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -590,8 +613,23 @@ export default function CoordEvents() {
       const ls = eventLiveScores.find(s => s.id === scoreId);
       if (ls?.fixtureId && winnerName) applyResult(ls.fixtureId, score.teamScore, score.opponentScore, winnerName);
       showToast(winnerName ? `${winnerName} wins!` : 'Game ended.');
+      /* Load auto-detected MVP so it shows in the match card */
+      loadMatchMvp(scoreId);
     } catch (e) { showToast(e.message || 'Error ending game.', 'err'); }
     finally { setLiveUpdatingId(null); }
+  };
+
+  const handleChangeMvp = async (scoreId) => {
+    if (!mvpPickPlayer) return;
+    setMvpChanging(true);
+    try {
+      const d = await api.post(`/clubs/${club.id}/live-scores/${scoreId}/mvp/player`, { playerName: mvpPickPlayer });
+      setMatchMvpData(prev => ({ ...prev, [String(scoreId)]: d.mvp }));
+      setMvpPickScoreId(null);
+      setMvpPickPlayer('');
+      showToast('MVP updated.');
+    } catch (e) { showToast(e.message || 'Could not update MVP.', 'err'); }
+    finally { setMvpChanging(false); }
   };
 
   const liveDeleteScore = async (scoreId) => {
@@ -1003,7 +1041,7 @@ export default function CoordEvents() {
                 </button>
                 <button
                   className={`${es.regsSubTab} ${regsTab === 'report' ? es.regsSubTabOn : ''}`}
-                  onClick={() => { setRegsTab('report'); if (!eventReport) loadEventReport(regEvent._id); }}>
+                  onClick={() => { setRegsTab('report'); loadEventReport(regEvent._id); }}>
                   Report {eventReport && <span className={es.declaredBadge} style={{ background: '#dcfce7', color: '#16a34a' }}>Saved</span>}
                 </button>
               </>)}
@@ -1418,10 +1456,67 @@ export default function CoordEvents() {
                                     </div>
                                   )}
 
-                                  {/* Delete ended scoreboard */}
-                                  {ls.status === 'ended' && (
-                                    <button className={es.liveDeleteBtn} disabled={isLiveUpdating} onClick={() => liveDeleteScore(ls.id)} title="Delete scoreboard">✕</button>
-                                  )}
+                                  {/* Ended: MVP selection + delete */}
+                                  {ls.status === 'ended' && (() => {
+                                    const mvp = matchMvpData[String(ls.id)];
+                                    const allPlayers = [...(ls.homePlayers || []), ...(ls.awayPlayers || [])].filter(p => p.name);
+                                    return (
+                                      <>
+                                        {/* MVP display row */}
+                                        <div className={es.matchMvpRow}>
+                                          {mvp?.player_name
+                                            ? <>
+                                                <span className={es.matchMvpStar}>⭐</span>
+                                                <span className={es.matchMvpName}>{mvp.player_name}</span>
+                                                {allPlayers.length > 0 && (
+                                                  <button
+                                                    className={es.matchMvpChangeBtn}
+                                                    onClick={() => { setMvpPickScoreId(ls.id); setMvpPickPlayer(mvp.player_name); }}>
+                                                    Change
+                                                  </button>
+                                                )}
+                                              </>
+                                            : allPlayers.length > 0
+                                              ? <button className={es.matchMvpChangeBtn} onClick={() => { setMvpPickScoreId(ls.id); setMvpPickPlayer(''); }}>
+                                                  Set MVP
+                                                </button>
+                                              : <span style={{ fontSize: '.72rem', color: '#9ca3af' }}>No players tracked</span>
+                                          }
+                                        </div>
+
+                                        {/* MVP picker dropdown */}
+                                        {mvpPickScoreId === ls.id && (
+                                          <div className={es.liveWinnerPick} style={{ marginTop: 4 }}>
+                                            <span className={es.liveWinnerPickLabel}>Select MVP</span>
+                                            <div className={es.liveWinnerBtns}>
+                                              <select
+                                                className={es.winnerSelect}
+                                                value={mvpPickPlayer}
+                                                onChange={e => setMvpPickPlayer(e.target.value)}>
+                                                <option value="">— pick player —</option>
+                                                {allPlayers.map((p, i) => (
+                                                  <option key={i} value={p.name}>{p.name}</option>
+                                                ))}
+                                              </select>
+                                              <button
+                                                className={es.btnWin}
+                                                disabled={!mvpPickPlayer || mvpChanging}
+                                                onClick={() => handleChangeMvp(ls.id)}>
+                                                {mvpChanging ? '…' : 'Confirm'}
+                                              </button>
+                                              <button
+                                                className={es.btnCancelWin}
+                                                onClick={() => { setMvpPickScoreId(null); setMvpPickPlayer(''); }}>
+                                                ✕
+                                              </button>
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        <button className={es.liveDeleteBtn} disabled={isLiveUpdating} onClick={() => liveDeleteScore(ls.id)} title="Delete scoreboard">✕</button>
+                                      </>
+                                    );
+                                  })()}
                                 </>
                               ) : (
                                 /* Static: vs + winner controls + Go Live */

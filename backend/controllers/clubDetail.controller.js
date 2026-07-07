@@ -1078,15 +1078,33 @@ const setMvpPlayer = async (req, res, next) => {
        WHERE id = $1::bigint AND club_id = $2::bigint`, [req.params.scoreId, req.params.id]
     );
     if (!sr.length) return res.status(404).json({ message: 'Score not found.' });
-    const allPlayers = [...(sr[0].home_players||[]), ...(sr[0].away_players||[])];
+    const sc = sr[0];
+    const allPlayers = [...(sc.home_players||[]), ...(sc.away_players||[])];
     const player = allPlayers.find(p => p.name?.toLowerCase() === playerName.toLowerCase());
-    const displayStats = buildMvpStats(sr[0].sport || 'basketball', player?.stats || {});
-    const { rows } = await pgPool.query(
-      `UPDATE match_mvp SET player_name = $1, stats = $2::jsonb, updated_at = NOW()
-       WHERE score_id = $3::bigint AND club_id = $4::bigint RETURNING *`,
-      [playerName, JSON.stringify(displayStats), req.params.scoreId, req.params.id]
+    const displayStats = buildMvpStats(sc.sport || 'basketball', player?.stats || {});
+    /* UPSERT — creates the record if auto-detect never ran (e.g. no players were loaded) */
+    const { rows: cls } = await pgPool.query(
+      `SELECT event_id, home_team, opponent_name, team_score, opponent_score FROM club_live_scores
+       WHERE id = $1::bigint`, [req.params.scoreId]
     );
-    if (!rows.length) return res.status(404).json({ message: 'MVP record not found.' });
+    const live = cls[0] || {};
+    const { rows } = await pgPool.query(
+      `INSERT INTO match_mvp
+         (score_id, club_id, event_id, player_name, stats,
+          home_score, away_score, home_team, opponent_name, sport)
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10)
+       ON CONFLICT (score_id) DO UPDATE SET
+         player_name = EXCLUDED.player_name,
+         stats       = EXCLUDED.stats,
+         updated_at  = NOW()
+       RETURNING *`,
+      [
+        req.params.scoreId, req.params.id, live.event_id || null,
+        playerName, JSON.stringify(displayStats),
+        live.team_score || 0, live.opponent_score || 0,
+        live.home_team || '', live.opponent_name || '', sc.sport || 'general',
+      ]
+    );
     res.json({ mvp: rows[0] });
   } catch (err) { next(err); }
 };

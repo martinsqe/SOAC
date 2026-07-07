@@ -113,22 +113,12 @@ const generateReport = async (req, res, next) => {
       })),
     }));
 
-    /* ── Fixtures / Results — merge real scores from live_scores (by fixture_id OR team names) ── */
+    /* ── Fixtures / Results — live scores always win over stored fixture scores ── */
     const { rows: fixtures } = await pgPool.query(
       `SELECT f.id, f.team_a_name, f.team_b_name,
-              COALESCE(
-                NULLIF(f.score_a, 0),
-                cls_id.team_score,
-                cls_nm.team_score,
-                f.score_a
-              ) AS score_a,
-              COALESCE(
-                NULLIF(f.score_b, 0),
-                cls_id.opponent_score,
-                cls_nm.opponent_score,
-                f.score_b
-              ) AS score_b,
-              COALESCE(f.winner_name, cls_id.winner_name, cls_nm.winner_name) AS winner_name,
+              COALESCE(cls_id.team_score,     cls_nm.team_score,     f.score_a) AS score_a,
+              COALESCE(cls_id.opponent_score, cls_nm.opponent_score, f.score_b) AS score_b,
+              COALESCE(cls_id.winner_name, cls_nm.winner_name, f.winner_name)   AS winner_name,
               f.match_date, f.match_time, f.round, f.venue
        FROM event_fixtures f
        -- primary: match by explicit fixture_id link
@@ -147,16 +137,17 @@ const generateReport = async (req, res, next) => {
       [eventId]
     );
 
-    /* ── Match MVPs (with stats) ── */
+    /* ── Match MVPs (with stats) — DISTINCT ON score_id prevents duplicates ── */
     const { rows: matchMvps } = await pgPool.query(
-      `SELECT m.score_id, m.player_name, m.stats, m.player_photo,
+      `SELECT DISTINCT ON (m.score_id)
+              m.score_id, m.player_name, m.stats, m.player_photo,
               m.home_team, m.opponent_name, m.home_score, m.away_score,
               m.sport, m.match_title, m.created_at
        FROM match_mvp m
        LEFT JOIN club_live_scores cls ON cls.id = m.score_id
        WHERE m.event_id = $1::bigint
           OR cls.event_id = $1::bigint
-       ORDER BY m.created_at`,
+       ORDER BY m.score_id, m.created_at`,
       [eventId]
     );
 
@@ -194,30 +185,31 @@ const generateReport = async (req, res, next) => {
       totalMvpGames:     matchMvps.length,
     };
 
-    /* ── Backfill fixture scores from live scores for any already-played games ── */
+    /* ── Backfill fixture scores from live scores — always overwrite with latest live result ── */
     await pgPool.query(
       `UPDATE event_fixtures f
        SET score_a = ls.team_score,
-           score_b = ls.opponent_score
+           score_b = ls.opponent_score,
+           winner_name = COALESCE(ls.winner_name, f.winner_name)
        FROM club_live_scores ls
        WHERE ls.fixture_id = f.id
          AND ls.status = 'ended'
-         AND f.event_id = $1::bigint
-         AND (f.score_a IS NULL OR (f.score_a = 0 AND f.score_b = 0))`,
+         AND f.event_id = $1::bigint`,
       [eventId]
     );
-    /* Backfill by team name match for live scores without fixture_id */
+    /* Backfill by team name for scoreboards not linked to a fixture_id */
     await pgPool.query(
       `UPDATE event_fixtures f
        SET score_a = ls.team_score,
-           score_b = ls.opponent_score
+           score_b = ls.opponent_score,
+           winner_name = COALESCE(ls.winner_name, f.winner_name)
        FROM club_live_scores ls
-       WHERE ls.event_id        = f.event_id
-         AND ls.home_team       = f.team_a_name
-         AND ls.opponent_name   = f.team_b_name
-         AND ls.status          = 'ended'
-         AND f.event_id         = $1::bigint
-         AND (f.score_a IS NULL OR (f.score_a = 0 AND f.score_b = 0))`,
+       WHERE ls.event_id      = f.event_id
+         AND ls.home_team     = f.team_a_name
+         AND ls.opponent_name = f.team_b_name
+         AND ls.status        = 'ended'
+         AND ls.fixture_id    IS NULL
+         AND f.event_id       = $1::bigint`,
       [eventId]
     );
 
