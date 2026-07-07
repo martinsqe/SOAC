@@ -22,23 +22,58 @@ const ROUND_NAMES = ['Semi-finals', 'Quarter-finals', 'Round of 16', 'Round of 3
 function nextPow2(n) { return Math.pow(2, Math.ceil(Math.log2(Math.max(n, 2)))); }
 function roundLabel(fromFinal) { return ROUND_NAMES[fromFinal - 1] ?? `Round ${fromFinal}`; }
 
-/* Given seeds (some null = BYE) and a winner lookup, simulate bracket advancement.
-   Returns an array of rounds: rounds[0] = seeds, rounds[1] = round-1 winners, etc. */
+/* Returns true for a team slot that should be treated as a BYE for display */
+const IS_BYE_STR = (s) => typeof s === 'string' && s.trim().toUpperCase() === 'BYE';
+
+/*
+  computeRounds — simulate bracket advancement.
+
+  Key distinction:
+    • null from padding (genuine empty slot, isBye=true)  → other team auto-advances
+    • null from unresolved match (TBD, isBye=false)        → nobody advances yet
+    • string "BYE" team name                               → other team auto-advances
+      UNLESS a match-control result was explicitly recorded
+*/
 function computeRounds(seeds, winnerOf) {
-  const rounds = [seeds];
-  let current = seeds;
+  /* isBye[i]: is slot i a genuine padded BYE (no team) vs a TBD result placeholder */
+  let isByeSlot = seeds.map(s => s === null || IS_BYE_STR(s));
+  let current   = seeds;
+  const rounds  = [seeds];
+
   while (current.length > 1) {
-    const next = [];
+    const next       = [];
+    const nextIsBye  = [];
+
     for (let i = 0; i < current.length; i += 2) {
-      const a = current[i];
-      const b = current[i + 1];
-      if (!a && !b) { next.push(null); continue; }
-      if (!b) { next.push(a); continue; }   // bye — a advances
-      if (!a) { next.push(b); continue; }   // bye — b advances
+      const a      = current[i];
+      const b      = current[i + 1];
+      const aIsBye = isByeSlot[i];
+      const bIsBye = isByeSlot[i + 1];
+
+      /* Both empty → propagate empty */
+      if (!a && !b) { next.push(null); nextIsBye.push(aIsBye && bIsBye); continue; }
+
+      /* Genuine BYE slot (padded null or "BYE" string with no recorded result) */
+      if ((!b || IS_BYE_STR(b)) && bIsBye) {
+        /* Check if a result was manually recorded for this pair in match control */
+        const rec = a && b ? winnerOf[`${a}|${b}`] || winnerOf[`${b}|${a}`] : null;
+        next.push(rec || a); nextIsBye.push(false); continue;
+      }
+      if ((!a || IS_BYE_STR(a)) && aIsBye) {
+        const rec = a && b ? winnerOf[`${a}|${b}`] || winnerOf[`${b}|${a}`] : null;
+        next.push(rec || b); nextIsBye.push(false); continue;
+      }
+
+      /* One side is TBD (unresolved real match) — nobody advances yet */
+      if (!a || !b) { next.push(null); nextIsBye.push(false); continue; }
+
+      /* Both real teams — look up recorded result, or TBD */
       const w = winnerOf[`${a}|${b}`] || winnerOf[`${b}|${a}`] || null;
-      next.push(w);
+      next.push(w); nextIsBye.push(false);
     }
-    current = next;
+
+    current    = next;
+    isByeSlot  = nextIsBye;
     rounds.push(current);
   }
   return rounds;
@@ -130,8 +165,8 @@ export default function TournamentBracket({ groups = [], fixtures = [] }) {
 
         const seed1 = rounds[r]?.[m * 2]     ?? null;
         const seed2 = rounds[r]?.[m * 2 + 1] ?? null;
-        const bye1  = r === 0 && seed1 === null;
-        const bye2  = r === 0 && seed2 === null;
+        const bye1  = r === 0 && (seed1 === null || IS_BYE_STR(seed1));
+        const bye2  = r === 0 && (seed2 === null || IS_BYE_STR(seed2));
         const tbd1  = r > 0  && seed1 === null;
         const tbd2  = r > 0  && seed2 === null;
 
