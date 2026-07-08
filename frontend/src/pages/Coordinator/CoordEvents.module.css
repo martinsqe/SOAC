@@ -661,11 +661,201 @@
   padding: 20px 24px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
   overflow-y: auto;
   flex: 1;
   min-height: 0;
 }
+
+/* ── Report document header ── */
+/* ── Report letterhead banner ── */
+.reportLetterhead {
+  display: flex;
+  align-items: center;
+  background: #fff;
+  border: 1.5px solid #e5e7eb;
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  padding: 14px 24px;
+}
+.reportLetterheadLogoLeft {
+  height: 54px;
+  width: auto;
+  object-fit: contain;
+}
+
+/* ── RKU address footer (bottom of report) ── */
+.reportUniversityFooter {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  border-top: 1px solid #e5e7eb;
+  padding: 14px 20px 10px;
+  gap: 3px;
+  font-size: .72rem;
+  color: #6b7280;
+  font-family: 'DM Sans', sans-serif;
+  line-height: 1.5;
+}
+.reportUniversityFooterName {
+  font-weight: 700;
+  color: #374151;
+  font-size: .78rem;
+}
+
+.reportDocHeader {
+  border: 1.5px solid #e5e7eb;
+  border-radius: 0 0 12px 12px;
+  padding: 18px 20px;
+  background: #f9fafb;
+}
+.reportDocTitle {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #111827;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  letter-spacing: -.01em;
+  margin-bottom: 12px;
+  line-height: 1.25;
+}
+.reportDocMeta {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+}
+.reportDocMetaItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.reportDocMetaLabel {
+  font-size: .67rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: #9ca3af;
+}
+.reportDocMetaValue {
+  font-size: .85rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+.reportDocMetaEditable {
+  font-size: .85rem;
+  font-weight: 600;
+  color: #1f2937;
+  border: none;
+  border-bottom: 1.5px solid #d1d5db;
+  background: transparent;
+  padding: 2px 0;
+  width: 100%;
+  font-family: 'DM Sans', sans-serif;
+  outline: none;
+  transition: border-color .15s;
+}
+.reportDocMetaEditable:focus { border-color: #818cf8; }
+.reportDocMetaEditable:disabled { color: #6b7280; cursor: not-allowed; }
+.reportDocMetaEditable::placeholder { color: #d1d5db; font-weight: 400; }
+
+/* ── Narrative editing sections ── */
+.reportNarrativeSection {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.reportNarrativeLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: .78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: #635bff;
+  border-bottom: 2px solid #635bff22;
+  padding-bottom: 7px;
+}
+.reportNarrativeInput {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: .875rem;
+  font-family: 'DM Sans', sans-serif;
+  color: #1f2937;
+  background: #fff;
+  transition: border-color .15s;
+  min-height: 42px;
+}
+.reportNarrativeInput:focus { outline: none; border-color: #a5b4fc; }
+.reportNarrativeInput:disabled { background: #f9fafb; color: #6b7280; cursor: not-allowed; }
+.reportNarrativeTextarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: .875rem;
+  font-family: 'DM Sans', sans-serif;
+  color: #1f2937;
+  background: #fff;
+  resize: vertical;
+  line-height: 1.6;
+  transition: border-color .15s;
+}
+.reportNarrativeTextarea:focus { outline: none; border-color: #a5b4fc; }
+.reportNarrativeTextarea:disabled { background: #f9fafb; color: #6b7280; cursor: not-allowed; }
+.reportWordCount {
+  margin-left: auto;
+  font-size: .68rem;
+  font-weight: 600;
+  color: #9ca3af;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.reportWordCountOver {
+  margin-left: auto;
+  font-size: .68rem;
+  font-weight: 700;
+  color: #dc2626;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ── Photo strips (interspersed between sections) ── */
+.reportPhotoStrip {
+  display: flex;
+  gap: 8px;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.reportPhotoStripCell {
+  flex: 1;
+  position: relative;
+  aspect-ratio: 16/9;
+  overflow: hidden;
+  border-radius: 8px;
+  min-width: 0;
+}
+.reportPhotoStripImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.reportPhotoReplaceBtn {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  background: rgba(0,0,0,.55);
+  color: #fff;
+  font-size: .75rem;
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: background .15s;
+}
+.reportPhotoReplaceBtn:hover { background: rgba(0,0,0,.8); }
 .reportPlaceholder {
   display: flex;
   flex-direction: column;

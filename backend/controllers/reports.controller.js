@@ -1,6 +1,11 @@
 const { pgPool }    = require('../config/db');
 const { getFileValue } = require('../config/multer');
 
+/* Add narrative column if it doesn't exist yet */
+pgPool.query(
+  `ALTER TABLE event_reports ADD COLUMN IF NOT EXISTS narrative JSONB DEFAULT '{}'::jsonb`
+).catch(() => {});
+
 /* ── Helpers ── */
 const academicYear = () => {
   const now   = new Date();
@@ -213,13 +218,14 @@ const generateReport = async (req, res, next) => {
       [eventId]
     );
 
-    /* ── Keep existing photos and coordinator-chosen MVP photo ── */
+    /* ── Keep existing photos, narrative, and coordinator-chosen MVP photo ── */
     const { rows: existing } = await pgPool.query(
-      `SELECT photos, tournament_mvp FROM event_reports WHERE event_id = $1::bigint`,
+      `SELECT photos, tournament_mvp, narrative FROM event_reports WHERE event_id = $1::bigint`,
       [eventId]
     );
-    const existingPhotos   = existing[0]?.photos || [];
-    const existingMvpPhoto = existing[0]?.tournament_mvp?.photo || null;
+    const existingPhotos    = existing[0]?.photos    || [];
+    const existingMvpPhoto  = existing[0]?.tournament_mvp?.photo || null;
+    const existingNarrative = existing[0]?.narrative || {};
 
     /* Preserve the photo across regenerations */
     if (tournamentMvp && existingMvpPhoto) {
@@ -232,9 +238,9 @@ const generateReport = async (req, res, next) => {
       `INSERT INTO event_reports
          (event_id, club_id, event_title, academic_year,
           participants, teams, groups, fixtures, match_mvps, tournament_mvp,
-          photos, summary_stats, created_by, generated_at, updated_at)
+          photos, summary_stats, narrative, created_by, generated_at, updated_at)
        VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,
-               $11,$12::jsonb,$13,NOW(),NOW())
+               $11,$12::jsonb,$13::jsonb,$14,NOW(),NOW())
        ON CONFLICT (event_id) DO UPDATE SET
          participants   = EXCLUDED.participants,
          teams          = EXCLUDED.teams,
@@ -244,6 +250,7 @@ const generateReport = async (req, res, next) => {
          tournament_mvp = EXCLUDED.tournament_mvp,
          summary_stats  = EXCLUDED.summary_stats,
          photos         = COALESCE(event_reports.photos, EXCLUDED.photos),
+         narrative      = COALESCE(event_reports.narrative, EXCLUDED.narrative),
          updated_at     = NOW()
        RETURNING *`,
       [
@@ -256,6 +263,7 @@ const generateReport = async (req, res, next) => {
         JSON.stringify(tournamentMvp),
         existingPhotos,
         JSON.stringify(summaryStats),
+        JSON.stringify(existingNarrative),
         req.user?.id,
       ]
     );
@@ -478,4 +486,25 @@ const getSubmittedReports = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMatchMvpPhoto, submitReport, getSubmittedReports, getAnnualReport, getReportYears };
+/* ══════════════════════════════════════════════
+   PATCH /api/reports/events/:eventId/narrative
+   Coordinator saves written narrative sections
+══════════════════════════════════════════════ */
+const updateNarrative = async (req, res, next) => {
+  try {
+    const allowed = ['event_date', 'association', 'objective', 'key_highlights', 'outcome', 'acknowledgments', 'remarks'];
+    const narrative = {};
+    allowed.forEach(k => { if (req.body[k] !== undefined) narrative[k] = String(req.body[k] || ''); });
+    const { rows } = await pgPool.query(
+      `UPDATE event_reports
+       SET narrative = COALESCE(narrative, '{}'::jsonb) || $1::jsonb,
+           updated_at = NOW()
+       WHERE event_id = $2::bigint RETURNING *`,
+      [JSON.stringify(narrative), req.params.eventId]
+    );
+    if (!rows.length) return res.status(404).json({ message: 'Generate the report first.' });
+    res.json({ report: rows[0] });
+  } catch (err) { next(err); }
+};
+
+module.exports = { getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMatchMvpPhoto, updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears };

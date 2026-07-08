@@ -86,6 +86,12 @@ export default function CoordEvents() {
   const [mvpPhotoUploading, setMvpPhotoUploading] = useState(false);
   const mvpCardRef = useRef(null);
 
+  /* ── Narrative (coordinator-written report text) ── */
+  const [reportNarrative, setReportNarrative] = useState({
+    event_date: '', association: '', objective: '', key_highlights: '', outcome: '', acknowledgments: '', remarks: '',
+  });
+  const [narrativeSaving, setNarrativeSaving] = useState(false);
+
   /* ── Groups state ── */
   const [groups,       setGroups]      = useState([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
@@ -317,6 +323,32 @@ export default function CoordEvents() {
       setEventReport(d.report || null);
     } catch { setEventReport(null); }
     finally { setReportLoading(false); }
+  };
+
+  /* Sync narrative form whenever a different report loads */
+  useEffect(() => {
+    const n = eventReport?.narrative || {};
+    setReportNarrative({
+      event_date:      n.event_date      || '',
+      association:     n.association     || '',
+      objective:       n.objective       || '',
+      key_highlights:  n.key_highlights  || '',
+      outcome:         n.outcome         || '',
+      acknowledgments: n.acknowledgments || '',
+      remarks:         n.remarks         || '',
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventReport?.id]);
+
+  const handleSaveNarrative = async () => {
+    if (!regEvent || !eventReport) return;
+    setNarrativeSaving(true);
+    try {
+      const d = await api.patch(`/reports/events/${regEvent._id}/narrative`, reportNarrative);
+      setEventReport(d.report);
+      showToast('Narrative saved.');
+    } catch (err) { showToast(err.message || 'Could not save narrative.', 'err'); }
+    finally { setNarrativeSaving(false); }
   };
 
   const handleGenerateReport = async () => {
@@ -1661,6 +1693,78 @@ export default function CoordEvents() {
                   </div>
                 ) : (
                       <>
+                        {/* ══ LETTERHEAD BANNER ══ */}
+                        <div className={es.reportLetterhead}>
+                          <img src="/images/logo.png" alt="SOAC RKU" className={es.reportLetterheadLogoLeft} />
+                        </div>
+
+                        {/* ══ EVENT HEADER (auto-populated) ══ */}
+                        <div className={es.reportDocHeader}>
+                          <div className={es.reportDocTitle}>{eventReport.event_title}</div>
+                          <div className={es.reportDocMeta}>
+                            <div className={es.reportDocMetaItem}>
+                              <span className={es.reportDocMetaLabel}>Date</span>
+                              <input
+                                className={es.reportDocMetaEditable}
+                                placeholder="e.g. 5 July 2026"
+                                value={reportNarrative.event_date}
+                                disabled={!!eventReport.submitted_at}
+                                onChange={e => setReportNarrative(p => ({ ...p, event_date: e.target.value }))} />
+                            </div>
+                            <div className={es.reportDocMetaItem}>
+                              <span className={es.reportDocMetaLabel}>Venue</span>
+                              <span className={es.reportDocMetaValue}>{regEvent?.venue || '—'}</span>
+                            </div>
+                            <div className={es.reportDocMetaItem}>
+                              <span className={es.reportDocMetaLabel}>Participants</span>
+                              <span className={es.reportDocMetaValue}>{eventReport.summary_stats?.totalParticipants ?? eventReport.participants?.length ?? 0}</span>
+                            </div>
+                            <div className={es.reportDocMetaItem}>
+                              <span className={es.reportDocMetaLabel}>Academic Year</span>
+                              <span className={es.reportDocMetaValue}>{eventReport.academic_year || '—'}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* ══ ASSOCIATION / COLLABORATION ══ */}
+                        <div className={es.reportNarrativeSection}>
+                          <div className={es.reportNarrativeLabel}>Association / Collaboration</div>
+                          <input
+                            className={es.reportNarrativeInput}
+                            placeholder="e.g. Student Organizations Advisory Council (SOAC), RK University and Indian Red Cross Society, Ahmedabad, Gujarat"
+                            value={reportNarrative.association}
+                            disabled={!!eventReport.submitted_at}
+                            onChange={e => setReportNarrative(p => ({ ...p, association: e.target.value }))} />
+                        </div>
+
+                        {/* ══ OBJECTIVE ══ */}
+                        <div className={es.reportNarrativeSection}>
+                          <div className={es.reportNarrativeLabel}>Objective of the Event</div>
+                          <textarea
+                            className={es.reportNarrativeTextarea}
+                            rows={3}
+                            placeholder="Describe the purpose and goals of this event…"
+                            value={reportNarrative.objective}
+                            disabled={!!eventReport.submitted_at}
+                            onChange={e => setReportNarrative(p => ({ ...p, objective: e.target.value }))} />
+                        </div>
+
+                        {/* ── PHOTO STRIP A (photos 0–1) ── */}
+                        {eventReport.photos?.length > 0 && (
+                          <div className={es.reportPhotoStrip}>
+                            {eventReport.photos.slice(0, 2).map((url, i) => (
+                              <div key={i} className={es.reportPhotoStripCell}>
+                                <img src={url} alt={`event-photo-${i}`} className={es.reportPhotoStripImg} />
+                                <label className={es.reportPhotoReplaceBtn}>
+                                  📷
+                                  <input type="file" accept="image/*" style={{ display: 'none' }}
+                                    onChange={e => e.target.files[0] && handleReplaceSidePhoto(i, e.target.files[0])} />
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
                         {/* ── 1. PARTICIPANTS ── */}
                         {eventReport.participants?.length > 0 && (
                           <div className={es.reportSection}>
@@ -1827,6 +1931,20 @@ export default function CoordEvents() {
                           </div>
                         )}
 
+                        {/* ── PHOTO STRIP B (photo 2 — between groups and bracket) ── */}
+                        {eventReport.photos?.[2] && (
+                          <div className={es.reportPhotoStrip}>
+                            <div className={es.reportPhotoStripCell} style={{ flex: 1 }}>
+                              <img src={eventReport.photos[2]} alt="event-photo-2" className={es.reportPhotoStripImg} />
+                              <label className={es.reportPhotoReplaceBtn}>
+                                📷
+                                <input type="file" accept="image/*" style={{ display: 'none' }}
+                                  onChange={e => e.target.files[0] && handleReplaceSidePhoto(2, e.target.files[0])} />
+                              </label>
+                            </div>
+                          </div>
+                        )}
+
                         {/* ── 5. BRACKET PREVIEW (built from saved report data) ── */}
                         {eventReport.fixtures?.length > 0 && (() => {
                           /* Convert report snake_case → TournamentBracket camelCase format */
@@ -1966,51 +2084,144 @@ export default function CoordEvents() {
                           </div>
                         )}
 
-                        {/* ── 6. EVENT PHOTOS ── */}
-                        <div className={es.reportSection}>
-                          <div className={es.reportSectionTitle}>Event Photos</div>
-                          {eventReport.photos?.length > 0 && (
-                            <div className={es.reportPhotosRow}>
-                              {eventReport.photos.map((url, i) => (
-                                <img key={i} src={url} alt={`photo-${i}`} className={es.reportPhotoCard} />
-                              ))}
-                            </div>
-                          )}
+                        {/* ── PHOTO STRIP C (photos 3–4 — after MVP section) ── */}
+                        {eventReport.photos?.some((_, i) => i >= 3) && (
+                          <div className={es.reportPhotoStrip}>
+                            {eventReport.photos.slice(3).map((url, i) => (
+                              <div key={i} className={es.reportPhotoStripCell}>
+                                <img src={url} alt={`event-photo-${i + 3}`} className={es.reportPhotoStripImg} />
+                                <label className={es.reportPhotoReplaceBtn}>
+                                  📷
+                                  <input type="file" accept="image/*" style={{ display: 'none' }}
+                                    onChange={e => e.target.files[0] && handleReplaceSidePhoto(i + 3, e.target.files[0])} />
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* ══ KEY HIGHLIGHTS ══ */}
+                        <div className={es.reportNarrativeSection}>
+                          <div className={es.reportNarrativeLabel}>Key Highlights</div>
+                          <textarea
+                            className={es.reportNarrativeTextarea}
+                            rows={4}
+                            placeholder="Notable moments, achievements, or activities from the event…"
+                            value={reportNarrative.key_highlights}
+                            disabled={!!eventReport.submitted_at}
+                            onChange={e => setReportNarrative(p => ({ ...p, key_highlights: e.target.value }))} />
+                        </div>
+
+                        {/* ══ OUTCOME ══ */}
+                        <div className={es.reportNarrativeSection}>
+                          <div className={es.reportNarrativeLabel}>Outcome</div>
+                          <textarea
+                            className={es.reportNarrativeTextarea}
+                            rows={3}
+                            placeholder="What was accomplished? What impact did this event have?…"
+                            value={reportNarrative.outcome}
+                            disabled={!!eventReport.submitted_at}
+                            onChange={e => setReportNarrative(p => ({ ...p, outcome: e.target.value }))} />
+                        </div>
+
+                        {/* ══ ACKNOWLEDGMENTS ══ */}
+                        <div className={es.reportNarrativeSection}>
+                          <div className={es.reportNarrativeLabel}>Acknowledgments</div>
+                          <textarea
+                            className={es.reportNarrativeTextarea}
+                            rows={3}
+                            placeholder="Thank faculty, sponsors, volunteers, or other contributors…"
+                            value={reportNarrative.acknowledgments}
+                            disabled={!!eventReport.submitted_at}
+                            onChange={e => setReportNarrative(p => ({ ...p, acknowledgments: e.target.value }))} />
+                        </div>
+
+                        {/* ══ REMARKS (max 100 words) ══ */}
+                        <div className={es.reportNarrativeSection}>
+                          <div className={es.reportNarrativeLabel}>
+                            Remarks
+                            <span className={
+                              reportNarrative.remarks.trim().split(/\s+/).filter(Boolean).length > 100
+                                ? es.reportWordCountOver
+                                : es.reportWordCount
+                            }>
+                              {reportNarrative.remarks.trim().split(/\s+/).filter(Boolean).length} / 100 words
+                            </span>
+                          </div>
+                          <textarea
+                            className={es.reportNarrativeTextarea}
+                            rows={3}
+                            placeholder="Brief closing remarks (max 100 words)…"
+                            value={reportNarrative.remarks}
+                            disabled={!!eventReport.submitted_at}
+                            onChange={e => setReportNarrative(p => ({ ...p, remarks: e.target.value }))} />
+                        </div>
+
+                        {/* ══ PHOTO UPLOAD ══ */}
+                        <div className={es.reportNarrativeSection}>
+                          <div className={es.reportNarrativeLabel}>Event Photos ({eventReport.photos?.length || 0} / 5 uploaded)</div>
                           <div className={es.reportPhotoUpload}>
                             <label className={es.reportPhotoLabel}>
-                              Choose photos (up to 5)
+                              + Add Photos
                               <input
-                                type="file"
-                                accept="image/*"
-                                multiple
+                                type="file" accept="image/*" multiple
                                 style={{ display: 'none' }}
                                 onChange={e => setReportPhotoFiles(Array.from(e.target.files).slice(0, 5))}
                               />
                             </label>
                             {reportPhotoFiles.length > 0 && (
                               <>
-                                <span className={es.reportSavedAt}>{reportPhotoFiles.length} file{reportPhotoFiles.length > 1 ? 's' : ''} selected</span>
-                                <button className={es.reportGenBtn} onClick={handleUploadReportPhotos}>
-                                  Upload
-                                </button>
+                                <span className={es.reportSavedAt}>{reportPhotoFiles.length} selected</span>
+                                <button className={es.reportGenBtn} onClick={handleUploadReportPhotos}>Upload</button>
                               </>
                             )}
                           </div>
+                          {eventReport.photos?.length > 0 && (
+                            <div className={es.reportPhotosRow} style={{ marginTop: 10 }}>
+                              {eventReport.photos.map((url, i) => (
+                                <div key={i} style={{ position: 'relative', display: 'inline-block' }}>
+                                  <img src={url} alt={`photo-${i}`} className={es.reportPhotoCard} />
+                                  <label className={es.reportPhotoReplaceBtn} style={{ position: 'absolute', bottom: 6, right: 6 }}>
+                                    📷
+                                    <input type="file" accept="image/*" style={{ display: 'none' }}
+                                      onChange={e => e.target.files[0] && handleReplaceSidePhoto(i, e.target.files[0])} />
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        {/* ── ACTION BAR (bottom of report) ── */}
+
+                        {/* ══ REPORT FOOTER (RKU address) ══ */}
+                        <div className={es.reportUniversityFooter}>
+                          <span className={es.reportUniversityFooterName}>RK University</span>
+                          <span>Kasturbadham, Rajkot - Bhavnagar Highway, Rajkot - 360020, Gujarat - India</span>
+                          <span>
+                            T +91 99099 52030 / 31&nbsp;&nbsp;|&nbsp;&nbsp;
+                            <strong>www.rku.ac.in</strong>&nbsp;&nbsp;|&nbsp;&nbsp;
+                            info@rku.ac.in
+                          </span>
+                        </div>
+
+                        {/* ── ACTION BAR ── */}
                         <div className={es.reportActions}>
+                          {!eventReport.submitted_at && (
+                            <button
+                              className={es.reportGenBtn}
+                              onClick={handleSaveNarrative}
+                              disabled={narrativeSaving}>
+                              {narrativeSaving ? 'Saving…' : '💾 Save Narrative'}
+                            </button>
+                          )}
                           <button
                             className={es.reportGenBtn}
                             onClick={handleGenerateReport}
                             disabled={reportGenerating || !!eventReport.submitted_at}
+                            style={{ background: '#f3f4f6', color: '#374151', boxShadow: 'none' }}
                             title={eventReport.submitted_at ? 'Cannot regenerate a submitted report' : ''}>
-                            {reportGenerating ? 'Generating…' : 'Regenerate Report'}
+                            {reportGenerating ? 'Regenerating…' : '↺ Regenerate'}
                           </button>
-                          <button
-                            className={es.reportDeleteBtn}
-                            onClick={handleDeleteReport}>
-                            Delete Report
-                          </button>
+                          <button className={es.reportDeleteBtn} onClick={handleDeleteReport}>Delete</button>
                           {eventReport.submitted_at && (
                             <span className={es.reportSubmittedBadge}>✓ Submitted</span>
                           )}
