@@ -1041,7 +1041,7 @@ const getEventMvp = async (req, res, next) => {
     const { rows } = await pgPool.query(
       `SELECT DISTINCT ON (m.score_id) m.*
        FROM match_mvp m
-       LEFT JOIN club_live_scores cls ON cls.id = m.score_id
+       JOIN club_live_scores cls ON cls.id = m.score_id
        WHERE m.event_id = $1::bigint
           OR cls.event_id = $1::bigint
        ORDER BY m.score_id, m.created_at ASC`,
@@ -1552,6 +1552,9 @@ const deleteLiveScore = async (req, res, next) => {
       [req.params.scoreId, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Scoreboard not found.' });
+    /* Clean up the orphaned MVP record so restarting the same match starts fresh
+       instead of leaving stale MVP data behind alongside the new one. */
+    await pgPool.query(`DELETE FROM match_mvp WHERE score_id = $1::bigint`, [req.params.scoreId]);
     res.json({ message: 'Scoreboard deleted.' });
   } catch (err) { next(err); }
 };

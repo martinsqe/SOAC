@@ -5,7 +5,7 @@ const { uploadReportPhoto } = require('../config/multer');
 const { uploadMvpPhoto } = require('../config/multer');
 const {
   getEventReport, listReports, generateReport, deleteReport,
-  uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMatchMvpPhoto,
+  uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto,
   updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears,
 } = require('../controllers/reports.controller');
 
@@ -29,7 +29,7 @@ router.delete('/events/:eventId', verifyToken, deleteReport);
 
 /* Upload photos for a report (max 5 at a time) */
 router.patch('/events/:eventId/photos', verifyToken,
-  uploadReportPhoto.array('photos', 5),
+  uploadReportPhoto.array('photos', 4),
   uploadReportPhotos,
 );
 
@@ -43,6 +43,12 @@ router.patch('/events/:eventId/photos/:index', verifyToken,
 router.patch('/events/:eventId/mvp-photo', verifyToken,
   uploadMvpPhoto.single('photo'),
   updateMvpPhoto,
+);
+
+/* Upload / replace tournament MVP flanking side photo (left or right) */
+router.patch('/events/:eventId/mvp-side-photo/:side', verifyToken,
+  uploadMvpPhoto.single('photo'),
+  updateMvpSidePhoto,
 );
 
 /* Upload / replace a specific game MVP's player photo */

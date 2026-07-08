@@ -142,6 +142,119 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
+  max-width: 960px;
+}
+
+/* ── Letterhead ── */
+.letterhead {
+  background: #fff;
+  border: 1.5px solid #e5e7eb;
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  padding: 12px 20px;
+  margin-bottom: -24px;
+}
+.letterheadLogo {
+  height: 48px;
+  width: auto;
+  object-fit: contain;
+  display: block;
+}
+
+/* ── Event header ── */
+.docHeader {
+  border: 1.5px solid #e5e7eb;
+  border-radius: 0 0 12px 12px;
+  padding: 16px 20px;
+  background: #f9fafb;
+}
+.docTitle {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #111827;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  letter-spacing: -.01em;
+  margin-bottom: 10px;
+  line-height: 1.25;
+}
+.docMeta {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+.docMetaItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.docMetaLabel {
+  font-size: .65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: #9ca3af;
+}
+.docMetaValue {
+  font-size: .82rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+/* ── Narrative text ── */
+.narrativeText {
+  font-size: .85rem;
+  color: #374151;
+  line-height: 1.7;
+  margin: 0;
+  white-space: pre-wrap;
+}
+.narrativePlaceholder {
+  font-size: .82rem;
+  color: #9ca3af;
+  font-style: italic;
+  margin: 0;
+}
+
+/* ── Photo strips (inline between sections) ── */
+.photoStrip {
+  display: flex;
+  gap: 8px;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.photoStripCell {
+  flex: 1;
+  position: relative;
+  height: 220px;
+  overflow: hidden;
+  border-radius: 8px;
+  min-width: 0;
+}
+.photoStripImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* ── RKU address footer ── */
+.universityFooter {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  border-top: 1px solid #e5e7eb;
+  padding: 12px 0 6px;
+  gap: 3px;
+  font-size: .72rem;
+  color: #6b7280;
+  font-family: 'DM Sans', sans-serif;
+  line-height: 1.5;
+}
+.universityFooterName {
+  font-weight: 700;
+  color: #374151;
+  font-size: .78rem;
 }
 .detailLoading {
   padding: 20px;
@@ -298,6 +411,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: top center;
   z-index: 0;
 }
 .gameMvpBgFallback {
@@ -413,21 +527,26 @@
 /* ── Tournament MVP — 8cm × 9cm portrait card row, horizontally scrollable on mobile ── */
 .mvpCardWrap {
   display: flex;
-  align-items: stretch;
-  justify-content: flex-start;
-  gap: 10px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scroll-snap-type: x mandatory;
-  padding: 0 2px 14px;
+  justify-content: center;
 }
-.mvpSidePhoto {
+.mvpSideWrap {
+  position: relative;
   width: 8cm;
   height: 9cm;
-  object-fit: cover;
   flex-shrink: 0;
-  display: block;
+  overflow: hidden;
   scroll-snap-align: start;
+}
+.mvpSidePhoto {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.mvpSideFallback {
+  width: 100%;
+  height: 100%;
+  background: #1e1b4b;
 }
 .mvpCard8 {
   position: relative;
@@ -541,9 +660,10 @@
   width: 7cm;
   height: 8cm;
   object-fit: cover;
-  border-radius: 0;
+  object-position: top center;
+  border-radius: 4px;
   scroll-snap-align: start;
-  border: 2px solid #e5e7eb;
+  border: 1.5px solid #e5e7eb;
   flex-shrink: 0;
 }
 

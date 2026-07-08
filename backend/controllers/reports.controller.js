@@ -142,14 +142,16 @@ const generateReport = async (req, res, next) => {
       [eventId]
     );
 
-    /* ── Match MVPs (with stats) — DISTINCT ON score_id prevents duplicates ── */
+    /* ── Match MVPs (with stats) — DISTINCT ON score_id prevents duplicates.
+       INNER JOIN ensures only MVPs from matches that still exist in Match Control
+       are pulled in, so a deleted-and-restarted match's stale MVP never lingers. ── */
     const { rows: matchMvps } = await pgPool.query(
       `SELECT DISTINCT ON (m.score_id)
               m.score_id, m.player_name, m.stats, m.player_photo,
               m.home_team, m.opponent_name, m.home_score, m.away_score,
               m.sport, m.match_title, m.created_at
        FROM match_mvp m
-       LEFT JOIN club_live_scores cls ON cls.id = m.score_id
+       JOIN club_live_scores cls ON cls.id = m.score_id
        WHERE m.event_id = $1::bigint
           OR cls.event_id = $1::bigint
        ORDER BY m.score_id, m.created_at`,
@@ -188,6 +190,7 @@ const generateReport = async (req, res, next) => {
       totalFixtures:     fixtures.length,
       completedMatches:  completedFixtures.length,
       totalMvpGames:     matchMvps.length,
+      venue:             ev.venue || null,
     };
 
     /* ── Backfill fixture scores from live scores — always overwrite with latest live result ── */
@@ -218,18 +221,20 @@ const generateReport = async (req, res, next) => {
       [eventId]
     );
 
-    /* ── Keep existing photos, narrative, and coordinator-chosen MVP photo ── */
+    /* ── Keep existing photos, narrative, and coordinator-chosen MVP photos ── */
     const { rows: existing } = await pgPool.query(
       `SELECT photos, tournament_mvp, narrative FROM event_reports WHERE event_id = $1::bigint`,
       [eventId]
     );
-    const existingPhotos    = existing[0]?.photos    || [];
-    const existingMvpPhoto  = existing[0]?.tournament_mvp?.photo || null;
-    const existingNarrative = existing[0]?.narrative || {};
+    const existingPhotos        = existing[0]?.photos || [];
+    const existingTmvp          = existing[0]?.tournament_mvp || {};
+    const existingNarrative     = existing[0]?.narrative || {};
 
-    /* Preserve the photo across regenerations */
-    if (tournamentMvp && existingMvpPhoto) {
-      tournamentMvp.photo = existingMvpPhoto;
+    /* Preserve all coordinator-uploaded MVP photos across regenerations */
+    if (tournamentMvp) {
+      if (existingTmvp.photo)            tournamentMvp.photo            = existingTmvp.photo;
+      if (existingTmvp.side_photo_left)  tournamentMvp.side_photo_left  = existingTmvp.side_photo_left;
+      if (existingTmvp.side_photo_right) tournamentMvp.side_photo_right = existingTmvp.side_photo_right;
     }
 
     /* ── Upsert ── */
@@ -284,7 +289,7 @@ const uploadReportPhotos = async (req, res, next) => {
     );
     const current = existing[0]?.photos || [];
     const newUrls = req.files.map(f => getFileValue(f));
-    const merged  = [...current, ...newUrls].slice(-5);
+    const merged  = [...current, ...newUrls].slice(-4);
 
     const { rows } = await pgPool.query(
       `UPDATE event_reports SET photos = $1, updated_at = NOW()
@@ -304,7 +309,7 @@ const replaceReportPhoto = async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ message: 'No photo uploaded.' });
     const idx = parseInt(req.params.index, 10);
-    if (isNaN(idx) || idx < 0 || idx > 4) return res.status(400).json({ message: 'Invalid photo index (0-4).' });
+    if (isNaN(idx) || idx < 0 || idx > 3) return res.status(400).json({ message: 'Invalid photo index (0-3).' });
     const photoUrl = getFileValue(req.file);
 
     const { rows: existing } = await pgPool.query(
@@ -408,14 +413,17 @@ const updateMatchMvpPhoto = async (req, res, next) => {
       [photoUrl, scoreId]
     );
 
-    /* Re-fetch all match MVPs for this event and refresh the report JSONB */
+    /* Re-fetch all match MVPs for this event and refresh the report JSONB.
+       INNER JOIN keeps this in sync with Match Control — a deleted match's MVP
+       won't reappear here even if it was inserted before being cleaned up. */
     const { rows: matchMvps } = await pgPool.query(
       `SELECT m.score_id, m.player_name, m.stats, m.player_photo,
               m.home_team, m.opponent_name, m.home_score, m.away_score,
               m.sport, m.match_title, m.created_at
        FROM match_mvp m
-       LEFT JOIN club_live_scores cls ON cls.id = m.score_id
-       WHERE m.event_id = $1::bigint OR cls.event_id = $1::bigint
+       JOIN club_live_scores cls ON cls.id = m.score_id
+       WHERE m.event_id = $1::bigint
+          OR cls.event_id = $1::bigint
        ORDER BY m.created_at`,
       [eventId]
     );
@@ -424,6 +432,31 @@ const updateMatchMvpPhoto = async (req, res, next) => {
       `UPDATE event_reports SET match_mvps = $1::jsonb, updated_at = NOW()
        WHERE event_id = $2::bigint RETURNING *`,
       [JSON.stringify(matchMvps), eventId]
+    );
+    if (!rows.length) return res.status(404).json({ message: 'Generate the report first.' });
+    res.json({ report: rows[0] });
+  } catch (err) { next(err); }
+};
+
+/* ══════════════════════════════════════════════
+   PATCH /api/reports/events/:eventId/mvp-side-photo/:side
+   Coordinator uploads left or right flanking photo for MVP card
+   Stored in tournament_mvp.side_photo_left / side_photo_right
+   (completely separate from the event photos[] array)
+══════════════════════════════════════════════ */
+const updateMvpSidePhoto = async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No photo uploaded.' });
+    const { eventId, side } = req.params;
+    if (side !== 'left' && side !== 'right') return res.status(400).json({ message: 'side must be left or right.' });
+    const photoUrl = getFileValue(req.file);
+    const field = side === 'left' ? 'side_photo_left' : 'side_photo_right';
+    const { rows } = await pgPool.query(
+      `UPDATE event_reports
+       SET tournament_mvp = jsonb_set(COALESCE(tournament_mvp, '{}'::jsonb), $1::text[], $2::jsonb),
+           updated_at = NOW()
+       WHERE event_id = $3::bigint RETURNING *`,
+      [`{${field}}`, JSON.stringify(photoUrl), eventId]
     );
     if (!rows.length) return res.status(404).json({ message: 'Generate the report first.' });
     res.json({ report: rows[0] });
@@ -507,4 +540,4 @@ const updateNarrative = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMatchMvpPhoto, updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears };
+module.exports = { getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto, updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears };

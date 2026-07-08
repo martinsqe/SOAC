@@ -409,6 +409,18 @@ export default function CoordEvents() {
     }
   };
 
+  const handleMvpSidePhotoUpload = async (side, file) => {
+    if (!file || !regEvent) return;
+    const fd = new FormData();
+    fd.append('photo', file);
+    try {
+      const d = await api.patchForm(`/reports/events/${regEvent._id}/mvp-side-photo/${side}`, fd);
+      setEventReport(d.report);
+    } catch (err) {
+      alert(err?.message || 'Failed to upload side photo.');
+    }
+  };
+
   const handleUploadReportPhotos = async () => {
     if (!reportPhotoFiles.length || !regEvent) return;
     const fd = new FormData();
@@ -655,7 +667,7 @@ export default function CoordEvents() {
     if (!mvpPickPlayer) return;
     setMvpChanging(true);
     try {
-      const d = await api.post(`/clubs/${club.id}/live-scores/${scoreId}/mvp/player`, { playerName: mvpPickPlayer });
+      const d = await api.patch(`/clubs/${club.id}/live-scores/${scoreId}/mvp/player`, { playerName: mvpPickPlayer });
       setMatchMvpData(prev => ({ ...prev, [String(scoreId)]: d.mvp }));
       setMvpPickScoreId(null);
       setMvpPickPlayer('');
@@ -1749,22 +1761,6 @@ export default function CoordEvents() {
                             onChange={e => setReportNarrative(p => ({ ...p, objective: e.target.value }))} />
                         </div>
 
-                        {/* ── PHOTO STRIP A (photos 0–1) ── */}
-                        {eventReport.photos?.length > 0 && (
-                          <div className={es.reportPhotoStrip}>
-                            {eventReport.photos.slice(0, 2).map((url, i) => (
-                              <div key={i} className={es.reportPhotoStripCell}>
-                                <img src={url} alt={`event-photo-${i}`} className={es.reportPhotoStripImg} />
-                                <label className={es.reportPhotoReplaceBtn}>
-                                  📷
-                                  <input type="file" accept="image/*" style={{ display: 'none' }}
-                                    onChange={e => e.target.files[0] && handleReplaceSidePhoto(i, e.target.files[0])} />
-                                </label>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
                         {/* ── 1. PARTICIPANTS ── */}
                         {eventReport.participants?.length > 0 && (
                           <div className={es.reportSection}>
@@ -1931,20 +1927,6 @@ export default function CoordEvents() {
                           </div>
                         )}
 
-                        {/* ── PHOTO STRIP B (photo 2 — between groups and bracket) ── */}
-                        {eventReport.photos?.[2] && (
-                          <div className={es.reportPhotoStrip}>
-                            <div className={es.reportPhotoStripCell} style={{ flex: 1 }}>
-                              <img src={eventReport.photos[2]} alt="event-photo-2" className={es.reportPhotoStripImg} />
-                              <label className={es.reportPhotoReplaceBtn}>
-                                📷
-                                <input type="file" accept="image/*" style={{ display: 'none' }}
-                                  onChange={e => e.target.files[0] && handleReplaceSidePhoto(2, e.target.files[0])} />
-                              </label>
-                            </div>
-                          </div>
-                        )}
-
                         {/* ── 5. BRACKET PREVIEW (built from saved report data) ── */}
                         {eventReport.fixtures?.length > 0 && (() => {
                           /* Convert report snake_case → TournamentBracket camelCase format */
@@ -2015,27 +1997,12 @@ export default function CoordEvents() {
                           <div className={es.reportSection}>
                             <div className={es.reportSectionTitle}>Tournament MVP</div>
                             <div className={es.reportMvpCardWrap}>
-                              <div className={es.reportMvpSideWrap}>
-                                {eventReport.photos?.[0]
-                                  ? <img src={eventReport.photos[0]} alt="" className={es.reportMvpSidePhoto} />
-                                  : <div className={es.reportMvpSideFallback} />
-                                }
-                                <label className={es.reportMvpSideBtn}>
-                                  📷 Set Photo
-                                  <input type="file" accept="image/*" style={{ display: 'none' }}
-                                    onChange={e => e.target.files[0] && handleReplaceSidePhoto(0, e.target.files[0])} />
-                                </label>
-                              </div>
                               <div className={es.reportMvpCard8} ref={mvpCardRef}>
-                                {/* Full-bleed background photo */}
                                 {eventReport.tournament_mvp.photo
                                   ? <img src={eventReport.tournament_mvp.photo} alt="mvp bg" className={es.reportMvpBg} />
                                   : <div className={es.reportMvpBgFallback} />
                                 }
-                                {/* Dark gradient overlay */}
                                 <div className={es.reportMvpOverlay} />
-
-                                {/* Photo upload strip — bottom of card */}
                                 <label className={es.reportMvpUploadBtn}>
                                   {mvpPhotoUploading ? 'Uploading…' : '📷 Set MVP Photo'}
                                   <input
@@ -2046,8 +2013,6 @@ export default function CoordEvents() {
                                     onChange={e => e.target.files[0] && handleMvpPhotoUpload(e.target.files[0])}
                                   />
                                 </label>
-
-                                {/* Content */}
                                 <div className={es.reportMvpContent}>
                                   <div className={es.reportMvpLabel}>MVP</div>
                                   <div className={es.reportMvpCardName}>
@@ -2069,34 +2034,7 @@ export default function CoordEvents() {
                                   </div>
                                 </div>
                               </div>
-                              <div className={es.reportMvpSideWrap}>
-                                {eventReport.photos?.[1]
-                                  ? <img src={eventReport.photos[1]} alt="" className={es.reportMvpSidePhoto} />
-                                  : <div className={es.reportMvpSideFallback} />
-                                }
-                                <label className={es.reportMvpSideBtn}>
-                                  📷 Set Photo
-                                  <input type="file" accept="image/*" style={{ display: 'none' }}
-                                    onChange={e => e.target.files[0] && handleReplaceSidePhoto(1, e.target.files[0])} />
-                                </label>
-                              </div>
                             </div>
-                          </div>
-                        )}
-
-                        {/* ── PHOTO STRIP C (photos 3–4 — after MVP section) ── */}
-                        {eventReport.photos?.some((_, i) => i >= 3) && (
-                          <div className={es.reportPhotoStrip}>
-                            {eventReport.photos.slice(3).map((url, i) => (
-                              <div key={i} className={es.reportPhotoStripCell}>
-                                <img src={url} alt={`event-photo-${i + 3}`} className={es.reportPhotoStripImg} />
-                                <label className={es.reportPhotoReplaceBtn}>
-                                  📷
-                                  <input type="file" accept="image/*" style={{ display: 'none' }}
-                                    onChange={e => e.target.files[0] && handleReplaceSidePhoto(i + 3, e.target.files[0])} />
-                                </label>
-                              </div>
-                            ))}
                           </div>
                         )}
 
@@ -2159,14 +2097,14 @@ export default function CoordEvents() {
 
                         {/* ══ PHOTO UPLOAD ══ */}
                         <div className={es.reportNarrativeSection}>
-                          <div className={es.reportNarrativeLabel}>Event Photos ({eventReport.photos?.length || 0} / 5 uploaded)</div>
+                          <div className={es.reportNarrativeLabel}>Event Photos ({eventReport.photos?.length || 0} / 4 uploaded)</div>
                           <div className={es.reportPhotoUpload}>
                             <label className={es.reportPhotoLabel}>
                               + Add Photos
                               <input
                                 type="file" accept="image/*" multiple
                                 style={{ display: 'none' }}
-                                onChange={e => setReportPhotoFiles(Array.from(e.target.files).slice(0, 5))}
+                                onChange={e => setReportPhotoFiles(Array.from(e.target.files).slice(0, 4))}
                               />
                             </label>
                             {reportPhotoFiles.length > 0 && (
@@ -2181,11 +2119,13 @@ export default function CoordEvents() {
                               {eventReport.photos.map((url, i) => (
                                 <div key={i} style={{ position: 'relative', display: 'inline-block' }}>
                                   <img src={url} alt={`photo-${i}`} className={es.reportPhotoCard} />
-                                  <label className={es.reportPhotoReplaceBtn} style={{ position: 'absolute', bottom: 6, right: 6 }}>
-                                    📷
-                                    <input type="file" accept="image/*" style={{ display: 'none' }}
-                                      onChange={e => e.target.files[0] && handleReplaceSidePhoto(i, e.target.files[0])} />
-                                  </label>
+                                  {!eventReport.submitted_at && (
+                                    <label className={es.reportPhotoReplaceBtn} style={{ position: 'absolute', bottom: 6, right: 6 }}>
+                                      📷
+                                      <input type="file" accept="image/*" style={{ display: 'none' }}
+                                        onChange={e => e.target.files[0] && handleReplaceSidePhoto(i, e.target.files[0])} />
+                                    </label>
+                                  )}
                                 </div>
                               ))}
                             </div>

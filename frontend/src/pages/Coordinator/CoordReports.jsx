@@ -174,10 +174,52 @@ function ReportDetail({ eventId }) {
     statMap[k].STL += Number(m.stats?.STL ?? 0);
   });
 
+  const nav = data.narrative || {};
+
   return (
     <div className={r.reportDetail}>
 
-      {/* Participants */}
+      {/* ── LETTERHEAD ── */}
+      <div className={r.letterhead}>
+        <img src="/images/logo.png" alt="SOAC RKU" className={r.letterheadLogo} />
+      </div>
+
+      {/* ── EVENT HEADER ── */}
+      <div className={r.docHeader}>
+        <div className={r.docTitle}>{data.event_title}</div>
+        <div className={r.docMeta}>
+          <div className={r.docMetaItem}>
+            <span className={r.docMetaLabel}>Date</span>
+            <span className={r.docMetaValue}>{nav.event_date || '—'}</span>
+          </div>
+          <div className={r.docMetaItem}>
+            <span className={r.docMetaLabel}>Venue</span>
+            <span className={r.docMetaValue}>{data.summary_stats?.venue || '—'}</span>
+          </div>
+          <div className={r.docMetaItem}>
+            <span className={r.docMetaLabel}>Participants</span>
+            <span className={r.docMetaValue}>{data.summary_stats?.totalParticipants ?? data.participants?.length ?? 0}</span>
+          </div>
+          <div className={r.docMetaItem}>
+            <span className={r.docMetaLabel}>Academic Year</span>
+            <span className={r.docMetaValue}>{data.academic_year || '—'}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── ASSOCIATION ── */}
+      <div className={r.detailSection}>
+        <div className={r.detailSectionTitle}>Association / Collaboration</div>
+        <p className={r.narrativeText}>{nav.association || '—'}</p>
+      </div>
+
+      {/* ── OBJECTIVE ── */}
+      <div className={r.detailSection}>
+        <div className={r.detailSectionTitle}>Objective of the Event</div>
+        <p className={r.narrativeText}>{nav.objective || '—'}</p>
+      </div>
+
+      {/* ── PARTICIPANTS ── */}
       {data.participants?.length > 0 && (
         <div className={r.detailSection}>
           <div className={r.detailSectionTitle}>Participants ({data.participants.length})</div>
@@ -193,12 +235,9 @@ function ReportDetail({ eventId }) {
                   const gLbl = p.gender === 'M' ? 'Male' : p.gender === 'F' ? 'Female' : p.gender === 'O' ? 'Other' : '—';
                   return (
                     <tr key={i}>
-                      <td>{i + 1}</td>
-                      <td>{p.name}</td>
-                      <td>{p.enrollment_no || '—'}</td>
-                      <td>{gLbl}</td>
-                      <td>{p.dept || '—'}</td>
-                      <td>{p.course || '—'}</td>
+                      <td>{i + 1}</td><td>{p.name}</td>
+                      <td>{p.enrollment_no || '—'}</td><td>{gLbl}</td>
+                      <td>{p.dept || '—'}</td><td>{p.course || '—'}</td>
                       <td className={r.statCell}>{st.PTS || '—'}</td>
                       <td className={r.statCell}>{st.AST || '—'}</td>
                       <td className={r.statCell}>{st.REB || '—'}</td>
@@ -212,7 +251,7 @@ function ReportDetail({ eventId }) {
         </div>
       )}
 
-      {/* Groups & Teams */}
+      {/* ── GROUPS & TEAMS ── */}
       {(data.groups?.length > 0 || data.teams?.length > 0) && (
         <div className={r.detailSection}>
           <div className={r.detailSectionTitle}>Groups &amp; Teams</div>
@@ -253,7 +292,34 @@ function ReportDetail({ eventId }) {
         </div>
       )}
 
-      {/* Game MVPs */}
+      {/* ── MATCH RESULTS ── */}
+      {data.fixtures?.length > 0 && (
+        <div className={r.detailSection}>
+          <div className={r.detailSectionTitle}>Match Results</div>
+          <div className={r.tableWrap}>
+            <table className={r.table}>
+              <thead>
+                <tr><th>Round</th><th>Team A</th><th>Score</th><th>Team B</th><th>Winner</th></tr>
+              </thead>
+              <tbody>
+                {data.fixtures.map((f, i) => (
+                  <tr key={i}>
+                    <td>{f.round || '—'}</td>
+                    <td>{f.team_a_name}</td>
+                    <td className={r.score}>
+                      {f.score_a != null && (f.score_a > 0 || f.score_b > 0) ? `${f.score_a} – ${f.score_b}` : 'vs'}
+                    </td>
+                    <td>{f.team_b_name}</td>
+                    <td>{f.winner_name || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── GAME MVPs ── */}
       {data.match_mvps?.length > 0 && (
         <div className={r.detailSection}>
           <div className={r.detailSectionTitle}>Game MVPs</div>
@@ -281,8 +347,7 @@ function ReportDetail({ eventId }) {
                           <span className={r.gameMvpVal}>{v}</span>
                           <span className={r.gameMvpKey}>{k}</span>
                         </div>
-                      ))
-                    }
+                      ))}
                   </div>
                 </div>
               </div>
@@ -291,47 +356,16 @@ function ReportDetail({ eventId }) {
         </div>
       )}
 
-      {/* Fixtures */}
-      {data.fixtures?.length > 0 && (
-        <div className={r.detailSection}>
-          <div className={r.detailSectionTitle}>Match Results</div>
-          <div className={r.tableWrap}>
-            <table className={r.table}>
-              <thead>
-                <tr><th>Round</th><th>Team A</th><th>Score</th><th>Team B</th><th>Winner</th></tr>
-              </thead>
-              <tbody>
-                {data.fixtures.map((f, i) => (
-                  <tr key={i}>
-                    <td>{f.round || '—'}</td>
-                    <td>{f.team_a_name}</td>
-                    <td className={r.score}>{f.winner_name && f.score_a != null ? `${f.score_a} – ${f.score_b}` : f.score_a != null && (f.score_a > 0 || f.score_b > 0) ? `${f.score_a} – ${f.score_b}` : 'vs'}</td>
-                    <td>{f.team_b_name}</td>
-                    <td>{f.winner_name || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Bracket preview */}
+      {/* ── TOURNAMENT BRACKET ── */}
       {data.fixtures?.length > 0 && (() => {
         const bracketFixtures = data.fixtures.map(f => ({
-          id:     String(f.id || ''),
-          teamA:  f.team_a_name,
-          teamB:  f.team_b_name,
-          scoreA: f.score_a,
-          scoreB: f.score_b,
-          winner: f.winner_name || null,
-          round:  f.round || '',
+          id: String(f.id || ''), teamA: f.team_a_name, teamB: f.team_b_name,
+          scoreA: f.score_a, scoreB: f.score_b, winner: f.winner_name || null, round: f.round || '',
         }));
-        const bracketGroups = data.groups.map(g => ({
-          id:        String(g.id || ''),
-          name:      g.name,
+        const bracketGroups = (data.groups || []).map(g => ({
+          id: String(g.id || ''), name: g.name,
           sortOrder: g.sort_order ?? g.sortOrder ?? 0,
-          teams:     (g.teams || []).map(t => ({ id: String(t.id || ''), name: t.name })),
+          teams: (g.teams || []).map(t => ({ id: String(t.id || ''), name: t.name })),
         }));
         return (
           <div className={r.detailSection}>
@@ -343,19 +377,13 @@ function ReportDetail({ eventId }) {
         );
       })()}
 
-      {/* Tournament Winner */}
+      {/* ── TOURNAMENT WINNER ── */}
       {(() => {
         const fx = data.fixtures || [];
-        const completed = fx.filter(f =>
-          f.winner_name ||
-          (f.score_a != null && f.score_b != null && f.score_a !== f.score_b)
-        );
+        const completed = fx.filter(f => f.winner_name || (f.score_a != null && f.score_b != null && f.score_a !== f.score_b));
         if (!completed.length) return null;
-        const finalFx =
-          completed.find(f => /final/i.test(f.round || '') && !/semi|quarter/i.test(f.round || '')) ||
-          completed[completed.length - 1];
-        const winnerName = finalFx.winner_name ||
-          (finalFx.score_a > finalFx.score_b ? finalFx.team_a_name : finalFx.team_b_name);
+        const finalFx = completed.find(f => /final/i.test(f.round || '') && !/semi|quarter/i.test(f.round || '')) || completed[completed.length - 1];
+        const winnerName = finalFx.winner_name || (finalFx.score_a > finalFx.score_b ? finalFx.team_a_name : finalFx.team_b_name);
         const opponent = winnerName === finalFx.team_a_name ? finalFx.team_b_name : finalFx.team_a_name;
         const hasScore = finalFx.score_a != null && (finalFx.score_a > 0 || finalFx.score_b > 0);
         return (
@@ -367,8 +395,7 @@ function ReportDetail({ eventId }) {
                 <div className={r.winnerName}>{winnerName}</div>
                 <div className={r.winnerMeta}>
                   {finalFx.round ? `${finalFx.round} · ` : ''}
-                  {hasScore ? `${finalFx.score_a} – ${finalFx.score_b} ` : ''}
-                  vs {opponent}
+                  {hasScore ? `${finalFx.score_a} – ${finalFx.score_b} ` : ''}vs {opponent}
                 </div>
               </div>
             </div>
@@ -376,14 +403,11 @@ function ReportDetail({ eventId }) {
         );
       })()}
 
-      {/* Tournament MVP — 8cm × 9cm portrait card */}
+      {/* ── TOURNAMENT MVP ── */}
       {data.tournament_mvp && (
         <div className={r.detailSection}>
           <div className={r.detailSectionTitle}>Tournament MVP</div>
           <div className={r.mvpCardWrap}>
-            {data.photos?.[0] && (
-              <img src={data.photos[0]} alt="" className={r.mvpSidePhoto} />
-            )}
             <div className={r.mvpCard8} ref={mvpCardRef}>
               {data.tournament_mvp.photo
                 ? <img src={data.tournament_mvp.photo} alt="mvp bg" className={r.mvpBg} />
@@ -398,39 +422,67 @@ function ReportDetail({ eventId }) {
                   ))}
                 </div>
                 <div className={r.mvpCardStats}>
-                  {[['PTS', data.tournament_mvp.stats?.PTS],
-                    ['AST', data.tournament_mvp.stats?.AST],
-                    ['REB', data.tournament_mvp.stats?.REB],
-                    ['STL', data.tournament_mvp.stats?.STL],
-                  ].filter(([, v]) => v > 0).map(([k, v]) => (
-                    <div key={k} className={r.mvpCardChip}>
-                      <span className={r.mvpCardVal}>{v}</span>
-                      <span className={r.mvpCardKey}>{k}</span>
-                    </div>
-                  ))}
+                  {[['PTS', data.tournament_mvp.stats?.PTS], ['AST', data.tournament_mvp.stats?.AST],
+                    ['REB', data.tournament_mvp.stats?.REB], ['STL', data.tournament_mvp.stats?.STL]]
+                    .filter(([, v]) => v > 0).map(([k, v]) => (
+                      <div key={k} className={r.mvpCardChip}>
+                        <span className={r.mvpCardVal}>{v}</span>
+                        <span className={r.mvpCardKey}>{k}</span>
+                      </div>
+                    ))}
                 </div>
               </div>
             </div>
-            {data.photos?.[1] && (
-              <img src={data.photos[1]} alt="" className={r.mvpSidePhoto} />
-            )}
           </div>
         </div>
       )}
 
-      {/* Photos */}
-      {data.photos?.length > 0 && (
-        <div className={r.detailSection}>
-          <div className={r.detailSectionTitle}>Event Photos</div>
+      {/* ── KEY HIGHLIGHTS ── */}
+      <div className={r.detailSection}>
+        <div className={r.detailSectionTitle}>Key Highlights</div>
+        <p className={r.narrativeText}>{nav.key_highlights || '—'}</p>
+      </div>
+
+      {/* ── OUTCOME ── */}
+      <div className={r.detailSection}>
+        <div className={r.detailSectionTitle}>Outcome</div>
+        <p className={r.narrativeText}>{nav.outcome || '—'}</p>
+      </div>
+
+      {/* ── ACKNOWLEDGMENTS ── */}
+      <div className={r.detailSection}>
+        <div className={r.detailSectionTitle}>Acknowledgments</div>
+        <p className={r.narrativeText}>{nav.acknowledgments || '—'}</p>
+      </div>
+
+      {/* ── REMARKS ── */}
+      <div className={r.detailSection}>
+        <div className={r.detailSectionTitle}>Remarks</div>
+        <p className={r.narrativeText}>{nav.remarks || '—'}</p>
+      </div>
+
+      {/* ── EVENT PHOTOS ── */}
+      <div className={r.detailSection}>
+        <div className={r.detailSectionTitle}>Event Photos ({data.photos?.length || 0} / 4)</div>
+        {data.photos?.length > 0 ? (
           <div className={r.photosRow}>
             {data.photos.map((url, i) => (
               <img key={i} src={url} alt={`photo-${i}`} className={r.photoCard} />
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <p className={r.narrativePlaceholder}>No event photos uploaded yet — go to the event → Report tab to upload photos.</p>
+        )}
+      </div>
 
-      {/* Submit to admin */}
+      {/* ── RKU FOOTER ── */}
+      <div className={r.universityFooter}>
+        <span className={r.universityFooterName}>RK University</span>
+        <span>Kasturbadham, Rajkot - Bhavnagar Highway, Rajkot - 360020, Gujarat - India</span>
+        <span>T +91 99099 52030 / 31&nbsp;&nbsp;|&nbsp;&nbsp;<strong>www.rku.ac.in</strong>&nbsp;&nbsp;|&nbsp;&nbsp;info@rku.ac.in</span>
+      </div>
+
+      {/* ── SUBMIT TO ADMIN ── */}
       <div className={r.submitSection}>
         {data.submitted_at ? (
           <div className={r.submittedBadge}>
