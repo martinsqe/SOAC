@@ -308,6 +308,9 @@
   color: #635bff;
   text-align: center;
 }
+.scoreHead {
+  text-align: center !important;
+}
 .statCell {
   text-align: center;
   font-weight: 700;
@@ -496,18 +499,13 @@
 .winnerBanner {
   display: flex;
   align-items: center;
-  gap: 18px;
+  justify-content: center;
   background: linear-gradient(120deg, #b45309 0%, #d97706 50%, #f59e0b 100%);
   border-radius: 14px;
   padding: 18px 24px;
   color: #fff;
 }
-.winnerTrophy {
-  font-size: 2.4rem;
-  flex-shrink: 0;
-  filter: drop-shadow(0 2px 4px rgba(0,0,0,.25));
-}
-.winnerInfo { flex: 1; }
+.winnerInfo { text-align: center; }
 .winnerName {
   font-size: 1.4rem;
   font-weight: 900;

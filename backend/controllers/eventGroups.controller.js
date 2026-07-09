@@ -51,7 +51,8 @@ const fetchGroups = async (eventId) => {
       `SELECT egt.group_id, egt.team_id, et.name AS team_name
        FROM event_group_teams egt
        JOIN event_teams et ON et.id = egt.team_id
-       WHERE egt.event_id = $1`,
+       WHERE egt.event_id = $1
+       ORDER BY egt.id ASC`,
       [eventId]
     ),
   ]);
@@ -153,4 +154,4 @@ const unassignTeam = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getGroups, getPublicGroups, createGroup, renameGroup, deleteGroup, assignTeam, unassignTeam };
+module.exports = { getGroups, getPublicGroups, createGroup, renameGroup, deleteGroup, assignTeam, unassignTeam, fetchGroups };

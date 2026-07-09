@@ -45,6 +45,10 @@ router.post ('/:id/fixtures/save-declare',              verifyToken, requireCoor
 router.patch ('/:id/fixtures/:fixtureId/result',        verifyToken, requireCoordOrAdmin, teamCtrl.recordResult);        /* coord  */
 router.delete('/:id/fixtures/:fixtureId',               verifyToken, requireCoordOrAdmin, teamCtrl.deleteFixture);       /* coord  */
 
+/* Stage schedule routes (estimated date/venue per later bracket round) */
+router.get('/:id/stage-schedule', verifyToken, requireCoordOrAdmin, teamCtrl.getStageSchedule);
+router.put('/:id/stage-schedule', verifyToken, requireCoordOrAdmin, teamCtrl.saveStageSchedule);
+
 router.get('/:id/mvp', cd.getEventMvp); /* public — MVP card for any completed match in this event */
 
 /* Groups routes */

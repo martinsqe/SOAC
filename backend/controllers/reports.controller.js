@@ -1,5 +1,6 @@
 const { pgPool }    = require('../config/db');
 const { getFileValue } = require('../config/multer');
+const { getChampion } = require('../services/bracketMath');
 
 /* Add narrative column if it doesn't exist yet */
 pgPool.query(
@@ -63,12 +64,23 @@ const generateReport = async (req, res, next) => {
       return res.status(403).json({ message: 'Cannot regenerate a report that has been submitted to admin.' });
     }
 
+    const saved = await regenerateReport(eventId, clubId, req.user?.id);
+    if (!saved) return res.status(404).json({ message: 'Event not found.' });
+    res.json({ report: saved });
+  } catch (err) { next(err); }
+};
+
+/* Builds/refreshes an event report from current fixtures/teams/MVPs. Shared by the
+   HTTP handler above and autoRefreshReportIfExists() below (called automatically
+   whenever the bracket advances, a match ends, or a scoreboard is deleted). */
+const regenerateReport = async (eventId, clubId, userId) => {
+  {
     /* ── Event meta ── */
     const { rows: evRows } = await pgPool.query(
       `SELECT id, title, category, status, start_date, venue, club_id FROM events WHERE id = $1::bigint`,
       [eventId]
     );
-    if (!evRows.length) return res.status(404).json({ message: 'Event not found.' });
+    if (!evRows.length) return null;
     const ev = evRows[0];
     const effClubId = clubId || ev.club_id;
 
@@ -158,32 +170,59 @@ const generateReport = async (req, res, next) => {
       [eventId]
     );
 
-    /* ── Tournament MVP: most match MVP appearances, tie-break by total pts ── */
+    /* ── Tournament MVP: ranked by combined points + assists + blocks across every
+       match they played (the tournament's most impactful all-round performer),
+       tie-broken by how many matches they were named MVP in. ── */
     let tournamentMvp = null;
     if (matchMvps.length > 0) {
       const counts = {};
       for (const m of matchMvps) {
         const k = m.player_name;
         if (!k) continue;
-        if (!counts[k]) counts[k] = { player_name: k, wins: 0, totalPts: 0, photo: m.player_photo, sport: m.sport, stats: {} };
+        if (!counts[k]) counts[k] = { player_name: k, wins: 0, photo: m.player_photo, sport: m.sport, stats: {} };
         counts[k].wins++;
         const pts = Number(m.stats?.PTS ?? m.stats?.GLS ?? m.stats?.RUNS ?? 0);
         const ast = Number(m.stats?.AST ?? 0);
         const reb = Number(m.stats?.REB ?? 0);
         const stl = Number(m.stats?.STL ?? 0);
-        counts[k].totalPts += pts;
-        counts[k].stats.PTS  = (counts[k].stats.PTS  || 0) + pts;
-        counts[k].stats.AST  = (counts[k].stats.AST  || 0) + ast;
-        counts[k].stats.REB  = (counts[k].stats.REB  || 0) + reb;
-        counts[k].stats.STL  = (counts[k].stats.STL  || 0) + stl;
+        const blk = Number(m.stats?.BLK ?? 0);
+        counts[k].stats.PTS = (counts[k].stats.PTS || 0) + pts;
+        counts[k].stats.AST = (counts[k].stats.AST || 0) + ast;
+        counts[k].stats.REB = (counts[k].stats.REB || 0) + reb;
+        counts[k].stats.STL = (counts[k].stats.STL || 0) + stl;
+        counts[k].stats.BLK = (counts[k].stats.BLK || 0) + blk;
       }
-      const sorted = Object.values(counts).sort((a, b) => b.wins - a.wins || b.totalPts - a.totalPts);
+      const impact = c => (c.stats.PTS || 0) + (c.stats.AST || 0) + (c.stats.BLK || 0);
+      const sorted = Object.values(counts).sort((a, b) => impact(b) - impact(a) || b.wins - a.wins);
       tournamentMvp = sorted[0] || null;
+    }
+
+    /* ── Tournament winner — resolved from bracket structure (groups + fixtures),
+       never guessed from a fixture's free-text round label. ── */
+    const bracketFixtures = fixtures.map(f => ({
+      teamA: f.team_a_name, teamB: f.team_b_name, winner: f.winner_name,
+    }));
+    const champion = getChampion(groupRowsWithMembers, bracketFixtures);
+    let tournamentWinner = null;
+    if (champion) {
+      const finalFx = fixtures.find(f =>
+        (f.team_a_name === champion.name && f.team_b_name === champion.opponent) ||
+        (f.team_b_name === champion.name && f.team_a_name === champion.opponent)
+      );
+      const winnerIsTeamA = finalFx?.team_a_name === champion.name;
+      tournamentWinner = {
+        name: champion.name,
+        opponent: champion.opponent,
+        round: finalFx?.round || null,
+        scoreFor:     finalFx ? (winnerIsTeamA ? finalFx.score_a : finalFx.score_b) : null,
+        scoreAgainst: finalFx ? (winnerIsTeamA ? finalFx.score_b : finalFx.score_a) : null,
+      };
     }
 
     /* ── Summary stats ── */
     const completedFixtures = fixtures.filter(f => f.winner_name);
     const summaryStats = {
+      tournamentWinner,
       totalParticipants: participants.length,
       totalTeams:        teamRows.length,
       totalGroups:       groupRows.length,
@@ -269,12 +308,29 @@ const generateReport = async (req, res, next) => {
         existingPhotos,
         JSON.stringify(summaryStats),
         JSON.stringify(existingNarrative),
-        req.user?.id,
+        userId,
       ]
     );
 
-    res.json({ report: saved[0] });
-  } catch (err) { next(err); }
+    return saved[0];
+  }
+};
+
+/* Silently keeps an already-generated, not-yet-submitted report in sync — called
+   after every bracket-affecting event (fixture created/retracted, match ended,
+   scoreboard deleted). Never creates a report the coordinator hasn't started, and
+   never touches one that's already been submitted to admin. */
+const autoRefreshReportIfExists = async (eventId) => {
+  try {
+    const { rows } = await pgPool.query(
+      `SELECT club_id, submitted_at FROM event_reports WHERE event_id = $1::bigint`,
+      [eventId]
+    );
+    if (!rows.length || rows[0].submitted_at) return;
+    await regenerateReport(eventId, rows[0].club_id, null);
+  } catch (err) {
+    console.error('[reports] autoRefreshReportIfExists error:', err.message);
+  }
 };
 
 /* ══════════════════════════════════════════════
@@ -540,4 +596,4 @@ const updateNarrative = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto, updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears };
+module.exports = { getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto, updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears, regenerateReport, autoRefreshReportIfExists };

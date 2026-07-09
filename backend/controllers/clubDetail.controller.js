@@ -5,6 +5,8 @@
 const { pgPool } = require('../config/db');
 const { ensureSoacTables } = require('../services/soacData');
 const { getFileValue } = require('../config/multer');
+const bracketEngine = require('../services/bracketEngine');
+const { autoRefreshReportIfExists } = require('./reports.controller');
 
 /* ── GET /api/clubs/:id/membership  (authenticated) ────────────────────── */
 const getMembership = async (req, res, next) => {
@@ -944,6 +946,7 @@ const endLiveScore = async (req, res, next) => {
             teamB:     current.opponent_name || '',
           });
         }
+        if (eventId) bracketEngine.advanceBracket({ eventId, io }).catch(() => {});
       };
 
       const homeScore = Number(current.team_score     || 0);
@@ -1197,7 +1200,7 @@ const SPORT_SCORE_STAT = {
 
 /* Stats to display on MVP card per sport — ordered for display */
 const MVP_STAT_KEYS = {
-  basketball: [['points','PTS'],['assists','AST'],['rebounds','REB']],
+  basketball: [['points','PTS'],['assists','AST'],['rebounds','REB'],['blocks','BLK']],
   football:   [['goals','GLS'],['assists','AST'],['yellow_cards','YC']],
   cricket:    [['runs','RUNS'],['wickets','WKTS'],['balls','BALLS']],
   volleyball: [['points','PTS'],['assists','AST'],['blocks','BLK']],
@@ -1548,13 +1551,33 @@ const deleteLiveScore = async (req, res, next) => {
     const { rows } = await pgPool.query(
       `DELETE FROM club_live_scores
        WHERE id = $1::bigint AND club_id = $2::bigint
-       RETURNING id`,
+       RETURNING id, fixture_id, event_id, winner_name`,
       [req.params.scoreId, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Scoreboard not found.' });
+    const deleted = rows[0];
     /* Clean up the orphaned MVP record so restarting the same match starts fresh
        instead of leaving stale MVP data behind alongside the new one. */
     await pgPool.query(`DELETE FROM match_mvp WHERE score_id = $1::bigint`, [req.params.scoreId]);
+
+    /* This scoreboard's result is gone — reset the fixture it fed so the bracket
+       correctly reports the match as unplayed again, and retract any later-round
+       fixture that was only auto-created because of the now-undone winner. */
+    if (deleted.fixture_id) {
+      await pgPool.query(
+        `UPDATE event_fixtures SET score_a = NULL, score_b = NULL, winner_name = NULL WHERE id = $1::bigint`,
+        [deleted.fixture_id]
+      ).catch(() => {});
+    }
+    if (deleted.event_id && deleted.winner_name) {
+      bracketEngine.retractDownstream({
+        eventId: deleted.event_id, teamName: deleted.winner_name, io: req.app.get('io'),
+      }).catch(() => {});
+    }
+    if (deleted.event_id) {
+      autoRefreshReportIfExists(deleted.event_id).catch(() => {});
+    }
+
     res.json({ message: 'Scoreboard deleted.' });
   } catch (err) { next(err); }
 };

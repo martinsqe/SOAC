@@ -299,7 +299,7 @@ function ReportDetail({ eventId }) {
           <div className={r.tableWrap}>
             <table className={r.table}>
               <thead>
-                <tr><th>Round</th><th>Team A</th><th>Score</th><th>Team B</th><th>Winner</th></tr>
+                <tr><th>Round</th><th>Team A</th><th className={r.scoreHead}>Score</th><th>Team B</th><th>Winner</th></tr>
               </thead>
               <tbody>
                 {data.fixtures.map((f, i) => (
@@ -377,25 +377,22 @@ function ReportDetail({ eventId }) {
         );
       })()}
 
-      {/* ── TOURNAMENT WINNER ── */}
+      {/* ── TOURNAMENT WINNER ──
+         Resolved server-side from actual bracket structure (summary_stats.tournamentWinner) —
+         never guessed from a fixture's free-text round label. */}
       {(() => {
-        const fx = data.fixtures || [];
-        const completed = fx.filter(f => f.winner_name || (f.score_a != null && f.score_b != null && f.score_a !== f.score_b));
-        if (!completed.length) return null;
-        const finalFx = completed.find(f => /final/i.test(f.round || '') && !/semi|quarter/i.test(f.round || '')) || completed[completed.length - 1];
-        const winnerName = finalFx.winner_name || (finalFx.score_a > finalFx.score_b ? finalFx.team_a_name : finalFx.team_b_name);
-        const opponent = winnerName === finalFx.team_a_name ? finalFx.team_b_name : finalFx.team_a_name;
-        const hasScore = finalFx.score_a != null && (finalFx.score_a > 0 || finalFx.score_b > 0);
+        const w = data.summary_stats?.tournamentWinner;
+        if (!w) return null;
+        const hasScore = w.scoreFor != null && (w.scoreFor > 0 || w.scoreAgainst > 0);
         return (
           <div className={r.detailSection}>
             <div className={r.detailSectionTitle}>Tournament Winner</div>
             <div className={r.winnerBanner}>
-              <span className={r.winnerTrophy}>🏆</span>
               <div className={r.winnerInfo}>
-                <div className={r.winnerName}>{winnerName}</div>
+                <div className={r.winnerName}>{w.name}</div>
                 <div className={r.winnerMeta}>
-                  {finalFx.round ? `${finalFx.round} · ` : ''}
-                  {hasScore ? `${finalFx.score_a} – ${finalFx.score_b} ` : ''}vs {opponent}
+                  {w.round ? `${w.round} · ` : ''}
+                  {hasScore ? `${w.scoreFor} – ${w.scoreAgainst} ` : ''}vs {w.opponent}
                 </div>
               </div>
             </div>
@@ -423,7 +420,8 @@ function ReportDetail({ eventId }) {
                 </div>
                 <div className={r.mvpCardStats}>
                   {[['PTS', data.tournament_mvp.stats?.PTS], ['AST', data.tournament_mvp.stats?.AST],
-                    ['REB', data.tournament_mvp.stats?.REB], ['STL', data.tournament_mvp.stats?.STL]]
+                    ['BLK', data.tournament_mvp.stats?.BLK], ['REB', data.tournament_mvp.stats?.REB],
+                    ['STL', data.tournament_mvp.stats?.STL]]
                     .filter(([, v]) => v > 0).map(([k, v]) => (
                       <div key={k} className={r.mvpCardChip}>
                         <span className={r.mvpCardVal}>{v}</span>

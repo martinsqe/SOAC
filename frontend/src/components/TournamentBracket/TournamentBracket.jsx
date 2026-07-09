@@ -4,6 +4,11 @@
   Layout:
     [Left arm: R bracket rounds] → [Left finalist TBD] 🏆 VS FINALS [Right finalist TBD] ← [Right arm: R bracket rounds]
 
+  Arms are whole groups (first half of the groups list → left arm, second half →
+  right arm; a single group is split in half so both arms are populated). A team
+  never leaves its own group's arm — the two arms only ever cross at the
+  championship Final, matching backend/services/bracketEngine.js's armLayout() 1:1.
+
   • fixtures prop: flat array from event_fixtures (with scoreA, scoreB, winner)
   • Winners auto-advance through rounds as results are recorded
 */
@@ -102,8 +107,9 @@ export default function TournamentBracket({ groups = [], fixtures = [] }) {
     }
   });
 
-  /* Split groups into left / right arms.
-     With 1 group: split that group's teams evenly so both arms are populated. */
+  /* Split groups into left / right arms — whole groups per arm, so a team never
+     leaves its own group's side. With 1 group: split that group's teams evenly
+     so both arms are populated. Mirrors bracketEngine.js's armLayout() 1:1. */
   let leftGroups, rightGroups;
   if (effectiveGroups.length === 1) {
     const allTeams = effectiveGroups[0].teams || [];
