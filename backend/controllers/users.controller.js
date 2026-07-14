@@ -295,6 +295,73 @@ const myCoins = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+/* GET /api/users/me/club-leaderboards  (any authenticated student)
+   Per-club coin ranking, scoped to each club the student actually belongs to —
+   students only ever see who's top in THEIR clubs, never a platform-wide list.
+   Ranked by club XP-based coins only (coordinator-tracked progress); event-
+   participation bonus coins still count toward the student's own total on
+   /users/me/coins, just not this per-club ranking. Top 3 in a club qualify for
+   that club's Free Registration award. */
+const myClubLeaderboards = async (req, res, next) => {
+  try {
+    const limit = Math.min(20, Math.max(1, parseInt(req.query.limit, 10) || 3));
+
+    const { rows: myClubs } = await pgPool.query(
+      `SELECT sc.club_id, c.name AS club_name, c.color
+       FROM student_clubs sc
+       JOIN clubs c ON c.id = sc.club_id AND c.is_active = true
+       WHERE sc.user_id = $1
+       ORDER BY c.name`,
+      [req.user.id]
+    );
+    if (!myClubs.length) return res.json({ clubs: [] });
+
+    const clubIds = myClubs.map(c => c.club_id);
+    const { rows: ranked } = await pgPool.query(
+      `SELECT mp.club_id, mp.user_id, u.name AS user_name, u.avatar,
+              mp.xp::int AS total_xp,
+              FLOOR(mp.xp::float * CASE mp.level
+                WHEN 'Expert'       THEN 3
+                WHEN 'Advanced'     THEN 2
+                WHEN 'Alumni'       THEN 2
+                WHEN 'Intermediate' THEN 1.5
+                ELSE 1
+              END)::int AS coins,
+              ROW_NUMBER() OVER (
+                PARTITION BY mp.club_id
+                ORDER BY FLOOR(mp.xp::float * CASE mp.level
+                  WHEN 'Expert'       THEN 3
+                  WHEN 'Advanced'     THEN 2
+                  WHEN 'Alumni'       THEN 2
+                  WHEN 'Intermediate' THEN 1.5
+                  ELSE 1
+                END) DESC, mp.xp DESC, mp.user_id
+              )::int AS rank
+       FROM member_progress mp
+       JOIN users u ON u.id = mp.user_id AND u.is_active = true AND u.role = 'student'
+       WHERE mp.club_id = ANY($1::bigint[])`,
+      [clubIds]
+    );
+
+    const clubs = myClubs.map(c => {
+      const clubRanked = ranked.filter(r => String(r.club_id) === String(c.club_id));
+      const mine        = clubRanked.find(r => String(r.user_id) === String(req.user.id));
+      return {
+        clubId:       String(c.club_id),
+        clubName:     c.club_name,
+        color:        c.color,
+        leaderboard:  clubRanked.filter(r => r.rank <= limit)
+          .map(r => ({ userId: String(r.user_id), userName: r.user_name, avatar: r.avatar, xp: r.total_xp, coins: r.coins, rank: r.rank })),
+        myRank:       mine ? mine.rank  : null,
+        myCoins:      mine ? mine.coins : 0,
+        totalTracked: clubRanked.length,
+      };
+    });
+
+    res.json({ clubs });
+  } catch (err) { next(err); }
+};
+
 /* GET /api/users/me/activity — full event + contribution + coin history */
 const myActivity = async (req, res, next) => {
   try {
@@ -863,4 +930,4 @@ const assignClub = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, create, update, remove, stats, auditLog, myClubs, updateProfile, assignClub, myCoins, weeklyEvaluation, getNotifications, markNotificationRead, myActivity };
+module.exports = { getAll, create, update, remove, stats, auditLog, myClubs, updateProfile, assignClub, myCoins, myClubLeaderboards, weeklyEvaluation, getNotifications, markNotificationRead, myActivity };

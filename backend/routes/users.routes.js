@@ -10,6 +10,7 @@ router.post('/', verifyToken, requireAdmin, ctrl.create);
 // Specific /me and /meta routes MUST come before /:id to avoid Express matching 'me'/'meta' as an id
 router.get('/me/clubs',                              verifyToken, ctrl.myClubs);
 router.get('/me/coins',                              verifyToken, ctrl.myCoins);
+router.get('/me/club-leaderboards',                  verifyToken, ctrl.myClubLeaderboards);
 router.get('/me/activity',                           verifyToken, ctrl.myActivity);
 router.get('/me/weekly-evaluation',                  verifyToken, ctrl.weeklyEvaluation);
 router.get('/me/notifications',                      verifyToken, ctrl.getNotifications);

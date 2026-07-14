@@ -178,6 +178,10 @@
 .lbTitle { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1rem; font-weight: 800; color: #0f172a; }
 .lbSub { font-size: .75rem; color: #9ca3af; margin-top: 3px; }
 
+.lbClubsWrap { display: flex; flex-direction: column; gap: 20px; }
+.lbClubSection + .lbClubSection { padding-top: 16px; border-top: 1.5px solid #f0f0f5; }
+.lbClubName { font-size: .8rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+
 .lbList { display: flex; flex-direction: column; gap: 6px; }
 .lbRow {
   display: flex; align-items: center; gap: 10px;
@@ -189,7 +193,7 @@
 .lbRowMe   { background: #f0fdf4; border-color: #6ee7b7; }
 .lbDivider { text-align: center; color: #d1d5db; font-size: 13px; letter-spacing: 4px; padding: 4px 0; }
 
-.lbRank { width: 28px; font-size: .875rem; font-weight: 800; text-align: center; flex-shrink: 0; }
+.lbRank { width: 28px; font-size: .875rem; font-weight: 800; text-align: center; flex-shrink: 0; color: #6b7280; }
 .lbAvatar {
   width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;

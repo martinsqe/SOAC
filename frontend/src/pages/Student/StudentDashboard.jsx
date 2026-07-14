@@ -65,11 +65,10 @@ export default function StudentDashboard() {
   const [loading,    setLoading]    = useState(true);
 
   /* ── Coin / leaderboard state ── */
-  const [myCoins,      setMyCoins]      = useState(0);
-  const [myRank,       setMyRank]       = useState(null);
-  const [myClubProg,   setMyClubProg]   = useState([]);
-  const [leaderboard,  setLeaderboard]  = useState([]);
-  const [coinsLoading, setCoinsLoading] = useState(true);
+  const [myCoins,          setMyCoins]          = useState(0);
+  const [myClubProg,       setMyClubProg]       = useState([]);
+  const [clubLeaderboards, setClubLeaderboards] = useState([]);
+  const [coinsLoading,     setCoinsLoading]     = useState(true);
 
   /* ── College calendar state ── */
   const [calEvents,    setCalEvents]    = useState([]);
@@ -103,16 +102,16 @@ export default function StudentDashboard() {
     }).finally(() => setLoading(false));
   }, []);
 
-  /* ── Fetch coins + leaderboard ── */
+  /* ── Fetch coins + per-club leaderboards ──
+     Students only ever see rankings within their own club(s), never a SOAC-wide list. */
   useEffect(() => {
     Promise.all([
       api.get('/users/me/coins').catch(() => ({ coins: 0, rank: null, clubs: [] })),
-      api.get('/clubs/leaderboard?limit=3').catch(() => ({ leaderboard: [] })),
+      api.get('/users/me/club-leaderboards?limit=3').catch(() => ({ clubs: [] })),
     ]).then(([coinsRes, lbRes]) => {
       setMyCoins(coinsRes.coins || 0);
-      setMyRank(coinsRes.rank || null);
       setMyClubProg(coinsRes.clubs || []);
-      setLeaderboard(lbRes.leaderboard || []);
+      setClubLeaderboards(lbRes.clubs || []);
     }).finally(() => setCoinsLoading(false));
   }, []);
 
@@ -151,7 +150,9 @@ export default function StudentDashboard() {
   const firstName = user?.name?.split(' ')[0] || 'Student';
   const slotsLeft = 3 - myClubs.length;
   const myTier    = getTier(myCoins);
-  const isFreeReg = myRank !== null && myRank <= FREE_REG_RANKS;
+  /* Free Registration is a per-club award — qualifies if top-3 in any of my clubs */
+  const freeRegClubs = clubLeaderboards.filter(c => c.myRank !== null && c.myRank <= FREE_REG_RANKS);
+  const isFreeReg     = freeRegClubs.length > 0;
 
   return (
     <div className={s.page}>
@@ -249,7 +250,7 @@ export default function StudentDashboard() {
         <div className={s.coinsCard} style={{ borderColor: myTier.color + '40', background: myTier.bg }}>
           {isFreeReg && (
             <div className={s.freeRegBanner}>
-              👑 Free Registration Award — Top {FREE_REG_RANKS} qualifier!
+              Free Registration Award — Top {FREE_REG_RANKS} in {freeRegClubs.map(c => c.clubName).join(', ')}!
             </div>
           )}
           <div className={s.coinsTop}>
@@ -262,9 +263,6 @@ export default function StudentDashboard() {
               <span className={s.coinsSuffix}>coins</span>
             </div>
           </div>
-          {myRank && (
-            <div className={s.coinsRank}>Global rank #{myRank}</div>
-          )}
           {/* Per-club breakdown */}
           {myClubProg.length > 0 && (
             <div className={s.coinsBreakdown}>
@@ -285,86 +283,87 @@ export default function StudentDashboard() {
           </div>
         </div>
 
-        {/* Global leaderboard */}
+        {/* Per-club leaderboards — students only ever see rankings within their own club(s) */}
         <div className={s.lbCard}>
           <div className={s.lbHead}>
             <div>
-              <div className={s.lbTitle}>🏆 Coin Leaderboard</div>
-              <div className={s.lbSub}>Top 3 earn free event registration at year end</div>
+              <div className={s.lbTitle}>Coin Leaderboard</div>
+              <div className={s.lbSub}>Top 3 in each club earn free event registration at year end</div>
             </div>
           </div>
           {coinsLoading ? (
             <div className={s.loadList}>
               {[1,2,3].map(i => <div key={i} className={s.shimmer} style={{ height:44, borderRadius:9 }} />)}
             </div>
-          ) : leaderboard.length === 0 ? (
-            <div className={s.empty}>No progress data yet. Coordinators set XP to earn coins.</div>
-          ) : (() => {
-            const top3    = leaderboard.slice(0, 3);
-            const iInTop3 = top3.some(e => String(e.user_id) === String(user?.id));
-            const myC     = myCoins ?? 0;
-            const gap1    = top3[0] ? top3[0].coins - myC : 0;
-            const gap3    = top3[2] ? top3[2].coins - myC : (top3[1] ? top3[1].coins - myC : 0);
-            const myTier  = getTier(myC);
-            return (
-              <div className={s.lbList}>
-                {top3.map((entry, i) => {
-                  const rank = i + 1;
-                  const tier = getTier(entry.coins);
-                  const isMe = String(entry.user_id) === String(user?.id);
-                  return (
-                    <div key={entry.user_id}
-                      className={`${s.lbRow} ${isMe ? s.lbRowMe : ''} ${s.lbRowTop}`}>
-                      <div className={s.lbRank} style={{ color: '#d97706' }}>
-                        {rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'}
-                      </div>
-                      <div className={s.lbAvatar} style={{ background: tier.color + '22', color: tier.color }}>
-                        {entry.user_name?.charAt(0)?.toUpperCase() || '?'}
-                      </div>
-                      <div className={s.lbInfo}>
-                        <span className={s.lbName}>
-                          {entry.user_name}
-                          {isMe && <span className={s.lbYou}>you</span>}
-                          <span className={s.lbFreeReg}>Free Reg</span>
-                        </span>
-                        <span className={s.lbMeta}>{entry.club_count} club{entry.club_count !== 1 ? 's' : ''} · {entry.total_xp} XP</span>
-                      </div>
-                      <div className={s.lbCoins} style={{ color: tier.color }}>
-                        {tier.icon} {entry.coins}
-                      </div>
-                    </div>
-                  );
-                })}
+          ) : clubLeaderboards.length === 0 ? (
+            <div className={s.empty}>Join a club to see its coin leaderboard.</div>
+          ) : (
+            <div className={s.lbClubsWrap}>
+              {clubLeaderboards.map(club => {
+                const top     = club.leaderboard;
+                const iInTop  = top.some(e => e.userId === String(user?.id));
+                const gap1    = top[0] ? top[0].coins - club.myCoins : 0;
+                const gap3    = top[2] ? top[2].coins - club.myCoins : (top[1] ? top[1].coins - club.myCoins : 0);
+                return (
+                  <div key={club.clubId} className={s.lbClubSection}>
+                    <div className={s.lbClubName} style={{ color: club.color || '#635BFF' }}>{club.clubName}</div>
+                    {top.length === 0 ? (
+                      <div className={s.empty}>No progress tracked yet in this club.</div>
+                    ) : (
+                      <div className={s.lbList}>
+                        {top.map(entry => {
+                          const isMe = entry.userId === String(user?.id);
+                          return (
+                            <div key={entry.userId}
+                              className={`${s.lbRow} ${isMe ? s.lbRowMe : ''} ${s.lbRowTop}`}>
+                              <div className={s.lbRank}>#{entry.rank}</div>
+                              <div className={s.lbAvatar} style={{ background: (club.color || '#635BFF') + '22', color: club.color || '#635BFF' }}>
+                                {entry.userName?.charAt(0)?.toUpperCase() || '?'}
+                              </div>
+                              <div className={s.lbInfo}>
+                                <span className={s.lbName}>
+                                  {entry.userName}
+                                  {isMe && <span className={s.lbYou}>you</span>}
+                                  {entry.rank <= FREE_REG_RANKS && <span className={s.lbFreeReg}>Free Reg</span>}
+                                </span>
+                                <span className={s.lbMeta}>{entry.xp} XP</span>
+                              </div>
+                              <div className={s.lbCoins}>{entry.coins}</div>
+                            </div>
+                          );
+                        })}
 
-                {/* Student's own row — only if not already in top 3 */}
-                {!iInTop3 && (
-                  <>
-                    <div className={s.lbDivider}>· · ·</div>
-                    <div className={`${s.lbRow} ${s.lbRowMe}`}>
-                      <div className={s.lbRank} style={{ color: '#9ca3af' }}>#{myRank ?? '—'}</div>
-                      <div className={s.lbAvatar} style={{ background: myTier.color + '22', color: myTier.color }}>
-                        {user?.name?.charAt(0)?.toUpperCase() || '?'}
+                        {/* Student's own row — only if not already shown above and tracked in this club */}
+                        {!iInTop && club.myRank && (
+                          <>
+                            <div className={s.lbDivider}>· · ·</div>
+                            <div className={`${s.lbRow} ${s.lbRowMe}`}>
+                              <div className={s.lbRank}>#{club.myRank}</div>
+                              <div className={s.lbAvatar} style={{ background: (club.color || '#635BFF') + '22', color: club.color || '#635BFF' }}>
+                                {user?.name?.charAt(0)?.toUpperCase() || '?'}
+                              </div>
+                              <div className={s.lbInfo}>
+                                <span className={s.lbName}>
+                                  {user?.name}
+                                  <span className={s.lbYou}>you</span>
+                                </span>
+                                <span className={s.lbMeta}>
+                                  {gap1 > 0
+                                    ? `${gap1} coins behind #1${gap3 > 0 && gap3 !== gap1 ? ` · ${gap3} to reach Top 3` : ''}`
+                                    : 'You\'re in the top 3!'}
+                                </span>
+                              </div>
+                              <div className={s.lbCoins}>{club.myCoins}</div>
+                            </div>
+                          </>
+                        )}
                       </div>
-                      <div className={s.lbInfo}>
-                        <span className={s.lbName}>
-                          {user?.name}
-                          <span className={s.lbYou}>you</span>
-                        </span>
-                        <span className={s.lbMeta}>
-                          {gap1 > 0
-                            ? `${gap1} coins behind #1${gap3 > 0 && gap3 !== gap1 ? ` · ${gap3} to reach Top 3` : ''}`
-                            : 'You\'re in the top 3!'}
-                        </span>
-                      </div>
-                      <div className={s.lbCoins} style={{ color: myTier.color }}>
-                        {myTier.icon} {myC}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })()}
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
