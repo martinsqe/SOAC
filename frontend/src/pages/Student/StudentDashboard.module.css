@@ -91,7 +91,6 @@
   text-align: center;
 }
 .actionCard:hover { border-color: #0f766e; box-shadow: 0 4px 16px rgba(15,118,110,.12); transform: translateY(-2px); }
-.actionIcon  { font-size: 1.5rem; }
 .actionLabel { font-size: .875rem; font-weight: 700; color: #0f172a; }
 .actionDesc  { font-size: .72rem; color: #9ca3af; }
 

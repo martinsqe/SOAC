@@ -1,6 +1,6 @@
 const nodemailer = require('nodemailer');
 
-const APP_URL   = process.env.CLIENT_URL || 'https://soac-txy7.vercel.app';
+const APP_URL   = process.env.CLIENT_URL || 'https://soac.info';
 const APP_LOGIN = `${APP_URL}/login`;
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -13,7 +13,7 @@ const APP_LOGIN = `${APP_URL}/login`;
 
 /* ── Resend HTTP sender ──────────────────────────────────────────────────── */
 async function sendViaResend({ to, subject, html }) {
-  const from = process.env.EMAIL_FROM || 'SOAC RKU <onboarding@resend.dev>';
+  const from = process.env.EMAIL_FROM || 'SOAC <noreply@soac.info>';
   const res  = await fetch('https://api.resend.com/emails', {
     method:  'POST',
     headers: {

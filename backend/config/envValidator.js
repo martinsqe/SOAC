@@ -31,11 +31,15 @@ const validateEnv = () => {
     errors.push(`❌ Invalid NODE_ENV: must be development|production|test, got: ${nodeEnv}`);
   }
 
-  // ── SMTP (optional — app works without email, features degrade gracefully) ─
+  // ── Email (optional — app works without it, features degrade gracefully) ──
+  // Resend (RESEND_API_KEY) takes priority over Gmail SMTP — see config/email.js.
+  const hasResend = !!process.env.RESEND_API_KEY;
   const smtpVars = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS'];
   const missingSMTP = smtpVars.filter(v => !process.env[v]);
-  if (missingSMTP.length > 0) {
-    warnings.push(`⚠️  SMTP not fully configured (${missingSMTP.join(', ')} missing) — email features disabled`);
+  if (!hasResend && missingSMTP.length > 0) {
+    warnings.push(`⚠️  Email not configured (set RESEND_API_KEY, or ${smtpVars.join(', ')}) — email features disabled`);
+  } else if (hasResend && !process.env.EMAIL_FROM) {
+    warnings.push('⚠️  RESEND_API_KEY set but EMAIL_FROM missing — falling back to a default sender address');
   }
 
   // ── Production-specific ───────────────────────────────────────────────────

@@ -1,0 +1,96 @@
+.lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 15, 0.94);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn .18s ease;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.lightboxContent {
+  position: relative;
+  max-width: min(90vw, 1100px);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.lightboxImg {
+  max-width: 100%;
+  max-height: 76vh;
+  object-fit: contain;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  user-select: none;
+}
+.lightboxCaption {
+  color: #fff;
+  font-weight: 700;
+  font-size: 1rem;
+  text-align: center;
+}
+.lightboxCounter {
+  color: rgba(255,255,255,.6);
+  font-size: .8rem;
+  font-weight: 600;
+}
+
+.closeBtn {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,255,255,.12);
+  color: #fff;
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s;
+}
+.closeBtn:hover { background: rgba(255,255,255,.25); }
+
+.navBtn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,255,255,.12);
+  color: #fff;
+  font-size: 1.8rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s;
+  z-index: 1;
+}
+.navBtn:hover { background: rgba(255,255,255,.25); }
+.navBtnLeft { left: 20px; }
+.navBtnRight { right: 20px; }
+
+.tile {
+  cursor: pointer;
+  transition: transform .18s ease;
+}
+.tile:hover { transform: translateY(-4px); }
+
+@media (max-width: 640px) {
+  .navBtn { width: 42px; height: 42px; font-size: 1.4rem; }
+  .navBtnLeft { left: 8px; }
+  .navBtnRight { right: 8px; }
+  .closeBtn { top: 12px; right: 12px; }
+}

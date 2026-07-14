@@ -230,13 +230,12 @@ export default function StudentDashboard() {
       {/* Quick actions */}
       <div className={s.actions}>
         {[
-          { icon:'🏅', label:'My Clubs',        desc:'Clubs you\'ve joined',        onClick:() => navigate('/student/clubs')     },
-          { icon:'📅', label:'Events',           desc:'Upcoming campus events',      onClick:() => navigate('/student/events')    },
-          { icon:'🗓️', label:'Calendar',         desc:'College events & exams',      onClick:() => navigate('/student/calendar')  },
-          { icon:'🏆', label:'Wall of Fame',     desc:'Top contributors',            onClick:() => navigate('/student/fame')      },
+          { label:'My Clubs',        desc:'Clubs you\'ve joined',        onClick:() => navigate('/student/clubs')     },
+          { label:'Events',           desc:'Upcoming campus events',      onClick:() => navigate('/student/events')    },
+          { label:'Calendar',         desc:'College events & exams',      onClick:() => navigate('/student/calendar')  },
+          { label:'Wall of Fame',     desc:'Top contributors',            onClick:() => navigate('/student/fame')      },
         ].map((a, i) => (
           <button key={i} className={s.actionCard} onClick={a.onClick}>
-            <span className={s.actionIcon}>{a.icon}</span>
             <span className={s.actionLabel}>{a.label}</span>
             <span className={s.actionDesc}>{a.desc}</span>
           </button>
