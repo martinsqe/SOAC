@@ -141,9 +141,25 @@
   padding: 20px 20px 26px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
   max-width: 960px;
 }
+.printable { display: flex; flex-direction: column; gap: 24px; }
+
+.detailToolbar { display: flex; justify-content: flex-end; }
+.downloadPdfBtn {
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #635bff, #4c44e0);
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  font-size: .82rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(99,91,255,.28);
+  transition: opacity .15s, box-shadow .15s;
+}
+.downloadPdfBtn:hover { opacity: .88; box-shadow: 0 4px 14px rgba(99,91,255,.38); }
 
 /* ── Letterhead ── */
 .letterhead {

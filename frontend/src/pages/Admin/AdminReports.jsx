@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../../api/client';
 import TournamentBracket from '../../components/TournamentBracket/TournamentBracket';
+import { downloadElementAsPdf } from '../../utils/exportPdf';
 import s from '../Coordinator/CoordSubPage.module.css';
 import r from './AdminReports.module.css';
 
@@ -71,6 +72,7 @@ function ReportDetail({ eventId }) {
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
   const mvpCardRef = useRef(null);
+  const printRef = useRef(null);
 
   useEffect(() => {
     api.get(`/reports/events/${eventId}`)
@@ -88,6 +90,8 @@ function ReportDetail({ eventId }) {
   if (loading) return <div className={r.detailLoading}>Loading…</div>;
   if (!data)   return <div className={r.detailLoading}>Report not found.</div>;
 
+  const handleDownloadPdf = () => downloadElementAsPdf(printRef.current, data.event_title || 'Event Report');
+
   const statMap = {};
   (data.match_mvps || []).forEach(m => {
     if (!m.player_name) return;
@@ -103,6 +107,11 @@ function ReportDetail({ eventId }) {
 
   return (
     <div className={r.detail}>
+      <div className={r.detailToolbar}>
+        <button className={r.downloadPdfBtn} onClick={handleDownloadPdf}>⬇ Download PDF</button>
+      </div>
+
+      <div ref={printRef} className={r.printable}>
 
       {/* Letterhead — mirrors the coordinator's report exactly */}
       <div className={r.letterhead}>
@@ -345,6 +354,8 @@ function ReportDetail({ eventId }) {
         <span className={r.universityFooterName}>RK University</span>
         <span>Kasturbadham, Rajkot - Bhavnagar Highway, Rajkot - 360020, Gujarat - India</span>
         <span>T +91 99099 52030 / 31&nbsp;&nbsp;|&nbsp;&nbsp;<strong>www.rku.ac.in</strong>&nbsp;&nbsp;|&nbsp;&nbsp;info@rku.ac.in</span>
+      </div>
+
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useCoordClub } from '../../context/CoordClubContext';
 import api from '../../api/client';
 import TournamentBracket from '../../components/TournamentBracket/TournamentBracket';
+import { downloadElementAsPdf } from '../../utils/exportPdf';
 import s from './CoordSubPage.module.css';
 import r from './CoordReports.module.css';
 
@@ -136,6 +137,7 @@ function ReportDetail({ eventId }) {
   const [loading,    setLoading]    = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const mvpCardRef = useRef(null);
+  const printRef = useRef(null);
 
   useEffect(() => {
     api.get(`/reports/events/${eventId}`)
@@ -165,6 +167,8 @@ function ReportDetail({ eventId }) {
   if (loading) return <div className={r.detailLoading}>Loading…</div>;
   if (!data)   return <div className={r.detailLoading}>Report data not found.</div>;
 
+  const handleDownloadPdf = () => downloadElementAsPdf(printRef.current, data.event_title || 'Event Report');
+
   /* per-player stat totals from match_mvps */
   const statMap = {};
   (data.match_mvps || []).forEach(m => {
@@ -181,6 +185,11 @@ function ReportDetail({ eventId }) {
 
   return (
     <div className={r.reportDetail}>
+      <div className={r.detailToolbar}>
+        <button className={r.downloadPdfBtn} onClick={handleDownloadPdf}>⬇ Download PDF</button>
+      </div>
+
+      <div ref={printRef} className={r.printable}>
 
       {/* ── LETTERHEAD ── */}
       <div className={r.letterhead}>
@@ -493,6 +502,8 @@ function ReportDetail({ eventId }) {
         <span className={r.universityFooterName}>RK University</span>
         <span>Kasturbadham, Rajkot - Bhavnagar Highway, Rajkot - 360020, Gujarat - India</span>
         <span>T +91 99099 52030 / 31&nbsp;&nbsp;|&nbsp;&nbsp;<strong>www.rku.ac.in</strong>&nbsp;&nbsp;|&nbsp;&nbsp;info@rku.ac.in</span>
+      </div>
+
       </div>
 
       {/* ── SUBMIT TO ADMIN ── */}
