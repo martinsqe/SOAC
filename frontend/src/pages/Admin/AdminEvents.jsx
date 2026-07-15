@@ -310,6 +310,38 @@ export default function AdminEvents() {
         || (r.email || '').toLowerCase().includes(q);
   });
 
+  /* ── Edit a single registration's details — corrections propagate to any team
+     roster this registrant is already part of, so coordinators/students see the
+     fix wherever that name/enrollment number is displayed. Email is intentionally
+     not editable — it anchors the registrant's identity across the platform. */
+  const [editingRegId, setEditingRegId] = useState(null);
+  const [regEditForm,  setRegEditForm]  = useState(null);
+  const [regSaving,    setRegSaving]    = useState(false);
+
+  const startEditReg = (r) => {
+    setEditingRegId(r.id);
+    setRegEditForm({
+      name: r.name || '', enrollmentNo: r.enrollment_no || '',
+      dept: r.dept || '', course: r.course || '',
+      phone: r.phone || '', gender: r.gender || '',
+    });
+  };
+  const cancelEditReg = () => { setEditingRegId(null); setRegEditForm(null); };
+
+  const saveEditReg = async (regId) => {
+    setRegSaving(true);
+    try {
+      const { registration } = await api.patch(`/events/${regEvent._id}/registrations/${regId}`, regEditForm);
+      setRegs(prev => prev.map(r => r.id === regId ? registration : r));
+      cancelEditReg();
+      showToast('Registration updated.');
+    } catch (err) {
+      showToast(err.message || 'Failed to update registration.');
+    } finally {
+      setRegSaving(false);
+    }
+  };
+
   const upcoming = events.filter(ev => ev.status === 'upcoming');
   const past     = events.filter(ev => ev.status === 'past');
 
@@ -733,26 +765,66 @@ export default function AdminEvents() {
               ) : (
                 <table className={s.regsTable}>
                   <thead>
-                    <tr><th>#</th><th>Name</th><th>Enrollment No.</th><th>Dept</th><th>Course</th><th>Gender</th><th>Mobile</th><th>Email</th><th>Registered At</th></tr>
+                    <tr><th>#</th><th>Name</th><th>Enrollment No.</th><th>Dept</th><th>Course</th><th>Gender</th><th>Mobile</th><th>Email</th><th>Registered At</th><th>Actions</th></tr>
                   </thead>
                   <tbody>
-                    {filteredRegs.map((r, i) => (
-                      <tr key={r._id || i}>
-                        <td className={s.regsNum}>{i + 1}</td>
-                        <td className={s.regsName}>{r.name || '—'}</td>
-                        <td><span className={s.regsBadge}>{r.enrollment_no || '—'}</span></td>
-                        <td><span className={s.regsDept}>{r.dept || '—'}</span></td>
-                        <td>{r.course || '—'}</td>
-                        <td>{r.gender || '—'}</td>
-                        <td>{r.phone || '—'}</td>
-                        <td className={s.regsEmail}>{r.email || '—'}</td>
-                        <td className={s.regsDate}>
-                          {r.registered_at
-                            ? new Date(r.registered_at).toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
-                            : '—'}
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredRegs.map((r, i) => {
+                      const isEditing = editingRegId === r.id;
+                      return (
+                        <tr key={r.id || i}>
+                          <td className={s.regsNum}>{i + 1}</td>
+                          {isEditing ? (
+                            <>
+                              <td><input className={s.regsEditInput} value={regEditForm.name}
+                                onChange={e => setRegEditForm(f => ({ ...f, name: e.target.value }))} /></td>
+                              <td><input className={s.regsEditInput} value={regEditForm.enrollmentNo}
+                                onChange={e => setRegEditForm(f => ({ ...f, enrollmentNo: e.target.value }))} /></td>
+                              <td><input className={s.regsEditInput} value={regEditForm.dept}
+                                onChange={e => setRegEditForm(f => ({ ...f, dept: e.target.value }))} /></td>
+                              <td><input className={s.regsEditInput} value={regEditForm.course}
+                                onChange={e => setRegEditForm(f => ({ ...f, course: e.target.value }))} /></td>
+                              <td>
+                                <select className={s.regsEditInput} value={regEditForm.gender}
+                                  onChange={e => setRegEditForm(f => ({ ...f, gender: e.target.value }))}>
+                                  <option value="">—</option>
+                                  <option value="M">M</option>
+                                  <option value="F">F</option>
+                                </select>
+                              </td>
+                              <td><input className={s.regsEditInput} value={regEditForm.phone}
+                                onChange={e => setRegEditForm(f => ({ ...f, phone: e.target.value }))} /></td>
+                            </>
+                          ) : (
+                            <>
+                              <td className={s.regsName}>{r.name || '—'}</td>
+                              <td><span className={s.regsBadge}>{r.enrollment_no || '—'}</span></td>
+                              <td><span className={s.regsDept}>{r.dept || '—'}</span></td>
+                              <td>{r.course || '—'}</td>
+                              <td>{r.gender || '—'}</td>
+                              <td>{r.phone || '—'}</td>
+                            </>
+                          )}
+                          <td className={s.regsEmail}>{r.email || '—'}</td>
+                          <td className={s.regsDate}>
+                            {r.registered_at
+                              ? new Date(r.registered_at).toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
+                              : '—'}
+                          </td>
+                          <td>
+                            {isEditing ? (
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <button className={s.csvBtn} disabled={regSaving} onClick={() => saveEditReg(r.id)}>
+                                  {regSaving ? 'Saving…' : 'Save'}
+                                </button>
+                                <button className={s.closeBtn} disabled={regSaving} onClick={cancelEditReg}>✕</button>
+                              </div>
+                            ) : (
+                              <button className={s.csvBtn} onClick={() => startEditReg(r)}>Edit</button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}

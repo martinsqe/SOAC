@@ -3,6 +3,7 @@ const { ensureSoacTables, asEvent } = require('../services/soacData');
 const { getCoordClubIds } = require('../services/coordAuth');
 const { destroyImage } = require('../config/cloudinary');
 const { getFileValue } = require('../config/multer');
+const { autoRefreshReportIfExists } = require('./reports.controller');
 const cache = require('../services/cache');
 
 /* ── Column lists ───────────────────────────────────────────────────────────*/
@@ -553,4 +554,60 @@ const listRegistrations = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, getLiveScores, getPastScores, getOne, create, update, remove, register, listRegistrations };
+/* PATCH /api/events/:id/registrations/:regId  (admin only)
+   Lets admin correct a student's submitted registration details. Email anchors the
+   registrant's identity across the platform (login, my-status lookups, coin awards)
+   so it's intentionally NOT editable here — only the details they filled in at
+   registration are. If this registration has already been added to a team, the
+   same corrected name/enrollment number are pushed into that team's roster
+   snapshot too, so the edit is reflected everywhere it's displayed: the
+   coordinator's team/fixtures views, the public Teams & Bracket view students see,
+   and (on next regenerate) event reports. */
+const updateRegistration = async (req, res, next) => {
+  try {
+    const { rows: existing } = await pgPool.query(
+      `SELECT id FROM event_registrations WHERE id = $1 AND event_id = $2`,
+      [req.params.regId, req.params.id]
+    );
+    if (!existing.length) return res.status(404).json({ message: 'Registration not found.' });
+
+    const { name, enrollmentNo, dept, course, phone, gender } = req.body;
+    if (!name?.trim())   return res.status(400).json({ message: 'Name is required.' });
+    if (!dept?.trim())   return res.status(400).json({ message: 'Department is required.' });
+    if (!course?.trim()) return res.status(400).json({ message: 'Course is required.' });
+    if (gender && !['M', 'F'].includes(gender.toUpperCase())) {
+      return res.status(400).json({ message: 'Gender must be M or F.' });
+    }
+
+    const nameT  = name.trim();
+    const enrolT = enrollmentNo ? enrollmentNo.trim().toUpperCase() : '';
+
+    const { rows } = await pgPool.query(
+      `UPDATE event_registrations
+       SET name = $1, enrollment_no = $2, dept = $3, course = $4, phone = $5, gender = $6
+       WHERE id = $7 AND event_id = $8
+       RETURNING ${REG_COLS}`,
+      [
+        nameT, enrolT, dept.trim(), course.trim(),
+        phone ? phone.trim() : '', gender ? gender.toUpperCase() : null,
+        req.params.regId, req.params.id,
+      ]
+    );
+
+    /* Keep any team roster snapshot this registrant is part of in sync */
+    await pgPool.query(
+      `UPDATE event_team_members SET member_name = $1, enrollment_no = $2 WHERE registration_id = $3`,
+      [nameT, enrolT, req.params.regId]
+    );
+
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('registration:updated', { eventId: String(req.params.id), registrationId: String(req.params.regId) });
+    }
+    autoRefreshReportIfExists(req.params.id).catch(() => {});
+
+    res.json({ registration: rows[0] });
+  } catch (err) { next(err); }
+};
+
+module.exports = { getAll, getLiveScores, getPastScores, getOne, create, update, remove, register, listRegistrations, updateRegistration };

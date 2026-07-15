@@ -478,11 +478,20 @@ export default function CoordEvents() {
       loadFixtures(regEvent._id);
       loadEventLiveScores(regEvent._id);
     };
+    /* Admin corrected a registrant's details — re-fetch so the list reflects it live. */
+    const onRegUpdated = ({ eventId }) => {
+      if (String(regEvent._id) !== String(eventId)) return;
+      api.get(`/events/${regEvent._id}/registrations`)
+        .then(d => setRegs(d.registrations || []))
+        .catch(() => {});
+    };
     socket.on('bracket:result:updated', onResult);
     socket.on('bracket:advanced', onAdvanced);
+    socket.on('registration:updated', onRegUpdated);
     return () => {
       socket.off('bracket:result:updated', onResult);
       socket.off('bracket:advanced', onAdvanced);
+      socket.off('registration:updated', onRegUpdated);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [regEvent?._id, club?.id]);

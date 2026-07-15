@@ -25,6 +25,7 @@ router.delete('/:id',  verifyToken, requireAdmin, ctrl.remove);
 /* Registration routes */
 router.post('/:id/register',     ctrl.register);                                         /* public            */
 router.get('/:id/registrations', verifyToken, requireCoordOrAdmin, ctrl.listRegistrations); /* admin + coord */
+router.patch('/:id/registrations/:regId', verifyToken, requireAdmin, ctrl.updateRegistration); /* admin only */
 
 /* Student status route */
 router.get   ('/:id/my-status',                          verifyToken, teamCtrl.getMyStatus);

@@ -625,6 +625,17 @@
 .regsTable tr:last-child td { border-bottom: none; }
 .regsTable tr:hover td { background: #fafafe; }
 
+.regsEditInput {
+  width: 100%;
+  min-width: 80px;
+  padding: 5px 8px;
+  border: 1.5px solid #635bff40;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  color: #0f172a;
+  background: #fff;
+}
+.regsEditInput:focus { outline: none; border-color: #635bff; }
 .regsNum   { color: #9ca3af; font-size: 0.75rem; width: 36px; }
 .regsName  { font-weight: 600; color: #0f172a; white-space: nowrap; }
 .regsEmail { color: #6b7280; font-size: 0.78rem; }
