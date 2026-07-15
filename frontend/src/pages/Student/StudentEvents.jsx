@@ -6,6 +6,8 @@ import s from './StudentEvents.module.css';
 import TournamentBracket from '../../components/TournamentBracket/TournamentBracket';
 
 const DEPTS = ['ACH','AI/ML','FOT','SOE', 'SOM','SOP' ,'SPT',  'SDS', 'SOS'];
+const DIVISIONS = ['boys', 'girls'];
+const DIVISION_LABEL = { boys: 'Boys', girls: 'Girls' };
 const EMPTY_FORM = { enrollmentNo: '', dept: '', course: '', phone: '', gender: '' };
 
 const CAT_COLOR = {
@@ -559,130 +561,142 @@ export default function StudentEvents() {
             ) : (
               <div className={s.fixtureContent}>
 
-                {/* Groups (if declared) — World Cup / NBA style */}
-                {fixtureData.groups?.length > 0 ? (
-                  <section className={s.fixtureSection}>
-                    <h3 className={s.fixtureSectionTitle}>Groups</h3>
-                    <div className={s.fixtureGroupsGrid}>
-                      {fixtureData.groups.map(group => {
-                        /* Enrich group teams with member data from fixtureData.teams */
-                        const enriched = group.teams.map(gt => {
-                          const full = fixtureData.teams.find(t => t.id === gt.id || t.name === gt.name);
-                          return full || { ...gt, members: [] };
+                {DIVISIONS.map(division => {
+                  const divTeams  = fixtureData.teams.filter(t => (t.division || 'boys') === division);
+                  const divGroups = (fixtureData.groups || []).filter(g => (g.division || 'boys') === division);
+                  const divFixtures = fixtureData.fixtures.filter(f => (f.division || 'boys') === division);
+                  if (!divTeams.length && !divFixtures.length) return null;
+                  return (
+                    <div key={division} className={s.fixtureDivisionSection}>
+                      <div className={s.fixtureDivisionTitle}>{DIVISION_LABEL[division]}</div>
+
+                      {/* Groups (if declared) — World Cup / NBA style */}
+                      {divGroups.length > 0 ? (
+                        <section className={s.fixtureSection}>
+                          <h3 className={s.fixtureSectionTitle}>Groups</h3>
+                          <div className={s.fixtureGroupsGrid}>
+                            {divGroups.map(group => {
+                              /* Enrich group teams with member data from fixtureData.teams */
+                              const enriched = group.teams.map(gt => {
+                                const full = divTeams.find(t => t.id === gt.id || t.name === gt.name);
+                                return full || { ...gt, members: [] };
+                              });
+                              return (
+                                <div key={group.id} className={s.fixtureGroupCard}>
+                                  <div className={s.fixtureGroupName}>{group.name}</div>
+                                  <div className={s.fixtureGroupTeams}>
+                                    {enriched.length === 0
+                                      ? <span className={s.fixtureNoMembers}>No teams assigned</span>
+                                      : enriched.map((team, ti) => (
+                                        <div key={ti} className={s.fixtureGroupTeamBlock}>
+                                          <div className={s.fixtureTeamHeader}>{team.name}</div>
+                                          <div className={s.fixtureTeamMembers}>
+                                            {(!team.members || team.members.length === 0)
+                                              ? <span className={s.fixtureNoMembers}>No players</span>
+                                              : team.members.map((m, mi) => (
+                                                <div key={mi} className={s.fixturePlayerRow}>
+                                                  <span className={s.fixturePlayerNum}>{mi + 1}</span>
+                                                  <span className={s.fixturePlayerName}>{m.name}</span>
+                                                  {m.enrollmentNo && <span className={s.fixturePlayerEnroll}>{m.enrollmentNo}</span>}
+                                                </div>
+                                              ))}
+                                          </div>
+                                        </div>
+                                      ))}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      ) : divTeams.length > 0 && (
+                        /* Fall back to flat teams list when no groups set */
+                        <section className={s.fixtureSection}>
+                          <h3 className={s.fixtureSectionTitle}>Teams</h3>
+                          <div className={s.fixtureTeamsList}>
+                            {divTeams.map(team => (
+                              <div key={team.id} className={s.fixtureTeamCard}>
+                                <div className={s.fixtureTeamHeader}>{team.name}</div>
+                                <div className={s.fixtureTeamMembers}>
+                                  {team.members.length === 0
+                                    ? <span className={s.fixtureNoMembers}>No players assigned</span>
+                                    : team.members.map((m, i) => (
+                                      <div key={i} className={s.fixturePlayerRow}>
+                                        <span className={s.fixturePlayerNum}>{i + 1}</span>
+                                        <span className={s.fixturePlayerName}>{m.name}</span>
+                                        {m.enrollmentNo && <span className={s.fixturePlayerEnroll}>{m.enrollmentNo}</span>}
+                                      </div>
+                                    ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      )}
+
+                      {/* Bracket — shown when at least 1 group exists */}
+                      {divGroups.length >= 1 && (
+                        <section className={s.fixtureSection}>
+                          <h3 className={s.fixtureSectionTitle}>Bracket</h3>
+                          <TournamentBracket groups={divGroups} fixtures={divFixtures} />
+                        </section>
+                      )}
+
+                      {/* Fixtures — grouped by date */}
+                      {divFixtures.length > 0 && (() => {
+                        const groups = [];
+                        const seen = {};
+                        divFixtures.forEach(fix => {
+                          const key = fix.date || 'Date TBD';
+                          if (!seen[key]) { seen[key] = []; groups.push({ date: key, matches: seen[key] }); }
+                          seen[key].push(fix);
                         });
                         return (
-                          <div key={group.id} className={s.fixtureGroupCard}>
-                            <div className={s.fixtureGroupName}>{group.name}</div>
-                            <div className={s.fixtureGroupTeams}>
-                              {enriched.length === 0
-                                ? <span className={s.fixtureNoMembers}>No teams assigned</span>
-                                : enriched.map((team, ti) => (
-                                  <div key={ti} className={s.fixtureGroupTeamBlock}>
-                                    <div className={s.fixtureTeamHeader}>{team.name}</div>
-                                    <div className={s.fixtureTeamMembers}>
-                                      {(!team.members || team.members.length === 0)
-                                        ? <span className={s.fixtureNoMembers}>No players</span>
-                                        : team.members.map((m, mi) => (
-                                          <div key={mi} className={s.fixturePlayerRow}>
-                                            <span className={s.fixturePlayerNum}>{mi + 1}</span>
-                                            <span className={s.fixturePlayerName}>{m.name}</span>
-                                            {m.enrollmentNo && <span className={s.fixturePlayerEnroll}>{m.enrollmentNo}</span>}
+                          <section className={s.fixtureSection}>
+                            <h3 className={s.fixtureSectionTitle}>Fixtures</h3>
+                            <div className={s.fixtureMatchList}>
+                              {groups.map(group => {
+                                  const groupVenue = group.matches[0]?.venue || '';
+                                  return (
+                                    <div key={group.date} className={s.fixtureDateGroup}>
+                                      <div className={s.fixtureDateHeader}>
+                                        <span>{group.date}</span>
+                                        {groupVenue && <span className={s.fixtureDateVenue}>{groupVenue}</span>}
+                                      </div>
+                                      {group.matches.map((fix, i) => (
+                                        <div key={i} className={`${s.fixtureMatchRow} ${fix.winner ? s.fixtureMatchDone : ''}`}>
+                                          {fix.round && <span className={s.fixtureRound}>{fix.round}</span>}
+                                          <div className={s.fixtureMatchTeams}>
+                                            <span className={`${s.fixtureMatchTeam} ${fix.winner === fix.teamA ? s.fixtureMatchWinner : ''}`}>{fix.teamA || '—'}</span>
+                                            <span className={s.fixtureMatchVs}>
+                                              {fix.scoreA != null && fix.scoreB != null
+                                                ? `${fix.scoreA} – ${fix.scoreB}`
+                                                : 'vs'}
+                                            </span>
+                                            <span className={`${s.fixtureMatchTeam} ${fix.winner === fix.teamB ? s.fixtureMatchWinner : ''}`}>{fix.teamB || '—'}</span>
                                           </div>
-                                        ))}
+                                          {fix.winner && (
+                                            <div className={s.fixtureWinnerRow}>
+                                              🏆 <strong>{fix.winner}</strong> wins
+                                            </div>
+                                          )}
+                                          {fix.time && !fix.winner && (
+                                            <div className={s.fixtureMatchMeta}>
+                                              <span>{fix.time}</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      ))}
                                     </div>
-                                  </div>
-                                ))}
+                                  );
+                                })}
                             </div>
-                          </div>
+                          </section>
                         );
-                      })}
+                      })()}
                     </div>
-                  </section>
-                ) : fixtureData.teams.length > 0 && (
-                  /* Fall back to flat teams list when no groups set */
-                  <section className={s.fixtureSection}>
-                    <h3 className={s.fixtureSectionTitle}>Teams</h3>
-                    <div className={s.fixtureTeamsList}>
-                      {fixtureData.teams.map(team => (
-                        <div key={team.id} className={s.fixtureTeamCard}>
-                          <div className={s.fixtureTeamHeader}>{team.name}</div>
-                          <div className={s.fixtureTeamMembers}>
-                            {team.members.length === 0
-                              ? <span className={s.fixtureNoMembers}>No players assigned</span>
-                              : team.members.map((m, i) => (
-                                <div key={i} className={s.fixturePlayerRow}>
-                                  <span className={s.fixturePlayerNum}>{i + 1}</span>
-                                  <span className={s.fixturePlayerName}>{m.name}</span>
-                                  {m.enrollmentNo && <span className={s.fixturePlayerEnroll}>{m.enrollmentNo}</span>}
-                                </div>
-                              ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                )}
-
-                {/* Bracket — shown when at least 1 group exists */}
-                {fixtureData.groups?.length >= 1 && (
-                  <section className={s.fixtureSection}>
-                    <h3 className={s.fixtureSectionTitle}>Bracket</h3>
-                    <TournamentBracket groups={fixtureData.groups} fixtures={fixtureData.fixtures || []} />
-                  </section>
-                )}
-
-                {/* Fixtures — grouped by date */}
-                {fixtureData.fixtures.length > 0 && (() => {
-                  const groups = [];
-                  const seen = {};
-                  fixtureData.fixtures.forEach(fix => {
-                    const key = fix.date || 'Date TBD';
-                    if (!seen[key]) { seen[key] = []; groups.push({ date: key, matches: seen[key] }); }
-                    seen[key].push(fix);
-                  });
-                  return (
-                    <section className={s.fixtureSection}>
-                      <h3 className={s.fixtureSectionTitle}>Fixtures</h3>
-                      <div className={s.fixtureMatchList}>
-                        {groups.map(group => {
-                            const groupVenue = group.matches[0]?.venue || '';
-                            return (
-                              <div key={group.date} className={s.fixtureDateGroup}>
-                                <div className={s.fixtureDateHeader}>
-                                  <span>{group.date}</span>
-                                  {groupVenue && <span className={s.fixtureDateVenue}>{groupVenue}</span>}
-                                </div>
-                                {group.matches.map((fix, i) => (
-                                  <div key={i} className={`${s.fixtureMatchRow} ${fix.winner ? s.fixtureMatchDone : ''}`}>
-                                    {fix.round && <span className={s.fixtureRound}>{fix.round}</span>}
-                                    <div className={s.fixtureMatchTeams}>
-                                      <span className={`${s.fixtureMatchTeam} ${fix.winner === fix.teamA ? s.fixtureMatchWinner : ''}`}>{fix.teamA || '—'}</span>
-                                      <span className={s.fixtureMatchVs}>
-                                        {fix.scoreA != null && fix.scoreB != null
-                                          ? `${fix.scoreA} – ${fix.scoreB}`
-                                          : 'vs'}
-                                      </span>
-                                      <span className={`${s.fixtureMatchTeam} ${fix.winner === fix.teamB ? s.fixtureMatchWinner : ''}`}>{fix.teamB || '—'}</span>
-                                    </div>
-                                    {fix.winner && (
-                                      <div className={s.fixtureWinnerRow}>
-                                        🏆 <strong>{fix.winner}</strong> wins
-                                      </div>
-                                    )}
-                                    {fix.time && !fix.winner && (
-                                      <div className={s.fixtureMatchMeta}>
-                                        <span>{fix.time}</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            );
-                          })}
-                      </div>
-                    </section>
                   );
-                })()}
+                })}
 
                 {/* MVP Gallery — one card per completed match */}
                 {fixtureData.mvps?.length > 0 && (

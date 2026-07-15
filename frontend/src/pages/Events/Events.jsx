@@ -1056,52 +1056,64 @@ const Events = () => {
             ) : (
               <div className={styles.fixtureContent}>
 
-                {fixtureData.teams?.length > 0 && (
-                  <section className={styles.fixtureSection}>
-                    <h3 className={styles.fixtureSectionTitle}>Teams</h3>
-                    <div className={styles.fixtureTeamsGrid}>
-                      {fixtureData.teams.map(team => (
-                        <div key={team.id} className={styles.fixtureTeamCard}>
-                          <div className={styles.fixtureTeamName}>{team.name}</div>
-                          <div className={styles.fixtureTeamMembers}>
-                            {team.members.length === 0
-                              ? <span className={styles.fixtureNoMembers}>No players assigned</span>
-                              : team.members.map((m, i) => (
-                                <div key={i} className={styles.fixturePlayerRow}>
-                                  <span className={styles.fixturePlayerNum}>{i + 1}</span>
-                                  <span className={styles.fixturePlayerName}>{m.name}</span>
-                                  {m.enrollmentNo && <span className={styles.fixturePlayerEnroll}>{m.enrollmentNo}</span>}
-                                </div>
-                              ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                )}
+                {['boys', 'girls'].map(division => {
+                  const divLabel = division === 'girls' ? 'Girls' : 'Boys';
+                  const divTeams = (fixtureData.teams || []).filter(t => (t.division || 'boys') === division);
+                  const divFixtures = (fixtureData.fixtures || []).filter(f => (f.division || 'boys') === division);
+                  if (!divTeams.length && !divFixtures.length) return null;
+                  return (
+                    <div key={division} className={styles.fixtureDivisionSection}>
+                      <div className={styles.fixtureDivisionTitle}>{divLabel}</div>
 
-                {fixtureData.fixtures?.length > 0 && (
-                  <section className={styles.fixtureSection}>
-                    <h3 className={styles.fixtureSectionTitle}>Match Schedule</h3>
-                    <div className={styles.fixtureMatchList}>
-                      {fixtureData.fixtures.map((fix, i) => (
-                        <div key={i} className={styles.fixtureMatchRow}>
-                          {fix.round && <span className={styles.fixtureRound}>{fix.round}</span>}
-                          <div className={styles.fixtureMatchTeams}>
-                            <span className={styles.fixtureMatchTeam}>{fix.teamA || '—'}</span>
-                            <span className={styles.fixtureMatchVs}>vs</span>
-                            <span className={styles.fixtureMatchTeam}>{fix.teamB || '—'}</span>
+                      {divTeams.length > 0 && (
+                        <section className={styles.fixtureSection}>
+                          <h3 className={styles.fixtureSectionTitle}>Teams</h3>
+                          <div className={styles.fixtureTeamsGrid}>
+                            {divTeams.map(team => (
+                              <div key={team.id} className={styles.fixtureTeamCard}>
+                                <div className={styles.fixtureTeamName}>{team.name}</div>
+                                <div className={styles.fixtureTeamMembers}>
+                                  {team.members.length === 0
+                                    ? <span className={styles.fixtureNoMembers}>No players assigned</span>
+                                    : team.members.map((m, i) => (
+                                      <div key={i} className={styles.fixturePlayerRow}>
+                                        <span className={styles.fixturePlayerNum}>{i + 1}</span>
+                                        <span className={styles.fixturePlayerName}>{m.name}</span>
+                                        {m.enrollmentNo && <span className={styles.fixturePlayerEnroll}>{m.enrollmentNo}</span>}
+                                      </div>
+                                    ))}
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                          <div className={styles.fixtureMatchMeta}>
-                            {fix.date && <span>📅 {fix.date}</span>}
-                            {fix.time && <span>🕐 {fix.time}</span>}
-                            {fix.venue && <span>📍 {fix.venue}</span>}
+                        </section>
+                      )}
+
+                      {divFixtures.length > 0 && (
+                        <section className={styles.fixtureSection}>
+                          <h3 className={styles.fixtureSectionTitle}>Match Schedule</h3>
+                          <div className={styles.fixtureMatchList}>
+                            {divFixtures.map((fix, i) => (
+                              <div key={i} className={styles.fixtureMatchRow}>
+                                {fix.round && <span className={styles.fixtureRound}>{fix.round}</span>}
+                                <div className={styles.fixtureMatchTeams}>
+                                  <span className={styles.fixtureMatchTeam}>{fix.teamA || '—'}</span>
+                                  <span className={styles.fixtureMatchVs}>vs</span>
+                                  <span className={styles.fixtureMatchTeam}>{fix.teamB || '—'}</span>
+                                </div>
+                                <div className={styles.fixtureMatchMeta}>
+                                  {fix.date && <span>📅 {fix.date}</span>}
+                                  {fix.time && <span>🕐 {fix.time}</span>}
+                                  {fix.venue && <span>📍 {fix.venue}</span>}
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                        </div>
-                      ))}
+                        </section>
+                      )}
                     </div>
-                  </section>
-                )}
+                  );
+                })}
 
               </div>
             )}

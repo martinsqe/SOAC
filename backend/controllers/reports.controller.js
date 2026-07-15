@@ -91,9 +91,9 @@ const regenerateReport = async (eventId, clubId, userId) => {
       [eventId]
     );
 
-    /* ── Teams with members ── */
+    /* ── Teams with members (Boys/Girls division kept on each row) ── */
     const { rows: teamRows } = await pgPool.query(
-      `SELECT t.id, t.name, t.max_size,
+      `SELECT t.id, t.name, t.max_size, t.division,
               COALESCE(json_agg(
                 json_build_object('id', tm.id, 'name', tm.member_name, 'enrollmentNo', tm.enrollment_no)
                 ORDER BY tm.member_name
@@ -105,9 +105,9 @@ const regenerateReport = async (eventId, clubId, userId) => {
       [eventId]
     );
 
-    /* ── Groups (with teams + members) ── */
+    /* ── Groups (with teams + members, division kept per group) ── */
     const { rows: groupRows } = await pgPool.query(
-      `SELECT g.id, g.name, g.sort_order,
+      `SELECT g.id, g.name, g.sort_order, g.division,
               COALESCE(json_agg(
                 json_build_object('id', t.id, 'name', t.name)
                 ORDER BY t.name
@@ -129,6 +129,7 @@ const regenerateReport = async (eventId, clubId, userId) => {
         members: teamMemberMap[String(t.id)] || [],
       })),
     }));
+    const groupsByDivision = (division) => groupRowsWithMembers.filter(g => g.division === division);
 
     /* ── Fixtures / Results — live scores always win over stored fixture scores ── */
     const { rows: fixtures } = await pgPool.query(
@@ -136,7 +137,7 @@ const regenerateReport = async (eventId, clubId, userId) => {
               COALESCE(cls_id.team_score,     cls_nm.team_score,     f.score_a) AS score_a,
               COALESCE(cls_id.opponent_score, cls_nm.opponent_score, f.score_b) AS score_b,
               COALESCE(cls_id.winner_name, cls_nm.winner_name, f.winner_name)   AS winner_name,
-              f.match_date, f.match_time, f.round, f.venue
+              f.match_date, f.match_time, f.round, f.venue, f.division
        FROM event_fixtures f
        -- primary: match by explicit fixture_id link
        LEFT JOIN club_live_scores cls_id
@@ -197,32 +198,37 @@ const regenerateReport = async (eventId, clubId, userId) => {
       tournamentMvp = sorted[0] || null;
     }
 
-    /* ── Tournament winner — resolved from bracket structure (groups + fixtures),
-       never guessed from a fixture's free-text round label. ── */
-    const bracketFixtures = fixtures.map(f => ({
-      teamA: f.team_a_name, teamB: f.team_b_name, winner: f.winner_name,
-    }));
-    const champion = getChampion(groupRowsWithMembers, bracketFixtures);
-    let tournamentWinner = null;
-    if (champion) {
-      const finalFx = fixtures.find(f =>
+    /* ── Tournament winners — one per division, each resolved independently from
+       that division's own bracket structure (groups + fixtures), never guessed
+       from a fixture's free-text round label. ── */
+    const resolveDivisionWinner = (division) => {
+      const divFixtures = fixtures.filter(f => f.division === division);
+      const bracketFixtures = divFixtures.map(f => ({
+        teamA: f.team_a_name, teamB: f.team_b_name, winner: f.winner_name,
+      }));
+      const champion = getChampion(groupsByDivision(division), bracketFixtures);
+      if (!champion) return null;
+      const finalFx = divFixtures.find(f =>
         (f.team_a_name === champion.name && f.team_b_name === champion.opponent) ||
         (f.team_b_name === champion.name && f.team_a_name === champion.opponent)
       );
       const winnerIsTeamA = finalFx?.team_a_name === champion.name;
-      tournamentWinner = {
+      return {
         name: champion.name,
         opponent: champion.opponent,
         round: finalFx?.round || null,
         scoreFor:     finalFx ? (winnerIsTeamA ? finalFx.score_a : finalFx.score_b) : null,
         scoreAgainst: finalFx ? (winnerIsTeamA ? finalFx.score_b : finalFx.score_a) : null,
       };
-    }
+    };
+    const tournamentWinnerBoys  = resolveDivisionWinner('boys');
+    const tournamentWinnerGirls = resolveDivisionWinner('girls');
 
     /* ── Summary stats ── */
     const completedFixtures = fixtures.filter(f => f.winner_name);
     const summaryStats = {
-      tournamentWinner,
+      tournamentWinnerBoys,
+      tournamentWinnerGirls,
       totalParticipants: participants.length,
       totalTeams:        teamRows.length,
       totalGroups:       groupRows.length,

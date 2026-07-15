@@ -928,6 +928,27 @@
   border-bottom: 2px solid #635bff22;
   padding-bottom: 7px;
 }
+/* Boys / Girls division sections — used across Groups, Fixtures, Scoreboard, Report tabs */
+.divisionSection {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.divisionSection + .divisionSection {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 2px dashed #e5e7eb;
+}
+.divisionSectionTitle {
+  font-size: .9rem;
+  font-weight: 800;
+  color: #635bff;
+  background: #635bff14;
+  display: inline-block;
+  padding: 5px 14px;
+  border-radius: 20px;
+  width: fit-content;
+}
 /* Participants table */
 .reportTableWrap {
   overflow-x: auto;
@@ -1610,13 +1631,16 @@
 .recordBtn:hover:not(:disabled) { background: #4f46e5; }
 .recordBtn:disabled { background: #c7d2fe; cursor: not-allowed; }
 
-/* ══ Teams panel — full redesign with proper scroll chain ══ */
+/* ══ Teams panel — scrolls as a whole so both the Boys and Girls
+   division sections (each with their own create bar + list) stay reachable ══ */
 .teamsPanel {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;        /* critical: lets flex child scroll instead of expanding */
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ── Create team bar ── */
@@ -1681,12 +1705,9 @@
 .createTeamBtn:hover:not(:disabled) { opacity: .88; box-shadow: 0 4px 14px rgba(99,91,255,.38); }
 .createTeamBtn:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
 
-/* ── Scrollable teams list — THIS is where the scroll lives ── */
+/* ── Teams list — grows naturally; .teamsPanel above is the scroll container
+   now that each division section has its own create bar + list stacked in it ── */
 .teamsList {
-  flex: 1;
-  min-height: 0;        /* critical: allows scroll inside a flex parent */
-  overflow-y: auto;
-  overflow-x: hidden;
   padding: 16px 20px 24px;
   display: flex;
   flex-direction: column;

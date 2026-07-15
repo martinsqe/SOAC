@@ -679,7 +679,7 @@ const DEFAULT_TIMER_SECONDS = {
 const LIVE_SCORE_SELECT = `id, club_id, sport, match_title, home_team, opponent_name, venue, status,
               game_clock, team_score, opponent_score, score_data, stats, home_players, away_players,
               time_remaining_seconds, timer_running, timer_last_started_at,
-              winner_name, fixture_id, event_id,
+              winner_name, fixture_id, event_id, division,
               started_at, ended_at, created_at, updated_at`;
 
 const withTimerComputed = (row) => {
@@ -705,6 +705,7 @@ const mapLiveScore = (row) => ({
   winnerName: row.winner_name || null,
   fixtureId: row.fixture_id ? String(row.fixture_id) : null,
   eventId: row.event_id ? String(row.event_id) : null,
+  division: row.division || null,
   gameClock: row.game_clock || '',
   teamScore: Number(row.team_score || 0),
   opponentScore: Number(row.opponent_score || 0),
@@ -754,12 +755,22 @@ const createLiveScore = async (req, res, next) => {
     if (!SUPPORTED_SPORTS.has(sport)) {
       return res.status(400).json({ message: 'Invalid sport. Supported: cricket, basketball, football, volleyball, badminton.' });
     }
+
+    /* Denormalize the source fixture's division onto the scoreboard, so the
+       Match Control tab can filter Boys vs Girls without a join every time. */
+    const fixtureId = req.body.fixtureId ? Number(req.body.fixtureId) : null;
+    let division = null;
+    if (fixtureId) {
+      const { rows: fxRows } = await pgPool.query(`SELECT division FROM event_fixtures WHERE id = $1::bigint`, [fixtureId]);
+      division = fxRows[0]?.division || null;
+    }
+
     const { rows } = await pgPool.query(
       `INSERT INTO club_live_scores
          (club_id, sport, match_title, home_team, opponent_name, venue, game_clock,
           team_score, opponent_score, score_data, stats, home_players, away_players,
-          time_remaining_seconds, status, created_by, updated_by, fixture_id, event_id)
-       VALUES ($1::bigint, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, $14, 'draft', $15, $15, $16, $17)
+          time_remaining_seconds, status, created_by, updated_by, fixture_id, event_id, division)
+       VALUES ($1::bigint, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, $14, 'draft', $15, $15, $16, $17, $18)
        RETURNING ${LIVE_SCORE_SELECT}`,
       [
         req.params.id,
@@ -777,8 +788,9 @@ const createLiveScore = async (req, res, next) => {
         JSON.stringify(req.body.awayPlayers || []),
         Math.max(0, Number(req.body.timeRemainingSeconds ?? DEFAULT_TIMER_SECONDS[sport]) || DEFAULT_TIMER_SECONDS[sport]),
         req.user.id,
-        req.body.fixtureId ? Number(req.body.fixtureId) : null,
+        fixtureId,
         req.body.eventId   ? Number(req.body.eventId)   : null,
+        division,
       ]
     );
     const score = mapLiveScore(withTimerComputed(rows[0]));
@@ -1551,7 +1563,7 @@ const deleteLiveScore = async (req, res, next) => {
     const { rows } = await pgPool.query(
       `DELETE FROM club_live_scores
        WHERE id = $1::bigint AND club_id = $2::bigint
-       RETURNING id, fixture_id, event_id, winner_name`,
+       RETURNING id, fixture_id, event_id, winner_name, division`,
       [req.params.scoreId, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Scoreboard not found.' });
@@ -1562,7 +1574,9 @@ const deleteLiveScore = async (req, res, next) => {
 
     /* This scoreboard's result is gone — reset the fixture it fed so the bracket
        correctly reports the match as unplayed again, and retract any later-round
-       fixture that was only auto-created because of the now-undone winner. */
+       fixture that was only auto-created because of the now-undone winner. Scoped to
+       this scoreboard's own division so an identically-named team in the other
+       division is never touched. */
     if (deleted.fixture_id) {
       await pgPool.query(
         `UPDATE event_fixtures SET score_a = NULL, score_b = NULL, winner_name = NULL WHERE id = $1::bigint`,
@@ -1571,7 +1585,7 @@ const deleteLiveScore = async (req, res, next) => {
     }
     if (deleted.event_id && deleted.winner_name) {
       bracketEngine.retractDownstream({
-        eventId: deleted.event_id, teamName: deleted.winner_name, io: req.app.get('io'),
+        eventId: deleted.event_id, teamName: deleted.winner_name, division: deleted.division, io: req.app.get('io'),
       }).catch(() => {});
     }
     if (deleted.event_id) {

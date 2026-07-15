@@ -77,11 +77,13 @@ pgPool.query(`
     ADD COLUMN IF NOT EXISTS score_a        INTEGER      DEFAULT NULL,
     ADD COLUMN IF NOT EXISTS score_b        INTEGER      DEFAULT NULL,
     ADD COLUMN IF NOT EXISTS winner_name    VARCHAR(255) DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS auto_generated BOOLEAN      NOT NULL DEFAULT false
+    ADD COLUMN IF NOT EXISTS auto_generated BOOLEAN      NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS division       VARCHAR(10)  NOT NULL DEFAULT 'boys'
 `)).catch(() => {});
 
 /* Stage schedule: coordinator-supplied estimated date/venue for each later bracket round,
-   keyed by the same round labels the bracket engine / preview compute. */
+   keyed by the same round labels the bracket engine / preview compute — separately per
+   division, since Boys and Girls brackets can need a different number of rounds. */
 pgPool.query(`
   CREATE TABLE IF NOT EXISTS event_stage_schedule (
     id          BIGSERIAL    PRIMARY KEY,
@@ -93,7 +95,16 @@ pgPool.query(`
     sort_order  INTEGER      NOT NULL DEFAULT 0,
     UNIQUE (event_id, round_label)
   )
-`).catch(() => {});
+`).then(() => pgPool.query(`
+  ALTER TABLE event_stage_schedule ADD COLUMN IF NOT EXISTS division VARCHAR(10) NOT NULL DEFAULT 'boys'
+`)).then(() => pgPool.query(
+  `ALTER TABLE event_stage_schedule DROP CONSTRAINT IF EXISTS event_stage_schedule_event_id_round_label_key`
+)).then(() => pgPool.query(`
+  DO $$ BEGIN
+    ALTER TABLE event_stage_schedule ADD CONSTRAINT event_stage_schedule_event_division_round_label_key UNIQUE (event_id, division, round_label);
+  EXCEPTION WHEN duplicate_object THEN NULL;
+  END $$;
+`)).catch(() => {});
 
 /* Verify this coordinator (or admin) has access to the event */
 const checkAccess = async (req, res) => {
@@ -114,11 +125,14 @@ const checkAccess = async (req, res) => {
   return true;
 };
 
+const asDivision = (v) => (v === 'girls' ? 'girls' : v === 'boys' ? 'boys' : null);
+
 const mapTeam = (t, members = []) => ({
   id:        String(t.id),
   name:      t.name,
   maxSize:   t.max_size,
   isCleared: t.is_cleared,
+  division:  t.division,
   createdAt: t.created_at,
   members,
 });
@@ -137,7 +151,7 @@ const getTeams = async (req, res, next) => {
     if (!await checkAccess(req, res)) return;
 
     const { rows: teams } = await pgPool.query(
-      `SELECT id, name, max_size, is_cleared, created_at FROM event_teams WHERE event_id = $1 ORDER BY created_at ASC`,
+      `SELECT id, name, max_size, is_cleared, division, created_at FROM event_teams WHERE event_id = $1 ORDER BY created_at ASC`,
       [req.params.id]
     );
 
@@ -167,16 +181,17 @@ const createTeam = async (req, res, next) => {
     if (!await checkAccess(req, res)) return;
 
     const { name, maxSize = 0 } = req.body;
+    const division = asDivision(req.body.division) || 'boys';
     if (!name?.trim()) return res.status(400).json({ message: 'Team name is required.' });
 
     const { rows } = await pgPool.query(
-      `INSERT INTO event_teams (event_id, name, max_size) VALUES ($1, $2, $3)
-       RETURNING id, name, max_size, is_cleared, created_at`,
-      [req.params.id, name.trim(), Number(maxSize) || 0]
+      `INSERT INTO event_teams (event_id, name, max_size, division) VALUES ($1, $2, $3, $4)
+       RETURNING id, name, max_size, is_cleared, division, created_at`,
+      [req.params.id, name.trim(), Number(maxSize) || 0, division]
     );
     res.status(201).json({ team: mapTeam(rows[0], []) });
   } catch (err) {
-    if (err.code === '23505') return res.status(409).json({ message: 'A team with this name already exists for this event.' });
+    if (err.code === '23505') return res.status(409).json({ message: `A ${asDivision(req.body?.division) || 'boys'} team with this name already exists for this event.` });
     next(err);
   }
 };
@@ -291,30 +306,37 @@ const removeMember = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* Shared query used by the coordinator fixtures endpoint and the bracket engine */
-const fetchFixtures = async (eventId) => {
-  const { rows } = await pgPool.query(
-    `SELECT id, team_a_name, team_b_name,
-            TO_CHAR(match_date, 'YYYY-MM-DD') AS match_date,
-            match_time, venue, round, sort_order,
-            score_a, score_b, winner_name, auto_generated
-     FROM event_fixtures WHERE event_id = $1 ORDER BY sort_order ASC, created_at ASC`,
-    [eventId]
-  );
+/* Shared query used by the coordinator fixtures endpoint and the bracket engine.
+   Pass `division` to scope to one division's fixtures only; omit it to get every
+   fixture across both divisions. */
+const fetchFixtures = async (eventId, division) => {
+  const div = asDivision(division);
+  const sql = div
+    ? `SELECT id, team_a_name, team_b_name,
+              TO_CHAR(match_date, 'YYYY-MM-DD') AS match_date,
+              match_time, venue, round, sort_order,
+              score_a, score_b, winner_name, auto_generated, division
+       FROM event_fixtures WHERE event_id = $1 AND division = $2 ORDER BY sort_order ASC, created_at ASC`
+    : `SELECT id, team_a_name, team_b_name,
+              TO_CHAR(match_date, 'YYYY-MM-DD') AS match_date,
+              match_time, venue, round, sort_order,
+              score_a, score_b, winner_name, auto_generated, division
+       FROM event_fixtures WHERE event_id = $1 ORDER BY sort_order ASC, created_at ASC`;
+  const { rows } = await pgPool.query(sql, div ? [eventId, div] : [eventId]);
   return rows.map(f => ({
     id: String(f.id), teamA: f.team_a_name, teamB: f.team_b_name,
     date: f.match_date || '',
     time: f.match_time || '', venue: f.venue || '', round: f.round || '',
     scoreA: f.score_a ?? null, scoreB: f.score_b ?? null, winner: f.winner_name || null,
-    autoGenerated: !!f.auto_generated,
+    autoGenerated: !!f.auto_generated, division: f.division,
   }));
 };
 
-/* GET /api/events/:id/fixtures  (coordinator — load existing fixtures for editing) */
+/* GET /api/events/:id/fixtures?division=  (coordinator — load existing fixtures for editing) */
 const getFixtures = async (req, res, next) => {
   try {
     if (!await checkAccess(req, res)) return;
-    res.json({ fixtures: await fetchFixtures(req.params.id) });
+    res.json({ fixtures: await fetchFixtures(req.params.id, req.query.division) });
   } catch (err) { next(err); }
 };
 
@@ -325,7 +347,7 @@ const getPublicFixtures = async (req, res, next) => {
 
     const [teamsRes, membersRes, fixturesRes] = await Promise.all([
       pgPool.query(
-        `SELECT id, name FROM event_teams WHERE event_id = $1 ORDER BY created_at ASC`,
+        `SELECT id, name, division FROM event_teams WHERE event_id = $1 ORDER BY created_at ASC`,
         [eventId]
       ),
       pgPool.query(
@@ -337,7 +359,7 @@ const getPublicFixtures = async (req, res, next) => {
       ),
       pgPool.query(
         `SELECT team_a_name, team_b_name, match_date, match_time, venue, round, sort_order,
-                score_a, score_b, winner_name
+                score_a, score_b, winner_name, division
          FROM event_fixtures WHERE event_id = $1 ORDER BY sort_order ASC, created_at ASC`,
         [eventId]
       ),
@@ -351,7 +373,7 @@ const getPublicFixtures = async (req, res, next) => {
     }
 
     const teams = teamsRes.rows.map(t => ({
-      id: String(t.id), name: t.name,
+      id: String(t.id), name: t.name, division: t.division,
       members: membersByTeam[String(t.id)] || [],
     }));
 
@@ -360,42 +382,46 @@ const getPublicFixtures = async (req, res, next) => {
       date: f.match_date ? new Date(f.match_date).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : '',
       time: f.match_time || '', venue: f.venue || '', round: f.round || '',
       scoreA: f.score_a ?? null, scoreB: f.score_b ?? null, winner: f.winner_name || null,
+      division: f.division,
     }));
 
     res.json({ teams, fixtures });
   } catch (err) { next(err); }
 };
 
-/* POST /api/events/:id/fixtures/save-declare  (coordinator) */
+/* POST /api/events/:id/fixtures/save-declare  (coordinator)
+   Scoped to a single `division` — declaring Boys fixtures never touches Girls
+   fixtures/scoreboards, and vice versa. */
 const saveAndDeclare = async (req, res, next) => {
   const pgClient = await pgPool.connect();
   try {
     if (!await checkAccess(req, res)) return;
+    const division = asDivision(req.body.division) || 'boys';
     const { fixtures = [] } = req.body; // [{teamA, teamB, date, time, venue, round}]
 
     await pgClient.query('BEGIN');
 
-    /* Remove draft/ended scoreboards for manually-declared fixtures so re-declaring starts
-       clean. Live scoreboards, and anything tied to a system auto-generated later-round
-       fixture, are left untouched — those aren't part of what the coordinator just edited. */
+    /* Remove draft/ended scoreboards for this division's manually-declared fixtures so
+       re-declaring starts clean. Live scoreboards, the other division's scoreboards, and
+       anything tied to a system auto-generated later-round fixture are left untouched. */
     await pgClient.query(
       `DELETE FROM club_live_scores
-       WHERE event_id = $1 AND status IN ('draft','ended')
-         AND (fixture_id IS NULL OR fixture_id IN (
-           SELECT id FROM event_fixtures WHERE event_id = $1 AND auto_generated = false
-         ))`,
-      [req.params.id]
+       WHERE event_id = $1 AND status IN ('draft','ended') AND division = $2`,
+      [req.params.id, division]
     );
 
-    /* Replace only the manually-declared fixtures for this event — auto-generated
-       later-round fixtures (created as winners advance) are left in place. */
-    await pgClient.query(`DELETE FROM event_fixtures WHERE event_id = $1 AND auto_generated = false`, [req.params.id]);
+    /* Replace only this division's manually-declared fixtures — the other division, and
+       auto-generated later-round fixtures (created as winners advance), are left in place. */
+    await pgClient.query(
+      `DELETE FROM event_fixtures WHERE event_id = $1 AND auto_generated = false AND division = $2`,
+      [req.params.id, division]
+    );
 
     for (let i = 0; i < fixtures.length; i++) {
       const f = fixtures[i];
       await pgClient.query(
-        `INSERT INTO event_fixtures (event_id, team_a_name, team_b_name, match_date, match_time, venue, round, sort_order)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        `INSERT INTO event_fixtures (event_id, team_a_name, team_b_name, match_date, match_time, venue, round, sort_order, division)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [
           req.params.id,
           f.teamA?.trim() || '',
@@ -405,6 +431,7 @@ const saveAndDeclare = async (req, res, next) => {
           f.venue?.trim() || null,
           f.round?.trim() || null,
           i,
+          division,
         ]
       );
     }
@@ -442,7 +469,7 @@ const recordResult = async (req, res, next) => {
       `UPDATE event_fixtures
        SET score_a = $1, score_b = $2, winner_name = $3
        WHERE id = $4 AND event_id = $5
-       RETURNING id, team_a_name, team_b_name, score_a, score_b, winner_name`,
+       RETURNING id, team_a_name, team_b_name, score_a, score_b, winner_name, division`,
       [
         scoreA !== undefined && scoreA !== '' ? Number(scoreA) : null,
         scoreB !== undefined && scoreB !== '' ? Number(scoreB) : null,
@@ -462,9 +489,11 @@ const recordResult = async (req, res, next) => {
         winner:    r.winner_name,
         teamA:     r.team_a_name || '',
         teamB:     r.team_b_name || '',
+        division:  r.division,
       });
     }
     if (r.winner_name) {
+      /* Processes both divisions internally — a no-op for whichever one didn't change. */
       bracketEngine.advanceBracket({ eventId: req.params.id, io }).catch(() => {});
     }
     res.json({ fixtureId: String(r.id), scoreA: r.score_a, scoreB: r.score_b, winner: r.winner_name });
@@ -476,15 +505,16 @@ const deleteFixture = async (req, res, next) => {
   try {
     if (!await checkAccess(req, res)) return;
     const { rows } = await pgPool.query(
-      `DELETE FROM event_fixtures WHERE id = $1 AND event_id = $2 RETURNING id, winner_name`,
+      `DELETE FROM event_fixtures WHERE id = $1 AND event_id = $2 RETURNING id, winner_name, division`,
       [req.params.fixtureId, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Fixture not found.' });
     /* If this fixture's winner had already advanced to a later round, retract that
-       downstream matchup too — it no longer has a valid source. */
+       downstream matchup too — it no longer has a valid source. Scoped to this fixture's
+       own division so an identically-named team in the other division is never touched. */
     if (rows[0].winner_name) {
       bracketEngine.retractDownstream({
-        eventId: req.params.id, teamName: rows[0].winner_name, io: req.app.get('io'),
+        eventId: req.params.id, teamName: rows[0].winner_name, division: rows[0].division, io: req.app.get('io'),
       }).catch(() => {});
     }
     autoRefreshReportIfExists(req.params.id).catch(() => {});
@@ -492,19 +522,21 @@ const deleteFixture = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* GET /api/events/:id/stage-schedule  (coordinator)
-   Returns one row per later round the current bracket needs (Round 1 is manual and
-   excluded), merged with any dates the coordinator already saved. */
+/* GET /api/events/:id/stage-schedule?division=  (coordinator)
+   Returns one row per later round THIS division's bracket needs (Round 1 is manual
+   and excluded — and Boys/Girls can need a different number of rounds), merged with
+   any dates the coordinator already saved for that division. */
 const getStageSchedule = async (req, res, next) => {
   try {
     if (!await checkAccess(req, res)) return;
-    const groups = await fetchGroups(req.params.id);
+    const division = asDivision(req.query.division) || 'boys';
+    const groups = await fetchGroups(req.params.id, division);
     const labels = bracketEngine.getStageLabels(groups);
 
     const { rows } = await pgPool.query(
       `SELECT round_label, TO_CHAR(match_date, 'YYYY-MM-DD') AS match_date, match_time, venue
-       FROM event_stage_schedule WHERE event_id = $1`,
-      [req.params.id]
+       FROM event_stage_schedule WHERE event_id = $1 AND division = $2`,
+      [req.params.id, division]
     );
     const saved = {};
     rows.forEach(r => { saved[r.round_label] = r; });
@@ -524,19 +556,20 @@ const getStageSchedule = async (req, res, next) => {
 const saveStageSchedule = async (req, res, next) => {
   try {
     if (!await checkAccess(req, res)) return;
+    const division = asDivision(req.body.division) || 'boys';
     const { stages = [] } = req.body; // [{label, date, time, venue}]
     for (let i = 0; i < stages.length; i++) {
       const s = stages[i];
       if (!s.label?.trim()) continue;
       await pgPool.query(
-        `INSERT INTO event_stage_schedule (event_id, round_label, match_date, match_time, venue, sort_order)
-         VALUES ($1,$2,$3,$4,$5,$6)
-         ON CONFLICT (event_id, round_label) DO UPDATE SET
+        `INSERT INTO event_stage_schedule (event_id, round_label, match_date, match_time, venue, sort_order, division)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (event_id, division, round_label) DO UPDATE SET
            match_date = EXCLUDED.match_date,
            match_time = EXCLUDED.match_time,
            venue      = EXCLUDED.venue,
            sort_order = EXCLUDED.sort_order`,
-        [req.params.id, s.label.trim(), s.date || null, s.time?.trim() || null, s.venue?.trim() || null, i]
+        [req.params.id, s.label.trim(), s.date || null, s.time?.trim() || null, s.venue?.trim() || null, i, division]
       );
     }
     res.json({ message: 'Stage schedule saved.' });

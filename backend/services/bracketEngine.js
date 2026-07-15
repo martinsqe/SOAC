@@ -8,9 +8,15 @@
   draft Match Control scoreboard when the sport supports it — so a coordinator never
   has to re-type a winning team into a later round.
 
+  Boys and Girls run as two entirely independent brackets. advanceBracket() processes
+  both divisions on every call — recomputing a division nothing changed in is just a
+  cheap no-op — so callers never need to know or pass which division triggered it.
+
   retractDownstream() is the inverse: if a scoreboard/result is deleted, any
   auto-generated next-round fixture that only existed because of that winner (and
-  hasn't itself been played yet) is removed again.
+  hasn't itself been played yet) is removed again. Callers DO pass `division` here,
+  since team names are only unique within a division — "Eagles" (boys) and "Eagles"
+  (girls) must never cross-match.
 */
 const { pgPool }          = require('../config/db');
 const { fetchGroups }     = require('../controllers/eventGroups.controller');
@@ -18,21 +24,24 @@ const { autoRefreshReportIfExists } = require('../controllers/reports.controller
 const bracketMath = require('./bracketMath');
 const { SUPPORTED_SPORTS, DEFAULT_TIMER_SECONDS, detectSport, getPendingAdvancements } = bracketMath;
 
-async function getTeamRoster(client, eventId, teamName) {
+const DIVISIONS = ['boys', 'girls'];
+
+async function getTeamRoster(client, eventId, division, teamName) {
   if (!teamName) return [];
   const { rows } = await client.query(
     `SELECT tm.member_name, tm.enrollment_no
      FROM event_teams t
      JOIN event_team_members tm ON tm.team_id = t.id
-     WHERE t.event_id = $1 AND t.name = $2
+     WHERE t.event_id = $1 AND t.division = $2 AND t.name = $3
      ORDER BY tm.id ASC`,
-    [eventId, teamName]
+    [eventId, division, teamName]
   );
   return rows.map(r => ({ name: r.member_name, enrollmentNo: r.enrollment_no || '' }));
 }
 
-/* Compute + persist any newly-resolved next-round matchups for an event. Safe to call
-   after every result recorded — it's a no-op once nothing new is pending. */
+/* Compute + persist any newly-resolved next-round matchups for an event, across both
+   divisions. Safe to call after every result recorded — it's a no-op once nothing new
+   is pending. */
 async function advanceBracket({ eventId, io }) {
   const client = await pgPool.connect();
   try {
@@ -48,27 +57,18 @@ async function advanceBracket({ eventId, io }) {
     if (!evRows.length) { await client.query('ROLLBACK'); return; }
     const ev = evRows[0];
 
-    const groups = await fetchGroups(eventId);
-    const { rows: fixtures } = await client.query(
-      `SELECT id, team_a_name AS "teamA", team_b_name AS "teamB", winner_name AS winner
+    const { rows: allFixtures } = await client.query(
+      `SELECT id, team_a_name AS "teamA", team_b_name AS "teamB", winner_name AS winner, division
        FROM event_fixtures WHERE event_id = $1::bigint`,
       [eventId]
     );
-
-    const pending = getPendingAdvancements(groups, fixtures);
-    if (!pending.length) {
-      await client.query('COMMIT');
-      autoRefreshReportIfExists(eventId).catch(() => {});
-      return;
-    }
-
     const { rows: stageRows } = await client.query(
-      `SELECT round_label, TO_CHAR(match_date, 'YYYY-MM-DD') AS match_date, match_time, venue
+      `SELECT division, round_label, TO_CHAR(match_date, 'YYYY-MM-DD') AS match_date, match_time, venue
        FROM event_stage_schedule WHERE event_id = $1::bigint`,
       [eventId]
     );
-    const stageByLabel = {};
-    stageRows.forEach(s => { stageByLabel[s.round_label] = s; });
+    const stageByKey = {};
+    stageRows.forEach(s => { stageByKey[`${s.division}:${s.round_label}`] = s; });
 
     const { rows: maxRows } = await client.query(
       `SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM event_fixtures WHERE event_id = $1::bigint`,
@@ -79,41 +79,50 @@ async function advanceBracket({ eventId, io }) {
     const sport         = detectSport(ev.title);
     const canScoreboard = ev.club_category === 'sports' && SUPPORTED_SPORTS.has(sport);
 
-    for (const p of pending) {
-      const stage = stageByLabel[p.label] || {};
-      const venue = stage.venue || ev.venue || '';
-      const { rows: fxRows } = await client.query(
-        `INSERT INTO event_fixtures
-           (event_id, team_a_name, team_b_name, match_date, match_time, venue, round, sort_order, auto_generated)
-         VALUES ($1::bigint,$2,$3,$4,$5,$6,$7,$8,true)
-         RETURNING id`,
-        [eventId, p.teamA, p.teamB, stage.match_date || null, stage.match_time || null, venue, p.label, nextSortOrder++]
-      );
-      const fixtureId = fxRows[0].id;
+    let created = false;
+    for (const division of DIVISIONS) {
+      const groups   = await fetchGroups(eventId, division);
+      const fixtures = allFixtures.filter(f => f.division === division);
+      const pending  = getPendingAdvancements(groups, fixtures);
+      if (!pending.length) continue;
 
-      if (canScoreboard) {
-        const [homePlayers, awayPlayers] = await Promise.all([
-          getTeamRoster(client, eventId, p.teamA),
-          getTeamRoster(client, eventId, p.teamB),
-        ]);
-        const title = [ev.title, p.label].filter(Boolean).join(' – ') + `: ${p.teamA} vs ${p.teamB}`;
-        await client.query(
-          `INSERT INTO club_live_scores
-             (club_id, sport, match_title, home_team, opponent_name, venue,
-              home_players, away_players, time_remaining_seconds, status, fixture_id, event_id)
-           VALUES ($1::bigint,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,'draft',$10,$11::bigint)`,
-          [
-            ev.club_id, sport, title, p.teamA, p.teamB, venue,
-            JSON.stringify(homePlayers), JSON.stringify(awayPlayers),
-            DEFAULT_TIMER_SECONDS[sport] || 0,
-            fixtureId, eventId,
-          ]
+      for (const p of pending) {
+        const stage = stageByKey[`${division}:${p.label}`] || {};
+        const venue = stage.venue || ev.venue || '';
+        const { rows: fxRows } = await client.query(
+          `INSERT INTO event_fixtures
+             (event_id, team_a_name, team_b_name, match_date, match_time, venue, round, sort_order, auto_generated, division)
+           VALUES ($1::bigint,$2,$3,$4,$5,$6,$7,$8,true,$9)
+           RETURNING id`,
+          [eventId, p.teamA, p.teamB, stage.match_date || null, stage.match_time || null, venue, p.label, nextSortOrder++, division]
         );
+        const fixtureId = fxRows[0].id;
+        created = true;
+
+        if (canScoreboard) {
+          const [homePlayers, awayPlayers] = await Promise.all([
+            getTeamRoster(client, eventId, division, p.teamA),
+            getTeamRoster(client, eventId, division, p.teamB),
+          ]);
+          const title = [ev.title, division === 'girls' ? 'Girls' : 'Boys', p.label].filter(Boolean).join(' – ') + `: ${p.teamA} vs ${p.teamB}`;
+          await client.query(
+            `INSERT INTO club_live_scores
+               (club_id, sport, match_title, home_team, opponent_name, venue,
+                home_players, away_players, time_remaining_seconds, status, fixture_id, event_id, division)
+             VALUES ($1::bigint,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,'draft',$10,$11::bigint,$12)`,
+            [
+              ev.club_id, sport, title, p.teamA, p.teamB, venue,
+              JSON.stringify(homePlayers), JSON.stringify(awayPlayers),
+              DEFAULT_TIMER_SECONDS[sport] || 0,
+              fixtureId, eventId, division,
+            ]
+          );
+        }
       }
     }
 
     await client.query('COMMIT');
-    if (io) io.emit('bracket:advanced', { eventId: String(eventId) });
+    if (created && io) io.emit('bracket:advanced', { eventId: String(eventId) });
     autoRefreshReportIfExists(eventId).catch(() => {});
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
@@ -124,9 +133,10 @@ async function advanceBracket({ eventId, io }) {
 }
 
 /* Undo advancement: remove any not-yet-played auto-generated fixture (+ its draft
-   scoreboard) that depended on `teamName` having won its match. */
-async function retractDownstream({ eventId, teamName, io }) {
+   scoreboard) that depended on `teamName` (within `division`) having won its match. */
+async function retractDownstream({ eventId, teamName, division, io }) {
   if (!teamName) return;
+  const div = division === 'girls' ? 'girls' : 'boys';
   const client = await pgPool.connect();
   try {
     await client.query('BEGIN');
@@ -134,9 +144,9 @@ async function retractDownstream({ eventId, teamName, io }) {
 
     const { rows: fxRows } = await client.query(
       `SELECT id FROM event_fixtures
-       WHERE event_id = $1::bigint AND auto_generated = true AND winner_name IS NULL
-         AND (team_a_name = $2 OR team_b_name = $2)`,
-      [eventId, teamName]
+       WHERE event_id = $1::bigint AND division = $2 AND auto_generated = true AND winner_name IS NULL
+         AND (team_a_name = $3 OR team_b_name = $3)`,
+      [eventId, div, teamName]
     );
     if (!fxRows.length) { await client.query('ROLLBACK'); return; }
     const fixtureIds = fxRows.map(r => r.id);

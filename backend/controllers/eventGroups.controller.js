@@ -13,6 +13,8 @@ const { getCoordClubIds } = require('../services/coordAuth');
         created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
       )
     `);
+    /* Boys/Girls divisions — each division gets its own groups/bracket. */
+    await pgPool.query(`ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS division VARCHAR(10) NOT NULL DEFAULT 'boys'`);
     await pgPool.query(`
       CREATE TABLE IF NOT EXISTS event_group_teams (
         id       BIGSERIAL PRIMARY KEY,
@@ -40,13 +42,20 @@ const checkAccess = async (req, res) => {
   return true;
 };
 
-/* Shared query used by both coordinator (auth) and public endpoints */
-const fetchGroups = async (eventId) => {
+const asDivision = (v) => (v === 'girls' ? 'girls' : v === 'boys' ? 'boys' : null);
+
+/* Shared query used by both coordinator (auth) and public endpoints.
+   Pass `division` to scope to one division's groups only; omit it to get every
+   group across both divisions (e.g. bracketEngine, which splits by division itself). */
+const fetchGroups = async (eventId, division) => {
+  const div = asDivision(division);
+  const groupsSql = div
+    ? `SELECT id, name, sort_order, division FROM event_groups WHERE event_id = $1 AND division = $2 ORDER BY sort_order ASC, created_at ASC`
+    : `SELECT id, name, sort_order, division FROM event_groups WHERE event_id = $1 ORDER BY sort_order ASC, created_at ASC`;
+  const groupsParams = div ? [eventId, div] : [eventId];
+
   const [groupsRes, assignRes] = await Promise.all([
-    pgPool.query(
-      `SELECT id, name, sort_order FROM event_groups WHERE event_id = $1 ORDER BY sort_order ASC, created_at ASC`,
-      [eventId]
-    ),
+    pgPool.query(groupsSql, groupsParams),
     pgPool.query(
       `SELECT egt.group_id, egt.team_id, et.name AS team_name
        FROM event_group_teams egt
@@ -63,42 +72,43 @@ const fetchGroups = async (eventId) => {
     byGroup[k].push({ id: String(r.team_id), name: r.team_name });
   }
   return groupsRes.rows.map(g => ({
-    id: String(g.id), name: g.name, sortOrder: g.sort_order,
+    id: String(g.id), name: g.name, sortOrder: g.sort_order, division: g.division,
     teams: byGroup[String(g.id)] || [],
   }));
 };
 
-/* GET /events/:id/groups  (coord) */
+/* GET /events/:id/groups?division=  (coord) */
 const getGroups = async (req, res, next) => {
   try {
     if (!await checkAccess(req, res)) return;
-    res.json({ groups: await fetchGroups(req.params.id) });
+    res.json({ groups: await fetchGroups(req.params.id, req.query.division) });
   } catch (err) { next(err); }
 };
 
-/* GET /events/:id/public-groups  (no auth) */
+/* GET /events/:id/public-groups?division=  (no auth) */
 const getPublicGroups = async (req, res, next) => {
   try {
-    res.json({ groups: await fetchGroups(req.params.id) });
+    res.json({ groups: await fetchGroups(req.params.id, req.query.division) });
   } catch (err) { next(err); }
 };
 
-/* POST /events/:id/groups  — auto-name Group A, B, C… */
+/* POST /events/:id/groups  — auto-name Group A, B, C… (restarts per division) */
 const createGroup = async (req, res, next) => {
   try {
     if (!await checkAccess(req, res)) return;
+    const division = asDivision(req.body.division) || 'boys';
     const { rows: existing } = await pgPool.query(
-      `SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM event_groups WHERE event_id = $1`,
-      [req.params.id]
+      `SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM event_groups WHERE event_id = $1 AND division = $2`,
+      [req.params.id, division]
     );
     const sortOrder = Number(existing[0].max_order) + 1;
     const name = req.body.name?.trim() || `Group ${String.fromCharCode(65 + sortOrder)}`;
     const { rows } = await pgPool.query(
-      `INSERT INTO event_groups (event_id, name, sort_order) VALUES ($1, $2, $3)
-       RETURNING id, name, sort_order`,
-      [req.params.id, name, sortOrder]
+      `INSERT INTO event_groups (event_id, name, sort_order, division) VALUES ($1, $2, $3, $4)
+       RETURNING id, name, sort_order, division`,
+      [req.params.id, name, sortOrder, division]
     );
-    res.status(201).json({ group: { id: String(rows[0].id), name: rows[0].name, sortOrder: rows[0].sort_order, teams: [] } });
+    res.status(201).json({ group: { id: String(rows[0].id), name: rows[0].name, sortOrder: rows[0].sort_order, division: rows[0].division, teams: [] } });
   } catch (err) { next(err); }
 };
 
@@ -132,6 +142,19 @@ const assignTeam = async (req, res, next) => {
     if (!await checkAccess(req, res)) return;
     const { teamId } = req.body;
     if (!teamId) return res.status(400).json({ message: 'teamId required.' });
+
+    const [{ rows: groupRows }, { rows: teamRows }] = await Promise.all([
+      pgPool.query(`SELECT division FROM event_groups WHERE id = $1 AND event_id = $2`, [req.params.groupId, req.params.id]),
+      pgPool.query(`SELECT division FROM event_teams WHERE id = $1 AND event_id = $2`, [teamId, req.params.id]),
+    ]);
+    if (!groupRows.length) return res.status(404).json({ message: 'Group not found.' });
+    if (!teamRows.length)  return res.status(404).json({ message: 'Team not found.' });
+    if (teamRows[0].division !== groupRows[0].division) {
+      return res.status(400).json({
+        message: `This is a ${teamRows[0].division} team and can't be assigned to a ${groupRows[0].division} group.`,
+      });
+    }
+
     /* Remove from any previous group first (team can only be in one group per event) */
     await pgPool.query(`DELETE FROM event_group_teams WHERE team_id = $1 AND event_id = $2`, [teamId, req.params.id]);
     await pgPool.query(

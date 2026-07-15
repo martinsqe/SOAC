@@ -313,6 +313,24 @@
 .fixtureContent::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
 .fixtureContent::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
 
+/* Boys / Girls division sections inside the Teams & Fixtures modal */
+.fixtureDivisionSection { display: flex; flex-direction: column; gap: 18px; }
+.fixtureDivisionSection + .fixtureDivisionSection {
+  margin-top: 8px;
+  padding-top: 24px;
+  border-top: 2px dashed #e5e7eb;
+}
+.fixtureDivisionTitle {
+  font-size: .95rem;
+  font-weight: 800;
+  color: #635bff;
+  background: #635bff14;
+  display: inline-block;
+  padding: 5px 14px;
+  border-radius: 20px;
+  width: fit-content;
+}
+
 .fixtureSection { display: flex; flex-direction: column; gap: 12px; }
 
 .fixtureSectionTitle {

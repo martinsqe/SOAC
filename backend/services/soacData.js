@@ -447,6 +447,9 @@ const ensureSoacTables = async () => {
   await pgPool.query(`ALTER TABLE club_live_scores ADD COLUMN IF NOT EXISTS winner_name VARCHAR(255) DEFAULT NULL`);
   await pgPool.query(`ALTER TABLE club_live_scores ADD COLUMN IF NOT EXISTS fixture_id  BIGINT DEFAULT NULL`);
   await pgPool.query(`ALTER TABLE club_live_scores ADD COLUMN IF NOT EXISTS event_id    BIGINT DEFAULT NULL`);
+  /* Denormalized from the source fixture at creation time — lets the Scoreboard/Match
+     Control tab filter Boys vs Girls matches without joining event_fixtures every time. */
+  await pgPool.query(`ALTER TABLE club_live_scores ADD COLUMN IF NOT EXISTS division VARCHAR(10) DEFAULT NULL`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_live_scores_club   ON club_live_scores(club_id, updated_at DESC)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_live_scores_status ON club_live_scores(status, updated_at DESC)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_live_scores_sport  ON club_live_scores(sport)`);
@@ -547,6 +550,16 @@ const ensureSoacTables = async () => {
       UNIQUE(event_id, name)
     )
   `);
+  /* Boys/Girls divisions — a team name only needs to be unique within its own
+     division, so "Eagles" can exist once in Boys and once in Girls. */
+  await pgPool.query(`ALTER TABLE event_teams ADD COLUMN IF NOT EXISTS division VARCHAR(10) NOT NULL DEFAULT 'boys'`).catch(() => {});
+  await pgPool.query(`ALTER TABLE event_teams DROP CONSTRAINT IF EXISTS event_teams_event_id_name_key`).catch(() => {});
+  await pgPool.query(`
+    DO $$ BEGIN
+      ALTER TABLE event_teams ADD CONSTRAINT event_teams_event_division_name_key UNIQUE (event_id, division, name);
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$;
+  `).catch(() => {});
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_teams_event ON event_teams(event_id)`);
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS event_team_members (

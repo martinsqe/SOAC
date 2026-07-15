@@ -5,6 +5,9 @@ import TournamentBracket from '../../components/TournamentBracket/TournamentBrac
 import s from './CoordSubPage.module.css';
 import r from './CoordReports.module.css';
 
+const DIVISIONS = ['boys', 'girls'];
+const DIVISION_LABEL = { boys: 'Boys', girls: 'Girls' };
+
 export default function CoordReports() {
   const { selectedClub } = useCoordClub();
   const clubId = selectedClub?.id;
@@ -251,73 +254,82 @@ function ReportDetail({ eventId }) {
         </div>
       )}
 
-      {/* ── GROUPS & TEAMS ── */}
-      {(data.groups?.length > 0 || data.teams?.length > 0) && (
-        <div className={r.detailSection}>
-          <div className={r.detailSectionTitle}>Groups &amp; Teams</div>
-          {data.groups?.length > 0 ? (
-            <div className={r.groupsWrap}>
-              {data.groups.map(g => (
-                <div key={g.id} className={r.groupBlock}>
-                  <div className={r.groupName}>{g.name}</div>
-                  <div className={r.teamsGrid}>
-                    {(g.teams || []).map(t => (
-                      <div key={t.id} className={r.teamCard}>
-                        <div className={r.teamName}>{t.name}</div>
-                        {t.members?.length > 0 && (
-                          <ul className={r.teamMembers}>
-                            {t.members.map((m, i) => <li key={i}>{m.name}</li>)}
-                          </ul>
-                        )}
-                      </div>
-                    ))}
+      {/* ── GROUPS & TEAMS (per division) ── */}
+      {DIVISIONS.map(division => {
+        const divGroups = (data.groups || []).filter(g => (g.division || 'boys') === division);
+        const divTeams  = (data.teams  || []).filter(t => (t.division || 'boys') === division);
+        if (!divGroups.length && !divTeams.length) return null;
+        return (
+          <div key={division} className={r.detailSection}>
+            <div className={r.detailSectionTitle}>{DIVISION_LABEL[division]} — Groups &amp; Teams</div>
+            {divGroups.length > 0 ? (
+              <div className={r.groupsWrap}>
+                {divGroups.map(g => (
+                  <div key={g.id} className={r.groupBlock}>
+                    <div className={r.groupName}>{g.name}</div>
+                    <div className={r.teamsGrid}>
+                      {(g.teams || []).map(t => (
+                        <div key={t.id} className={r.teamCard}>
+                          <div className={r.teamName}>{t.name}</div>
+                          {t.members?.length > 0 && (
+                            <ul className={r.teamMembers}>
+                              {t.members.map((m, i) => <li key={i}>{m.name}</li>)}
+                            </ul>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className={r.teamsGrid}>
-              {data.teams.map(t => (
-                <div key={t.id} className={r.teamCard}>
-                  <div className={r.teamName}>{t.name}</div>
-                  {t.members?.length > 0 && (
-                    <ul className={r.teamMembers}>
-                      {t.members.map((m, i) => <li key={i}>{m.name}</li>)}
-                    </ul>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── MATCH RESULTS ── */}
-      {data.fixtures?.length > 0 && (
-        <div className={r.detailSection}>
-          <div className={r.detailSectionTitle}>Match Results</div>
-          <div className={r.tableWrap}>
-            <table className={r.table}>
-              <thead>
-                <tr><th>Round</th><th>Team A</th><th className={r.scoreHead}>Score</th><th>Team B</th><th>Winner</th></tr>
-              </thead>
-              <tbody>
-                {data.fixtures.map((f, i) => (
-                  <tr key={i}>
-                    <td>{f.round || '—'}</td>
-                    <td>{f.team_a_name}</td>
-                    <td className={r.score}>
-                      {f.score_a != null && (f.score_a > 0 || f.score_b > 0) ? `${f.score_a} – ${f.score_b}` : 'vs'}
-                    </td>
-                    <td>{f.team_b_name}</td>
-                    <td>{f.winner_name || '—'}</td>
-                  </tr>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            ) : (
+              <div className={r.teamsGrid}>
+                {divTeams.map(t => (
+                  <div key={t.id} className={r.teamCard}>
+                    <div className={r.teamName}>{t.name}</div>
+                    {t.members?.length > 0 && (
+                      <ul className={r.teamMembers}>
+                        {t.members.map((m, i) => <li key={i}>{m.name}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        );
+      })}
+
+      {/* ── MATCH RESULTS (per division) ── */}
+      {DIVISIONS.map(division => {
+        const divFixturesR = (data.fixtures || []).filter(f => (f.division || 'boys') === division);
+        if (!divFixturesR.length) return null;
+        return (
+          <div key={division} className={r.detailSection}>
+            <div className={r.detailSectionTitle}>{DIVISION_LABEL[division]} — Match Results</div>
+            <div className={r.tableWrap}>
+              <table className={r.table}>
+                <thead>
+                  <tr><th>Round</th><th>Team A</th><th className={r.scoreHead}>Score</th><th>Team B</th><th>Winner</th></tr>
+                </thead>
+                <tbody>
+                  {divFixturesR.map((f, i) => (
+                    <tr key={i}>
+                      <td>{f.round || '—'}</td>
+                      <td>{f.team_a_name}</td>
+                      <td className={r.score}>
+                        {f.score_a != null && (f.score_a > 0 || f.score_b > 0) ? `${f.score_a} – ${f.score_b}` : 'vs'}
+                      </td>
+                      <td>{f.team_b_name}</td>
+                      <td>{f.winner_name || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
 
       {/* ── GAME MVPs ── */}
       {data.match_mvps?.length > 0 && (
@@ -356,49 +368,52 @@ function ReportDetail({ eventId }) {
         </div>
       )}
 
-      {/* ── TOURNAMENT BRACKET ── */}
-      {data.fixtures?.length > 0 && (() => {
-        const bracketFixtures = data.fixtures.map(f => ({
+      {/* ── TOURNAMENT BRACKET + WINNER (per division) ──
+         Winner resolved server-side from actual bracket structure
+         (summary_stats.tournamentWinnerBoys / tournamentWinnerGirls) —
+         never guessed from a fixture's free-text round label. */}
+      {DIVISIONS.map(division => {
+        const divFixturesR = (data.fixtures || []).filter(f => (f.division || 'boys') === division);
+        const divGroupsR   = (data.groups  || []).filter(g => (g.division || 'boys') === division);
+        const w = data.summary_stats?.[division === 'girls' ? 'tournamentWinnerGirls' : 'tournamentWinnerBoys'];
+        const hasScore = w?.scoreFor != null && (w.scoreFor > 0 || w.scoreAgainst > 0);
+        if (!divFixturesR.length && !w) return null;
+        const bracketFixtures = divFixturesR.map(f => ({
           id: String(f.id || ''), teamA: f.team_a_name, teamB: f.team_b_name,
           scoreA: f.score_a, scoreB: f.score_b, winner: f.winner_name || null, round: f.round || '',
         }));
-        const bracketGroups = (data.groups || []).map(g => ({
+        const bracketGroups = divGroupsR.map(g => ({
           id: String(g.id || ''), name: g.name,
           sortOrder: g.sort_order ?? g.sortOrder ?? 0,
           teams: (g.teams || []).map(t => ({ id: String(t.id || ''), name: t.name })),
         }));
         return (
-          <div className={r.detailSection}>
-            <div className={r.detailSectionTitle}>Tournament Bracket</div>
-            <div className={r.bracketWrap}>
-              <TournamentBracket groups={bracketGroups} fixtures={bracketFixtures} />
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* ── TOURNAMENT WINNER ──
-         Resolved server-side from actual bracket structure (summary_stats.tournamentWinner) —
-         never guessed from a fixture's free-text round label. */}
-      {(() => {
-        const w = data.summary_stats?.tournamentWinner;
-        if (!w) return null;
-        const hasScore = w.scoreFor != null && (w.scoreFor > 0 || w.scoreAgainst > 0);
-        return (
-          <div className={r.detailSection}>
-            <div className={r.detailSectionTitle}>Tournament Winner</div>
-            <div className={r.winnerBanner}>
-              <div className={r.winnerInfo}>
-                <div className={r.winnerName}>{w.name}</div>
-                <div className={r.winnerMeta}>
-                  {w.round ? `${w.round} · ` : ''}
-                  {hasScore ? `${w.scoreFor} – ${w.scoreAgainst} ` : ''}vs {w.opponent}
+          <div key={division}>
+            {divFixturesR.length > 0 && (
+              <div className={r.detailSection}>
+                <div className={r.detailSectionTitle}>{DIVISION_LABEL[division]} — Tournament Bracket</div>
+                <div className={r.bracketWrap}>
+                  <TournamentBracket groups={bracketGroups} fixtures={bracketFixtures} />
                 </div>
               </div>
-            </div>
+            )}
+            {w && (
+              <div className={r.detailSection}>
+                <div className={r.detailSectionTitle}>{DIVISION_LABEL[division]} — Tournament Winner</div>
+                <div className={r.winnerBanner}>
+                  <div className={r.winnerInfo}>
+                    <div className={r.winnerName}>{w.name}</div>
+                    <div className={r.winnerMeta}>
+                      {w.round ? `${w.round} · ` : ''}
+                      {hasScore ? `${w.scoreFor} – ${w.scoreAgainst} ` : ''}vs {w.opponent}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         );
-      })()}
+      })}
 
       {/* ── TOURNAMENT MVP ── */}
       {data.tournament_mvp && (
