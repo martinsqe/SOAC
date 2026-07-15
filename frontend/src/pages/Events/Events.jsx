@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import styles from './Events.module.css';
 import { useAuth } from '../../context/AuthContext';
+import api from '../../api/client';
 import {
   SPORT_CFG, SPORTS_LIST, winner, fmtDate, fetchPublicJson,
 } from '../../lib/sportsScores';
@@ -344,8 +345,7 @@ const Events = () => {
     setFixtureLoading(true);
     setFixtureData(null);
     try {
-      const res = await fetch(`/api/events/${ev.id}/public-fixtures`);
-      const d = await res.json();
+      const d = await api.get(`/events/${ev.id}/public-fixtures`);
       setFixtureData(d);
     } catch { /* empty state */ }
     setFixtureLoading(false);
@@ -382,17 +382,12 @@ const Events = () => {
 
   const submitReg = async (e) => {
     e.preventDefault();
+    if (regLoading) return; // guard against a double-fire (Enter + click, or a fast double-click)
     setRegApi('');
     if (!validateReg()) return;
     setRegLoading(true);
     try {
-      const res = await fetch(`/api/events/${regModal.id}/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(regForm),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Registration failed.');
+      await api.post(`/events/${regModal.id}/register`, regForm);
       setRegDone(true);
       markRegistered(regModal.id);
     } catch (err) {

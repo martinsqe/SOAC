@@ -11,6 +11,7 @@ router.post('/', verifyToken, requireAdmin, ctrl.create);
 router.get('/me/clubs',                              verifyToken, ctrl.myClubs);
 router.get('/me/coins',                              verifyToken, ctrl.myCoins);
 router.get('/me/club-leaderboards',                  verifyToken, ctrl.myClubLeaderboards);
+router.get('/me/event-registrations',                verifyToken, ctrl.myEventRegistrations);
 router.get('/me/activity',                           verifyToken, ctrl.myActivity);
 router.get('/me/weekly-evaluation',                  verifyToken, ctrl.weeklyEvaluation);
 router.get('/me/notifications',                      verifyToken, ctrl.getNotifications);

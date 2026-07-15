@@ -295,6 +295,44 @@ const myCoins = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+/* GET /api/users/me/event-registrations  (any authenticated student)
+   Server-truth registration status (by email) for every event this student has ever
+   registered for — regardless of which device/session/localStorage state that
+   happened in. This is what lets the events page correctly show "already registered"
+   for a student who, say, registered for a club's event before joining that club,
+   then logs in later (possibly on a different device) after joining — the frontend
+   no longer has to rely on localStorage alone to know this. */
+const myEventRegistrations = async (req, res, next) => {
+  try {
+    const email = (req.user?.email || '').toLowerCase();
+    if (!email) return res.json({ registrations: [] });
+
+    const { rows } = await pgPool.query(
+      `SELECT er.event_id, er.id AS registration_id,
+              et.name AS team_name, et.is_cleared
+       FROM event_registrations er
+       LEFT JOIN event_team_members etm ON etm.registration_id = er.id
+       LEFT JOIN event_teams et ON et.id = etm.team_id
+       WHERE LOWER(er.email) = $1
+       ORDER BY er.registered_at ASC`,
+      [email]
+    );
+
+    const byEvent = {};
+    for (const r of rows) {
+      const key = String(r.event_id);
+      if (!byEvent[key]) {
+        byEvent[key] = {
+          eventId:  key,
+          status:   r.is_cleared ? 'cleared' : r.team_name ? 'team_assigned' : 'registered',
+          teamName: r.team_name || null,
+        };
+      }
+    }
+    res.json({ registrations: Object.values(byEvent) });
+  } catch (err) { next(err); }
+};
+
 /* GET /api/users/me/club-leaderboards  (any authenticated student)
    Per-club coin ranking, scoped to each club the student actually belongs to —
    students only ever see who's top in THEIR clubs, never a platform-wide list.
@@ -930,4 +968,4 @@ const assignClub = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, create, update, remove, stats, auditLog, myClubs, updateProfile, assignClub, myCoins, myClubLeaderboards, weeklyEvaluation, getNotifications, markNotificationRead, myActivity };
+module.exports = { getAll, create, update, remove, stats, auditLog, myClubs, updateProfile, assignClub, myCoins, myEventRegistrations, myClubLeaderboards, weeklyEvaluation, getNotifications, markNotificationRead, myActivity };

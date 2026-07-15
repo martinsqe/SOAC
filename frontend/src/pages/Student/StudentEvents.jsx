@@ -49,17 +49,29 @@ export default function StudentEvents() {
     } catch (e) { void e; }
   }, [user?.id]);
 
-  /* Fetch my-status for all registered sports events whenever events or registrations change */
+  /* Server-truth registration status for every event this student has ever registered
+     for (by email) — not just whatever localStorage happens to remember on this device.
+     This is what makes "already registered" show correctly even if a student registered
+     for a club's event before joining that club, or on a different device/session. */
   useEffect(() => {
-    if (!user?.email || !events.length) return;
-    events
-      .filter(ev => ev.category === 'sports' && registeredIds.has(String(ev._id)))
-      .forEach(ev => {
-        api.get(`/events/${ev._id}/my-status`)
-          .then(data => setRegStatuses(prev => ({ ...prev, [String(ev._id)]: data })))
-          .catch(() => {});
-      });
-  }, [user?.email, events, registeredIds]);
+    if (!user?.email) return;
+    api.get('/users/me/event-registrations')
+      .then(({ registrations }) => {
+        if (!registrations?.length) return;
+        setRegStatuses(prev => {
+          const next = { ...prev };
+          registrations.forEach(r => { next[r.eventId] = r; });
+          return next;
+        });
+        setRegisteredIds(prev => {
+          const next = new Set(prev);
+          registrations.forEach(r => next.add(r.eventId));
+          try { localStorage.setItem(`soac_ev_regs_${user.id}`, JSON.stringify([...next])); } catch (e) { void e; }
+          return next;
+        });
+      })
+      .catch(() => {});
+  }, [user?.email, user?.id]);
 
   /* Real-time team assignment / clearance updates */
   useEffect(() => {
@@ -187,25 +199,20 @@ export default function StudentEvents() {
 
   const submitReg = async (ev) => {
     ev.preventDefault();
+    if (regLoading) return; // guard against a double-fire (Enter + click, or a fast double-click)
     setRegApi('');
     if (!validate()) return;
     setRegLoading(true);
     try {
-      const res = await fetch(`/api/events/${regModal.id}/register`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name:         user.name,
-          email:        user.email,
-          enrollmentNo: regForm.enrollmentNo,
-          dept:         regForm.dept,
-          course:       regForm.course,
-          phone:        regForm.phone,
-          gender:       regForm.gender,
-        }),
+      await api.post(`/events/${regModal.id}/register`, {
+        name:         user.name,
+        email:        user.email,
+        enrollmentNo: regForm.enrollmentNo,
+        dept:         regForm.dept,
+        course:       regForm.course,
+        phone:        regForm.phone,
+        gender:       regForm.gender,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Registration failed.');
       setRegDone(true);
       markRegistered(regModal.id);
       if (regModal.category === 'sports') {
@@ -347,35 +354,57 @@ export default function StudentEvents() {
                   {(() => {
                     const isSports     = ev.category === 'sports';
                     const isRegistered = registeredIds.has(String(ev._id));
-                    const myStatus     = regStatuses[String(ev._id)];
 
                     if (isSports && isRegistered) {
-                      const st = myStatus?.status;
+                      const st = regStatuses[String(ev._id)]?.status;
+                      const teamName = regStatuses[String(ev._id)]?.teamName;
+                      /* Teams/Groups/Bracket become visible to every registered member as soon as
+                         the coordinator declares fixtures for the event — not gated on this
+                         particular student's own team having been individually cleared yet. */
+                      const canViewFixtures = !!ev.fixturesDeclared;
+
+                      let badge;
                       if (st === 'cleared') {
-                        return (
-                          <div className={s.statusFooter}>
-                            <span className={`${s.regStatusBadge} ${s.regStatusCleared}`}>
-                              <span className={s.regStatusDot} />
-                              {myStatus.teamName} — Cleared!
-                            </span>
-                            <button className={s.fixturesBtn} onClick={() => openFixtures(ev)}>
-                              View Fixtures →
-                            </button>
-                          </div>
+                        badge = (
+                          <span className={`${s.regStatusBadge} ${s.regStatusCleared}`}>
+                            <span className={s.regStatusDot} />
+                            {teamName} — Cleared!
+                          </span>
                         );
-                      }
-                      if (st === 'team_assigned') {
-                        return (
+                      } else if (st === 'team_assigned') {
+                        badge = (
                           <span className={`${s.regStatusBadge} ${s.regStatusAssigned}`}>
                             <span className={s.regStatusDot} />
-                            Team: {myStatus.teamName}
+                            Team: {teamName}
+                          </span>
+                        );
+                      } else {
+                        badge = (
+                          <span className={`${s.regStatusBadge} ${s.regStatusRegistered}`}>
+                            <span className={s.regStatusDot} />
+                            Registered — awaiting team
                           </span>
                         );
                       }
+
+                      return (
+                        <div className={s.statusFooter}>
+                          {badge}
+                          {canViewFixtures && (
+                            <button className={s.fixturesBtn} onClick={() => openFixtures(ev)}>
+                              View Teams &amp; Bracket →
+                            </button>
+                          )}
+                        </div>
+                      );
+                    }
+                    if (isRegistered) {
+                      /* Non-sports event already registered — no team/bracket flow,
+                         just make sure "Register" never shows again for it. */
                       return (
                         <span className={`${s.regStatusBadge} ${s.regStatusRegistered}`}>
                           <span className={s.regStatusDot} />
-                          Registered — awaiting team
+                          Registered
                         </span>
                       );
                     }

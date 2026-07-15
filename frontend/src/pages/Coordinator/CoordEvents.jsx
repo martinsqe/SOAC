@@ -306,7 +306,7 @@ export default function CoordEvents() {
     setStageSchedule([]);
     setScoreInputs({});
     setWinnerInputs({});
-    setFixturesDeclared(ev.fixtures_declared || false);
+    setFixturesDeclared(ev.fixturesDeclared || false);
     setRegSearch('');
     setRegsTab('list');
     setEventReport(null);
@@ -522,7 +522,7 @@ export default function CoordEvents() {
       );
       await api.post(`/events/${regEvent._id}/fixtures/save-declare`, { fixtures: flatFixtures });
       setFixturesDeclared(true);
-      setEvents(prev => prev.map(e => e._id === regEvent._id ? { ...e, fixtures_declared: true } : e));
+      setEvents(prev => prev.map(e => e._id === regEvent._id ? { ...e, fixturesDeclared: true } : e));
       showToast('Fixtures saved and declared to students!');
     } catch (err) {
       showToast(err.message || 'Failed to save fixtures.', 'err');

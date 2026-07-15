@@ -815,6 +815,7 @@ const asEvent = (row) => ({
   isFree: row.is_free !== false,
   feeAmount: Number(row.fee_amount || 0),
   isActive: !!row.is_active,
+  fixturesDeclared: !!row.fixtures_declared,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
