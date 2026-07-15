@@ -2118,13 +2118,21 @@ export default function CoordEvents() {
                         {/* ── 5. BRACKET PREVIEW + TOURNAMENT WINNER (per division, built from saved report data) ──
                            Winner resolved server-side from actual bracket structure
                            (summary_stats.tournamentWinnerBoys / tournamentWinnerGirls) —
-                           never guessed from a fixture's free-text round label. */}
+                           never guessed from a fixture's free-text round label.
+                           Reports generated before the Boys/Girls split only ever wrote a single
+                           summary_stats.tournamentWinner (implicitly the boys/default division) and are
+                           locked once submitted, so they can never be regenerated into the new shape —
+                           fall back to that legacy key under Boys so old reports keep showing a winner. */}
                         {DIVISIONS.map(division => {
                           const divFixturesR = (eventReport.fixtures || []).filter(f => (f.division || 'boys') === division);
                           const divGroupsR   = (eventReport.groups  || []).filter(g => (g.division || 'boys') === division);
-                          const w = eventReport.summary_stats?.[division === 'girls' ? 'tournamentWinnerGirls' : 'tournamentWinnerBoys'];
+                          const w = division === 'girls'
+                            ? eventReport.summary_stats?.tournamentWinnerGirls
+                            : (eventReport.summary_stats?.tournamentWinnerBoys || eventReport.summary_stats?.tournamentWinner);
                           const hasScore = w?.scoreFor != null && (w.scoreFor > 0 || w.scoreAgainst > 0);
-                          if (!divFixturesR.length && !w) return null;
+                          const divTeamsR = (eventReport.teams || []).filter(t => (t.division || 'boys') === division);
+                          const divisionInPlay = divFixturesR.length > 0 || divGroupsR.length > 0 || divTeamsR.length > 0;
+                          if (!divisionInPlay && !w) return null;
                           /* Convert report snake_case → TournamentBracket camelCase format */
                           const bracketFixtures = divFixturesR.map(f => ({
                             id:     String(f.id || ''),
@@ -2152,19 +2160,26 @@ export default function CoordEvents() {
                                   </div>
                                 </div>
                               )}
-                              {w && (
+                              {/* Always render both divisions' winner sections when that division is in
+                                 play, even before a champion is decided — so Boys and Girls consistently
+                                 show side by side instead of one silently disappearing. */}
+                              {divisionInPlay && (
                                 <div className={es.reportSection}>
                                   <div className={es.reportSectionTitle}>{DIVISION_LABEL[division]} — Tournament Winner</div>
-                                  <div className={es.reportWinnerBanner}>
-                                    <div className={es.reportWinnerInfo}>
-                                      <div className={es.reportWinnerName}>{w.name}</div>
-                                      <div className={es.reportWinnerMeta}>
-                                        {w.round ? `${w.round} · ` : ''}
-                                        {hasScore ? `${w.scoreFor} – ${w.scoreAgainst} ` : ''}
-                                        vs {w.opponent}
+                                  {w ? (
+                                    <div className={es.reportWinnerBanner}>
+                                      <div className={es.reportWinnerInfo}>
+                                        <div className={es.reportWinnerName}>{w.name}</div>
+                                        <div className={es.reportWinnerMeta}>
+                                          {w.round ? `${w.round} · ` : ''}
+                                          {hasScore ? `${w.scoreFor} – ${w.scoreAgainst} ` : ''}
+                                          vs {w.opponent}
+                                        </div>
                                       </div>
                                     </div>
-                                  </div>
+                                  ) : (
+                                    <div className={es.reportWinnerPending}>Winner not yet decided.</div>
+                                  )}
                                 </div>
                               )}
                             </div>

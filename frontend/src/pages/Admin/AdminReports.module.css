@@ -79,6 +79,7 @@
 .winnerBanner { display: flex; align-items: center; justify-content: center; background: linear-gradient(120deg, #b45309 0%, #d97706 50%, #f59e0b 100%); border-radius: 14px; padding: 18px 24px; color: #fff; }
 .winnerName { font-size: 1.4rem; font-weight: 900; text-transform: uppercase; line-height: 1; margin-bottom: 5px; text-align: center; }
 .winnerMeta { font-size: .78rem; font-weight: 600; color: rgba(255,255,255,.8); text-align: center; }
+.winnerPending { display: flex; align-items: center; justify-content: center; background: #f8f9fc; border: 1.5px dashed #d1d5db; border-radius: 14px; padding: 18px 24px; color: #9ca3af; font-size: .85rem; font-weight: 600; }
 
 /* ── Game MVP row ── */
 .mvpRow { display: flex; gap: 10px; overflow-x: auto; -webkit-overflow-scrolling: touch; scroll-snap-type: x mandatory; padding: 0 2px 14px; }

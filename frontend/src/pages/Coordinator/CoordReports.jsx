@@ -380,13 +380,20 @@ function ReportDetail({ eventId }) {
       {/* ── TOURNAMENT BRACKET + WINNER (per division) ──
          Winner resolved server-side from actual bracket structure
          (summary_stats.tournamentWinnerBoys / tournamentWinnerGirls) —
-         never guessed from a fixture's free-text round label. */}
+         never guessed from a fixture's free-text round label. Reports generated before
+         the Boys/Girls split only wrote a single summary_stats.tournamentWinner
+         (implicitly boys) and are locked once submitted, so fall back to that legacy
+         key under Boys so old reports keep showing a winner. */}
       {DIVISIONS.map(division => {
         const divFixturesR = (data.fixtures || []).filter(f => (f.division || 'boys') === division);
         const divGroupsR   = (data.groups  || []).filter(g => (g.division || 'boys') === division);
-        const w = data.summary_stats?.[division === 'girls' ? 'tournamentWinnerGirls' : 'tournamentWinnerBoys'];
+        const w = division === 'girls'
+          ? data.summary_stats?.tournamentWinnerGirls
+          : (data.summary_stats?.tournamentWinnerBoys || data.summary_stats?.tournamentWinner);
         const hasScore = w?.scoreFor != null && (w.scoreFor > 0 || w.scoreAgainst > 0);
-        if (!divFixturesR.length && !w) return null;
+        const divTeamsR = (data.teams || []).filter(t => (t.division || 'boys') === division);
+        const divisionInPlay = divFixturesR.length > 0 || divGroupsR.length > 0 || divTeamsR.length > 0;
+        if (!divisionInPlay && !w) return null;
         const bracketFixtures = divFixturesR.map(f => ({
           id: String(f.id || ''), teamA: f.team_a_name, teamB: f.team_b_name,
           scoreA: f.score_a, scoreB: f.score_b, winner: f.winner_name || null, round: f.round || '',
@@ -406,18 +413,25 @@ function ReportDetail({ eventId }) {
                 </div>
               </div>
             )}
-            {w && (
+            {/* Always render both divisions' winner sections when that division is in play,
+               even before a champion is decided, so Boys and Girls consistently show
+               side by side instead of one silently disappearing. */}
+            {divisionInPlay && (
               <div className={r.detailSection}>
                 <div className={r.detailSectionTitle}>{DIVISION_LABEL[division]} — Tournament Winner</div>
-                <div className={r.winnerBanner}>
-                  <div className={r.winnerInfo}>
-                    <div className={r.winnerName}>{w.name}</div>
-                    <div className={r.winnerMeta}>
-                      {w.round ? `${w.round} · ` : ''}
-                      {hasScore ? `${w.scoreFor} – ${w.scoreAgainst} ` : ''}vs {w.opponent}
+                {w ? (
+                  <div className={r.winnerBanner}>
+                    <div className={r.winnerInfo}>
+                      <div className={r.winnerName}>{w.name}</div>
+                      <div className={r.winnerMeta}>
+                        {w.round ? `${w.round} · ` : ''}
+                        {hasScore ? `${w.scoreFor} – ${w.scoreAgainst} ` : ''}vs {w.opponent}
+                      </div>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <div className={r.winnerPending}>Winner not yet decided.</div>
+                )}
               </div>
             )}
           </div>
