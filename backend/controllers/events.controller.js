@@ -29,6 +29,10 @@ const REG_COLS = [
   'dept', 'course', 'phone', 'email', 'gender', 'registered_at',
 ].join(', ');
 
+const RKU_DOMAIN = '@rku.ac.in';
+/* Accepts an optional +91/91 prefix and spaces/dashes, but the underlying number must be exactly 10 digits */
+const isValidMobile = (phone) => /^\d{10}$/.test(String(phone || '').replace(/[\s-]/g, '').replace(/^(\+?91)/, ''));
+
 /* idempotent migration */
 pgPool.query(`ALTER TABLE event_registrations ADD COLUMN IF NOT EXISTS gender CHAR(1) DEFAULT NULL`).catch(() => {});
 
@@ -485,8 +489,15 @@ const register = async (req, res, next) => {
     const { name, email, phone, enrollmentNo, dept, course, gender } = req.body;
     if (!name?.trim())   return res.status(400).json({ message: 'Name is required.' });
     if (!email?.trim())  return res.status(400).json({ message: 'Email is required.' });
+    if (!email.toLowerCase().endsWith(RKU_DOMAIN)) {
+      return res.status(400).json({ message: 'Only RKU institutional emails (@rku.ac.in) are allowed to register.' });
+    }
     if (!dept?.trim())   return res.status(400).json({ message: 'Department is required.' });
     if (!course?.trim()) return res.status(400).json({ message: 'Course is required.' });
+    if (!phone?.trim())  return res.status(400).json({ message: 'Mobile number is required.' });
+    if (!isValidMobile(phone)) {
+      return res.status(400).json({ message: 'Enter a valid 10-digit mobile number.' });
+    }
     if (!gender || !['M', 'F'].includes(gender.toUpperCase())) {
       return res.status(400).json({ message: 'Gender is required. Please select M or F.' });
     }
@@ -575,6 +586,9 @@ const updateRegistration = async (req, res, next) => {
     if (!name?.trim())   return res.status(400).json({ message: 'Name is required.' });
     if (!dept?.trim())   return res.status(400).json({ message: 'Department is required.' });
     if (!course?.trim()) return res.status(400).json({ message: 'Course is required.' });
+    if (phone?.trim() && !isValidMobile(phone)) {
+      return res.status(400).json({ message: 'Enter a valid 10-digit mobile number.' });
+    }
     if (gender && !['M', 'F'].includes(gender.toUpperCase())) {
       return res.status(400).json({ message: 'Gender must be M or F.' });
     }

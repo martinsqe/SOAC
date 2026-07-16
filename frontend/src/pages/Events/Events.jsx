@@ -375,6 +375,7 @@ const Events = () => {
     else { const digits = regForm.phone.replace(/[\s\-+]/g, '').replace(/^91/, ''); if (!/^\d{10}$/.test(digits)) e.phone = 'Enter a valid 10-digit mobile number.'; }
     if (!regForm.email.trim()) e.email = 'Email is required.';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(regForm.email)) e.email = 'Enter a valid email.';
+    else if (!regForm.email.trim().toLowerCase().endsWith('@rku.ac.in')) e.email = 'Only @rku.ac.in emails are allowed.';
     if (!regForm.gender) e.gender = 'Gender is required.';
     setRegErr(e);
     return Object.keys(e).length === 0;
