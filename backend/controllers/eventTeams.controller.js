@@ -5,6 +5,7 @@ const { getCoordClubIds }  = require('../services/coordAuth');
 const bracketEngine        = require('../services/bracketEngine');
 const { fetchGroups }      = require('./eventGroups.controller');
 const { autoRefreshReportIfExists } = require('./reports.controller');
+const { sendTeamAssignment } = require('../config/email');
 
 /* Award 55 coins to every member of a cleared team — fire-and-forget */
 async function awardEventParticipationCoins(eventId, teamId, teamName) {
@@ -55,6 +56,66 @@ async function awardEventParticipationCoins(eventId, teamId, teamName) {
     }
   } catch (e) {
     console.error('[coins] awardEventParticipationCoins error:', e.message);
+  }
+}
+
+/* Emails every team member (at their registration email) their own group + team +
+   teammates once a coordinator declares groups/teams/fixtures for a division — fire-and-
+   forget, applies to any sports-category club. Deliberately per-recipient try/catch so one
+   bad address never blocks the rest of the team from being notified. */
+async function notifyTeamAssignments(eventId, division) {
+  try {
+    const { rows: evRows } = await pgPool.query(
+      `SELECT e.title, c.category
+       FROM events e LEFT JOIN clubs c ON c.id = e.club_id
+       WHERE e.id = $1::bigint`,
+      [eventId]
+    );
+    if (!evRows.length || evRows[0].category !== 'sports') return;
+    const eventTitle = evRows[0].title;
+
+    const { rows } = await pgPool.query(
+      `SELECT t.id AS team_id, t.name AS team_name, g.name AS group_name,
+              tm.member_name, er.email
+       FROM event_teams t
+       LEFT JOIN event_group_teams egt ON egt.team_id = t.id
+       LEFT JOIN event_groups g ON g.id = egt.group_id
+       JOIN event_team_members tm ON tm.team_id = t.id
+       JOIN event_registrations er ON er.id = tm.registration_id
+       WHERE t.event_id = $1::bigint AND t.division = $2`,
+      [eventId, division]
+    );
+    if (!rows.length) return;
+
+    const teams = {};
+    for (const r of rows) {
+      const key = String(r.team_id);
+      if (!teams[key]) teams[key] = { teamName: r.team_name, groupName: r.group_name, members: [] };
+      teams[key].members.push({ name: r.member_name, email: r.email });
+    }
+
+    const divisionLabel = division === 'girls' ? 'Girls' : 'Boys';
+    const sendJobs = [];
+    for (const team of Object.values(teams)) {
+      const teammateNames = team.members.map(m => m.name);
+      for (const m of team.members) {
+        if (!m.email) continue;
+        sendJobs.push(
+          sendTeamAssignment({
+            toEmail:  m.email,
+            toName:   m.name,
+            eventTitle,
+            division: divisionLabel,
+            groupName: team.groupName,
+            teamName:  team.teamName,
+            teammates: teammateNames,
+          }).catch(err => console.error(`[notifyTeamAssignments] failed for ${m.email}:`, err.message))
+        );
+      }
+    }
+    await Promise.allSettled(sendJobs);
+  } catch (e) {
+    console.error('[notifyTeamAssignments] error:', e.message);
   }
 }
 
@@ -451,6 +512,7 @@ const saveAndDeclare = async (req, res, next) => {
     ]).catch(() => {});
 
     autoRefreshReportIfExists(req.params.id).catch(() => {});
+    notifyTeamAssignments(req.params.id, division).catch(() => {});
     res.json({ message: 'Fixtures saved and declared.' });
   } catch (err) {
     await pgClient.query('ROLLBACK').catch(() => {});

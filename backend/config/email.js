@@ -185,6 +185,38 @@ const sendPasswordReset = async ({ toEmail, toName, token }) => {
   });
 };
 
+/* Sent to each team member (at their registration email) once a coordinator declares
+   groups/teams/fixtures for a sports event. Deliberately shows ONLY that student's own
+   group + team + teammates — everything else (other teams, the bracket, full fixture
+   list) requires logging in and opening the event, per the "log in to see the rest"
+   design. */
+const sendTeamAssignment = async ({ toEmail, toName, eventTitle, division, groupName, teamName, teammates = [] }) => {
+  const liveScoresUrl = `${APP_URL}/events/live`;
+  const teammatesList = teammates.map(n => `<li style="margin-bottom:4px">${n}</li>`).join('');
+  await send({
+    to:      toEmail,
+    subject: `Your team for ${eventTitle} is set — SOAC RKU`,
+    html: wrap(`
+      ${header('#10b981,#059669')}
+      <h2 style="color:#1a1040;margin-bottom:8px">Hi ${toName},</h2>
+      <p style="color:#555;line-height:1.6">Groups, teams, and fixtures for <strong style="color:#059669">${eventTitle}</strong> have just been declared. Here's your team:</p>
+      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:12px;padding:20px 24px;margin:24px 0">
+        ${division ? `<p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Division</p><p style="margin:0 0 16px;font-weight:700;color:#1a1040">${division}</p>` : ''}
+        ${groupName ? `<p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Group</p><p style="margin:0 0 16px;font-weight:700;color:#1a1040">${groupName}</p>` : ''}
+        <p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Team</p>
+        <p style="margin:0 0 16px;font-weight:800;color:#15803d;font-size:18px">${teamName}</p>
+        <p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Team Members</p>
+        <ul style="margin:8px 0 0;padding-left:18px;color:#1a1040;font-weight:600">${teammatesList}</ul>
+      </div>
+      <p style="color:#555;line-height:1.6">Log in to your SOAC dashboard and open this event to see the other teams, groups, full fixture schedule, and bracket.</p>
+      <div style="text-align:center;margin:24px 0">
+        <a href="${liveScoresUrl}" style="display:inline-block;padding:12px 20px;background:#059669;color:#fff;text-decoration:none;border-radius:10px;font-weight:700">🔴 Watch Live Scores</a>
+      </div>
+      ${footer()}
+    `),
+  });
+};
+
 /* ── Diagnostic: send a test email, return { ok, via, error } ─────────────── */
 const sendTestEmail = async (toEmail) => {
   const via = process.env.RESEND_API_KEY ? 'Resend' : 'Gmail';
@@ -206,5 +238,6 @@ module.exports = {
   sendCoordinatorCredentials,
   sendCoordinatorAssignment,
   sendPasswordReset,
+  sendTeamAssignment,
   sendTestEmail,
 };
