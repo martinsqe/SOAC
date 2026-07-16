@@ -55,6 +55,7 @@ export default function CoordMembers() {
 
   /* detail modal */
   const [detail, setDetail] = useState(null);
+  const [togglingId, setTogglingId] = useState(null);
 
   const debouncedSearch = useDebounce(search);
 
@@ -93,6 +94,26 @@ export default function CoordMembers() {
 
   const clearFilters = () => { setSearch(''); setDept(''); setYear(''); setPage(1); };
   const hasFilters   = search || dept || year;
+
+  /* Deactivate/reactivate this student's membership in THIS club — frees a slot toward
+     their 3-club cap without touching their platform login or other memberships. The
+     server never deletes the row, so joined/deactivated dates stay on record either way. */
+  const toggleActive = async (member) => {
+    if (!club) return;
+    const activating = member.membershipActive === false;
+    if (!activating && !window.confirm(`Deactivate ${member.name}'s membership in ${club.name}? They can rejoin later, and this frees a slot toward their 3-club limit.`)) return;
+    setTogglingId(member.id);
+    try {
+      const d = await api.patch(`/clubs/${club._id}/members/${member.id}/toggle-active`);
+      const patch = m => m.id === member.id ? { ...m, membershipActive: d.membershipActive, deactivatedAt: d.deactivatedAt } : m;
+      setMembers(prev => prev.map(patch));
+      setDetail(prev => prev && prev.id === member.id ? patch(prev) : prev);
+    } catch (err) {
+      setError(err.message || 'Failed to update member status.');
+    } finally {
+      setTogglingId(null);
+    }
+  };
 
   /* ── CSV export ── */
   const exportCSV = () => {
@@ -236,6 +257,7 @@ export default function CoordMembers() {
                 <th>Year</th>
                 <th>Gender</th>
                 <th>Joined</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -282,6 +304,11 @@ export default function CoordMembers() {
                   </td>
                   <td className={s.muted}>{m.gender || '—'}</td>
                   <td className={s.muted} style={{ whiteSpace: 'nowrap' }}>{fmt(m.joined_at)}</td>
+                  <td>
+                    {m.membershipActive === false
+                      ? <span style={{ background: '#fef2f2', color: '#b91c1c', padding: '2px 9px', borderRadius: 4, fontSize: '.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Deactivated</span>
+                      : <span style={{ background: '#f0fdf4', color: '#15803d', padding: '2px 9px', borderRadius: 4, fontSize: '.78rem', fontWeight: 600 }}>Active</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -351,12 +378,38 @@ export default function CoordMembers() {
                     <div style={{ fontSize: 14, fontWeight: 600, color: '#0f0a2e', fontFamily: mono ? 'monospace' : 'inherit' }}>{value}</div>
                   </div>
                 ))}
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 3 }}>Status</div>
+                  {detail.membershipActive === false
+                    ? <span style={{ background: '#fef2f2', color: '#b91c1c', padding: '2px 9px', borderRadius: 4, fontSize: '.78rem', fontWeight: 600 }}>Deactivated {fmt(detail.deactivatedAt)}</span>
+                    : <span style={{ background: '#f0fdf4', color: '#15803d', padding: '2px 9px', borderRadius: 4, fontSize: '.78rem', fontWeight: 600 }}>Active</span>}
+                </div>
                 {detail.message && (
                   <div style={{ gridColumn: '1 / -1' }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 3 }}>Join Message</div>
                     <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.5, background: '#f9f9fb', borderRadius: 4, padding: '10px 12px', fontStyle: 'italic' }}>"{detail.message}"</div>
                   </div>
                 )}
+              </div>
+              <div style={{ padding: '0 22px 20px' }}>
+                <button
+                  onClick={() => toggleActive(detail)}
+                  disabled={togglingId === detail.id}
+                  style={{
+                    width: '100%', padding: '10px 16px', borderRadius: 4, fontSize: '.85rem', fontWeight: 700,
+                    cursor: togglingId === detail.id ? 'not-allowed' : 'pointer',
+                    opacity: togglingId === detail.id ? .6 : 1,
+                    border: detail.membershipActive === false ? '1.5px solid #86efac' : '1.5px solid #fca5a5',
+                    background: detail.membershipActive === false ? '#f0fdf4' : '#fff1f2',
+                    color: detail.membershipActive === false ? '#15803d' : '#dc2626',
+                  }}
+                >
+                  {togglingId === detail.id
+                    ? 'Updating…'
+                    : detail.membershipActive === false
+                      ? '✓ Reactivate Membership'
+                      : '✕ Deactivate Membership'}
+                </button>
               </div>
             </div>
         </div>

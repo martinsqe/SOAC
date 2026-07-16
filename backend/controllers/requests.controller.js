@@ -102,6 +102,53 @@ const getAll = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+/* Active club-membership count for an email — used both to gate join-request creation and
+   by the public pre-submit check the guest join form calls before it even sends a request. */
+const countActiveClubs = async (email) => {
+  const { rows } = await pgPool.query(
+    `SELECT COUNT(sc.*)::int AS cnt
+     FROM student_clubs sc
+     JOIN users u ON u.id = sc.user_id
+     WHERE u.email = $1 AND sc.is_active = true`,
+    [String(email || '').toLowerCase()]
+  );
+  return rows[0].cnt;
+};
+
+/* Is this email already an active member of this specific club? Deactivated memberships
+   don't count — a dropped student can send a fresh join request for the same club. */
+const isActiveMemberOfClub = async (email, clubId) => {
+  if (!clubId) return false;
+  const { rows } = await pgPool.query(
+    `SELECT 1
+     FROM student_clubs sc
+     JOIN users u ON u.id = sc.user_id
+     WHERE u.email = $1 AND sc.club_id = $2::bigint AND sc.is_active = true
+     LIMIT 1`,
+    [String(email || '').toLowerCase(), clubId]
+  );
+  return rows.length > 0;
+};
+
+/* GET /api/requests/check-club-limit?email=X&clubId=Y  (public)
+   Lets the join form ask "is this student already at the 3-club cap, or already a member
+   of THIS club?" BEFORE submitting, so it can block the request client-side with an alert
+   instead of round-tripping a request that the server would reject anyway. Purely a UX
+   pre-check — create() below re-checks both and is the actual enforcement, since this
+   endpoint can't be trusted alone. */
+const checkClubLimit = async (req, res, next) => {
+  try {
+    const email = String(req.query.email || '').trim();
+    if (!email) return res.status(400).json({ message: 'email is required.' });
+    const clubId = req.query.clubId ? String(req.query.clubId) : null;
+    const [cnt, alreadyMember] = await Promise.all([
+      countActiveClubs(email),
+      isActiveMemberOfClub(email, clubId),
+    ]);
+    res.json({ count: cnt, atLimit: cnt >= 3, alreadyMember });
+  } catch (err) { next(err); }
+};
+
 /* POST /api/requests  (public — student submits join form) */
 const create = async (req, res, next) => {
   try {
@@ -113,6 +160,18 @@ const create = async (req, res, next) => {
     }
     if (!gender || !['M', 'F'].includes(gender.toUpperCase())) {
       return res.status(400).json({ message: 'Gender is required. Please select M or F.' });
+    }
+
+    /* Authoritative enforcement — block at submission time, not just at approval, so a
+       student already active in 3 clubs — or already a member of THIS club — never gets a
+       pending request sitting in front of a coordinator even if the client-side pre-check
+       was bypassed. */
+    if (await isActiveMemberOfClub(email, clubId)) {
+      return res.status(400).json({ message: "You're already a member of this club." });
+    }
+    const activeCount = await countActiveClubs(email);
+    if (activeCount >= 3) {
+      return res.status(400).json({ message: 'You cannot join more than 3 clubs.' });
     }
 
     const { rows } = await pgPool.query(
@@ -155,12 +214,12 @@ const approve = async (req, res, next) => {
 
     await pgClient.query('BEGIN');
 
-    /* 1. Count clubs already enrolled (single aggregation query) */
+    /* 1. Count clubs already enrolled — deactivated memberships don't count against the cap */
     const { rows: cntRows } = await pgClient.query(
       `SELECT COUNT(sc.*)::int AS cnt
        FROM student_clubs sc
        JOIN users u ON u.id = sc.user_id
-       WHERE u.email = $1`,
+       WHERE u.email = $1 AND sc.is_active = true`,
       [jr.email]
     );
     if (cntRows[0].cnt >= 3) {
@@ -192,16 +251,23 @@ const approve = async (req, res, next) => {
       userId = ins[0].id;
     }
 
-    /* 3. Record membership + sync member_count + mark request approved */
+    /* 3. Record membership + sync member_count + mark request approved.
+       Re-approving someone previously deactivated from this same club reactivates that
+       same row (clears deactivated_at/by, refreshes joined_at) rather than leaving a stale
+       inactive row behind. */
     await pgClient.query(
       `INSERT INTO student_clubs (user_id, club_id, club_name) VALUES ($1, $2, $3)
-       ON CONFLICT (user_id, club_id) DO NOTHING`,
+       ON CONFLICT (user_id, club_id) DO UPDATE SET
+         is_active      = true,
+         deactivated_at = NULL,
+         deactivated_by = NULL,
+         joined_at      = NOW()`,
       [userId, jr.club_id, jr.club_name]
     );
-    /* Always sync member_count from the real row count — avoids +1/-1 drift */
+    /* Always sync member_count from the real active-row count — avoids +1/-1 drift */
     await pgClient.query(
       `UPDATE clubs
-       SET member_count = (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = $1),
+       SET member_count = (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = $1 AND is_active = true),
            updated_at   = NOW()
        WHERE id = $1`,
       [jr.club_id]
@@ -334,4 +400,4 @@ const resendEmail = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, create, approve, decline, resendEmail };
+module.exports = { getAll, create, checkClubLimit, approve, decline, resendEmail };

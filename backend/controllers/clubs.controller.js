@@ -80,7 +80,7 @@ const getAll = async (req, res, next) => {
     values.push(limit, offset);
     const { rows } = await pgPool.query(
       `SELECT ${CLUB_COLS},
-              (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = clubs.id) AS real_member_count,
+              (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = clubs.id AND is_active = true) AS real_member_count,
               (SELECT COUNT(*)::int FROM events WHERE club = clubs.name AND is_active = true) AS real_event_count,
               COUNT(*) OVER() AS total_count
        FROM clubs
@@ -117,7 +117,7 @@ const getOne = async (req, res, next) => {
 
     const { rows } = await pgPool.query(
       `SELECT ${CLUB_COLS},
-              (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = clubs.id) AS real_member_count,
+              (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = clubs.id AND is_active = true) AS real_member_count,
               (SELECT COUNT(*)::int FROM events WHERE club = clubs.name AND is_active = true) AS real_event_count,
               (SELECT u.avatar FROM coordinator_club_assignments cca
                JOIN users u ON u.id = cca.user_id
@@ -310,7 +310,7 @@ const publicStats = async (req, res, next) => {
   try {
     const [cRes, mRes, eRes, catRes] = await Promise.all([
       pgPool.query(`SELECT COUNT(*)::int AS count FROM clubs WHERE is_active = true`),
-      pgPool.query(`SELECT COUNT(*)::int AS count FROM student_clubs`),
+      pgPool.query(`SELECT COUNT(*)::int AS count FROM student_clubs WHERE is_active = true`),
       pgPool.query(`SELECT COUNT(*)::int AS count FROM events WHERE is_active = true`),
       pgPool.query(`SELECT category, COUNT(*)::int AS count FROM clubs WHERE is_active = true GROUP BY category ORDER BY category`),
     ]);
@@ -348,7 +348,7 @@ const mine = async (req, res, next) => {
     }
 
     const MINE_COLS = `${CLUB_COLS},
-      (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = clubs.id) AS real_member_count,
+      (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = clubs.id AND is_active = true) AS real_member_count,
       (SELECT COUNT(*)::int FROM events WHERE club = clubs.name AND is_active = true) AS real_event_count`;
 
     const { rows } = await pgPool.query(
@@ -418,6 +418,8 @@ const getMembers = async (req, res, next) => {
          sc.club_id,
          sc.club_name,
          sc.joined_at,
+         sc.is_active       AS "membershipActive",
+         sc.deactivated_at  AS "deactivatedAt",
          u.name,
          u.email,
          u.is_active,
@@ -528,6 +530,57 @@ const getAllMembers = async (req, res, next) => {
       members:    rows.map(({ total_count, ...r }) => r),
       count:      total,
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    });
+  } catch (err) { next(err); }
+};
+
+/* PATCH /api/clubs/:id/members/:userId/toggle-active  (coordinator of this club, or admin)
+   Deactivates or reactivates a student's membership in THIS club specifically — the
+   student_clubs row is never deleted (joined_at/deactivated_at stay on record), the
+   student's platform login (users.is_active) and any other club memberships are untouched,
+   and a deactivated slot no longer counts toward their 3-club cap so they're free to join
+   somewhere else. Toggling back to active (e.g. undoing a mistake) clears deactivated_at/by. */
+const toggleMemberActive = async (req, res, next) => {
+  try {
+    await ensureSoacTables();
+    const { rows } = await pgPool.query(
+      `UPDATE student_clubs
+       SET is_active      = NOT is_active,
+           deactivated_at = CASE WHEN is_active THEN NOW() ELSE NULL END,
+           deactivated_by = CASE WHEN is_active THEN $3 ELSE NULL END
+       WHERE club_id = $1::bigint AND user_id = $2::int
+       RETURNING user_id, club_id, is_active, deactivated_at`,
+      [req.params.id, req.params.userId, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ message: 'Membership not found.' });
+    const membership = rows[0];
+
+    /* Resync the displayed member count from the real active-row count */
+    await pgPool.query(
+      `UPDATE clubs
+       SET member_count = (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = $1 AND is_active = true),
+           updated_at   = NOW()
+       WHERE id = $1`,
+      [req.params.id]
+    );
+
+    await logAudit(
+      req.user.id, req.user.name,
+      membership.is_active ? 'REACTIVATE_MEMBER' : 'DEACTIVATE_MEMBER',
+      'student_club', req.params.userId, { clubId: req.params.id }
+    );
+
+    await Promise.all([
+      cache.del(`clubs:${req.params.id}`),
+      cache.delPattern(`clubs:${req.params.id}:members*`),
+      cache.delPattern('clubs:*'),
+      cache.del(`student:${req.params.userId}`),
+    ]);
+
+    res.json({
+      message: membership.is_active ? 'Member reactivated.' : 'Member deactivated.',
+      membershipActive: membership.is_active,
+      deactivatedAt: membership.deactivated_at,
     });
   } catch (err) { next(err); }
 };
@@ -769,7 +822,7 @@ const coinsOverview = async (_req, res, next) => {
           FLOOR(SUM(mp.xp::float * ${COIN_MULT}))::int, 0
         )                                           AS total_coins
       FROM clubs c
-      LEFT JOIN student_clubs sc ON sc.club_id = c.id
+      LEFT JOIN student_clubs sc ON sc.club_id = c.id AND sc.is_active = true
       LEFT JOIN member_progress mp ON mp.club_id = c.id
       WHERE c.is_active = true
       GROUP BY c.id, c.name, c.color, c.logo
@@ -819,4 +872,4 @@ const coinsOverview = async (_req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, getOne, create, update, remove, stats, publicStats, seed, mine, getMembers, getAllMembers, assignCoordinator, getCoordinatorAssignments, getLeaderboard, coinsOverview };
+module.exports = { getAll, getOne, create, update, remove, stats, publicStats, seed, mine, getMembers, getAllMembers, toggleMemberActive, assignCoordinator, getCoordinatorAssignments, getLeaderboard, coinsOverview };

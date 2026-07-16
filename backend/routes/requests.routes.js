@@ -7,6 +7,9 @@ const { requireAdmin } = require('../middleware/requireAdmin');
 /* Public — student submits a join request */
 router.post('/', ctrl.create);
 
+/* Public — pre-submit check so the join form can block+alert before sending a request */
+router.get('/check-club-limit', ctrl.checkClubLimit);
+
 /* Protected — coordinator / admin views requests */
 router.get('/', verifyToken, ctrl.getAll);
 

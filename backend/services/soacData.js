@@ -211,6 +211,14 @@ const ensureSoacTables = async () => {
   `);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_student_clubs_user ON student_clubs(user_id)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_student_clubs_club ON student_clubs(club_id)`);
+  /* Per-club membership status — lets a coordinator deactivate a student's membership in
+     THEIR club specifically (frees up a slot toward the 3-club cap) without touching the
+     student's platform login (users.is_active) or other club memberships. The row is never
+     deleted, so "student X joined club Y on <date>, deactivated on <date>" stays on record. */
+  await pgPool.query(`ALTER TABLE student_clubs ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true`);
+  await pgPool.query(`ALTER TABLE student_clubs ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ DEFAULT NULL`);
+  await pgPool.query(`ALTER TABLE student_clubs ADD COLUMN IF NOT EXISTS deactivated_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_student_clubs_active ON student_clubs(club_id, is_active)`);
 
   /* ── Club leadership positions ─────────────────────────────────────────── */
   await pgPool.query(`

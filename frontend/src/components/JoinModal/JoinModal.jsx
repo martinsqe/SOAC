@@ -20,6 +20,26 @@ export default function JoinModal({ club, onClose }) {
     if (!form.gender) { setErr('Please select your gender.'); return; }
     setSubmitting(true);
     try {
+      /* Pre-check the 3-club cap AND existing membership in this club BEFORE sending the
+         actual join request — if either is true, alert and stop here so no request ever
+         gets submitted. The server re-checks both on the real POST below regardless
+         (authoritative), since this GET is only a best-effort UX shortcut, not something to
+         trust alone. */
+      try {
+        const limitRes  = await fetch(`/api/requests/check-club-limit?email=${encodeURIComponent(form.email.trim().toLowerCase())}&clubId=${encodeURIComponent(club._id)}`);
+        const limitData = await limitRes.json();
+        if (limitRes.ok && limitData.alreadyMember) {
+          alert("You're already a member of this club.");
+          setSubmitting(false);
+          return;
+        }
+        if (limitRes.ok && limitData.atLimit) {
+          alert('You cannot join more than 3 clubs.');
+          setSubmitting(false);
+          return;
+        }
+      } catch { /* pre-check failed (offline/etc) — fall through to the real submit, which still enforces both */ }
+
       const res = await fetch('/api/requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

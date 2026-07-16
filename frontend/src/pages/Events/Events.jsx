@@ -295,7 +295,11 @@ const Events = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [filter, setFilter] = useState('all');
-  const [events, setEvents] = useState(EVENTS); // start with static data
+  /* Start empty (not the static demo array) so a real admin-uploaded image is the ONLY
+     image ever shown for a real event — no flash of the placeholder "Galore 2027" demo
+     card/photo while /api/events is still loading, even on a slow connection. */
+  const [events, setEvents] = useState([]);
+  const [eventsLoading, setEventsLoading] = useState(true);
   const [liveCount, setLiveCount]         = useState(0);
 
   /* ── Past records (collapsed until opened) ── */
@@ -399,17 +403,18 @@ const Events = () => {
   };
 
   useEffect(() => {
+    // Always keep the rich static past-events showcase; only ever populate "upcoming" from
+    // live API data — never from the static demo array, so a real event's card can only ever
+    // show the image the admin actually uploaded, never the placeholder photo.
+    const staticPast = EVENTS.filter(e => e.status === 'past');
     fetch('/api/events')
       .then(r => r.json())
       .then(d => {
-        if (d.events?.length) {
-          const apiEvents = d.events.map(normaliseEvent);
-          // Always keep the rich static past-events showcase; only replace upcoming with live API data
-          const staticPast = EVENTS.filter(e => e.status === 'past');
-          setEvents([...apiEvents, ...staticPast]);
-        }
+        const apiEvents = (d.events || []).map(normaliseEvent);
+        setEvents([...apiEvents, ...staticPast]);
       })
-      .catch(() => { }); // silently fall back to static data
+      .catch(() => setEvents(staticPast)) // API failed — keep the past showcase, no fake upcoming events
+      .finally(() => setEventsLoading(false));
   }, []);
 
   /* Light poll: live count badge on the trigger button only */
@@ -471,13 +476,18 @@ const Events = () => {
   const featured = upcoming[0] || null;
   const otherUpcoming = upcoming.slice(1);
 
+  /* Re-scans for `.fade` elements whenever `events` changes (not just `filter`) — the
+     featured card only exists in the DOM once the real /api/events fetch resolves, so
+     without `events` here this effect would run once on mount (before that card exists),
+     never observe it, and it would sit at opacity:0 forever (CSS default in animations.css
+     is invisible until the IntersectionObserver adds `.in`). */
   useEffect(() => {
     const obs = new IntersectionObserver(entries => {
       entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('in'); });
     }, { threshold: 0.06 });
     document.querySelectorAll('.fade').forEach(el => obs.observe(el));
     return () => obs.disconnect();
-  }, [filter]);
+  }, [filter, events]);
 
   return (
     <div className={styles.events}>
@@ -544,7 +554,12 @@ const Events = () => {
             )}
           </div>
 
-          {upcoming.length === 0 ? (
+          {eventsLoading ? (
+            <div className={styles.empty}>
+              <div className={styles.emptyIcon}>⏳</div>
+              <p>Loading events…</p>
+            </div>
+          ) : upcoming.length === 0 ? (
             <div className={styles.empty}>
               <div className={styles.emptyIcon}>📭</div>
               <p>No upcoming events in this category.</p>

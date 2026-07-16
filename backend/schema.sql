@@ -138,17 +138,25 @@ CREATE INDEX IF NOT EXISTS idx_clubs_slug            ON clubs(slug);
 -- ── 6. Student club memberships ───────────────────────────────────────────────
 --   Approved memberships: one row per (student, club) pair.
 --   Created inside a transaction when a join_request is approved.
+--   Never deleted — is_active lets a coordinator deactivate a student's membership in
+--   THEIR club specifically (e.g. to free up a slot toward the 3-club cap) while keeping
+--   the join_at/deactivated_at history on record and leaving the student's platform login
+--   (users.is_active) and other club memberships untouched.
 CREATE TABLE IF NOT EXISTS student_clubs (
-  id         SERIAL PRIMARY KEY,
-  user_id    INTEGER NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
-  club_id    BIGINT  NOT NULL REFERENCES clubs(id)  ON DELETE CASCADE,
-  club_name  VARCHAR(255),
-  joined_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  id             SERIAL PRIMARY KEY,
+  user_id        INTEGER NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
+  club_id        BIGINT  NOT NULL REFERENCES clubs(id)  ON DELETE CASCADE,
+  club_name      VARCHAR(255),
+  joined_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  is_active      BOOLEAN NOT NULL DEFAULT true,
+  deactivated_at TIMESTAMPTZ DEFAULT NULL,
+  deactivated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   UNIQUE (user_id, club_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_student_clubs_user ON student_clubs(user_id);
-CREATE INDEX IF NOT EXISTS idx_student_clubs_club ON student_clubs(club_id);
+CREATE INDEX IF NOT EXISTS idx_student_clubs_user   ON student_clubs(user_id);
+CREATE INDEX IF NOT EXISTS idx_student_clubs_club   ON student_clubs(club_id);
+CREATE INDEX IF NOT EXISTS idx_student_clubs_active ON student_clubs(club_id, is_active);
 
 
 -- ── 7. Events ─────────────────────────────────────────────────────────────────

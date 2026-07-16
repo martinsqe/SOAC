@@ -33,6 +33,7 @@ router.get('/:id',      ctrl.getOne);
 
 /* ── Members: open to any authenticated user ── */
 router.get('/:id/members', verifyToken, ctrl.getMembers);
+router.patch('/:id/members/:userId/toggle-active', verifyToken, requireCoordinatorOwnership, ctrl.toggleMemberActive);
 
 /* ── Membership check (student/coord/admin) ── */
 router.get('/:id/membership', verifyToken, cd.getMembership);
