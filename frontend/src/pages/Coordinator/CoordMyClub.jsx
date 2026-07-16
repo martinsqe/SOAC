@@ -58,7 +58,7 @@ const SPORT_TIMER_SECONDS = {
   cricket: 120 * 60,
   basketball: 40 * 60,
   football: 90 * 60,
-  volleyball: 90 * 60,
+  volleyball: 20 * 60, // per SET, not the whole match — volleyball has no match clock
   badminton: 60 * 60,
 };
 /* seconds per quarter / period for basketball */
@@ -67,10 +67,82 @@ const PLAYER_STAT_FIELDS = {
   cricket:    ['runs', 'balls', 'wickets'],
   basketball: ['points', 'rebounds', 'assists'],
   football:   ['goals', 'assists', 'yellow_cards'],
-  volleyball: ['points', 'blocks', 'aces'],
+  volleyball: ['points', 'attacks', 'blocks'],
   badminton:  ['points', 'winners', 'errors'],
   kabaddi:    ['points', 'raids', 'tackles'],
 };
+
+/* International rally-scoring volleyball: best-of-5 sets, each played to an editable
+   target (25 by default; coordinators drop it to 15 for a deciding 5th set) and won by
+   at least 2 clear points. First to 3 sets wins the match. */
+const VOLLEYBALL_DEFAULT_POINTS_TO_WIN = 25;
+const VOLLEYBALL_MAX_SETS = 5;
+const VOLLEYBALL_SETS_TO_WIN_MATCH = 3;
+
+/* Applies a just-recorded point to a volleyball scoreboard's set state — if either side has
+   now reached the target with a 2-point lead, the set is logged to history, that side's
+   setsWon is bumped, and both scores reset to 0-0 for the next set. Pure function: takes the
+   current scoreData + the score values about to be written, returns the values to actually
+   persist (either unchanged, or reset if a set just completed). */
+function applyVolleyballSetResult(scoreData, teamScore, opponentScore) {
+  const sd = { ...(scoreData || {}) };
+  const home = { setsWon: 0, set: 1, ...(sd.home || {}) };
+  const away = { setsWon: 0, set: 1, ...(sd.away || {}) };
+  const sets = Array.isArray(sd.sets) ? [...sd.sets] : [];
+  const pointsToWin = Number(sd.pointsToWin) || VOLLEYBALL_DEFAULT_POINTS_TO_WIN;
+  const matchDecided = home.setsWon >= VOLLEYBALL_SETS_TO_WIN_MATCH || away.setsWon >= VOLLEYBALL_SETS_TO_WIN_MATCH;
+
+  let finalTeamScore = teamScore;
+  let finalOpponentScore = opponentScore;
+
+  if (!matchDecided && home.set <= VOLLEYBALL_MAX_SETS) {
+    const homeWinsSet = teamScore >= pointsToWin && teamScore - opponentScore >= 2;
+    const awayWinsSet = opponentScore >= pointsToWin && opponentScore - teamScore >= 2;
+    if (homeWinsSet || awayWinsSet) {
+      const winner = homeWinsSet ? 'home' : 'away';
+      sets.push({ set: home.set, home: teamScore, away: opponentScore, winner });
+      if (winner === 'home') home.setsWon += 1; else away.setsWon += 1;
+      const nextSetNum = Math.min(VOLLEYBALL_MAX_SETS, home.set + 1);
+      home.set = nextSetNum;
+      away.set = nextSetNum;
+      finalTeamScore = 0;
+      finalOpponentScore = 0;
+    }
+  }
+
+  return {
+    teamScore: finalTeamScore,
+    opponentScore: finalOpponentScore,
+    scoreData: { ...sd, home, away, sets, pointsToWin },
+  };
+}
+
+/* Force-completes the current set without requiring the points-to-win/2-lead condition —
+   used when the set's timer runs out, or the coordinator clicks ahead to the next set.
+   Whoever has more points at that moment wins the set. Returns null (does nothing) if the
+   scores are tied (nothing sensible to declare) or the match is already decided. */
+function finalizeVolleyballSet(scoreData, teamScore, opponentScore) {
+  const sd = { ...(scoreData || {}) };
+  const home = { setsWon: 0, set: 1, ...(sd.home || {}) };
+  const away = { setsWon: 0, set: 1, ...(sd.away || {}) };
+  const sets = Array.isArray(sd.sets) ? [...sd.sets] : [];
+  const matchDecided = home.setsWon >= VOLLEYBALL_SETS_TO_WIN_MATCH || away.setsWon >= VOLLEYBALL_SETS_TO_WIN_MATCH;
+
+  if (matchDecided || home.set > VOLLEYBALL_MAX_SETS || teamScore === opponentScore) return null;
+
+  const winner = teamScore > opponentScore ? 'home' : 'away';
+  sets.push({ set: home.set, home: teamScore, away: opponentScore, winner });
+  if (winner === 'home') home.setsWon += 1; else away.setsWon += 1;
+  const nextSetNum = Math.min(VOLLEYBALL_MAX_SETS, home.set + 1);
+  home.set = nextSetNum;
+  away.set = nextSetNum;
+
+  return {
+    teamScore: 0,
+    opponentScore: 0,
+    scoreData: { ...sd, home, away, sets },
+  };
+}
 
 /* Which stat on the player drives the team score total */
 const SPORT_SCORE_STAT = {
@@ -100,7 +172,9 @@ const SPORT_SCORE_BUTTONS = {
     { label: '6', value: 6, color: '#f59e0b', title: 'Six' },
   ],
   volleyball: [
-    { label: '+ Point', value: 1, color: '#10b981', title: 'Rally point' },
+    { label: '+1 PT',  value: 1, stat: 'points',  color: '#10b981', title: 'Point — adds to the team score' },
+    { label: '+1 ATK', value: 1, stat: 'attacks', color: '#0ea5e9', title: 'Attack — MVP stat only, does not add to the team score', scores: false },
+    { label: '+1 BLK', value: 1, stat: 'blocks',  color: '#f59e0b', title: 'Block — MVP stat only, does not add to the team score', scores: false },
   ],
   badminton: [
     { label: '+ Point', value: 1, color: '#10b981', title: 'Rally point' },
@@ -2324,11 +2398,34 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
     const t = setInterval(() => {
       setScores(ss => ss.map(sc => {
         if (!sc.timerRunning || Number(sc.timeRemainingSeconds || 0) <= 0) return sc;
-        return { ...sc, timeRemainingSeconds: Math.max(0, Number(sc.timeRemainingSeconds || 0) - 1) };
+        const next = Number(sc.timeRemainingSeconds || 0) - 1;
+        if (next > 0) return { ...sc, timeRemainingSeconds: next };
+        /* Set timer just ran out — for volleyball, declare whoever has more points the set
+           winner (same as clicking ahead to the next set), reset the clock for the next set,
+           and pause so the coordinator has to press ▶ again once it's ready. */
+        if (sc.sport === 'volleyball') {
+          const result = finalizeVolleyballSet(sc.scoreData, Number(sc.teamScore || 0), Number(sc.opponentScore || 0));
+          if (result) {
+            const updated = {
+              ...sc,
+              teamScore: result.teamScore,
+              opponentScore: result.opponentScore,
+              scoreData: result.scoreData,
+              timeRemainingSeconds: SPORT_TIMER_SECONDS.volleyball || 0,
+              timerRunning: false,
+            };
+            api.patch(`/clubs/${clubId}/live-scores/${sc.id}`, {
+              teamScore: updated.teamScore, opponentScore: updated.opponentScore, scoreData: updated.scoreData,
+              timeRemainingSeconds: updated.timeRemainingSeconds, timerRunning: false,
+            }).catch(() => {});
+            return updated;
+          }
+        }
+        return { ...sc, timeRemainingSeconds: 0 };
       }));
     }, 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [clubId]);
 
   const blankPlayer = (sport) => {
     const stats = {};
@@ -2346,7 +2443,9 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
       gameClock: '',
       teamScore: 0,
       opponentScore: 0,
-      scoreData: { home: {}, away: {} },
+      scoreData: sport === 'volleyball'
+        ? { home: { setsWon: 0, set: 1 }, away: { setsWon: 0, set: 1 }, pointsToWin: VOLLEYBALL_DEFAULT_POINTS_TO_WIN, sets: [] }
+        : { home: {}, away: {} },
       stats: { home: {}, away: {} },
       homePlayers: [blankPlayer(sport)],
       awayPlayers: [blankPlayer(sport)],
@@ -2630,11 +2729,23 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
     setScores(ss => {
       const next = ss.map(x => {
         if (x.id !== scoreId) return x;
-        if (side === 'home') return { ...x, teamScore: Math.max(0, Number(x.teamScore || 0) + delta) };
-        return { ...x, opponentScore: Math.max(0, Number(x.opponentScore || 0) + delta) };
+        let newHome = side === 'home' ? Math.max(0, Number(x.teamScore || 0) + delta) : Number(x.teamScore || 0);
+        let newAway = side === 'away' ? Math.max(0, Number(x.opponentScore || 0) + delta) : Number(x.opponentScore || 0);
+        let scoreData = x.scoreData;
+        /* Volleyball's set-completion check has to run here too — these quick +1/− buttons
+           write teamScore/opponentScore directly, same as the per-player PT button does. */
+        if (x.sport === 'volleyball') {
+          const result = applyVolleyballSetResult(x.scoreData, newHome, newAway);
+          newHome = result.teamScore;
+          newAway = result.opponentScore;
+          scoreData = result.scoreData;
+        }
+        return { ...x, teamScore: newHome, opponentScore: newAway, scoreData };
       });
       const sc = next.find(x => x.id === scoreId);
-      if (sc) api.patch(`/clubs/${clubId}/live-scores/${scoreId}`, { teamScore: sc.teamScore, opponentScore: sc.opponentScore }).catch(() => {});
+      if (sc) api.patch(`/clubs/${clubId}/live-scores/${scoreId}`, {
+        teamScore: sc.teamScore, opponentScore: sc.opponentScore, scoreData: sc.scoreData,
+      }).catch(() => {});
       return next;
     });
   };
@@ -2686,44 +2797,89 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
     });
   };
 
-  /* Score points for a player AND update the team total simultaneously */
-  const scorePlayerPoints = (scoreId, side, playerIdx, value) => {
+  /* Coordinator-editable target score for the current/upcoming volleyball set — e.g. 25 for
+     sets 1-4, dropped to 15 before the deciding 5th set. Only affects sets not yet completed. */
+  const updateVolleyballPointsToWin = (scoreId, value) => {
+    const pointsToWin = Math.max(1, Number(value) || VOLLEYBALL_DEFAULT_POINTS_TO_WIN);
+    setScores(ss => {
+      const next = ss.map(x => x.id === scoreId ? { ...x, scoreData: { ...(x.scoreData || {}), pointsToWin } } : x);
+      const sc = next.find(x => x.id === scoreId);
+      if (sc) api.patch(`/clubs/${clubId}/live-scores/${scoreId}`, { scoreData: sc.scoreData }).catch(() => {});
+      return next;
+    });
+  };
+
+  /* Ends the current volleyball set right now (whoever has more points wins it) and starts
+     recording the next set — triggered by clicking the next set's cell in the set grid, or
+     automatically when that set's timer runs out (see the countdown effect below). */
+  const advanceVolleyballSet = (scoreId, sc) => {
+    const result = finalizeVolleyballSet(sc.scoreData, Number(sc.teamScore || 0), Number(sc.opponentScore || 0));
+    if (!result) { showToast('Scores are tied — cannot end the set yet.'); return; }
+    setScores(ss => ss.map(x => x.id === scoreId ? {
+      ...x,
+      teamScore: result.teamScore,
+      opponentScore: result.opponentScore,
+      scoreData: result.scoreData,
+      timeRemainingSeconds: SPORT_TIMER_SECONDS.volleyball || 0,
+      timerRunning: false,
+    } : x));
+    api.patch(`/clubs/${clubId}/live-scores/${scoreId}`, {
+      teamScore: result.teamScore, opponentScore: result.opponentScore, scoreData: result.scoreData,
+      timeRemainingSeconds: SPORT_TIMER_SECONDS.volleyball || 0, timerRunning: false,
+    }).catch(() => {});
+  };
+
+  /* Score points for a player AND update the team total simultaneously. `statKey` lets a
+     single sport have several scoring buttons (volleyball's PT/ATK/BLK each win a rally)
+     that all add to the team score while crediting a different player stat; other sports
+     keep passing no statKey and fall back to their one SPORT_SCORE_STAT as before. */
+  const scorePlayerPoints = (scoreId, side, playerIdx, value, statKey) => {
     setScores(ss => {
       const next = ss.map(x => {
         if (x.id !== scoreId) return x;
-        const scoreStat = SPORT_SCORE_STAT[x.sport] || 'points';
+        const stat = statKey || SPORT_SCORE_STAT[x.sport] || 'points';
         const key = side === 'home' ? 'homePlayers' : 'awayPlayers';
         const players = (x[key] || []).map((p, i) => {
           if (i !== playerIdx) return p;
-          const cur = Number(p.stats?.[scoreStat] ?? 0);
-          return { ...p, stats: { ...(p.stats || {}), [scoreStat]: cur + value } };
+          const cur = Number(p.stats?.[stat] ?? 0);
+          return { ...p, stats: { ...(p.stats || {}), [stat]: cur + value } };
         });
-        const newHome = side === 'home' ? Math.max(0, Number(x.teamScore || 0) + value) : Number(x.teamScore || 0);
-        const newAway = side === 'away' ? Math.max(0, Number(x.opponentScore || 0) + value) : Number(x.opponentScore || 0);
-        return { ...x, [key]: players, teamScore: newHome, opponentScore: newAway };
+        let newHome = side === 'home' ? Math.max(0, Number(x.teamScore || 0) + value) : Number(x.teamScore || 0);
+        let newAway = side === 'away' ? Math.max(0, Number(x.opponentScore || 0) + value) : Number(x.opponentScore || 0);
+        let scoreData = x.scoreData;
+        if (x.sport === 'volleyball') {
+          const result = applyVolleyballSetResult(x.scoreData, newHome, newAway);
+          newHome = result.teamScore;
+          newAway = result.opponentScore;
+          scoreData = result.scoreData;
+        }
+        return { ...x, [key]: players, teamScore: newHome, opponentScore: newAway, scoreData };
       });
       const sc = next.find(x => x.id === scoreId);
       if (sc) api.patch(`/clubs/${clubId}/live-scores/${scoreId}`, {
         teamScore: sc.teamScore, opponentScore: sc.opponentScore,
         homePlayers: sc.homePlayers, awayPlayers: sc.awayPlayers,
+        scoreData: sc.scoreData,
       }).catch(() => {});
       return next;
     });
   };
 
-  /* Undo last scoring point for a player (−1 from both player tally and team score) */
-  const undoPlayerPoint = (scoreId, side, playerIdx) => {
+  /* Undo last scoring point for a player (−1 from both player tally and team score).
+     Does not un-complete a set that already finished — a rare edge case coordinators
+     can correct manually, same limitation the pre-existing undo always had. */
+  const undoPlayerPoint = (scoreId, side, playerIdx, statKey) => {
     setScores(ss => {
       const next = ss.map(x => {
         if (x.id !== scoreId) return x;
-        const scoreStat = SPORT_SCORE_STAT[x.sport] || 'points';
+        const stat = statKey || SPORT_SCORE_STAT[x.sport] || 'points';
         const key = side === 'home' ? 'homePlayers' : 'awayPlayers';
         const target = (x[key] || [])[playerIdx];
-        const curPts = Number(target?.stats?.[scoreStat] ?? 0);
+        const curPts = Number(target?.stats?.[stat] ?? 0);
         if (curPts <= 0) return x;
         const players = (x[key] || []).map((p, i) => {
           if (i !== playerIdx) return p;
-          return { ...p, stats: { ...(p.stats || {}), [scoreStat]: curPts - 1 } };
+          return { ...p, stats: { ...(p.stats || {}), [stat]: curPts - 1 } };
         });
         const newHome = side === 'home' ? Math.max(0, Number(x.teamScore || 0) - 1) : Number(x.teamScore || 0);
         const newAway = side === 'away' ? Math.max(0, Number(x.opponentScore || 0) - 1) : Number(x.opponentScore || 0);
@@ -2943,7 +3099,7 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
                     <div className={s.mcScoreBtns}>
                       <button className={`${s.mcScoreBtn} ${s.mcScoreBtnSub}`} onClick={() => adjustScore(sc.id, 'home', -1)}>−</button>
                       <button className={s.mcScoreBtn} onClick={() => adjustScore(sc.id, 'home', 1)}>+1</button>
-                      <button className={s.mcScoreBtn} onClick={() => adjustScore(sc.id, 'home', 2)}>+2</button>
+                      {sc.sport !== 'volleyball' && <button className={s.mcScoreBtn} onClick={() => adjustScore(sc.id, 'home', 2)}>+2</button>}
                       {sc.sport === 'basketball' && <button className={s.mcScoreBtn} onClick={() => adjustScore(sc.id, 'home', 3)}>+3</button>}
                     </div>
                     {/* Foul indicator */}
@@ -2960,31 +3116,88 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
                     ); })()}
                   </div>
 
-                  {/* Timer center */}
-                  <div className={s.mcTimerCol}>
-                    <TimerInlineEdit
-                      seconds={sc.timeRemainingSeconds}
-                      className={s.mcTimerDisplay}
-                      onSave={secs => adjustTimer(sc.id, secs)}
-                    />
-                    <div className={s.mcTimerBtns}>
-                      <button className={`${s.mcTimerBtn} ${s.mcTimerBtnGreen}`} disabled={updatingId === sc.id} onClick={() => timerAction(sc.id, 'start')} title="Start / Resume">▶</button>
-                      <button className={s.mcTimerBtn} disabled={updatingId === sc.id} onClick={() => timerAction(sc.id, 'stop')} title="Pause">⏸</button>
-                      <button className={s.mcTimerBtn} disabled={updatingId === sc.id} onClick={() => timerAction(sc.id, 'reset', { timeRemainingSeconds: SPORT_TIMER_SECONDS[sc.sport] || 3600 })} title="Reset full game">⟳</button>
-                    </div>
-                    {sc.sport === 'basketball' && (
-                      <div className={s.mcQtrRow}>
-                        {['Q1','Q2','Q3','Q4','OT'].map(q => (
-                          <button
-                            key={q}
-                            className={`${s.mcQtrBtn} ${sc.scoreData?.quarter === q ? s.mcQtrBtnOn : ''}`}
-                            title={`Set ${q} · resets clock to ${q === 'OT' ? '5:00' : '10:00'}`}
-                            onClick={() => setQuarter(sc.id, sc, q)}
-                          >{q}</button>
-                        ))}
+                  {/* Center: volleyball shows the 5-set scoreboard instead of a game clock
+                     (volleyball is rally-scored, not timed); every other sport keeps the timer. */}
+                  {sc.sport === 'volleyball' ? (
+                    <div className={s.mcTimerCol}>
+                      <TimerInlineEdit
+                        seconds={sc.timeRemainingSeconds}
+                        className={s.mcTimerDisplay}
+                        onSave={secs => adjustTimer(sc.id, secs)}
+                      />
+                      <div className={s.mcTimerBtns}>
+                        <button className={`${s.mcTimerBtn} ${s.mcTimerBtnGreen}`} disabled={updatingId === sc.id} onClick={() => timerAction(sc.id, 'start')} title="Start / Resume set timer">▶</button>
+                        <button className={s.mcTimerBtn} disabled={updatingId === sc.id} onClick={() => timerAction(sc.id, 'stop')} title="Pause">⏸</button>
+                        <button className={s.mcTimerBtn} disabled={updatingId === sc.id} onClick={() => timerAction(sc.id, 'reset', { timeRemainingSeconds: SPORT_TIMER_SECONDS.volleyball || 0 })} title="Reset set timer">⟳</button>
                       </div>
-                    )}
-                  </div>
+                      <div className={s.mcVbSetsGrid}>
+                        {Array.from({ length: VOLLEYBALL_MAX_SETS }).map((_, i) => {
+                          const setNum = i + 1;
+                          const completed = (sc.scoreData?.sets || []).find(st => st.set === setNum);
+                          const currentSetNum = Number(sc.scoreData?.home?.set ?? 1);
+                          const matchDecided = Number(sc.scoreData?.home?.setsWon ?? 0) >= VOLLEYBALL_SETS_TO_WIN_MATCH
+                                             || Number(sc.scoreData?.away?.setsWon ?? 0) >= VOLLEYBALL_SETS_TO_WIN_MATCH;
+                          const isCurrent = !completed && !matchDecided && setNum === currentSetNum;
+                          /* Clicking the next set ends the current one now (higher points wins)
+                             and starts recording this one — only the immediate next set is
+                             reachable, sets can't be skipped ahead of. */
+                          const isClickableNext = !completed && !matchDecided && setNum === currentSetNum + 1 && setNum <= VOLLEYBALL_MAX_SETS;
+                          const homeVal = completed ? completed.home : isCurrent ? Number(sc.teamScore ?? 0) : null;
+                          const awayVal = completed ? completed.away : isCurrent ? Number(sc.opponentScore ?? 0) : null;
+                          return (
+                            <div
+                              key={setNum}
+                              className={`${s.mcVbSetCol} ${isCurrent ? s.mcVbSetColActive : ''} ${isClickableNext ? s.mcVbSetColClickable : ''}`}
+                              title={isClickableNext ? 'Click to end the current set now and start recording this one' : undefined}
+                              onClick={isClickableNext ? () => advanceVolleyballSet(sc.id, sc) : undefined}
+                            >
+                              <div className={s.mcVbSetLabel}>Set {setNum}</div>
+                              <div className={`${s.mcVbSetPts} ${completed?.winner === 'home' ? s.mcVbSetPtsWon : ''}`}>
+                                {homeVal ?? '–'}
+                              </div>
+                              <div className={`${s.mcVbSetPts} ${completed?.winner === 'away' ? s.mcVbSetPtsWon : ''}`}>
+                                {awayVal ?? '–'}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className={s.mcVbPointsToWinRow}>
+                        <span className={s.mcRowLbl}>PTS TO WIN SET</span>
+                        <input
+                          type="number" min="1"
+                          className={s.mcVbPointsInput}
+                          value={Number(sc.scoreData?.pointsToWin ?? VOLLEYBALL_DEFAULT_POINTS_TO_WIN)}
+                          onChange={e => updateVolleyballPointsToWin(sc.id, e.target.value)}
+                          title="Editable — e.g. drop to 15 before the deciding 5th set" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={s.mcTimerCol}>
+                      <TimerInlineEdit
+                        seconds={sc.timeRemainingSeconds}
+                        className={s.mcTimerDisplay}
+                        onSave={secs => adjustTimer(sc.id, secs)}
+                      />
+                      <div className={s.mcTimerBtns}>
+                        <button className={`${s.mcTimerBtn} ${s.mcTimerBtnGreen}`} disabled={updatingId === sc.id} onClick={() => timerAction(sc.id, 'start')} title="Start / Resume">▶</button>
+                        <button className={s.mcTimerBtn} disabled={updatingId === sc.id} onClick={() => timerAction(sc.id, 'stop')} title="Pause">⏸</button>
+                        <button className={s.mcTimerBtn} disabled={updatingId === sc.id} onClick={() => timerAction(sc.id, 'reset', { timeRemainingSeconds: SPORT_TIMER_SECONDS[sc.sport] || 3600 })} title="Reset full game">⟳</button>
+                      </div>
+                      {sc.sport === 'basketball' && (
+                        <div className={s.mcQtrRow}>
+                          {['Q1','Q2','Q3','Q4','OT'].map(q => (
+                            <button
+                              key={q}
+                              className={`${s.mcQtrBtn} ${sc.scoreData?.quarter === q ? s.mcQtrBtnOn : ''}`}
+                              title={`Set ${q} · resets clock to ${q === 'OT' ? '5:00' : '10:00'}`}
+                              onClick={() => setQuarter(sc.id, sc, q)}
+                            >{q}</button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Away team */}
                   <div className={s.mcTeamCol}>
@@ -2999,7 +3212,7 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
                     <div className={s.mcScoreBtns}>
                       <button className={`${s.mcScoreBtn} ${s.mcScoreBtnSub}`} onClick={() => adjustScore(sc.id, 'away', -1)}>−</button>
                       <button className={s.mcScoreBtn} onClick={() => adjustScore(sc.id, 'away', 1)}>+1</button>
-                      <button className={s.mcScoreBtn} onClick={() => adjustScore(sc.id, 'away', 2)}>+2</button>
+                      {sc.sport !== 'volleyball' && <button className={s.mcScoreBtn} onClick={() => adjustScore(sc.id, 'away', 2)}>+2</button>}
                       {sc.sport === 'basketball' && <button className={s.mcScoreBtn} onClick={() => adjustScore(sc.id, 'away', 3)}>+3</button>}
                     </div>
                     {/* Foul indicator */}
@@ -3017,40 +3230,58 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
                   </div>
                 </div>
 
-                {/* ── Fouls + Timeouts ── */}
-                <div className={s.mcCounters}>
-                  <div className={s.mcCountersRow}>
-                    <span className={s.mcRowLbl} />
-                    <span className={s.mcTeamColLbl}>{sc.homeTeam || 'Team A'}</span>
-                    <span className={s.mcTeamColLbl}>{sc.opponentName || 'Team B'}</span>
+                {/* ── Fouls + Timeouts (not applicable to volleyball) ── */}
+                {sc.sport !== 'volleyball' && (
+                  <div className={s.mcCounters}>
+                    <div className={s.mcCountersRow}>
+                      <span className={s.mcRowLbl} />
+                      <span className={s.mcTeamColLbl}>{sc.homeTeam || 'Team A'}</span>
+                      <span className={s.mcTeamColLbl}>{sc.opponentName || 'Team B'}</span>
+                    </div>
+                    <div className={s.mcCountersRow}>
+                      <span className={s.mcRowLbl}>FOULS</span>
+                      <div className={s.mcCounterWidget}>
+                        <button className={s.mcCounterBtn} onClick={() => adjustFouls(sc.id, 'home', -1)}>−</button>
+                        <span className={s.mcCounterNum}>{Number(sc.scoreData?.home?.fouls ?? 0)}</span>
+                        <button className={s.mcCounterBtn} onClick={() => adjustFouls(sc.id, 'home', 1)}>+</button>
+                      </div>
+                      <div className={s.mcCounterWidget}>
+                        <button className={s.mcCounterBtn} onClick={() => adjustFouls(sc.id, 'away', -1)}>−</button>
+                        <span className={s.mcCounterNum}>{Number(sc.scoreData?.away?.fouls ?? 0)}</span>
+                        <button className={s.mcCounterBtn} onClick={() => adjustFouls(sc.id, 'away', 1)}>+</button>
+                      </div>
+                    </div>
+                    <div className={s.mcCountersRow}>
+                      <span className={s.mcRowLbl}>TIMEOUTS</span>
+                      <div className={s.mcCounterWidget}>
+                        <button className={s.mcCounterBtn} onClick={() => adjustTimeouts(sc.id, 'home', -1)}>−</button>
+                        <span className={s.mcCounterNum}>{Number(sc.scoreData?.home?.timeouts ?? 0)}</span>
+                        <button className={s.mcCounterBtn} onClick={() => adjustTimeouts(sc.id, 'home', 1)}>+</button>
+                      </div>
+                      <div className={s.mcCounterWidget}>
+                        <button className={s.mcCounterBtn} onClick={() => adjustTimeouts(sc.id, 'away', -1)}>−</button>
+                        <span className={s.mcCounterNum}>{Number(sc.scoreData?.away?.timeouts ?? 0)}</span>
+                        <button className={s.mcCounterBtn} onClick={() => adjustTimeouts(sc.id, 'away', 1)}>+</button>
+                      </div>
+                    </div>
                   </div>
-                  <div className={s.mcCountersRow}>
-                    <span className={s.mcRowLbl}>FOULS</span>
-                    <div className={s.mcCounterWidget}>
-                      <button className={s.mcCounterBtn} onClick={() => adjustFouls(sc.id, 'home', -1)}>−</button>
-                      <span className={s.mcCounterNum}>{Number(sc.scoreData?.home?.fouls ?? 0)}</span>
-                      <button className={s.mcCounterBtn} onClick={() => adjustFouls(sc.id, 'home', 1)}>+</button>
+                )}
+
+                {/* ── Volleyball: sets-won tally — per-set points now live in the set grid above ── */}
+                {sc.sport === 'volleyball' && (
+                  <div className={s.mcCounters}>
+                    <div className={s.mcCountersRow}>
+                      <span className={s.mcRowLbl} />
+                      <span className={s.mcTeamColLbl}>{sc.homeTeam || 'Team A'}</span>
+                      <span className={s.mcTeamColLbl}>{sc.opponentName || 'Team B'}</span>
                     </div>
-                    <div className={s.mcCounterWidget}>
-                      <button className={s.mcCounterBtn} onClick={() => adjustFouls(sc.id, 'away', -1)}>−</button>
-                      <span className={s.mcCounterNum}>{Number(sc.scoreData?.away?.fouls ?? 0)}</span>
-                      <button className={s.mcCounterBtn} onClick={() => adjustFouls(sc.id, 'away', 1)}>+</button>
-                    </div>
-                  </div>
-                  <div className={s.mcCountersRow}>
-                    <span className={s.mcRowLbl}>TIMEOUTS</span>
-                    <div className={s.mcCounterWidget}>
-                      <button className={s.mcCounterBtn} onClick={() => adjustTimeouts(sc.id, 'home', -1)}>−</button>
-                      <span className={s.mcCounterNum}>{Number(sc.scoreData?.home?.timeouts ?? 0)}</span>
-                      <button className={s.mcCounterBtn} onClick={() => adjustTimeouts(sc.id, 'home', 1)}>+</button>
-                    </div>
-                    <div className={s.mcCounterWidget}>
-                      <button className={s.mcCounterBtn} onClick={() => adjustTimeouts(sc.id, 'away', -1)}>−</button>
-                      <span className={s.mcCounterNum}>{Number(sc.scoreData?.away?.timeouts ?? 0)}</span>
-                      <button className={s.mcCounterBtn} onClick={() => adjustTimeouts(sc.id, 'away', 1)}>+</button>
+                    <div className={s.mcCountersRow}>
+                      <span className={s.mcRowLbl}>SETS WON</span>
+                      <span className={s.mcTeamColLbl}>{Number(sc.scoreData?.home?.setsWon ?? 0)}</span>
+                      <span className={s.mcTeamColLbl}>{Number(sc.scoreData?.away?.setsWon ?? 0)}</span>
                     </div>
                   </div>
-                </div>
+                )}
 
                 {/* ── Player Statistics ── */}
                 {((sc.homePlayers?.length > 0) || (sc.awayPlayers?.length > 0)) && (
@@ -3062,7 +3293,10 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
                       ].map(({ side, label, players }) => {
                         const statFields  = PLAYER_STAT_FIELDS[sc.sport] || ['points'];
                         const scoreStat   = SPORT_SCORE_STAT[sc.sport] || 'points';
-                        const otherStats  = statFields.filter(f => f !== scoreStat);
+                        const isVolleyball = sc.sport === 'volleyball';
+                        /* Volleyball's PT/ATK/BLK are all primary scoring buttons below (each wins a
+                           rally and adds to the team score), so none of them get a secondary +/- counter. */
+                        const otherStats  = isVolleyball ? [] : statFields.filter(f => f !== scoreStat);
                         const scoreBtns   = SPORT_SCORE_BUTTONS[sc.sport] || SPORT_SCORE_BUTTONS.general;
                         return (
                           <div key={side} className={s.mcRosterCol}>
@@ -3084,25 +3318,50 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
                                     <span className={s.mcRosterPlayerName}>{p.name || '—'}</span>
                                   </div>
 
-                                  {/* Score category buttons — right of name */}
-                                  {scoreBtns.map(btn => (
-                                    <button
-                                      key={btn.label}
-                                      className={s.mcScoreValueBtn}
-                                      style={{ background: btn.color, borderColor: btn.color }}
-                                      title={btn.title || btn.label}
-                                      onClick={() => scorePlayerPoints(sc.id, side, idx, btn.value)}>
-                                      {btn.label}
-                                    </button>
-                                  ))}
+                                  {/* Score category buttons — right of name. Volleyball has three
+                                     (PT/ATK/BLK): PT credits the player and adds to the team's set
+                                     score; ATK/BLK (btn.scores === false) are MVP stats only and
+                                     never touch the scoreboard. Other sports keep their single
+                                     always-scoring stat. */}
+                                  {scoreBtns.map(btn => {
+                                    const addsToScore = btn.scores !== false;
+                                    return (
+                                    <span key={btn.label} className={isVolleyball ? s.mcVbScoreGroup : undefined}>
+                                      <button
+                                        className={s.mcScoreValueBtn}
+                                        style={{ background: btn.color, borderColor: btn.color }}
+                                        title={btn.title || btn.label}
+                                        onClick={() => addsToScore
+                                          ? scorePlayerPoints(sc.id, side, idx, btn.value, btn.stat)
+                                          : adjustPlayerStat(sc.id, side, idx, btn.stat, btn.value)}>
+                                        {btn.label}
+                                      </button>
+                                      {isVolleyball && (
+                                        <span className={s.mcVbStatMini} title={`${btn.stat}: ${Number(p.stats?.[btn.stat] ?? 0)}`}>
+                                          {Number(p.stats?.[btn.stat] ?? 0)}
+                                        </span>
+                                      )}
+                                      {isVolleyball && Number(p.stats?.[btn.stat] ?? 0) > 0 && (
+                                        <button
+                                          className={s.mcScoreValueBtnUndo}
+                                          title={`Undo −1 ${btn.label}`}
+                                          onClick={() => addsToScore
+                                            ? undoPlayerPoint(sc.id, side, idx, btn.stat)
+                                            : adjustPlayerStat(sc.id, side, idx, btn.stat, -1)}>
+                                          ↩
+                                        </button>
+                                      )}
+                                    </span>
+                                    );
+                                  })}
 
                                   {/* Running score badge */}
                                   <span className={s.mcPlayerScoreBadge} title={`${scoreStat}: ${scorePts}`}>
                                     {scorePts}
                                   </span>
 
-                                  {/* Undo last point */}
-                                  {scorePts > 0 && (
+                                  {/* Undo last point (non-volleyball — volleyball gets a per-button undo above) */}
+                                  {!isVolleyball && scorePts > 0 && (
                                     <button
                                       className={s.mcScoreValueBtnUndo}
                                       title="Undo −1 point"
@@ -3141,8 +3400,10 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
                   )}
                   {sc.status === 'live' && endingScoreId !== sc.id && (
                     <button className={`${s.btn} ${s.btnDanger} ${s.btnSmall}`} disabled={updatingId === sc.id} onClick={() => {
-                      const home = sc.teamScore ?? 0;
-                      const away = sc.opponentScore ?? 0;
+                      /* Volleyball's match winner is whoever has more sets, not raw points —
+                         team_score/opponent_score only reflect the current/last set in progress. */
+                      const home = sc.sport === 'volleyball' ? Number(sc.scoreData?.home?.setsWon ?? 0) : (sc.teamScore ?? 0);
+                      const away = sc.sport === 'volleyball' ? Number(sc.scoreData?.away?.setsWon ?? 0) : (sc.opponentScore ?? 0);
                       if (home > away) markEnded(sc.id, sc.homeTeam || 'Home');
                       else if (away > home) markEnded(sc.id, sc.opponentName || 'Away');
                       else setEndingScoreId(sc.id); /* tied — manual pick */
@@ -3183,7 +3444,7 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
                 {/* ── MVP Card (shown for ended games) ── */}
                 {sc.status === 'ended' && mvpData[sc.id] && (() => {
                   const mvp = mvpData[sc.id];
-                  const STAT_ORDER = ['PTS','AST','REB','GLS','RUNS','WKTS','TKLS','RAIDS','WIN','BLK'];
+                  const STAT_ORDER = ['PTS','ATK','AST','REB','GLS','RUNS','WKTS','TKLS','RAIDS','WIN','BLK'];
                   const statEntries = Object.entries(mvp.stats || {}).sort(([a],[b]) => {
                     const ai = STAT_ORDER.indexOf(a); const bi = STAT_ORDER.indexOf(b);
                     return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);

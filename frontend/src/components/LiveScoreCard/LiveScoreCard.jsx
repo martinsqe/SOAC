@@ -56,6 +56,10 @@ export default function LiveScoreCard({ ls }) {
     if (hSets != null) { homeDisp = String(hSets); homeSub = `${homeN} pts`; }
     if (aSets != null) { awayDisp = String(aSets); awaySub = `${awayN} pts`; }
     clockLabel = `Set ${ls.scoreData?.home?.set || ls.gameClock || '—'}`;
+    const sets = ls.scoreData?.sets || [];
+    if (sets.length > 0) {
+      centerExtra = <p className={s.lsCtxLine}>{sets.map(st => `${st.home}-${st.away}`).join(', ')}</p>;
+    }
   } else if (ls.sport === 'badminton') {
     const hGames = ls.scoreData?.home?.gamesWon;
     const aGames = ls.scoreData?.away?.gamesWon;

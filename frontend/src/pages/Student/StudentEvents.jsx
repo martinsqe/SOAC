@@ -704,7 +704,7 @@ export default function StudentEvents() {
                     <h3 className={s.fixtureSectionTitle}>Match MVPs</h3>
                     <div className={s.mvpGallery}>
                       {fixtureData.mvps.map((mvp, i) => {
-                        const STAT_ORDER = ['PTS','AST','REB','GLS','RUNS','WKTS','TKLS','RAIDS','WIN','BLK'];
+                        const STAT_ORDER = ['PTS','ATK','AST','REB','GLS','RUNS','WKTS','TKLS','RAIDS','WIN','BLK'];
                         const stats = Object.entries(mvp.stats || {})
                           .sort(([a], [b]) => {
                             const ai = STAT_ORDER.indexOf(a); const bi = STAT_ORDER.indexOf(b);

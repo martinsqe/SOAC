@@ -673,7 +673,7 @@ const DEFAULT_TIMER_SECONDS = {
   cricket: 120 * 60,
   basketball: 40 * 60,
   football: 90 * 60,
-  volleyball: 90 * 60,
+  volleyball: 20 * 60, // per SET, not the whole match — volleyball has no match clock
   badminton: 60 * 60,
 };
 const LIVE_SCORE_SELECT = `id, club_id, sport, match_title, home_team, opponent_name, venue, status,
@@ -945,6 +945,8 @@ const endLiveScore = async (req, res, next) => {
     );
     if (!rows.length) return res.status(404).json({ message: 'Scoreboard not found.' });
 
+    const { home: finalHomeScore, away: finalAwayScore } = computeFinalScore(current);
+
     /* Write winner back to event_fixtures and broadcast bracket update */
     if (winnerName) {
       const broadcastResult = (fixtureId, eventId) => {
@@ -961,14 +963,11 @@ const endLiveScore = async (req, res, next) => {
         if (eventId) bracketEngine.advanceBracket({ eventId, io }).catch(() => {});
       };
 
-      const homeScore = Number(current.team_score     || 0);
-      const awayScore = Number(current.opponent_score || 0);
-
       if (current.fixture_id) {
         /* Explicitly linked fixture — update winner + scores */
         pgPool.query(
           `UPDATE event_fixtures SET winner_name = $1, score_a = $2, score_b = $3 WHERE id = $4::bigint`,
-          [winnerName, homeScore, awayScore, current.fixture_id]
+          [winnerName, finalHomeScore, finalAwayScore, current.fixture_id]
         ).then(() => broadcastResult(current.fixture_id, current.event_id)).catch(() => {});
       } else if (current.home_team && current.opponent_name) {
         /* No fixture link — find by team names and write scores too */
@@ -980,24 +979,28 @@ const endLiveScore = async (req, res, next) => {
           if (fx.length !== 1) return;
           return pgPool.query(
             `UPDATE event_fixtures SET winner_name = $1, score_a = $2, score_b = $3 WHERE id = $4::bigint`,
-            [winnerName, homeScore, awayScore, fx[0].id]
+            [winnerName, finalHomeScore, finalAwayScore, fx[0].id]
           ).then(() => broadcastResult(fx[0].id, fx[0].event_id));
         }).catch(() => {});
       }
     }
 
-    /* Auto-detect MVP: player with highest score stat across both rosters */
+    /* Auto-detect MVP: player with the highest score-impact across both rosters. For most
+       sports that's just the single scoring stat; volleyball's PTS/ATK/BLK are all separate
+       ways to win a rally, so the MVP is ranked by their combined total instead. */
     try {
-      const sport     = current.sport || 'basketball';
-      const scoreStat = SPORT_SCORE_STAT[sport] || 'points';
+      const sport       = current.sport || 'basketball';
+      const scoreStat    = SPORT_SCORE_STAT[sport] || 'points';
+      const impactStats  = MVP_IMPACT_STATS[sport] || [scoreStat];
+      const impactOf     = (p) => impactStats.reduce((sum, k) => sum + Number(p.stats?.[k] ?? 0), 0);
       const allPlayers = [
         ...(current.home_players || []),
         ...(current.away_players || []),
       ].filter(p => p.name);
       if (allPlayers.length) {
         const mvp = allPlayers.reduce((best, p) => {
-          const pv = Number(p.stats?.[scoreStat] ?? 0);
-          const bv = Number(best?.stats?.[scoreStat] ?? -1);
+          const pv = impactOf(p);
+          const bv = best ? impactOf(best) : -1;
           return pv > bv ? p : best;
         }, null);
         if (mvp) {
@@ -1021,7 +1024,7 @@ const endLiveScore = async (req, res, next) => {
             [
               req.params.scoreId, req.params.id, current.event_id,
               mvp.name, JSON.stringify(displayStats),
-              rows[0].team_score, rows[0].opponent_score,
+              finalHomeScore, finalAwayScore,
               rows[0].home_team || 'Home', rows[0].opponent_name || 'Away',
               sport, current.match_title,
             ]
@@ -1099,10 +1102,11 @@ const setMvpPlayer = async (req, res, next) => {
     const displayStats = buildMvpStats(sc.sport || 'basketball', player?.stats || {});
     /* UPSERT — creates the record if auto-detect never ran (e.g. no players were loaded) */
     const { rows: cls } = await pgPool.query(
-      `SELECT event_id, home_team, opponent_name, team_score, opponent_score FROM club_live_scores
-       WHERE id = $1::bigint`, [req.params.scoreId]
+      `SELECT event_id, home_team, opponent_name, team_score, opponent_score, sport, score_data
+       FROM club_live_scores WHERE id = $1::bigint`, [req.params.scoreId]
     );
     const live = cls[0] || {};
+    const { home: finalHomeScore, away: finalAwayScore } = computeFinalScore(live);
     const { rows } = await pgPool.query(
       `INSERT INTO match_mvp
          (score_id, club_id, event_id, player_name, stats,
@@ -1116,7 +1120,7 @@ const setMvpPlayer = async (req, res, next) => {
       [
         req.params.scoreId, req.params.id, live.event_id || null,
         playerName, JSON.stringify(displayStats),
-        live.team_score || 0, live.opponent_score || 0,
+        finalHomeScore, finalAwayScore,
         live.home_team || '', live.opponent_name || '', sc.sport || 'general',
       ]
     );
@@ -1215,9 +1219,16 @@ const MVP_STAT_KEYS = {
   basketball: [['points','PTS'],['assists','AST'],['rebounds','REB'],['blocks','BLK']],
   football:   [['goals','GLS'],['assists','AST'],['yellow_cards','YC']],
   cricket:    [['runs','RUNS'],['wickets','WKTS'],['balls','BALLS']],
-  volleyball: [['points','PTS'],['assists','AST'],['blocks','BLK']],
+  volleyball: [['points','PTS'],['attacks','ATK'],['blocks','BLK']],
   badminton:  [['points','PTS'],['winners','WIN'],['errors','ERR']],
   kabaddi:    [['points','PTS'],['tackles','TKLS'],['raids','RAIDS']],
+};
+
+/* Sports whose MVP is ranked by a combined total of several stats rather than
+   just the single scoring stat — volleyball's points/attacks/blocks are each
+   separate ways to win a rally, so all three count toward match impact. */
+const MVP_IMPACT_STATS = {
+  volleyball: ['points', 'attacks', 'blocks'],
 };
 
 function buildMvpStats(sport, rawStats) {
@@ -1228,6 +1239,24 @@ function buildMvpStats(sport, rawStats) {
     out[label] = v;
   }
   return out;
+}
+
+/* Match's real final score for the record (event_fixtures.score_a/b, match_mvp.home/away_score).
+   Volleyball resets team_score/opponent_score to 0-0 at the start of every set, so once at least
+   one set has been completed, the true final score is sets won (e.g. 3-1) — but if the coordinator
+   ends the game before any set finished (early stoppage/forfeit), score_data.sets is still empty and
+   setsWon would misleadingly read 0-0, so fall back to the in-progress set's raw points instead. */
+function computeFinalScore(row) {
+  if (row.sport === 'volleyball') {
+    const sets = row.score_data?.sets || [];
+    if (sets.length > 0) {
+      return {
+        home: Number(row.score_data?.home?.setsWon || 0),
+        away: Number(row.score_data?.away?.setsWon || 0),
+      };
+    }
+  }
+  return { home: Number(row.team_score || 0), away: Number(row.opponent_score || 0) };
 }
 
 /* Award 62 coins to a player for a scoring action — fire-and-forget */

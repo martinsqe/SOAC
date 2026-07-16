@@ -14,7 +14,7 @@ const DEFAULT_TIMER_SECONDS = {
   cricket: 120 * 60,
   basketball: 40 * 60,
   football: 90 * 60,
-  volleyball: 90 * 60,
+  volleyball: 20 * 60, // per SET, not the whole match — volleyball has no match clock
   badminton: 60 * 60,
 };
 

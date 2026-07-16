@@ -1373,6 +1373,83 @@
   transition: color .12s;
 }
 .mcScoreValueBtnUndo:hover { color: #dc2626; }
+.mcVbScoreGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+}
+.mcVbStatMini {
+  font-size: .68rem;
+  font-weight: 700;
+  color: #6b7280;
+  min-width: 14px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.mcVbPointsInput {
+  width: 54px;
+  padding: 4px 6px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: .78rem;
+  font-weight: 700;
+  color: #111827;
+  text-align: center;
+  font-family: inherit;
+}
+
+/* ── Volleyball 5-set scoreboard — replaces the game-clock timer column ── */
+.mcVbSetsGrid {
+  display: flex;
+  gap: 4px;
+}
+.mcVbSetCol {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  min-width: 34px;
+}
+.mcVbSetColActive {
+  background: #eff6ff;
+  border: 1.5px solid #bfdbfe;
+}
+.mcVbSetColClickable {
+  cursor: pointer;
+  border: 1.5px dashed #d1d5db;
+  transition: background .12s, border-color .12s;
+}
+.mcVbSetColClickable:hover {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+.mcVbSetLabel {
+  font-size: .6rem;
+  font-weight: 800;
+  color: #9ca3af;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+}
+.mcVbSetPts {
+  font-size: .85rem;
+  font-weight: 700;
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+  min-width: 18px;
+  text-align: center;
+}
+.mcVbSetPtsWon {
+  color: #15803d;
+  font-weight: 900;
+}
+.mcVbPointsToWinRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .mcRosterNum {
   font-size: .65rem;
   font-weight: 800;

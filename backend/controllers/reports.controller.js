@@ -171,9 +171,10 @@ const regenerateReport = async (eventId, clubId, userId) => {
       [eventId]
     );
 
-    /* ── Tournament MVP: ranked by combined points + assists + blocks across every
-       match they played (the tournament's most impactful all-round performer),
-       tie-broken by how many matches they were named MVP in. ── */
+    /* ── Tournament MVP: ranked by combined points + assists + blocks + attacks across
+       every match they played (the tournament's most impactful all-round performer;
+       ATK comes from volleyball's attack/kill stat), tie-broken by how many matches
+       they were named MVP in. ── */
     let tournamentMvp = null;
     if (matchMvps.length > 0) {
       const counts = {};
@@ -187,13 +188,15 @@ const regenerateReport = async (eventId, clubId, userId) => {
         const reb = Number(m.stats?.REB ?? 0);
         const stl = Number(m.stats?.STL ?? 0);
         const blk = Number(m.stats?.BLK ?? 0);
+        const atk = Number(m.stats?.ATK ?? 0);
         counts[k].stats.PTS = (counts[k].stats.PTS || 0) + pts;
         counts[k].stats.AST = (counts[k].stats.AST || 0) + ast;
         counts[k].stats.REB = (counts[k].stats.REB || 0) + reb;
         counts[k].stats.STL = (counts[k].stats.STL || 0) + stl;
         counts[k].stats.BLK = (counts[k].stats.BLK || 0) + blk;
+        counts[k].stats.ATK = (counts[k].stats.ATK || 0) + atk;
       }
-      const impact = c => (c.stats.PTS || 0) + (c.stats.AST || 0) + (c.stats.BLK || 0);
+      const impact = c => (c.stats.PTS || 0) + (c.stats.AST || 0) + (c.stats.BLK || 0) + (c.stats.ATK || 0);
       const sorted = Object.values(counts).sort((a, b) => impact(b) - impact(a) || b.wins - a.wins);
       tournamentMvp = sorted[0] || null;
     }
