@@ -7,7 +7,7 @@ const PHOTOS = [
   { url: '/images/i12.png',       label: 'Garba & Classical Fusion — Galore 2026',           span: 'big'  },
   { url: '/images/asset-1.png',   label: 'Classical Dance Performance — Galore 2024'                      },
   { url: '/images/i14.png',       label: 'Inter-Department Football'                                       },
-  { url: '/images/asset-2.png',   label: 'Galore 2025 — Official Event Poster',             span: 'wide' },
+  { url: '/rath.png',   label: 'SOAC Jaganath Ceremony',             span: 'tall' },
   { url: '/images/img4.png',      label: 'Basketball Championship',                          span: 'tall' },
     { url: '/Rasotsav2.png',        label: 'Rasotsav — Men in Traditional Garba Attire',      span: 'big' },
 
@@ -27,7 +27,7 @@ const PHOTOS = [
   { url: '/images/i24.png',       label: 'Table Tennis Championship',                       span: 'tall' },
   { url: '/images/asset-11.png',  label: 'Mime Theatre — Galore Stage Performance'                         },
   { url: '/images/i9.png',        label: 'Campus Life — SOAC Events'                                       },
-  { url: '/images/asset-14.png',  label: 'NCC Cadet Badge Presentation Ceremony',           span: 'tall' },
+  { url: '/rath1.png',  label: 'SOAC Jaganath Ceremony',           span: 'tall' },
   { url: '/images/asset-32.jpeg', label: 'Inter-Department Football Match',                  span: 'wide' },
   { url: '/images/img3.png',      label: 'Art & Imagination Exhibition'                                     },
     { url: '/Rasotsav1.png',        label: 'Rasotsav — Aerial View of RKU Garba Night',       span: 'big' },
