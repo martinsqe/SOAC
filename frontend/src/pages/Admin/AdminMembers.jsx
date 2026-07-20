@@ -1,5 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import s from './AdminMembers.module.css';
@@ -60,7 +59,6 @@ const PAGE_SIZE = 25;
    TAB 1 — Users (admin / coordinator / student account management)
 ═══════════════════════════════════════════════════════════════════════════ */
 function UsersTab({ clubs }) {
-  const navigate = useNavigate();
   const { user: me } = useAuth();
   const [users,      setUsers]      = useState([]);
   const [loading,    setLoading]    = useState(true);
@@ -118,13 +116,25 @@ function UsersTab({ clubs }) {
   };
 
   const roles = ['all', ...Array.from(new Set(users.map(u => u.role)))];
-  const filtered = users.filter(u => {
-    const mr = roleF === 'all' || u.role === roleF;
-    const mq = !search
-      || u.name?.toLowerCase().includes(search.toLowerCase())
-      || u.email?.toLowerCase().includes(search.toLowerCase());
-    return mr && mq;
-  });
+
+  /* Group by role (admin, coordinator, student, other) rather than interleaving them —
+     coordinators and students look alike in a flat list, so keeping each role together
+     makes the table scannable. Search/role-filter still narrow the same grouped list. */
+  const ROLE_ORDER = { admin: 0, coordinator: 1, student: 2 };
+  const filtered = users
+    .filter(u => {
+      const mr = roleF === 'all' || u.role === roleF;
+      const mq = !search
+        || u.name?.toLowerCase().includes(search.toLowerCase())
+        || u.email?.toLowerCase().includes(search.toLowerCase());
+      return mr && mq;
+    })
+    .sort((a, b) => {
+      const ra = ROLE_ORDER[a.role] ?? 99;
+      const rb = ROLE_ORDER[b.role] ?? 99;
+      if (ra !== rb) return ra - rb;
+      return (a.name || '').localeCompare(b.name || '');
+    });
 
   const active       = users.filter(u => u.is_active).length;
   const admins       = users.filter(u => u.role === 'admin').length;
@@ -186,95 +196,6 @@ function UsersTab({ clubs }) {
         </div>
       )}
 
-      {/* Coordinator overview */}
-      {!loading && coordinators.length > 0 && (
-        <div style={{ background:'#fff', border:'1.5px solid #ede9fe', borderRadius:12, marginBottom:24, overflow:'hidden' }}>
-          <div style={{ padding:'16px 20px', background:'linear-gradient(135deg,#f5f3ff,#ede9fe)', borderBottom:'1px solid #ddd6fe', display:'flex', alignItems:'center', justifyContent:'space-between', gap:16 }}>
-            <div>
-              <div style={{ fontSize:13, fontWeight:800, color:'#4c1d95' }}>Club Coordinators</div>
-              <div style={{ fontSize:11, color:'#7c3aed', marginTop:2 }}>{coordinators.length} coordinator{coordinators.length !== 1 ? 's' : ''} across clubs</div>
-            </div>
-            <button
-              onClick={() => navigate('/admin/clubs')}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                fontSize: 12, fontWeight: 700, color: '#fff',
-                padding: '9px 18px',
-                border: 'none',
-                borderRadius: 8,
-                background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
-                boxShadow: '0 4px 14px rgba(109,40,217,.35)',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                transition: 'opacity .18s, transform .18s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.opacity = '.88'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-              onMouseLeave={e => { e.currentTarget.style.opacity = '1';   e.currentTarget.style.transform = 'translateY(0)'; }}
-            >
-              Assign via All Clubs
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
-              </svg>
-            </button>
-          </div>
-          <div style={{ overflowX:'auto' }}>
-            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
-              <thead>
-                <tr style={{ background:'#faf8ff' }}>
-                  {['Coordinator', 'Email', 'Assigned Club', 'Status', ''].map(h => (
-                    <th key={h} style={{ padding:'9px 16px', textAlign:'left', fontWeight:700, color:'#6b7280', fontSize:11, textTransform:'uppercase', letterSpacing:.7, borderBottom:'1px solid #f0eeff' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {coordinators.map((c, i) => {
-                  const assignedClub = clubs.find(cl => String(cl._id) === String(c.managed_club_id));
-                  return (
-                    <tr key={c.id} style={{ borderBottom: i < coordinators.length - 1 ? '1px solid #f5f3ff' : 'none' }}>
-                      <td style={{ padding:'10px 16px' }}>
-                        <div style={{ display:'flex', alignItems:'center', gap:9 }}>
-                          <div style={{ width:30, height:30, borderRadius:'50%', background:`hsl(${(c.name?.charCodeAt(0)||70)*5%360},55%,55%)`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:'#fff', flexShrink:0 }}>
-                            {c.name?.charAt(0)?.toUpperCase() || 'C'}
-                          </div>
-                          <span style={{ fontWeight:600, color:'#111827' }}>{c.name}</span>
-                        </div>
-                      </td>
-                      <td style={{ padding:'10px 16px', color:'#6b7280', fontSize:12 }}>{c.email}</td>
-                      <td style={{ padding:'10px 16px' }}>
-                        {assignedClub
-                          ? <span style={{ background:'#f0fdf4', color:'#15803d', padding:'3px 10px', borderRadius:6, fontSize:12, fontWeight:600 }}>{assignedClub.name}</span>
-                          : <span style={{ color:'#9ca3af', fontSize:12, fontStyle:'italic' }}>Not assigned</span>}
-                      </td>
-                      <td style={{ padding:'10px 16px' }}>
-                        <span style={{ fontSize:11, fontWeight:600, color: c.is_active ? '#007a5e' : '#9ca3af' }}>
-                          {c.is_active ? '● Active' : '○ Inactive'}
-                        </span>
-                      </td>
-                      <td style={{ padding:'10px 16px' }}>
-                        <button
-                          onClick={() => toggleUserActive(c)}
-                          disabled={togglingId === c.id || c.id === me?.id}
-                          title={c.id === me?.id ? "You can't deactivate your own account" : undefined}
-                          style={{
-                            padding:'5px 12px', borderRadius:6, fontSize:11, fontWeight:700, cursor: c.id === me?.id ? 'not-allowed' : 'pointer', whiteSpace:'nowrap',
-                            border: c.is_active ? '1.5px solid #fca5a5' : '1.5px solid #86efac',
-                            background: c.is_active ? '#fff1f2' : '#f0fdf4',
-                            color: c.is_active ? '#dc2626' : '#15803d',
-                            opacity: (togglingId === c.id || c.id === me?.id) ? .5 : 1,
-                          }}
-                        >
-                          {togglingId === c.id ? '…' : (c.is_active ? 'Deactivate' : 'Reactivate')}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
       {/* Filters */}
       <div className={s.filters}>
         <div className={s.searchWrap}>
@@ -312,8 +233,25 @@ function UsersTab({ clubs }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(u => (
-                <tr key={u.id}>
+              {filtered.map((u, i) => {
+                const prevRole   = i > 0 ? filtered[i - 1].role : null;
+                const groupBreak = roleF === 'all' && u.role !== prevRole;
+                return (
+                <Fragment key={u.id}>
+                  {groupBreak && (
+                    <tr key={`hdr-${u.role}`}>
+                      <td colSpan={7} style={{
+                        padding: '9px 16px', fontSize: 11, fontWeight: 800,
+                        letterSpacing: '.06em', textTransform: 'uppercase',
+                        color: ROLE_COLOR[u.role] || '#6b7280',
+                        background: ROLE_BG[u.role] || '#f9f9fb',
+                        borderTop: i > 0 ? '1px solid #eee' : 'none',
+                      }}>
+                        {u.role}s ({users.filter(x => x.role === u.role).length})
+                      </td>
+                    </tr>
+                  )}
+                  <tr key={u.id}>
                   <td data-label=""><div className={s.memberCell}><Avatar name={u.name}/><span className={s.memberName}>{u.name}</span></div></td>
                   <td data-label="Email" className={s.emailCell}>{u.email}</td>
                   <td data-label="Role">
@@ -353,8 +291,10 @@ function UsersTab({ clubs }) {
                       </button>
                     )}
                   </td>
-                </tr>
-              ))}
+                  </tr>
+                </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

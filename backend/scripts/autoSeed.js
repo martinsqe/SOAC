@@ -642,29 +642,47 @@ const autoSeed = async () => {
       )
     `);
 
-    /* ── Migrate existing clubs to 4-category system ─────────────────────── */
+    /* ── One-time data migrations tracker — a migration below runs at most
+          once ever, so it can never clobber an admin's later edits on a
+          subsequent deployment/restart ─────────────────────────────────── */
     await pgPool.query(`
-      UPDATE clubs SET category = 'academic'
-      WHERE category IN ('tech', 'health');
+      CREATE TABLE IF NOT EXISTS seed_migrations (
+        name    TEXT PRIMARY KEY,
+        ran_at  TIMESTAMPTZ DEFAULT NOW()
+      )
     `);
-    await pgPool.query(`
-      UPDATE clubs SET category = 'academic'
-      WHERE category = 'community'
-        AND name != 'The King of 64 — Chess';
-    `);
-    await pgPool.query(`
-      UPDATE clubs SET category = 'sports'
-      WHERE name = 'The King of 64 — Chess';
-    `);
-    await pgPool.query(`
-      UPDATE clubs SET category = 'social'
-      WHERE name = 'SHWET — Rise of Humanity';
-    `);
-    await pgPool.query(`
-      UPDATE clubs SET category = 'academic'
-      WHERE category = 'cultural'
-        AND name NOT IN ('Bumblebeez', 'Soul of Music', 'Kalaraw Club', 'Pictza Club');
-    `);
+    const { rows: [{ exists: categoryMigrationRan }] } = await pgPool.query(
+      `SELECT EXISTS(SELECT 1 FROM seed_migrations WHERE name = 'category_v4_migration') AS exists`
+    );
+
+    /* ── Migrate existing clubs to 4-category system (one-time only) ─────── */
+    if (!categoryMigrationRan) {
+      await pgPool.query(`
+        UPDATE clubs SET category = 'academic'
+        WHERE category IN ('tech', 'health');
+      `);
+      await pgPool.query(`
+        UPDATE clubs SET category = 'academic'
+        WHERE category = 'community'
+          AND name != 'The King of 64 — Chess';
+      `);
+      await pgPool.query(`
+        UPDATE clubs SET category = 'sports'
+        WHERE name = 'The King of 64 — Chess';
+      `);
+      await pgPool.query(`
+        UPDATE clubs SET category = 'social'
+        WHERE name = 'SHWET — Rise of Humanity';
+      `);
+      await pgPool.query(`
+        UPDATE clubs SET category = 'academic'
+        WHERE category = 'cultural'
+          AND name NOT IN ('Bumblebeez', 'Soul of Music', 'Kalaraw Club', 'Pictza Club');
+      `);
+      await pgPool.query(
+        `INSERT INTO seed_migrations (name) VALUES ('category_v4_migration') ON CONFLICT DO NOTHING`
+      );
+    }
 
     /* ── Load excluded slugs once ────────────────────────────────────────── */
     const { rows: excludedRows } = await pgPool.query('SELECT slug FROM seed_exclusions');
@@ -692,7 +710,6 @@ const autoSeed = async () => {
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,true)
            ON CONFLICT (slug) DO UPDATE SET
              is_active    = true,
-             category     = EXCLUDED.category,
              color        = COALESCE(NULLIF(clubs.color, ''),        EXCLUDED.color),
              logo         = COALESCE(NULLIF(clubs.logo, ''),         EXCLUDED.logo),
              coordinator  = COALESCE(NULLIF(clubs.coordinator, ''),  EXCLUDED.coordinator),
