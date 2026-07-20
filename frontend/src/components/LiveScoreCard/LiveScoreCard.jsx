@@ -1,7 +1,7 @@
 import { SPORT_CFG, teamAbbr, fmtClock } from '../../lib/sportsScores';
 import s from './LiveScoreCard.module.css';
 
-export default function LiveScoreCard({ ls }) {
+export default function LiveScoreCard({ ls, onViewStats }) {
   const cfg = SPORT_CFG[ls.sport] || { color: '#6b7280', bg: '#f3f4f6', label: ls.sport };
   const clockStr = fmtClock(ls.timeRemainingSeconds);
   const homeN = Number(ls.teamScore ?? 0);
@@ -51,11 +51,16 @@ export default function LiveScoreCard({ ls }) {
     const poss = ls.scoreData?.home?.possession;
     if (poss) centerExtra = <p className={s.lsCtxLine}>Poss {poss}%</p>;
   } else if (ls.sport === 'volleyball') {
-    const hSets = ls.scoreData?.home?.setsWon;
-    const aSets = ls.scoreData?.away?.setsWon;
-    if (hSets != null) { homeDisp = String(hSets); homeSub = `${homeN} pts`; }
-    if (aSets != null) { awayDisp = String(aSets); awaySub = `${awayN} pts`; }
-    clockLabel = `Set ${ls.scoreData?.home?.set || ls.gameClock || '—'}`;
+    // Big number = current set rally points (what coordinator sees: 03 vs 00)
+    // Subtitle = sets won (e.g. "1 set" / "0 sets")
+    homeDisp = String(homeN);
+    awayDisp = String(awayN);
+    const hSets = ls.scoreData?.home?.setsWon ?? 0;
+    const aSets = ls.scoreData?.away?.setsWon ?? 0;
+    const setNum = ls.scoreData?.home?.set || 1;
+    clockLabel = `Set ${setNum}`;
+    homeSub = `${hSets} set${hSets !== 1 ? 's' : ''} won`;
+    awaySub = `${aSets} set${aSets !== 1 ? 's' : ''} won`;
     const sets = ls.scoreData?.sets || [];
     if (sets.length > 0) {
       centerExtra = <p className={s.lsCtxLine}>{sets.map(st => `${st.home}-${st.away}`).join(', ')}</p>;
@@ -121,6 +126,11 @@ export default function LiveScoreCard({ ls }) {
           </span>
         ) : (
           <span className={s.lsFooterLeft}>{isLive ? 'Ongoing' : 'Final'}</span>
+        )}
+        {(ls.homePlayers?.length > 0 || ls.awayPlayers?.length > 0) && onViewStats && (
+          <button type="button" className={s.srStatsBtn} onClick={() => onViewStats(ls)}>
+            View player stats →
+          </button>
         )}
       </footer>
     </article>

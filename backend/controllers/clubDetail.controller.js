@@ -1363,6 +1363,8 @@ const emitScoreUpdate = (req, scoreId, payload) => {
   if (!io) return;
   io.to(`match:${scoreId}`).emit('basketball:score:update', payload);
   io.emit('basketball:live:update', { scoreId, updatedAt: new Date().toISOString() });
+  io.to(`match:${scoreId}`).emit('match:score:update', payload);
+  io.emit('match:live:update', { scoreId, updatedAt: new Date().toISOString() });
 };
 
 const deriveBasketball = (score, events) => {

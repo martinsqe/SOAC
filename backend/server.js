@@ -40,7 +40,10 @@ app.set('io', io);
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
   if (!token) {
-    return next(new Error('No token provided'));
+    // Allow unauthenticated (guest) connections — they can receive
+    // public broadcast events like match:live:update / basketball:live:update
+    socket.userId = null;
+    return next();
   }
   
   try {
@@ -55,7 +58,9 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
-  console.log(`Socket connected: ${socket.userId} (${socket.id})`);
+  if (socket.userId) {
+    console.log(`Socket connected: ${socket.userId} (${socket.id})`);
+  }
   
   socket.on('basketball:join', ({ scoreId }) => {
     if (!scoreId) return;
@@ -67,7 +72,9 @@ io.on('connection', (socket) => {
   });
   
   socket.on('disconnect', () => {
-    console.log(`Socket disconnected: ${socket.userId}`);
+    if (socket.userId) {
+      console.log(`Socket disconnected: ${socket.userId}`);
+    }
   });
 });
 

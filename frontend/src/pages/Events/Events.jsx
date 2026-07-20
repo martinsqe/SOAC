@@ -751,13 +751,24 @@ const Events = () => {
                     const w = winner(g);
                     const homeName = g.homeTeam || g.clubName || 'Home';
                     const hasStats = (g.homePlayers?.length > 0) || (g.awayPlayers?.length > 0);
+                    
+                    let homeDisp = g.teamScore;
+                    let awayDisp = g.opponentScore;
+                    if (g.sport === 'volleyball') {
+                      homeDisp = g.scoreData?.home?.setsWon ?? g.teamScore;
+                      awayDisp = g.scoreData?.away?.setsWon ?? g.opponentScore;
+                    } else if (g.sport === 'badminton') {
+                      homeDisp = g.scoreData?.home?.gamesWon ?? g.teamScore;
+                      awayDisp = g.scoreData?.away?.gamesWon ?? g.opponentScore;
+                    }
+
                     return (
                       <details key={g.id} className={styles.pastAccordionItem} style={{ borderLeftColor: cfg.color }}>
                         <summary className={styles.pastAccordionSummary}>
                           <span className={styles.pastAccSport} style={{ background: cfg.bg, color: cfg.color }}>{cfg.label}</span>
                           <span className={styles.pastAccTitle}>{g.matchTitle || `${homeName} vs ${g.opponentName || 'Away'}`}</span>
                           <span className={styles.pastAccScore}>
-                            <strong>{g.teamScore}</strong> – <strong>{g.opponentScore}</strong>
+                            <strong>{homeDisp}</strong> – <strong>{awayDisp}</strong>
                           </span>
                           <span className={styles.pastAccDate}>{fmtDate(g.endedAt || g.updatedAt)}</span>
                         </summary>
@@ -765,9 +776,9 @@ const Events = () => {
                           {g.venue && <p className={styles.pastAccVenue}>📍 {g.venue}</p>}
                           {g.clubName && <p className={styles.pastAccClub}>Club: {g.clubName}</p>}
                           <div className={styles.pastAccTeams}>
-                            <span className={w === 'home' ? styles.pastAccWin : ''}>{homeName}: {g.teamScore}{w === 'home' ? ' 🏆' : ''}</span>
+                            <span className={w === 'home' ? styles.pastAccWin : ''}>{homeName}: {homeDisp}{w === 'home' ? ' 🏆' : ''}</span>
                             <span>vs</span>
-                            <span className={w === 'away' ? styles.pastAccWin : ''}>{g.opponentName || 'Away'}: {g.opponentScore}{w === 'away' ? ' 🏆' : ''}</span>
+                            <span className={w === 'away' ? styles.pastAccWin : ''}>{g.opponentName || 'Away'}: {awayDisp}{w === 'away' ? ' 🏆' : ''}</span>
                           </div>
                           {w === 'draw' && <span className={styles.srDrawTag}>Draw</span>}
                           {hasStats && (

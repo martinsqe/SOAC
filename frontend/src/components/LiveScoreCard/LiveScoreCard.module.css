@@ -116,6 +116,21 @@
 .lsFooterLeft { font-size: 0.78rem; color: #6b7280; font-weight: 600; text-transform: capitalize; }
 .lsLastPlay { font-size: 0.78rem; color: #374151; font-weight: 700; text-transform: capitalize; }
 
+.srStatsBtn {
+  background: #111827;
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  padding: 8px 20px;
+  font-size: .78rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  transition: background .15s, transform .12s;
+  white-space: nowrap;
+  letter-spacing: .2px;
+}
+.srStatsBtn:hover { background: #374151; transform: translateY(-1px); }
 @media (max-width: 560px) {
   .lsBody { padding: 16px 14px; gap: 6px; }
   .lsBigScore { font-size: 2rem; min-width: 36px; }

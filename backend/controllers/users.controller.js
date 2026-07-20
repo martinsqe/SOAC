@@ -104,6 +104,9 @@ const create = async (req, res, next) => {
 const update = async (req, res, next) => {
   try {
     const { name, role, is_active } = req.body;
+    if (is_active === false && Number(req.params.id) === req.user.id) {
+      return res.status(400).json({ message: 'You cannot deactivate your own account.' });
+    }
     const { rows } = await pgPool.query(
       `UPDATE users
        SET name      = COALESCE($1, name),

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
 import s from './AdminMembers.module.css';
 
 /* ── constants ── */
@@ -60,6 +61,7 @@ const PAGE_SIZE = 25;
 ═══════════════════════════════════════════════════════════════════════════ */
 function UsersTab({ clubs }) {
   const navigate = useNavigate();
+  const { user: me } = useAuth();
   const [users,      setUsers]      = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [search,     setSearch]     = useState('');
@@ -69,6 +71,7 @@ function UsersTab({ clubs }) {
   const [assignClub, setAssignClub] = useState('');
   const [assigning,  setAssigning]  = useState(false);
   const [toast,      setToast]      = useState('');
+  const [togglingId, setTogglingId] = useState(null);
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
@@ -94,6 +97,23 @@ function UsersTab({ clubs }) {
       showToast(`Error: ${err.message}`);
     } finally {
       setAssigning(false);
+    }
+  };
+
+  /* Activate/deactivate any account (coordinators included) — flips users.is_active via
+     the same admin endpoint used for role/name edits, so it can be reversed either way. */
+  const toggleUserActive = async (u) => {
+    const activating = !u.is_active;
+    if (!activating && !window.confirm(`Deactivate ${u.name}'s account? They will not be able to log in until reactivated.`)) return;
+    setTogglingId(u.id);
+    try {
+      await api.put(`/users/${u.id}`, { is_active: activating });
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, is_active: activating } : x));
+      showToast(activating ? `${u.name} reactivated` : `${u.name} deactivated`);
+    } catch (err) {
+      showToast(`Error: ${err.message}`);
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -201,7 +221,7 @@ function UsersTab({ clubs }) {
             <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
               <thead>
                 <tr style={{ background:'#faf8ff' }}>
-                  {['Coordinator', 'Email', 'Assigned Club', 'Status'].map(h => (
+                  {['Coordinator', 'Email', 'Assigned Club', 'Status', ''].map(h => (
                     <th key={h} style={{ padding:'9px 16px', textAlign:'left', fontWeight:700, color:'#6b7280', fontSize:11, textTransform:'uppercase', letterSpacing:.7, borderBottom:'1px solid #f0eeff' }}>{h}</th>
                   ))}
                 </tr>
@@ -229,6 +249,22 @@ function UsersTab({ clubs }) {
                         <span style={{ fontSize:11, fontWeight:600, color: c.is_active ? '#007a5e' : '#9ca3af' }}>
                           {c.is_active ? '● Active' : '○ Inactive'}
                         </span>
+                      </td>
+                      <td style={{ padding:'10px 16px' }}>
+                        <button
+                          onClick={() => toggleUserActive(c)}
+                          disabled={togglingId === c.id || c.id === me?.id}
+                          title={c.id === me?.id ? "You can't deactivate your own account" : undefined}
+                          style={{
+                            padding:'5px 12px', borderRadius:6, fontSize:11, fontWeight:700, cursor: c.id === me?.id ? 'not-allowed' : 'pointer', whiteSpace:'nowrap',
+                            border: c.is_active ? '1.5px solid #fca5a5' : '1.5px solid #86efac',
+                            background: c.is_active ? '#fff1f2' : '#f0fdf4',
+                            color: c.is_active ? '#dc2626' : '#15803d',
+                            opacity: (togglingId === c.id || c.id === me?.id) ? .5 : 1,
+                          }}
+                        >
+                          {togglingId === c.id ? '…' : (c.is_active ? 'Deactivate' : 'Reactivate')}
+                        </button>
                       </td>
                     </tr>
                   );
@@ -272,7 +308,7 @@ function UsersTab({ clubs }) {
           <table className={s.table}>
             <thead>
               <tr>
-                <th>Member</th><th>Email</th><th>Role</th><th>Assigned Club</th><th>Status</th><th>Last Login</th>
+                <th>Member</th><th>Email</th><th>Role</th><th>Assigned Club</th><th>Status</th><th>Last Login</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -298,6 +334,25 @@ function UsersTab({ clubs }) {
                   </td>
                   <td data-label="Status"><span className={s.statusDot} style={{ color: u.is_active ? '#007a5e' : '#9ca3af' }}>{u.is_active ? '● Active' : '○ Inactive'}</span></td>
                   <td data-label="Login" className={s.muted}>{timeAgo(u.last_login)}</td>
+                  <td data-label="">
+                    {u.role === 'admin' && u.id === me?.id ? (
+                      <span className={s.muted}>—</span>
+                    ) : (
+                      <button
+                        onClick={() => toggleUserActive(u)}
+                        disabled={togglingId === u.id}
+                        style={{
+                          padding:'5px 12px', borderRadius:6, fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap',
+                          border: u.is_active ? '1.5px solid #fca5a5' : '1.5px solid #86efac',
+                          background: u.is_active ? '#fff1f2' : '#f0fdf4',
+                          color: u.is_active ? '#dc2626' : '#15803d',
+                          opacity: togglingId === u.id ? .5 : 1,
+                        }}
+                      >
+                        {togglingId === u.id ? '…' : (u.is_active ? 'Deactivate' : 'Reactivate')}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -323,6 +378,28 @@ function ClubMembersTab({ clubs }) {
   const [year,    setYear]    = useState('');
   const [page,    setPage]    = useState(1);
   const [detail,  setDetail]  = useState(null);
+  const [togglingId, setTogglingId] = useState(null);
+
+  /* Deactivate/reactivate a student's membership in a specific club — same action a
+     coordinator has for their own club, exposed here for admins across every club. The
+     student_clubs row is never deleted; joined/deactivated dates stay on record either way. */
+  const toggleActive = async (member) => {
+    const activating = member.membershipActive === false;
+    if (!activating && !window.confirm(`Deactivate ${member.name}'s membership in ${member.club_name}? They can rejoin later, and this frees a slot toward their 3-club limit.`)) return;
+    setTogglingId(`${member.club_id}-${member.id}`);
+    try {
+      const d = await api.patch(`/clubs/${member.club_id}/members/${member.id}/toggle-active`);
+      const patch = m => (m.id === member.id && m.club_id === member.club_id)
+        ? { ...m, membershipActive: d.membershipActive, deactivatedAt: d.deactivatedAt }
+        : m;
+      setMembers(prev => prev.map(patch));
+      setDetail(prev => prev && prev.id === member.id ? patch(prev) : prev);
+    } catch (err) {
+      setError(err.message || 'Failed to update member status.');
+    } finally {
+      setTogglingId(null);
+    }
+  };
 
   /* option lists built from first load */
   const [deptOpts, setDeptOpts] = useState([]);
@@ -476,6 +553,8 @@ function ClubMembersTab({ clubs }) {
                 <th>Gender</th>
                 <th>Club</th>
                 <th>Joined</th>
+                <th>Status</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -518,6 +597,26 @@ function ClubMembersTab({ clubs }) {
                     </span>
                   </td>
                   <td data-label="Joined" className={s.muted} style={{ whiteSpace:'nowrap' }}>{fmtDate(m.joined_at)}</td>
+                  <td data-label="Status">
+                    {m.membershipActive === false
+                      ? <span style={{ background:'#fef2f2', color:'#b91c1c', padding:'2px 9px', borderRadius:6, fontSize:'.78rem', fontWeight:600, whiteSpace:'nowrap' }}>Deactivated</span>
+                      : <span style={{ background:'#f0fdf4', color:'#15803d', padding:'2px 9px', borderRadius:6, fontSize:'.78rem', fontWeight:600, whiteSpace:'nowrap' }}>Active</span>}
+                  </td>
+                  <td data-label="" onClick={e => e.stopPropagation()}>
+                    <button
+                      onClick={() => toggleActive(m)}
+                      disabled={togglingId === `${m.club_id}-${m.id}`}
+                      style={{
+                        padding:'5px 12px', borderRadius:6, fontSize:'.75rem', fontWeight:700, cursor:'pointer', whiteSpace:'nowrap',
+                        border: m.membershipActive === false ? '1.5px solid #86efac' : '1.5px solid #fca5a5',
+                        background: m.membershipActive === false ? '#f0fdf4' : '#fff1f2',
+                        color: m.membershipActive === false ? '#15803d' : '#dc2626',
+                        opacity: togglingId === `${m.club_id}-${m.id}` ? .6 : 1,
+                      }}
+                    >
+                      {togglingId === `${m.club_id}-${m.id}` ? '…' : (m.membershipActive === false ? 'Reactivate' : 'Deactivate')}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -583,12 +682,28 @@ function ClubMembersTab({ clubs }) {
                 { label:'Gender',        value: detail.gender       || '—' },
                 { label:'Club',          value: detail.club_name    || '—' },
                 { label:'Joined',        value: fmtDate(detail.joined_at) },
+                { label:'Status',        value: detail.membershipActive === false ? `Deactivated ${fmtDate(detail.deactivatedAt)}` : 'Active' },
               ].map(({ label, value, mono }) => (
                 <div key={label}>
                   <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:3 }}>{label}</div>
                   <div style={{ fontSize:14, fontWeight:600, color:'#0f0a2e', fontFamily: mono ? 'monospace' : 'inherit' }}>{value}</div>
                 </div>
               ))}
+              <div style={{ gridColumn:'1 / -1' }}>
+                <button
+                  onClick={() => toggleActive(detail)}
+                  disabled={togglingId === `${detail.club_id}-${detail.id}`}
+                  style={{
+                    width:'100%', padding:10, borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer',
+                    border: detail.membershipActive === false ? '1.5px solid #86efac' : '1.5px solid #fca5a5',
+                    background: detail.membershipActive === false ? '#f0fdf4' : '#fff1f2',
+                    color: detail.membershipActive === false ? '#15803d' : '#dc2626',
+                    opacity: togglingId === `${detail.club_id}-${detail.id}` ? .6 : 1,
+                  }}
+                >
+                  {togglingId === `${detail.club_id}-${detail.id}` ? 'Working…' : (detail.membershipActive === false ? '✓ Reactivate Membership' : '✕ Deactivate Membership')}
+                </button>
+              </div>
               {detail.message && (
                 <div style={{ gridColumn:'1 / -1' }}>
                   <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:3 }}>Join Message</div>

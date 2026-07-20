@@ -498,6 +498,8 @@ const getAllMembers = async (req, res, next) => {
          sc.club_id,
          sc.club_name,
          sc.joined_at,
+         sc.is_active       AS "membershipActive",
+         sc.deactivated_at  AS "deactivatedAt",
          u.name,
          u.email,
          u.is_active,
@@ -547,7 +549,7 @@ const toggleMemberActive = async (req, res, next) => {
       `UPDATE student_clubs
        SET is_active      = NOT is_active,
            deactivated_at = CASE WHEN is_active THEN NOW() ELSE NULL END,
-           deactivated_by = CASE WHEN is_active THEN $3 ELSE NULL END
+           deactivated_by = CASE WHEN is_active THEN $3::int ELSE NULL END
        WHERE club_id = $1::bigint AND user_id = $2::int
        RETURNING user_id, club_id, is_active, deactivated_at`,
       [req.params.id, req.params.userId, req.user.id]
