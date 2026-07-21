@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'; // useCallback used below
 import api from '../../api/client';
+import { fetchAllPages } from '../../utils/pagination';
 import s from './AdminEvents.module.css';
 
 const CATS   = ['tech','sports','cultural','annual-fest','health','leadership','community','general'];
@@ -271,8 +272,8 @@ export default function AdminEvents() {
     setRegs([]);
     setRegSearch('');
     setRegsLoading(true);
-    api.get(`/events/${ev._id}/registrations`)
-      .then(d => setRegs(d.registrations || []))
+    fetchAllPages(`/events/${ev._id}/registrations`, 'registrations')
+      .then(({ items }) => setRegs(items))
       .catch(() => setRegs([]))
       .finally(() => setRegsLoading(false));
   };

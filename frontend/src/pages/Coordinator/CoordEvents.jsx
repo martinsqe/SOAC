@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useCoordClub } from '../../context/CoordClubContext';
 import api from '../../api/client';
+import { fetchAllPages } from '../../utils/pagination';
 import { getSocket } from '../../realtime/socket';
 import s from './CoordSubPage.module.css';
 import es from './CoordEvents.module.css';
@@ -328,8 +329,8 @@ export default function CoordEvents() {
     setRegsLoading(true);
     setTeamsLoading(true);
     setGroupsLoading(true);
-    api.get(`/events/${ev._id}/registrations`)
-      .then(d => setRegs(d.registrations || []))
+    fetchAllPages(`/events/${ev._id}/registrations`, 'registrations')
+      .then(({ items }) => setRegs(items))
       .catch(() => setRegs([]))
       .finally(() => setRegsLoading(false));
     api.get(`/events/${ev._id}/teams`)
@@ -490,8 +491,8 @@ export default function CoordEvents() {
     /* Admin corrected a registrant's details — re-fetch so the list reflects it live. */
     const onRegUpdated = ({ eventId }) => {
       if (String(regEvent._id) !== String(eventId)) return;
-      api.get(`/events/${regEvent._id}/registrations`)
-        .then(d => setRegs(d.registrations || []))
+      fetchAllPages(`/events/${regEvent._id}/registrations`, 'registrations')
+        .then(({ items }) => setRegs(items))
         .catch(() => {});
     };
     socket.on('bracket:result:updated', onResult);
