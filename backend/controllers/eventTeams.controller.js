@@ -60,10 +60,13 @@ async function awardEventParticipationCoins(eventId, teamId, teamName) {
 }
 
 /* Emails every team member (at their registration email) their own group + team +
-   teammates once a coordinator declares groups/teams/fixtures for a division — fire-and-
-   forget, applies to any sports-category club. Deliberately per-recipient try/catch so one
-   bad address never blocks the rest of the team from being notified. */
+   teammates once a coordinator declares groups/teams/fixtures for a division — applies to
+   any sports-category club. Deliberately per-recipient try/catch so one bad address never
+   blocks the rest of the team from being notified. Awaited (not fire-and-forget) by the
+   caller and returns a summary so the coordinator UI can show exactly what happened instead
+   of silently reporting success when zero emails actually went out. */
 async function notifyTeamAssignments(eventId, division) {
+  const summary = { attempted: 0, sent: 0, failed: 0, reason: null };
   try {
     const { rows: evRows } = await pgPool.query(
       `SELECT e.title, c.category
@@ -71,7 +74,8 @@ async function notifyTeamAssignments(eventId, division) {
        WHERE e.id = $1::bigint`,
       [eventId]
     );
-    if (!evRows.length || evRows[0].category !== 'sports') return;
+    if (!evRows.length) { summary.reason = 'event_not_found'; return summary; }
+    if (evRows[0].category !== 'sports') { summary.reason = 'not_sports'; return summary; }
     const eventTitle = evRows[0].title;
 
     const { rows } = await pgPool.query(
@@ -85,7 +89,7 @@ async function notifyTeamAssignments(eventId, division) {
        WHERE t.event_id = $1::bigint AND t.division = $2`,
       [eventId, division]
     );
-    if (!rows.length) return;
+    if (!rows.length) { summary.reason = 'no_members'; return summary; }
 
     const teams = {};
     for (const r of rows) {
@@ -100,6 +104,7 @@ async function notifyTeamAssignments(eventId, division) {
       const teammateNames = team.members.map(m => m.name);
       for (const m of team.members) {
         if (!m.email) continue;
+        summary.attempted++;
         sendJobs.push(
           sendTeamAssignment({
             toEmail:  m.email,
@@ -109,14 +114,23 @@ async function notifyTeamAssignments(eventId, division) {
             groupName: team.groupName,
             teamName:  team.teamName,
             teammates: teammateNames,
-          }).catch(err => console.error(`[notifyTeamAssignments] failed for ${m.email}:`, err.message))
+          }).then(
+            () => { summary.sent++; },
+            (err) => {
+              summary.failed++;
+              console.error(`[notifyTeamAssignments] failed for ${m.email}:`, err.message);
+            }
+          )
         );
       }
     }
     await Promise.allSettled(sendJobs);
+    if (summary.attempted === 0) summary.reason = 'no_emails_on_file';
   } catch (e) {
     console.error('[notifyTeamAssignments] error:', e.message);
+    summary.reason = 'error';
   }
+  return summary;
 }
 
 /* Ensure fixtures table exists with result columns */
@@ -512,8 +526,12 @@ const saveAndDeclare = async (req, res, next) => {
     ]).catch(() => {});
 
     autoRefreshReportIfExists(req.params.id).catch(() => {});
-    notifyTeamAssignments(req.params.id, division).catch(() => {});
-    res.json({ message: 'Fixtures saved and declared.' });
+
+    /* Awaited (not fire-and-forget) so the coordinator's toast can reflect whether
+       notification emails actually went out for THIS division, instead of always
+       claiming success while emails silently fail to send in the background. */
+    const notify = await notifyTeamAssignments(req.params.id, division);
+    res.json({ message: 'Fixtures saved and declared.', notify });
   } catch (err) {
     await pgClient.query('ROLLBACK').catch(() => {});
     next(err);

@@ -539,10 +539,22 @@ export default function CoordEvents() {
       const flatForDivision = fixturesByDiv[division].flatMap(g =>
         g.matches.map(m => ({ teamA: m.teamA, teamB: m.teamB, time: m.time, round: m.round, date: g.date, venue: g.venue }))
       );
-      await api.post(`/events/${regEvent._id}/fixtures/save-declare`, { fixtures: flatForDivision, division });
+      const { notify } = await api.post(`/events/${regEvent._id}/fixtures/save-declare`, { fixtures: flatForDivision, division });
       setFixturesDeclared(true);
       setEvents(prev => prev.map(e => e._id === regEvent._id ? { ...e, fixturesDeclared: true } : e));
-      showToast(`${DIVISION_LABEL[division]} fixtures saved and declared to students!`);
+
+      const label = DIVISION_LABEL[division];
+      if (notify?.reason === 'no_members') {
+        showToast(`${label} fixtures declared, but no players are assigned to any ${label.toLowerCase()} team yet — no emails were sent. Add players in the Teams tab first.`, 'err');
+      } else if (notify?.attempted > 0 && notify.sent === 0) {
+        showToast(`${label} fixtures declared, but all ${notify.attempted} email${notify.attempted !== 1 ? 's' : ''} failed to send. Check the email service.`, 'err');
+      } else if (notify?.failed > 0) {
+        showToast(`${label} fixtures declared — ${notify.sent} email${notify.sent !== 1 ? 's' : ''} sent, ${notify.failed} failed.`, 'err');
+      } else if (notify?.sent > 0) {
+        showToast(`${label} fixtures saved and declared — ${notify.sent} email${notify.sent !== 1 ? 's' : ''} sent to students.`);
+      } else {
+        showToast(`${label} fixtures saved and declared to students!`);
+      }
     } catch (err) {
       showToast(err.message || 'Failed to save fixtures.', 'err');
     } finally {
