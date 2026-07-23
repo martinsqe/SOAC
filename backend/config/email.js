@@ -43,6 +43,14 @@ function getGmailTransport() {
         connectionTimeout: 10000,
         greetingTimeout:   10000,
         socketTimeout:     15000,
+        /* Gmail rejects/drops connections once too many open at once from the
+           same account — pool + a conservative rate cap keeps bulk sends
+           (team-assignment emails, broadcasts) from tripping that limit. */
+        pool:          true,
+        maxConnections: 3,
+        maxMessages:    100,
+        rateDelta:      1000,
+        rateLimit:      3,
       }),
       from: process.env.EMAIL_FROM || `SOAC RKU <${gmailUser}>`,
     };
@@ -57,13 +65,57 @@ if (process.env.RESEND_API_KEY) {
   console.log('✉️  Email provider: Gmail SMTP (fallback)');
 }
 
-/* ── Shared send wrapper ─────────────────────────────────────────────────── */
-async function send({ to, subject, html }) {
+/* ── Concurrency-limited, retrying send queue ────────────────────────────────
+   Both providers reject/drop requests once too many go out at once (Resend's
+   free-tier rate limit; Gmail's per-account concurrent-connection limit).
+   Without this, bulk sends (e.g. team-assignment emails to 50+ students at
+   once) blast every request in parallel via Promise.allSettled — the first
+   few succeed and the provider starts rejecting the rest outright. Capping
+   concurrency and retrying transient failures keeps the whole batch delivering
+   instead of silently failing past the first handful. */
+const MAX_CONCURRENT_SENDS = 2; // Resend's free tier is ~2 req/s; stay under it even when responses come back fast
+const MAX_SEND_RETRIES     = 3; // 500ms, 1500ms, 4500ms backoff — rides out short-lived 429s
+let _activeSends = 0;
+const _sendQueue = [];
+
+function _acquireSendSlot() {
+  if (_activeSends < MAX_CONCURRENT_SENDS) {
+    _activeSends++;
+    return Promise.resolve();
+  }
+  return new Promise(resolve => _sendQueue.push(resolve));
+}
+function _releaseSendSlot() {
+  _activeSends--;
+  const next = _sendQueue.shift();
+  if (next) { _activeSends++; next(); }
+}
+const _wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function _sendOnce({ to, subject, html }) {
   if (process.env.RESEND_API_KEY) {
     await sendViaResend({ to, subject, html });
   } else {
     const { transport, from } = getGmailTransport();
     await transport.sendMail({ from, to, subject, html });
+  }
+}
+
+/* ── Shared send wrapper ─────────────────────────────────────────────────── */
+async function send({ to, subject, html }) {
+  await _acquireSendSlot();
+  try {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await _sendOnce({ to, subject, html });
+        return;
+      } catch (err) {
+        if (attempt >= MAX_SEND_RETRIES) throw err;
+        await _wait(500 * 3 ** attempt); // 500ms, then 1500ms
+      }
+    }
+  } finally {
+    _releaseSendSlot();
   }
 }
 
