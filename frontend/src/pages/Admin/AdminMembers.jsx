@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, Fragment } from 'react';
 import api from '../../api/client';
+import { fetchAllPages } from '../../utils/pagination';
 import { useAuth } from '../../context/AuthContext';
 import s from './AdminMembers.module.css';
 
@@ -75,8 +76,8 @@ function UsersTab({ clubs }) {
 
   const loadUsers = useCallback(() => {
     setLoading(true);
-    api.get('/users')
-      .then(d => setUsers(d.users || []))
+    fetchAllPages('/users', 'users')
+      .then(({ items }) => setUsers(items))
       .catch(() => setError('Failed to load users.'))
       .finally(() => setLoading(false));
   }, []);
@@ -268,6 +269,16 @@ function UsersTab({ clubs }) {
                           {u.managed_club_id ? 'Change' : 'Assign'}
                         </button>
                       </div>
+                    ) : u.role === 'student' ? (
+                      u.clubs?.length > 0 ? (
+                        <div style={{ display:'flex', flexWrap:'wrap', gap:5, justifyContent:'flex-end' }}>
+                          {u.clubs.map(c => (
+                            <span key={c.id} style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:6, background:'#faf5ff', color:'#7c3aed', whiteSpace:'nowrap' }}>
+                              {c.name}
+                            </span>
+                          ))}
+                        </div>
+                      ) : <span className={s.muted}>No club</span>
                     ) : <span className={s.muted}>—</span>}
                   </td>
                   <td data-label="Status"><span className={s.statusDot} style={{ color: u.is_active ? '#007a5e' : '#9ca3af' }}>{u.is_active ? '● Active' : '○ Inactive'}</span></td>

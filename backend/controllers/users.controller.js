@@ -46,14 +46,25 @@ const parsePage = (query) => {
 };
 
 /* GET /api/users  (admin)
-   Supports ?page=&limit= */
+   Supports ?page=&limit=
+   Includes each student's active club memberships (name + id) — students can belong to up
+   to 3 clubs at once, so this is an array, not a single value like coordinators' managed_club_id. */
 const getAll = async (req, res, next) => {
   try {
     const { page, limit, offset } = parsePage(req.query);
     const { rows } = await pgPool.query(
-      `SELECT ${USER_PUBLIC_COLS}, COUNT(*) OVER() AS total_count
-       FROM users
-       ORDER BY created_at DESC
+      `SELECT u.id, u.email, u.name, u.role, u.is_active,
+              u.must_change_password, u.managed_club_id, u.created_at, u.last_login,
+              COALESCE(
+                json_agg(jsonb_build_object('id', sc.club_id, 'name', sc.club_name))
+                  FILTER (WHERE sc.id IS NOT NULL),
+                '[]'
+              ) AS clubs,
+              COUNT(*) OVER() AS total_count
+       FROM users u
+       LEFT JOIN student_clubs sc ON sc.user_id = u.id AND sc.is_active = true
+       GROUP BY u.id
+       ORDER BY u.created_at DESC
        LIMIT $1 OFFSET $2`,
       [limit, offset]
     );
