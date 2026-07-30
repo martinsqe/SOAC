@@ -87,6 +87,11 @@ export default function CoordEvents() {
   const [mvpPhotoUploading, setMvpPhotoUploading] = useState(false);
   const mvpCardRef = useRef(null);
 
+  /* ── Certifications state ── */
+  const [certPreview,    setCertPreview]    = useState(null);
+  const [certLoading,    setCertLoading]    = useState(false);
+  const [certFinalizing, setCertFinalizing] = useState(false);
+
   /* ── Narrative (coordinator-written report text) ── */
   const [reportNarrative, setReportNarrative] = useState({
     event_date: '', association: '', objective: '', key_highlights: '', outcome: '', acknowledgments: '', remarks: '',
@@ -319,6 +324,7 @@ export default function CoordEvents() {
     setRegSearch('');
     setRegsTab('list');
     setEventReport(null);
+    setCertPreview(null);
     setReportPhotoFiles([]);
     setExpandedTeams(new Set());
     setNewTeamName({ boys: '', girls: '' });
@@ -360,6 +366,41 @@ export default function CoordEvents() {
       setEventReport(d.report || null);
     } catch { setEventReport(null); }
     finally { setReportLoading(false); }
+  };
+
+  const loadCertPreview = async (eventId) => {
+    setCertLoading(true);
+    try {
+      const d = await api.get(`/events/${eventId}/certifications/preview`);
+      setCertPreview(d);
+    } catch (err) {
+      setCertPreview(null);
+      showToast(err.message || 'Failed to load certifications preview.', 'err');
+    } finally {
+      setCertLoading(false);
+    }
+  };
+
+  const handleFinalizeCertificates = async () => {
+    if (!regEvent) return;
+    setCertFinalizing(true);
+    try {
+      const { summary } = await api.post(`/events/${regEvent._id}/certifications/finalize`);
+      const parts = [];
+      if (summary.dashboard) parts.push(`${summary.dashboard} available on student dashboards`);
+      if (summary.emailed)   parts.push(`${summary.emailSent}/${summary.emailed} emails sent`);
+      showToast(
+        summary.total === 0
+          ? 'No registrants to issue certificates to.'
+          : `Certificates issued — ${parts.join(', ')}.`,
+        summary.emailFailed > 0 ? 'err' : 'ok'
+      );
+      await loadCertPreview(regEvent._id);
+    } catch (err) {
+      showToast(err.message || 'Failed to issue certificates.', 'err');
+    } finally {
+      setCertFinalizing(false);
+    }
   };
 
   /* Sync narrative form whenever a different report loads */
@@ -1199,6 +1240,11 @@ export default function CoordEvents() {
                   Report {eventReport && <span className={es.declaredBadge} style={{ background: '#dcfce7', color: '#16a34a' }}>Saved</span>}
                 </button>
               </>)}
+              <button
+                className={`${es.regsSubTab} ${regsTab === 'certifications' ? es.regsSubTabOn : ''}`}
+                onClick={() => { setRegsTab('certifications'); loadCertPreview(regEvent._id); }}>
+                Certifications {certPreview?.alreadyFinalizedAt && <span className={es.declaredBadge} style={{ background: '#dcfce7', color: '#16a34a' }}>Issued</span>}
+              </button>
             </div>
 
             {/* ── REGISTRATIONS LIST ── */}
@@ -2379,6 +2425,112 @@ export default function CoordEvents() {
                         </div>
                       </>
                     )}
+              </div>
+            )}
+
+            {/* ── CERTIFICATIONS TAB — visible for every event, not just sports, since
+               non-sports events still issue Participation certificates. ── */}
+            {regsTab === 'certifications' && (
+              <div className={es.reportPanel}>
+                {certLoading ? (
+                  <div className={es.reportPlaceholder}>Loading certifications…</div>
+                ) : !certPreview ? (
+                  <div className={es.reportPlaceholder}>Could not load certifications.</div>
+                ) : (() => {
+                  const missing = [];
+                  if (!certPreview.templatesReady.participation) missing.push('Participation');
+                  if (certPreview.winner.length > 0 && !certPreview.templatesReady.winner) missing.push('Winner');
+                  if (certPreview.runnerUp.length > 0 && !certPreview.templatesReady.runner_up) missing.push('Runner-up');
+
+                  /* Group Participation by team so it's clear which team (if any) each
+                     registrant belongs to — not just a bare list of names. */
+                  const teamGroups = {};
+                  const unassigned = [];
+                  certPreview.participation.forEach(p => {
+                    if (p.teamName) {
+                      const key = `${p.division}:${p.teamName}`;
+                      if (!teamGroups[key]) teamGroups[key] = { teamName: p.teamName, division: p.division, members: [] };
+                      teamGroups[key].members.push(p);
+                    } else {
+                      unassigned.push(p);
+                    }
+                  });
+
+                  const TeamBlock = ({ icon, title, teams, emptyText }) => (
+                    <div style={{ marginBottom: 22 }}>
+                      <div className={es.reportSectionTitle}>{icon} {title}</div>
+                      {teams.length === 0 ? (
+                        <div style={{ fontSize: '.8rem', color: '#9ca3af', fontStyle: 'italic' }}>{emptyText}</div>
+                      ) : teams.map((t, i) => (
+                        <div key={i} style={{ marginBottom: 10 }}>
+                          <div style={{ fontWeight: 700, fontSize: '.85rem', color: '#0f0a2e' }}>
+                            Team: {t.teamName} {t.division && <span style={{ fontWeight: 500, color: '#9ca3af' }}>({DIVISION_LABEL[t.division]})</span>}
+                          </div>
+                          <div style={{ fontSize: '.8rem', color: '#374151' }}>
+                            Players: {t.members.map(m => m.name).join(', ')}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+
+                  return (
+                    <>
+                      <TeamBlock icon="🏆" title="Winner" teams={certPreview.winner}
+                        emptyText="No winner yet — the Final hasn't been played for any division." />
+                      <TeamBlock icon="🥈" title="Runner-up" teams={certPreview.runnerUp}
+                        emptyText="No runner-up yet — the Final hasn't been played for any division." />
+
+                      <div style={{ marginBottom: 22 }}>
+                        <div className={es.reportSectionTitle}>🎖 Participation ({certPreview.participation.length})</div>
+                        {certPreview.participation.length === 0 ? (
+                          <div style={{ fontSize: '.8rem', color: '#9ca3af', fontStyle: 'italic' }}>No registrants outside the winner/runner-up teams.</div>
+                        ) : (
+                          <>
+                            {Object.values(teamGroups).map((t, i) => (
+                              <div key={i} style={{ marginBottom: 10 }}>
+                                <div style={{ fontWeight: 700, fontSize: '.85rem', color: '#0f0a2e' }}>
+                                  Team: {t.teamName} {t.division && <span style={{ fontWeight: 500, color: '#9ca3af' }}>({DIVISION_LABEL[t.division]})</span>}
+                                </div>
+                                <div style={{ fontSize: '.8rem', color: '#374151' }}>
+                                  Players: {t.members.map(m => m.name).join(', ')}
+                                </div>
+                              </div>
+                            ))}
+                            {unassigned.length > 0 && (
+                              <div style={{ marginBottom: 10 }}>
+                                {Object.keys(teamGroups).length > 0 && (
+                                  <div style={{ fontWeight: 700, fontSize: '.85rem', color: '#0f0a2e' }}>No Team</div>
+                                )}
+                                <div style={{ fontSize: '.8rem', color: '#374151' }}>
+                                  Players: {unassigned.map(p => p.name).join(', ')}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+
+                      {missing.length > 0 && (
+                        <div style={{ background: '#fffbeb', border: '1.5px solid #fde68a', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+                          <div style={{ fontSize: '.82rem', fontWeight: 700, color: '#92400e', marginBottom: 4 }}>
+                            Finalize is disabled — certificate templates missing
+                          </div>
+                          <div style={{ fontSize: '.8rem', color: '#92400e' }}>
+                            Ask an admin to upload and position the {missing.join(', ')} certificate template{missing.length > 1 ? 's' : ''} for this event (Admin → Events → Edit → Certificate Templates) before you can issue certificates.
+                          </div>
+                        </div>
+                      )}
+
+                      <button
+                        className={es.saveDeclareBtn}
+                        onClick={handleFinalizeCertificates}
+                        disabled={certFinalizing || missing.length > 0}>
+                        {certFinalizing ? 'Issuing…' : certPreview.alreadyFinalizedAt ? '✓ Re-issue Certificates' : 'Finalize & Issue Certificates'}
+                      </button>
+                    </>
+                  );
+                })()}
               </div>
             )}
 

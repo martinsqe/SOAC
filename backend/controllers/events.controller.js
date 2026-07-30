@@ -12,6 +12,7 @@ const EVENT_COLS = [
   'time', 'venue', 'description', 'image', 'tags', 'seats',
   'highlight', 'registration_url', 'is_free', 'fee_amount',
   'is_active', 'created_at', 'updated_at', 'fixtures_declared',
+  'certificates_finalized_at',
 ].join(', ');
 
 (async () => {

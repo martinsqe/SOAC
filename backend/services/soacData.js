@@ -837,6 +837,7 @@ const asEvent = (row) => ({
   feeAmount: Number(row.fee_amount || 0),
   isActive: !!row.is_active,
   fixturesDeclared: !!row.fixtures_declared,
+  certificatesFinalizedAt: row.certificates_finalized_at || null,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });

@@ -429,9 +429,11 @@ const myActivity = async (req, res, next) => {
     const [regRes, psContribRes, bgeContribRes] = await Promise.all([
       /* Events this student registered for — with all coin totals per event */
       pgPool.query(
-        `SELECT er.event_id, er.event_title, er.registered_at,
+        `SELECT er.id AS registration_id, er.event_id, er.event_title, er.registered_at,
                 e.date AS event_date, e.venue, e.category,
                 c.name AS club_name,
+                eci.category  AS certificate_category,
+                eci.file_url  AS certificate_url,
                 COALESCE(ct_reg.amount, 0)::int AS reg_coins,
                 COALESCE((
                   SELECT SUM(ct2.amount)::int FROM coin_transactions ct2
@@ -460,6 +462,8 @@ const myActivity = async (req, res, next) => {
          FROM event_registrations er
          LEFT JOIN events e ON e.id = er.event_id
          LEFT JOIN clubs c ON c.id = e.club_id
+         LEFT JOIN event_certificates_issued eci
+           ON eci.registration_id = er.id AND eci.delivery_method = 'dashboard'
          LEFT JOIN coin_transactions ct_reg
            ON ct_reg.user_id = $1 AND ct_reg.entity_type = 'event_registration'
           AND ct_reg.entity_id = er.event_id::text
@@ -533,13 +537,15 @@ const myActivity = async (req, res, next) => {
         const clearCoins = Number(r.clear_coins       || 0);
         const matchCoins = Number(r.match_stat_coins  || 0) + Number(r.game_event_coins || 0);
         return {
-          eventId:       r.event_id,
-          eventTitle:    r.event_title,
-          clubName:      r.club_name || '—',
-          category:      r.category  || '',
-          venue:         r.venue     || '',
-          eventDate:     r.event_date,
-          registeredAt:  r.registered_at,
+          eventId:             r.event_id,
+          eventTitle:          r.event_title,
+          clubName:            r.club_name || '—',
+          category:            r.category  || '',
+          venue:               r.venue     || '',
+          eventDate:           r.event_date,
+          registeredAt:        r.registered_at,
+          certificateUrl:      r.certificate_url      || null,
+          certificateCategory: r.certificate_category || null,
           regCoins,
           clearCoins,
           matchCoins,

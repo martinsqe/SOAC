@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'; // useCallback used below
 import api from '../../api/client';
 import { fetchAllPages } from '../../utils/pagination';
+import CertTemplateEditor from '../../components/CertTemplateEditor/CertTemplateEditor';
 import s from './AdminEvents.module.css';
 
 const CATS   = ['tech','sports','cultural','annual-fest','health','leadership','community','general'];
@@ -88,6 +89,10 @@ export default function AdminEvents() {
   const [deleteId,    setDeleteId]    = useState(null);
   const [error,       setError]       = useState('');
 
+  /* ── certificate templates (edit mode only — event must already have an id) ── */
+  const [templates,       setTemplates]       = useState({ participation: null, runner_up: null, winner: null });
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+
   /* ── requests state ── */
   const [requests,    setRequests]    = useState([]);
   const [reqLoading,  setReqLoading]  = useState(false);
@@ -133,7 +138,20 @@ export default function AdminEvents() {
   const openAdd = () => {
     setForm(EMPTY); setEditing(null); setApprovingId(null);
     setImgFile(null); setImgPrev(''); setTagsStr(''); setError('');
+    setTemplates({ participation: null, runner_up: null, winner: null });
     setModal('add');
+  };
+
+  const loadTemplates = (eventId) => {
+    setTemplatesLoading(true);
+    api.get(`/events/${eventId}/certificate-templates`)
+      .then(d => {
+        const byCategory = { participation: null, runner_up: null, winner: null };
+        (d.templates || []).forEach(t => { byCategory[t.category] = t; });
+        setTemplates(byCategory);
+      })
+      .catch(() => setTemplates({ participation: null, runner_up: null, winner: null }))
+      .finally(() => setTemplatesLoading(false));
   };
 
   const openEdit = (ev) => {
@@ -150,6 +168,7 @@ export default function AdminEvents() {
     setTagsStr((ev.tags || []).join(', '));
     setError('');
     setModal('edit');
+    loadTemplates(ev._id);
   };
 
   /* Pre-fill the event form from a coordinator request */
@@ -221,13 +240,20 @@ export default function AdminEvents() {
           is_free:          isFree,
           fee_amount:       isFree ? 0 : Number(feeAmount) || 0,
         };
-        await api.put(`/event-requests/${approvingId}/approve`, payload);
+        const { event: rawEvent } = await api.put(`/event-requests/${approvingId}/approve`, payload);
         setRequests(p => p.map(r => r.id === approvingId ? { ...r, status: 'approved' } : r));
         showToast('Request approved — event created successfully!');
         load(); // refresh events list
+        /* Approve's response is a raw DB row, not run through the asEvent() mapper openEdit
+           expects — refetch properly-shaped so template upload is available immediately. */
+        const { event: fullEvent } = await api.get(`/events/${rawEvent.id}`);
+        openEdit(fullEvent);
+        return;
       } else if (modal === 'add') {
-        await api.postForm('/events', fd);
+        const { event } = await api.postForm('/events', fd);
         load();
+        openEdit(event); // transition straight into edit mode so cert templates can be added now
+        return;
       } else {
         await api.putForm(`/events/${editing}`, fd);
         load();
@@ -688,6 +714,29 @@ export default function AdminEvents() {
                   <input value={form.highlight} onChange={sf('highlight')} placeholder="e.g. Best Edition Yet" />
                 </div>
               </div>
+
+              {editing && (
+                <div style={{ background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:10, padding:'14px 16px' }}>
+                  <div style={{ fontSize:'.78rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:10 }}>
+                    Certificate Templates
+                  </div>
+                  {templatesLoading ? (
+                    <div style={{ fontSize:'.8rem', color:'#9ca3af' }}>Loading templates…</div>
+                  ) : (
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr', gap:12 }}>
+                      <CertTemplateEditor eventId={editing} category="participation" label="Certificate of Participation"
+                        template={templates.participation}
+                        onUpdate={(cat, t) => setTemplates(p => ({ ...p, [cat]: t }))} />
+                      <CertTemplateEditor eventId={editing} category="runner_up" label="Certificate of Runner-up"
+                        template={templates.runner_up}
+                        onUpdate={(cat, t) => setTemplates(p => ({ ...p, [cat]: t }))} />
+                      <CertTemplateEditor eventId={editing} category="winner" label="Certificate of Winner"
+                        template={templates.winner}
+                        onUpdate={(cat, t) => setTemplates(p => ({ ...p, [cat]: t }))} />
+                    </div>
+                  )}
+                </div>
+              )}
 
               {error && <div className={s.formError}>{error}</div>}
 

@@ -2,10 +2,11 @@ const router      = require('express').Router();
 const ctrl        = require('../controllers/events.controller');
 const teamCtrl    = require('../controllers/eventTeams.controller');
 const groupCtrl   = require('../controllers/eventGroups.controller');
+const certCtrl    = require('../controllers/certificates.controller');
 const cd          = require('../controllers/clubDetail.controller');
 const { verifyToken }  = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/requireAdmin');
-const { uploadEvent }  = require('../config/multer');
+const { uploadEvent, uploadCertTemplate } = require('../config/multer');
 
 const requireCoordOrAdmin = (req, res, next) => {
   if (req.user?.role !== 'coordinator' && req.user?.role !== 'admin') {
@@ -60,5 +61,14 @@ router.patch ('/:id/groups/:groupId',                     verifyToken, requireCo
 router.delete('/:id/groups/:groupId',                     verifyToken, requireCoordOrAdmin, groupCtrl.deleteGroup);
 router.post  ('/:id/groups/:groupId/assign',              verifyToken, requireCoordOrAdmin, groupCtrl.assignTeam);
 router.delete('/:id/groups/:groupId/teams/:teamId',       verifyToken, requireCoordOrAdmin, groupCtrl.unassignTeam);
+
+/* Certificate template routes (admin only — only AdminEvents.jsx does event creation/uploads) */
+router.get ('/:id/certificate-templates',                   verifyToken, requireAdmin, certCtrl.listTemplates);
+router.post('/:id/certificate-templates/:category',         verifyToken, requireAdmin, uploadCertTemplate.single('image'), certCtrl.uploadTemplate);
+router.put ('/:id/certificate-templates/:category/anchors', verifyToken, requireAdmin, certCtrl.saveAnchors);
+
+/* Certifications preview + finalize (coordinator/admin) */
+router.get ('/:id/certifications/preview',  verifyToken, requireCoordOrAdmin, certCtrl.previewCertifications);
+router.post('/:id/certifications/finalize', verifyToken, requireCoordOrAdmin, certCtrl.finalizeCertifications);
 
 module.exports = router;

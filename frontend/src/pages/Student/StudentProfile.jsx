@@ -4,6 +4,7 @@ import api from '../../api/client';
 import s from './StudentProfile.module.css';
 
 const AVATAR_BASE = '/uploads/avatars/';
+const CERT_LABEL = { participation: 'Certificate of Participation', runner_up: 'Certificate of Runner-up', winner: 'Certificate of Winner' };
 
 function getAvatarUrl(avatar) {
   if (!avatar) return null;
@@ -598,6 +599,14 @@ export default function StudentProfile() {
                             {r.venue     && <div className={s.actAccField}><span className={s.actAccLabel}>Venue</span><span>{r.venue}</span></div>}
                             {r.eventDate && <div className={s.actAccField}><span className={s.actAccLabel}>Event Date</span><span>{fmt(r.eventDate)}</span></div>}
                             <div className={s.actAccField}><span className={s.actAccLabel}>Registered</span><span>{fmt(r.registeredAt)}</span></div>
+                            {r.certificateUrl && (
+                              <div className={s.actAccField}>
+                                <span className={s.actAccLabel}>Certificate</span>
+                                <a href={r.certificateUrl} target="_blank" rel="noreferrer">
+                                  Download {CERT_LABEL[r.certificateCategory] || 'Certificate'}
+                                </a>
+                              </div>
+                            )}
                           </div>
                           <div className={s.actAccCoins}>
                             {r.regCoins > 0 && (

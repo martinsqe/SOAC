@@ -46,6 +46,15 @@ const imageFilter = (req, file, cb) => {
   cb(new Error('Only image files (jpg, jpeg, png, webp, gif) are allowed.'));
 };
 
+/* Certificate templates are later embedded into a PDF via pdf-lib, which only supports
+   PNG/JPEG (not webp/gif) — narrower filter than the general imageFilter above. */
+const CERT_ALLOWED = ['jpg', 'jpeg', 'png'];
+const certImageFilter = (req, file, cb) => {
+  const ext = file.originalname.split('.').pop().toLowerCase();
+  if (CERT_ALLOWED.includes(ext)) return cb(null, true);
+  cb(new Error('Only JPG or PNG images are allowed for certificate templates.'));
+};
+
 /**
  * Returns the value to store in the DB for an uploaded file.
  *   Cloudinary mode → file.path  (https://res.cloudinary.com/...)
@@ -72,5 +81,6 @@ const uploadAvatar   = multer({ storage: multer.memoryStorage(), fileFilter: ima
 const uploadMvpPhoto    = multer({ storage: makeStorage('mvp'),           fileFilter: imageFilter, limits: { fileSize: 5  * 1024 * 1024 } });
 const uploadReportPhoto = multer({ storage: makeStorage('report-photos'), fileFilter: imageFilter, limits: { fileSize: 10 * 1024 * 1024 } });
 const uploadExplore     = multer({ storage: makeStorage('explore'),       fileFilter: imageFilter, limits: { fileSize: 10 * 1024 * 1024 } });
+const uploadCertTemplate = multer({ storage: makeStorage('cert-templates'), fileFilter: certImageFilter, limits: { fileSize: 10 * 1024 * 1024 } });
 
-module.exports = { uploadLogo, uploadEvent, uploadAvatar, uploadFame, uploadLeadership, uploadMvpPhoto, uploadReportPhoto, uploadExplore, getFileValue, cloudinaryInstance, useCloudinary };
+module.exports = { uploadLogo, uploadEvent, uploadAvatar, uploadFame, uploadLeadership, uploadMvpPhoto, uploadReportPhoto, uploadExplore, uploadCertTemplate, getFileValue, cloudinaryInstance, useCloudinary };
