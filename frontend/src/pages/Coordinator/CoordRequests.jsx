@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useCoordClub } from '../../context/CoordClubContext';
 import api from '../../api/client';
+import { fetchAllPages } from '../../utils/pagination';
 import s from './CoordSubPage.module.css';
 
 const AVS = [
@@ -28,25 +29,28 @@ function timeAgo(dateStr) {
 export default function CoordRequests() {
   const { club }              = useCoordClub();
   const clubId                = club?._id || null;
-  const [requests,  setRequests]  = useState([]);
+  const [allRequests, setAllRequests] = useState([]);
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState('');
   const [actionId,  setActionId]  = useState(null);
   const [toast,     setToast]     = useState('');
   const [filter,    setFilter]    = useState('pending');
+  const [search,    setSearch]    = useState('');
   const [creds,     setCreds]     = useState(null);
   const [resendId,  setResendId]  = useState(null);
   const [resendMsg, setResendMsg] = useState({});
 
+  /* Fetch the FULL request list for this club once (not scoped to the active status tab) so
+     status counts are always accurate regardless of which tab is selected, and so name
+     search can filter across every request without extra round trips. */
   const loadRequests = useCallback(() => {
     if (!clubId) return;
     setLoading(true);
-    const query = filter === 'all' ? `clubId=${clubId}` : `clubId=${clubId}&status=${filter}`;
-    api.get(`/requests?${query}`)
-      .then(({ requests: data }) => { setRequests(data); setError(''); })
+    fetchAllPages(`/requests?clubId=${clubId}`, 'requests')
+      .then(({ items }) => { setAllRequests(items); setError(''); })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
-  }, [clubId, filter]);
+  }, [clubId]);
 
   useEffect(() => { loadRequests(); }, [loadRequests]);
 
@@ -97,9 +101,15 @@ export default function CoordRequests() {
     }
   };
 
-  const pending  = requests.filter(r => r.status === 'pending').length;
-  const approved = requests.filter(r => r.status === 'approved').length;
-  const declined = requests.filter(r => r.status === 'declined').length;
+  const pending  = allRequests.filter(r => r.status === 'pending').length;
+  const approved = allRequests.filter(r => r.status === 'approved').length;
+  const declined = allRequests.filter(r => r.status === 'declined').length;
+
+  const q = search.trim().toLowerCase();
+  const requests = allRequests.filter(r =>
+    (filter === 'all' || r.status === filter) &&
+    (!q || r.name?.toLowerCase().includes(q))
+  );
 
   return (
     <div className={s.page}>
@@ -225,7 +235,7 @@ export default function CoordRequests() {
             { key:'pending',  label:`Pending (${pending})`  },
             { key:'approved', label:`Approved (${approved})` },
             { key:'declined', label:`Declined (${declined})` },
-            { key:'all',      label:'All'                    },
+            { key:'all',      label:`All (${allRequests.length})` },
           ].map(tab => (
             <button
               key={tab.key}
@@ -236,6 +246,23 @@ export default function CoordRequests() {
             </button>
           ))}
         </div>
+      </div>
+
+      <div style={{ position:'relative', maxWidth:320, margin:'16px 0' }}>
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search by student name…"
+          style={{ width:'100%', padding:'9px 32px 9px 12px', border:'1.5px solid #e5e7eb',
+            borderRadius:9, fontSize:'.85rem', outline:'none', boxSizing:'border-box', fontFamily:'inherit' }}
+        />
+        {search && (
+          <button onClick={() => setSearch('')}
+            style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)',
+              background:'none', border:'none', cursor:'pointer', color:'#9ca3af', fontSize:16 }}>
+            ✕
+          </button>
+        )}
       </div>
 
       {error && (

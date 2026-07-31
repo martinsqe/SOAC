@@ -4,7 +4,7 @@ const { pgPool }          = require('../config/db');
 const { getCoordClubIds } = require('../services/coordAuth');
 const { getFileValue, useCloudinary, cloudinaryInstance } = require('../config/multer');
 const { destroyImage } = require('../config/cloudinary');
-const { getChampion }      = require('../services/bracketMath');
+const { getChampion, detectSport } = require('../services/bracketMath');
 const { renderCertificate, fetchImageBytes } = require('../services/certificateGenerator');
 
 /* ── Migrations ── */
@@ -56,6 +56,19 @@ const { renderCertificate, fetchImageBytes } = require('../services/certificateG
 const CATEGORIES = ['participation', 'runner_up', 'winner'];
 const ANCHOR_KEYS = ['name', 'game', 'date'];
 const CERT_LABEL = { participation: 'Certificate of Participation', runner_up: 'Certificate of Runner-up', winner: 'Certificate of Winner' };
+/* Display names for detectSport()'s output (bracketMath.js — same sport detection already
+   trusted for scoreboards/Match Control). 'general' (unrecognized) has no clean sport name,
+   so callers fall back to the event title in that case. */
+const SPORT_LABELS = { basketball: 'Basketball', football: 'Football', cricket: 'Cricket', badminton: 'Badminton', volleyball: 'Volleyball', kabaddi: 'Kabaddi' };
+
+/* For sports-category events, the certificate's "game" field prints the sport (e.g.
+   "Basketball"), not the event title — an event like "RKU Sports Fiesta 2026 — Basketball"
+   would otherwise print its full, often multi-sport title. Non-sports events keep the event
+   title (there's no "sport" to extract). */
+const gameNameFor = (event) => {
+  if (event.category !== 'sports') return event.title;
+  return SPORT_LABELS[detectSport(event.title)] || event.title;
+};
 
 /* Verify this coordinator (or admin) has access to the event — mirrors eventTeams.controller.js */
 const checkAccess = async (req, res) => {
@@ -381,6 +394,7 @@ const finalizeCertifications = async (req, res, next) => {
     oldRows.forEach(r => { oldByReg[String(r.registration_id)] = r; });
 
     const dateText = formatIssueDate();
+    const gameText = gameNameFor(event);
     let dashboardCount = 0;
     let pendingCount = 0;
 
@@ -388,7 +402,7 @@ const finalizeCertifications = async (req, res, next) => {
       const ctx = renderCtx[r.category];
       const pdfBuffer = await renderCertificate({
         imageBytes: ctx.imageBytes, isPng: ctx.isPng, anchors: ctx.anchors,
-        name: r.name, eventTitle: event.title, dateText,
+        name: r.name, eventTitle: gameText, dateText,
       });
       const filename = `certificate-${req.params.id}-${r.registrationId}.pdf`;
       const fileUrl = await uploadCertificateBuffer(pdfBuffer, filename);

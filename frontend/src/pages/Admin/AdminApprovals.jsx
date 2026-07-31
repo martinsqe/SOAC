@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../../api/client';
+import { fetchAllPages } from '../../utils/pagination';
 import s from '../Coordinator/CoordSubPage.module.css';
 
 /* ── shared helpers ── */
@@ -64,26 +65,56 @@ export default function AdminApprovals() {
    JOIN REQUESTS PANEL  (unchanged behaviour)
 ════════════════════════════════════════════════════════════ */
 function JoinRequestsPanel() {
-  const [requests,  setRequests]  = useState([]);
+  const [allRequests, setAllRequests] = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState('');
   const [actionId,  setActionId]  = useState(null);
   const [toast,     setToast]     = useState('');
   const [filter,    setFilter]    = useState('pending');
+  const [search,    setSearch]    = useState('');
+  const [clubFilter, setClubFilter] = useState('');
   const [creds,     setCreds]     = useState(null);
   const [resendId,  setResendId]  = useState(null);
   const [resendMsg, setResendMsg] = useState({});
 
+  /* Fetch the FULL request list once (not scoped to the active status tab) so status counts
+     are always accurate regardless of which tab is selected, and so name search can filter
+     across every request without extra round trips. */
   const loadRequests = useCallback(() => {
     setLoading(true);
-    const query = filter === 'all' ? '' : `status=${filter}`;
-    api.get(`/requests?${query}`)
-      .then(({ requests: data }) => { setRequests(data); setError(''); })
+    fetchAllPages('/requests', 'requests')
+      .then(({ items }) => { setAllRequests(items); setError(''); })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
-  }, [filter]);
+  }, []);
 
   useEffect(() => { loadRequests(); }, [loadRequests]);
+
+  /* Status tab counts respect the selected club — so once a club is picked, "Pending (X)"
+     etc. answer "how many requests are from THIS club", not the global total. */
+  const clubScoped = clubFilter ? allRequests.filter(r => r.clubId === clubFilter) : allRequests;
+  const pendingCount  = clubScoped.filter(r => r.status === 'pending').length;
+  const approvedCount = clubScoped.filter(r => r.status === 'approved').length;
+  const declinedCount = clubScoped.filter(r => r.status === 'declined').length;
+
+  /* Clubs to offer in the filter dropdown — derived from the requests themselves rather than
+     a separate /clubs fetch, so it only ever lists clubs that actually have requests, each
+     labelled with its own total request count (e.g. "Bumblebeez (5)") so the count per club
+     is visible right in the dropdown without needing to select it. */
+  const clubCounts = new Map();
+  allRequests.forEach(r => {
+    if (!clubCounts.has(r.clubId)) clubCounts.set(r.clubId, { name: r.clubName, count: 0 });
+    clubCounts.get(r.clubId).count++;
+  });
+  const clubOptions = Array.from(clubCounts.entries())
+    .sort((a, b) => (a[1].name || '').localeCompare(b[1].name || ''));
+
+  const q = search.trim().toLowerCase();
+  const requests = allRequests.filter(r =>
+    (filter === 'all' || r.status === filter) &&
+    (!clubFilter || r.clubId === clubFilter) &&
+    (!q || r.name?.toLowerCase().includes(q))
+  );
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
 
@@ -166,12 +197,47 @@ function JoinRequestsPanel() {
       )}
 
       <div className={s.tabs}>
-        {['pending', 'approved', 'declined', 'all'].map(t => (
-          <button key={t} onClick={() => setFilter(t)}
-            className={`${s.tab} ${filter === t ? s.tabOn : ''}`}>
-            {t.charAt(0).toUpperCase() + t.slice(1)}
+        {[
+          { key: 'pending',  label: `Pending (${pendingCount})` },
+          { key: 'approved', label: `Approved (${approvedCount})` },
+          { key: 'declined', label: `Declined (${declinedCount})` },
+          { key: 'all',      label: `All (${clubScoped.length})` },
+        ].map(t => (
+          <button key={t.key} onClick={() => setFilter(t.key)}
+            className={`${s.tab} ${filter === t.key ? s.tabOn : ''}`}>
+            {t.label}
           </button>
         ))}
+      </div>
+
+      <div style={{ display:'flex', gap:10, flexWrap:'wrap', margin:'16px 0' }}>
+        <div style={{ position:'relative', flex:'1', minWidth:220, maxWidth:320 }}>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search by student name…"
+            style={{ width:'100%', padding:'9px 32px 9px 12px', border:'1.5px solid #e5e7eb',
+              borderRadius:9, fontSize:'.85rem', outline:'none', boxSizing:'border-box', fontFamily:'inherit' }}
+          />
+          {search && (
+            <button onClick={() => setSearch('')}
+              style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)',
+                background:'none', border:'none', cursor:'pointer', color:'#9ca3af', fontSize:16 }}>
+              ✕
+            </button>
+          )}
+        </div>
+        <select
+          value={clubFilter}
+          onChange={e => setClubFilter(e.target.value)}
+          style={{ padding:'9px 12px', border:'1.5px solid #e5e7eb', borderRadius:9,
+            fontSize:'.85rem', outline:'none', background:'#fff', cursor:'pointer',
+            fontFamily:'inherit', minWidth:180 }}>
+          <option value="">All Clubs ({allRequests.length})</option>
+          {clubOptions.map(([id, { name, count }]) => (
+            <option key={id} value={id}>{name} ({count})</option>
+          ))}
+        </select>
       </div>
 
       {error && <div style={{ color:'red', marginBottom:20 }}>{error}</div>}
