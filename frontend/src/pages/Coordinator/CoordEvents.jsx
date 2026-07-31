@@ -386,10 +386,11 @@ export default function CoordEvents() {
     setCertFinalizing(true);
     try {
       const { summary } = await api.post(`/events/${regEvent._id}/certifications/finalize`);
+      const pendingNote = summary.pending ? `, ${summary.pending} pending (registered without a SOAC account)` : '';
       showToast(
         summary.total === 0
-          ? 'No club members to issue certificates to for this event.'
-          : `Certificates issued — ${summary.dashboard} available on student dashboards.`
+          ? 'No registrants to issue certificates to for this event.'
+          : `Certificates issued — ${summary.dashboard} available on student dashboards${pendingNote}.`
       );
       await loadCertPreview(regEvent._id);
     } catch (err) {
