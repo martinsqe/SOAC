@@ -629,13 +629,8 @@ export default function StudentProfile() {
                                 </div>
                                 {r.contributions.map((c, ci) => (
                                   <div key={ci} className={s.actAccCoinRow} style={{paddingLeft:12}}>
-                                    <span style={{color:'#6b7280'}}>{c.label}</span>
-                                    <span style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
-                                      <span style={{fontSize:'.7rem',color:'#9ca3af'}}>
-                                        {new Date(c.createdAt).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}
-                                      </span>
-                                      <span className={s.actCoinBadge}>+{c.amount}</span>
-                                    </span>
+                                    <span style={{color:'#6b7280'}}>{c.label}: {c.value}</span>
+                                    <span className={s.actCoinBadge}>+{c.coins}</span>
                                   </div>
                                 ))}
                               </>

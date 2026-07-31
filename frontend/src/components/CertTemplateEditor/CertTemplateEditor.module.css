@@ -51,6 +51,10 @@
   overflow: hidden;
   border: 1.5px solid #e5e7eb;
   user-select: none;
+  /* Establishes the container-query context so marker text (sized in cqw) scales
+     with the image's actual displayed width, matching the PDF's 1pt = 1px-of-image
+     scaling at any screen size. */
+  container-type: inline-size;
 }
 .previewImg {
   width: 100%;
@@ -58,31 +62,29 @@
   pointer-events: none;
 }
 
+/* Positioning wrapper only — the text below centers itself exactly on this point,
+   mirroring how the PDF centers text ON the anchor. */
 .marker {
   position: absolute;
-  transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
   pointer-events: none;
 }
-.markerDot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #635bff;
-  border: 2px solid #fff;
-  box-shadow: 0 0 0 1px #635bff, 0 2px 6px rgba(0,0,0,.3);
-}
-.markerLabel {
-  margin-top: 2px;
-  font-size: 0.65rem;
+/* Generic "Name" / "Game" / "Date" label text, sized via inline style (cqw, computed
+   from the PDF's exact font size relative to the image's natural width) — bold sans-serif
+   approximates the PDF's Helvetica-Bold closely enough to catch overlap/misalignment
+   before saving. Its center point IS the click position — no separate dot needed. */
+.markerText {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  font-family: Arial, Helvetica, sans-serif;
   font-weight: 700;
-  color: #fff;
-  background: #635bff;
-  padding: 1px 6px;
-  border-radius: 4px;
+  color: rgba(99, 91, 255, 0.85);
   white-space: nowrap;
+  line-height: 1;
+}
+.markerTextArmed {
+  color: #f59e0b;
 }
 
 .replaceBtn {

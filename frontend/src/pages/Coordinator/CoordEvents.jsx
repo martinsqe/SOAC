@@ -386,14 +386,10 @@ export default function CoordEvents() {
     setCertFinalizing(true);
     try {
       const { summary } = await api.post(`/events/${regEvent._id}/certifications/finalize`);
-      const parts = [];
-      if (summary.dashboard) parts.push(`${summary.dashboard} available on student dashboards`);
-      if (summary.emailed)   parts.push(`${summary.emailSent}/${summary.emailed} emails sent`);
       showToast(
         summary.total === 0
-          ? 'No registrants to issue certificates to.'
-          : `Certificates issued — ${parts.join(', ')}.`,
-        summary.emailFailed > 0 ? 'err' : 'ok'
+          ? 'No club members to issue certificates to for this event.'
+          : `Certificates issued — ${summary.dashboard} available on student dashboards.`
       );
       await loadCertPreview(regEvent._id);
     } catch (err) {

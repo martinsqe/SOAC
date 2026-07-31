@@ -3,25 +3,38 @@ import api from '../../api/client';
 import s from './CertTemplateEditor.module.css';
 
 const ANCHOR_KEYS = ['name', 'game', 'date'];
+/* Must mirror backend/services/certificateGenerator.js's drawAt() font sizes exactly —
+   these are PDF points, and since the PDF page is sized 1:1 to the template's native pixel
+   dimensions, 1 point = 1 image pixel. Scaling these against the image's natural width (via
+   CSS container query units) gives a live preview that's accurate at any display size. */
+const FONT_SIZES = { name: 28, game: 28, date: 28 };
 const CHIPS = [
-  { key: 'name', label: 'Name' },
-  { key: 'game', label: 'Game' },
-  { key: 'date', label: 'Date' },
+  { key: 'name', label: 'Name', sample: 'Name' },
+  { key: 'game', label: 'Game', sample: 'Game' },
+  { key: 'date', label: 'Date', sample: 'Date' },
 ];
 
 /* Lets an admin upload a certificate template image and click on it to place three text
    anchors (Name / Game / Date) as % coordinates — later used server-side to overlay the
-   student's registered name, the event title, and the event date onto the PDF. */
+   student's registered name, the event title, and the event date onto the PDF. Shows a live
+   WYSIWYG preview (real sample text, at the exact size/centering the PDF will use) as each
+   anchor is placed, so misalignment is caught and fixed on the spot instead of discovered
+   after generating a real certificate. */
 export default function CertTemplateEditor({ eventId, category, label, template, onUpdate }) {
   const [uploading, setUploading]     = useState(false);
   const [saving, setSaving]           = useState(false);
   const [armed, setArmed]             = useState(null);
   const [draftAnchors, setDraftAnchors] = useState(template?.anchors || {});
+  const [naturalWidth, setNaturalWidth] = useState(0);
   const [error, setError]             = useState('');
   const fileRef = useRef();
   const imgRef  = useRef();
 
   useEffect(() => { setDraftAnchors(template?.anchors || {}); }, [template?.imageUrl]);
+
+  const handleImageLoad = () => {
+    if (imgRef.current) setNaturalWidth(imgRef.current.naturalWidth);
+  };
 
   const handleFile = async (e) => {
     const f = e.target.files[0];
@@ -78,11 +91,14 @@ export default function CertTemplateEditor({ eventId, category, label, template,
         </div>
       ) : (
         <div className={s.imgWrap} onClick={handleImageClick} style={{ cursor: armed ? 'crosshair' : 'default' }}>
-          <img ref={imgRef} src={template.imageUrl} alt={label} className={s.previewImg} draggable={false} />
+          <img ref={imgRef} src={template.imageUrl} alt={label} className={s.previewImg} draggable={false} onLoad={handleImageLoad} />
           {CHIPS.map(c => draftAnchors[c.key] && (
             <div key={c.key} className={s.marker} style={{ left: `${draftAnchors[c.key].x}%`, top: `${draftAnchors[c.key].y}%` }}>
-              <span className={s.markerDot} />
-              <span className={s.markerLabel}>{c.label}</span>
+              <span
+                className={`${s.markerText} ${armed === c.key ? s.markerTextArmed : ''}`}
+                style={{ fontSize: naturalWidth ? `${(FONT_SIZES[c.key] / naturalWidth) * 100}cqw` : 12 }}>
+                {c.sample}
+              </span>
             </div>
           ))}
         </div>
@@ -102,7 +118,9 @@ export default function CertTemplateEditor({ eventId, category, label, template,
             ))}
           </div>
           <div className={s.editorHintSmall}>
-            {armed ? `Click on the image to place "${armedChip.label}"` : 'Select a field above, then click on the image to position it. Replacing the image clears saved positions.'}
+            {armed
+              ? `Click on the image to place "${armedChip.label}" — sample text shows the real size and centering it'll print at.`
+              : 'Select a field above, then click on the image to position it. The sample text shown is exactly how it will look on the real certificate — adjust until it sits correctly. Replacing the image clears saved positions.'}
           </div>
           <button type="button" className={s.saveBtn} onClick={handleSavePositions} disabled={saving || !allPlaced}>
             {saving ? 'Saving…' : 'Save Positions'}

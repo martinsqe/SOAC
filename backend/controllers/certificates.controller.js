@@ -6,7 +6,6 @@ const { getFileValue, useCloudinary, cloudinaryInstance } = require('../config/m
 const { destroyImage } = require('../config/cloudinary');
 const { getChampion }      = require('../services/bracketMath');
 const { renderCertificate, fetchImageBytes } = require('../services/certificateGenerator');
-const { sendCertificateEmail } = require('../config/email');
 
 /* ── Migrations ── */
 (async () => {
@@ -102,10 +101,11 @@ const templateIsReady = (anchors) => {
   return ANCHOR_KEYS.every(k => a[k] && typeof a[k].x === 'number' && typeof a[k].y === 'number');
 };
 
-/* Shared by preview + finalize so they can never drift apart. Resolves Winner/Runner-up
-   per division from bracket structure alone (bracketMath.getChampion — already used for
-   the event report), rosters via the standard team-member join, and Participation as
-   everyone registered who isn't on either of those two teams. */
+/* Shared by preview + finalize so they can never drift apart. Only active members of the
+   hosting club are eligible for a certificate at all (registrants who aren't club members
+   never appear in any bucket). Resolves Winner/Runner-up per division from bracket structure
+   alone (bracketMath.getChampion — already used for the event report), rosters via the
+   standard team-member join, and Participation as everyone else who qualifies. */
 async function assembleCertificationBuckets(eventId) {
   const { rows: evRows } = await pgPool.query(
     `SELECT id, title, category, club_id, date, start_date FROM events WHERE id = $1`,
@@ -114,10 +114,23 @@ async function assembleCertificationBuckets(eventId) {
   if (!evRows.length) return null;
   const event = evRows[0];
 
-  const { rows: registrations } = await pgPool.query(
-    `SELECT id, name, email, enrollment_no FROM event_registrations WHERE event_id = $1 ORDER BY registered_at ASC`,
-    [eventId]
-  );
+  /* Certificates are only issued to active members of the hosting club — registrants who
+     aren't club members never receive one, regardless of category. An event with no hosting
+     club (club_id IS NULL, a SOAC-wide event) has no membership concept, so nobody qualifies. */
+  let registrations = [];
+  if (event.club_id) {
+    const { rows } = await pgPool.query(
+      `SELECT er.id, er.name, er.email, er.enrollment_no
+       FROM event_registrations er
+       JOIN users u ON LOWER(u.email) = LOWER(er.email) AND u.is_active = true
+       JOIN student_clubs sc ON sc.user_id = u.id AND sc.club_id = $2 AND sc.is_active = true
+       WHERE er.event_id = $1
+       ORDER BY er.registered_at ASC`,
+      [eventId, event.club_id]
+    );
+    registrations = rows;
+  }
+  const memberRegIds = new Set(registrations.map(r => String(r.id)));
 
   const winner = [];
   const runnerUp = [];
@@ -161,10 +174,15 @@ async function assembleCertificationBuckets(eventId) {
       [eventId]
     );
 
+    /* Bracket resolution (getChampion) operates on team names/fixtures only — never
+       membership — so the full, unfiltered roster is used there. Only the roster actually
+       attached to Winner/Runner-up (and regTeamInfo, used for Participation's team context)
+       is filtered down to club members, since non-members never receive a certificate. */
     const teamsByNameDivision = {};
     teamRows.forEach(t => {
-      teamsByNameDivision[`${t.division}:${t.name}`] = t;
-      (t.members || []).forEach(m => {
+      const qualifyingMembers = (t.members || []).filter(m => memberRegIds.has(String(m.registrationId)));
+      teamsByNameDivision[`${t.division}:${t.name}`] = { ...t, members: qualifyingMembers };
+      qualifyingMembers.forEach(m => {
         regTeamInfo[String(m.registrationId)] = { teamName: t.name, division: t.division };
       });
     });
@@ -294,13 +312,10 @@ const previewCertifications = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-const formatEventDate = (event) => {
-  if (event.date) return event.date;
-  if (event.start_date) {
-    return new Date(event.start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-  }
-  return '';
-};
+/* Printed "date" on the certificate is the issuance date (when Finalize was clicked), not
+   the event's date — day + month only, since the template itself already has the year
+   printed as static text (e.g. "on ______ 2026."). */
+const formatIssueDate = () => new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
 const isPngUrl = (url) => /\.png(\?|$)/i.test(url || '');
 
@@ -349,41 +364,21 @@ const finalizeCertifications = async (req, res, next) => {
     }));
 
     if (!recipients.length) {
-      return res.json({ summary: { total: 0, dashboard: 0, emailed: 0, emailSent: 0, emailFailed: 0 }, alreadyFinalizedAt: null });
+      return res.json({ summary: { total: 0, dashboard: 0 }, alreadyFinalizedAt: null });
     }
 
-    /* Batched active-membership lookup — one query, not per-recipient. A SOAC-wide event
-       (no hosting club) has no membership concept, so everyone falls to email delivery. */
-    let memberEmails = new Set();
-    if (event.club_id) {
-      const emails = [...new Set(recipients.map(r => (r.email || '').toLowerCase()).filter(Boolean))];
-      if (emails.length) {
-        const { rows: memberRows } = await pgPool.query(
-          `SELECT LOWER(u.email) AS email FROM student_clubs sc
-           JOIN users u ON u.id = sc.user_id
-           WHERE sc.club_id = $1 AND sc.is_active = true AND LOWER(u.email) = ANY($2::text[])`,
-          [event.club_id, emails]
-        );
-        memberEmails = new Set(memberRows.map(r => r.email));
-      }
-    }
-
-    /* Prior delivery method per registrant, so we can avoid re-notifying (in-app) a student
-       whose delivery method hasn't actually changed on this re-finalize. (No "clean up the
-       old file" step needed — filenames are deterministic per (event, registration) and
-       uploaded with overwrite:true, so a re-render replaces the same Cloudinary asset in
-       place; calling destroy on it afterwards would delete the version we just uploaded.) */
+    /* Prior delivery state per registrant, so we can avoid re-notifying (in-app) a student
+       whose certificate was already available before this re-finalize. (No "clean up the old
+       file" step needed — filenames are deterministic per (event, registration) and uploaded
+       with overwrite:true, so a re-render replaces the same Cloudinary asset in place; calling
+       destroy on it afterwards would delete the version we just uploaded.) */
     const { rows: oldRows } = await pgPool.query(
-      `SELECT registration_id, delivery_method FROM event_certificates_issued WHERE event_id = $1`,
+      `SELECT registration_id FROM event_certificates_issued WHERE event_id = $1`,
       [req.params.id]
     );
-    const oldByReg = {};
-    oldRows.forEach(r => { oldByReg[String(r.registration_id)] = r; });
+    const previouslyIssued = new Set(oldRows.map(r => String(r.registration_id)));
 
-    const dateText = formatEventDate(event);
-    const emailJobs = [];
-    let dashboardCount = 0;
-    let emailedCount = 0;
+    const dateText = formatIssueDate();
 
     for (const r of recipients) {
       const ctx = renderCtx[r.category];
@@ -394,46 +389,24 @@ const finalizeCertifications = async (req, res, next) => {
       const filename = `certificate-${req.params.id}-${r.registrationId}.pdf`;
       const fileUrl = await uploadCertificateBuffer(pdfBuffer, filename);
 
-      const email = (r.email || '').toLowerCase();
-      const deliveryMethod = email && memberEmails.has(email) ? 'dashboard' : 'email';
-      if (deliveryMethod === 'dashboard') dashboardCount++; else emailedCount++;
-
-      const prior = oldByReg[String(r.registrationId)];
-
+      /* Every recipient here has already been filtered to an active club member
+         (assembleCertificationBuckets) — certificates are never emailed, only made
+         available on the student's own dashboard. */
       await pgPool.query(
         `INSERT INTO event_certificates_issued
            (event_id, registration_id, category, division, team_name, recipient_name,
             file_url, delivery_method, issued_by, delivered_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'dashboard',$8,NOW())
          ON CONFLICT (event_id, registration_id) DO UPDATE SET
            category = EXCLUDED.category, division = EXCLUDED.division, team_name = EXCLUDED.team_name,
            recipient_name = EXCLUDED.recipient_name, file_url = EXCLUDED.file_url,
-           delivery_method = EXCLUDED.delivery_method, issued_by = EXCLUDED.issued_by,
-           email_status = NULL, delivered_at = NOW(), updated_at = NOW()`,
-        [req.params.id, r.registrationId, r.category, r.division, r.teamName, r.name, fileUrl, deliveryMethod, req.user.id]
+           issued_by = EXCLUDED.issued_by, delivered_at = NOW(), updated_at = NOW()`,
+        [req.params.id, r.registrationId, r.category, r.division, r.teamName, r.name, fileUrl, req.user.id]
       );
 
-      if (deliveryMethod === 'email' && email) {
-        emailJobs.push(
-          sendCertificateEmail({ toEmail: email, toName: r.name, eventTitle: event.title, category: r.category, pdfBuffer, filename })
-            .then(async () => {
-              await pgPool.query(
-                `UPDATE event_certificates_issued SET email_status = 'sent' WHERE event_id = $1 AND registration_id = $2`,
-                [req.params.id, r.registrationId]
-              );
-              return { ok: true };
-            })
-            .catch(async (err) => {
-              console.error(`[certificates] email failed for ${email}:`, err.message);
-              await pgPool.query(
-                `UPDATE event_certificates_issued SET email_status = 'failed' WHERE event_id = $1 AND registration_id = $2`,
-                [req.params.id, r.registrationId]
-              ).catch(() => {});
-              return { ok: false };
-            })
-        );
-      } else if (deliveryMethod === 'dashboard' && email && prior?.delivery_method !== 'dashboard') {
-        /* Only notify the first time this student's certificate becomes dashboard-available —
+      const email = (r.email || '').toLowerCase();
+      if (email && !previouslyIssued.has(String(r.registrationId))) {
+        /* Only notify the first time this student's certificate becomes available —
            avoids re-notifying on every harmless re-finalize where nothing changed for them. */
         pgPool.query(
           `INSERT INTO member_notifications (user_id, club_id, title, body, type)
@@ -442,10 +415,6 @@ const finalizeCertifications = async (req, res, next) => {
         ).catch(() => {});
       }
     }
-
-    const emailResults = await Promise.allSettled(emailJobs);
-    const emailSent   = emailResults.filter(r => r.status === 'fulfilled' && r.value?.ok).length;
-    const emailFailed = emailedCount - emailSent;
 
     const { rows: finalizedRows } = await pgPool.query(
       `UPDATE events SET certificates_finalized_at = NOW() WHERE id = $1 RETURNING certificates_finalized_at`,
@@ -456,7 +425,7 @@ const finalizeCertifications = async (req, res, next) => {
     if (io) io.emit('certificates:finalized', { eventId: String(req.params.id) });
 
     res.json({
-      summary: { total: recipients.length, dashboard: dashboardCount, emailed: emailedCount, emailSent, emailFailed },
+      summary: { total: recipients.length, dashboard: recipients.length },
       alreadyFinalizedAt: finalizedRows[0]?.certificates_finalized_at || null,
     });
   } catch (err) { next(err); }

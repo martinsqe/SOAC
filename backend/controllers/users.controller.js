@@ -507,28 +507,41 @@ const myActivity = async (req, res, next) => {
       ),
     ]);
 
-    /* Build event_id → contributions[] map */
-    const contribMap = new Map();
-    const addContrib = (eventId, entry) => {
+    /* Build event_id → one aggregated row per stat category (not one row per click) —
+       "player_score" (ps|) rows each store the CUMULATIVE running value after that click
+       (see clubDetail.controller.js's awardPlayerScoreCoins — the entity_id embeds the new
+       total, and a fresh coin award fires every time that total changes), so the category's
+       displayed count is the MOST RECENT value, not a sum — only coins are summed across
+       every click. basketball_game_events rows are discrete per-action events (each shot/
+       assist/etc. is its own occurrence), so both the count and the coins are summed. */
+    const contribMap = new Map(); // eventId -> Map(categoryKey -> {label, value, coins, mode, latestAt})
+    const mergeContrib = (eventId, categoryKey, label, value, coins, mode, createdAt) => {
       if (!eventId) return;
-      const key = String(eventId);
-      if (!contribMap.has(key)) contribMap.set(key, []);
-      contribMap.get(key).push(entry);
+      const evKey = String(eventId);
+      if (!contribMap.has(evKey)) contribMap.set(evKey, new Map());
+      const catMap = contribMap.get(evKey);
+      const existing = catMap.get(categoryKey);
+      if (!existing) { catMap.set(categoryKey, { label, value, coins, mode, latestAt: createdAt }); return; }
+      existing.coins += coins;
+      if (mode === 'sum') existing.value += value;
+      else if (new Date(createdAt) > new Date(existing.latestAt)) { existing.value = value; existing.latestAt = createdAt; }
     };
+
+    const titleCase = (s) => s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ');
+
     for (const r of psContribRes.rows) {
-      const statName  = r.stat_name  || 'contribution';
+      const statName  = r.stat_name || 'contribution';
       const statValue = Number(r.stat_value) || 0;
-      const label     = statName === 'points' || statName === 'goals'
-        ? `${statValue} pt${statValue !== 1 ? 's' : ''}`
-        : statName;
-      addContrib(r.event_id, { label, amount: r.amount, createdAt: r.created_at });
+      const isPoints  = statName === 'points' || statName === 'goals';
+      const label     = isPoints ? 'Points' : titleCase(statName);
+      mergeContrib(r.event_id, `ps:${statName}`, label, statValue, r.amount, 'latest', r.created_at);
     }
+    const BGE_LABELS = { shot_made: 'Points', assist: 'Assists', rebound_off: 'Rebounds', rebound_def: 'Rebounds', steal: 'Steals', block: 'Blocks', foul: 'Fouls', turnover: 'Turnovers' };
     for (const r of bgeContribRes.rows) {
-      const label = r.event_type === 'shot_made'
-        ? `${r.points || 2} pt${(r.points || 2) !== 1 ? 's' : ''}${r.quarter ? ` (${r.quarter})` : ''}`
-        : r.event_type === 'assist' ? `Assist${r.quarter ? ` (${r.quarter})` : ''}`
-        : `Block${r.quarter ? ` (${r.quarter})` : ''}`;
-      addContrib(r.event_id, { label, amount: r.amount, createdAt: r.created_at });
+      const key   = r.event_type === 'rebound_off' || r.event_type === 'rebound_def' ? 'rebound' : r.event_type;
+      const label = BGE_LABELS[r.event_type] || titleCase(r.event_type || 'contribution');
+      const value = r.event_type === 'shot_made' ? (r.points || 2) : 1;
+      mergeContrib(r.event_id, `bge:${key}`, label, value, r.amount, 'sum', r.created_at);
     }
 
     res.json({
@@ -550,7 +563,9 @@ const myActivity = async (req, res, next) => {
           clearCoins,
           matchCoins,
           totalCoins:    regCoins + clearCoins + matchCoins,
-          contributions: contribMap.get(String(r.event_id)) || [],
+          contributions: Array.from((contribMap.get(String(r.event_id)) || new Map()).values())
+            .map(c => ({ label: c.label, value: c.value, coins: c.coins }))
+            .sort((a, b) => b.coins - a.coins),
         };
       }),
     });

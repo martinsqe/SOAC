@@ -12,23 +12,15 @@ const APP_LOGIN = `${APP_URL}/login`;
 ────────────────────────────────────────────────────────────────────────── */
 
 /* ── Resend HTTP sender ──────────────────────────────────────────────────── */
-async function sendViaResend({ to, subject, html, attachments }) {
+async function sendViaResend({ to, subject, html }) {
   const from = process.env.EMAIL_FROM || 'SOAC <noreply@soac.info>';
-  const body = { from, to, subject, html };
-  if (attachments?.length) {
-    /* Resend expects base64 string content, not a raw Buffer */
-    body.attachments = attachments.map(a => ({
-      filename: a.filename,
-      content:  Buffer.isBuffer(a.content) ? a.content.toString('base64') : a.content,
-    }));
-  }
   const res  = await fetch('https://api.resend.com/emails', {
     method:  'POST',
     headers: {
       'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
       'Content-Type':  'application/json',
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ from, to, subject, html }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || `Resend API error ${res.status}`);
@@ -100,23 +92,22 @@ function _releaseSendSlot() {
 }
 const _wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function _sendOnce({ to, subject, html, attachments }) {
+async function _sendOnce({ to, subject, html }) {
   if (process.env.RESEND_API_KEY) {
-    await sendViaResend({ to, subject, html, attachments });
+    await sendViaResend({ to, subject, html });
   } else {
     const { transport, from } = getGmailTransport();
-    /* nodemailer accepts Buffer content natively — no transform needed */
-    await transport.sendMail({ from, to, subject, html, attachments });
+    await transport.sendMail({ from, to, subject, html });
   }
 }
 
 /* ── Shared send wrapper ─────────────────────────────────────────────────── */
-async function send({ to, subject, html, attachments }) {
+async function send({ to, subject, html }) {
   await _acquireSendSlot();
   try {
     for (let attempt = 0; ; attempt++) {
       try {
-        await _sendOnce({ to, subject, html, attachments });
+        await _sendOnce({ to, subject, html });
         return;
       } catch (err) {
         if (attempt >= MAX_SEND_RETRIES) throw err;
@@ -278,29 +269,6 @@ const sendTeamAssignment = async ({ toEmail, toName, eventTitle, division, group
   });
 };
 
-/* Sent to registrants who are NOT active members of the hosting club once a coordinator
-   finalizes certificates for an event — the PDF is attached directly since these students
-   have no in-app dashboard surface for it (member students see it in My Activity instead). */
-const CERT_LABEL = { participation: 'Certificate of Participation', runner_up: 'Certificate of Runner-up', winner: 'Certificate of Winner' };
-const sendCertificateEmail = async ({ toEmail, toName, eventTitle, category, pdfBuffer, filename }) => {
-  const label = CERT_LABEL[category] || 'Certificate';
-  await send({
-    to:      toEmail,
-    subject: `Your ${label} — ${eventTitle} — SOAC RKU`,
-    html: wrap(`
-      ${header('#f59e0b,#d97706')}
-      <h2 style="color:#1a1040;margin-bottom:8px">Congratulations, ${toName}!</h2>
-      <p style="color:#555;line-height:1.6">Your <strong style="color:#d97706">${label}</strong> for <strong style="color:#1a1040">${eventTitle}</strong> is attached to this email.</p>
-      <div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:16px 20px;margin:24px 0;text-align:center">
-        <p style="margin:0;font-size:14px;color:#92400e">📎 ${filename}</p>
-      </div>
-      <p style="color:#888;font-size:13px;line-height:1.6">Thank you for participating in SOAC RKU events!</p>
-      ${footer()}
-    `),
-    attachments: [{ filename, content: pdfBuffer, contentType: 'application/pdf' }],
-  });
-};
-
 /* ── Diagnostic: send a test email, return { ok, via, error } ─────────────── */
 const sendTestEmail = async (toEmail) => {
   const via = process.env.RESEND_API_KEY ? 'Resend' : 'Gmail';
@@ -323,6 +291,5 @@ module.exports = {
   sendCoordinatorAssignment,
   sendPasswordReset,
   sendTeamAssignment,
-  sendCertificateEmail,
   sendTestEmail,
 };

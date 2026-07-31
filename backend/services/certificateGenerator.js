@@ -36,8 +36,8 @@ async function renderCertificate({ imageBytes, isPng, anchors, name, eventTitle,
     page.drawText(text, { x: x - tw / 2, y: y - size / 3, size, font, color: rgb(0.1, 0.1, 0.1) });
   };
   drawAt('name', name, 28);
-  drawAt('game', eventTitle, 18);
-  drawAt('date', dateText, 16);
+  drawAt('game', eventTitle, 28);
+  drawAt('date', dateText, 28);
 
   return Buffer.from(await pdfDoc.save());
 }
