@@ -7,6 +7,8 @@ const { ensureSoacTables } = require('../services/soacData');
 const { getFileValue } = require('../config/multer');
 const bracketEngine = require('../services/bracketEngine');
 const { autoRefreshReportIfExists } = require('./reports.controller');
+const { notifyUser, notifyManyUsers } = require('../services/notify');
+const { sendPushToUser } = require('../services/webPush');
 
 /* ── GET /api/clubs/:id/membership  (authenticated) ────────────────────── */
 const getMembership = async (req, res, next) => {
@@ -180,6 +182,25 @@ const postMessage = async (req, res, next) => {
       [clubId, req.user.id, req.user.name, avatar, content.trim()]
     );
     res.status(201).json({ message: rows[0] });
+
+    /* Notify every other active member of this club — fire-and-forget, after the
+       response is already sent so a slow fan-out never delays the sender's own UI. */
+    pgPool.query(
+      `SELECT u.id FROM student_clubs sc
+       JOIN users u ON u.id = sc.user_id AND u.is_active = true
+       WHERE sc.club_id = $1::bigint AND sc.is_active = true AND u.id != $2`,
+      [clubId, req.user.id]
+    ).then(({ rows: members }) => {
+      if (!members.length) return;
+      notifyManyUsers({
+        userIds: members.map(m => m.id),
+        clubId,
+        title: req.user.name,
+        body:  content.trim().slice(0, 120),
+        type:  'message',
+        url:   `/student/clubs/${clubId}`,
+      });
+    }).catch(() => {});
   } catch (err) { next(err); }
 };
 
@@ -487,6 +508,11 @@ const createAttendanceSession = async (req, res, next) => {
     if (!session_date) return res.status(400).json({ message: 'session_date is required.' });
 
     const client = await pgPool.connect();
+    /* Consistency-bonus pushes collected during the loop below and only sent AFTER
+       COMMIT succeeds — the in-app notification insert stays on `client` (part of the
+       transaction, unchanged), but push must never fire for a bonus that a later
+       record in this same batch causes to roll back. */
+    const pendingPushes = [];
     try {
       await client.query('BEGIN');
       const { rows: [session] } = await client.query(
@@ -535,16 +561,19 @@ const createAttendanceSession = async (req, res, next) => {
             if (bonusGranted.length) {
               await applyXpDelta(client, clubId, r.user_id, r.user_name || '', 100, req.user.id);
               const msg = CONSISTENCY_MESSAGES[Math.floor(Math.random() * CONSISTENCY_MESSAGES.length)];
+              const title = 'Consistency Champion! +100 bonus coins';
               await client.query(
                 `INSERT INTO member_notifications (user_id, club_id, title, body, type)
                  VALUES ($1::int, $2::bigint, $3, $4, 'achievement')`,
-                [r.user_id, clubId, 'Consistency Champion! +100 bonus coins', msg]
+                [r.user_id, clubId, title, msg]
               );
+              pendingPushes.push({ userId: r.user_id, title, body: msg });
             }
           }
         }
       }
       await client.query('COMMIT');
+      pendingPushes.forEach(p => sendPushToUser(p.userId, { ...p, url: '/student/profile', type: 'achievement' }).catch(() => {}));
       res.status(201).json({ session: { ...session, total: records.length } });
     } catch (e) {
       await client.query('ROLLBACK');
@@ -1295,6 +1324,15 @@ async function awardMatchPerformanceCoins(scoreId, gameEventId, playerName, even
        RETURNING id`,
       [userId, `Match performance (${actionLabel})`, entityId]
     );
+    if (ins.rowCount > 0) {
+      notifyUser({
+        userId, clubId,
+        title: 'Nice play!',
+        body:  `+62 coins for ${actionLabel} in the match.`,
+        type:  'achievement',
+        url:   `/student/clubs/${clubId}`,
+      }).catch(() => {});
+    }
   } catch (e) {
     console.error('[coins] awardMatchPerformanceCoins error:', e.message);
   }
@@ -1345,6 +1383,13 @@ async function awardPlayerScoreCoins(scoreId, clubId, playerName, statName, newV
     );
     if (ins.rowCount > 0) {
       console.log(`[coins] +62 awarded to user ${userId} (${playerName}) for ${statLabel} — score ${scoreId}`);
+      notifyUser({
+        userId, clubId,
+        title: 'Nice play!',
+        body:  `+62 coins for ${statLabel} in the match.`,
+        type:  'achievement',
+        url:   `/student/clubs/${clubId}`,
+      }).catch(() => {});
     } else {
       console.log(`[coins] Duplicate skipped for user ${userId} (${playerName}) ${statLabel} val=${newValue}`);
     }

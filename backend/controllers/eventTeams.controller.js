@@ -6,6 +6,7 @@ const bracketEngine        = require('../services/bracketEngine');
 const { fetchGroups }      = require('./eventGroups.controller');
 const { autoRefreshReportIfExists } = require('./reports.controller');
 const { sendTeamAssignment } = require('../config/email');
+const { notifyUser } = require('../services/notify');
 
 /* Award 55 coins to every member of a cleared team — fire-and-forget */
 async function awardEventParticipationCoins(eventId, teamId, teamName) {
@@ -47,11 +48,11 @@ async function awardEventParticipationCoins(eventId, teamId, teamName) {
         [m.user_id, reason, entityId, academicYear]
       );
       if (ins.rowCount > 0) {
-        await pgPool.query(
-          `INSERT INTO member_notifications (user_id, club_id, title, body, type)
-           VALUES ($1, $2, $3, $4, 'achievement')`,
-          [m.user_id, clubId || null, notifTitle, notifBody]
-        );
+        await notifyUser({
+          userId: m.user_id, clubId: clubId || null,
+          title: notifTitle, body: notifBody,
+          type: 'achievement', url: '/student/profile',
+        });
       }
     }
   } catch (e) {

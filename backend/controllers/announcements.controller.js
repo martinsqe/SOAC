@@ -15,6 +15,7 @@
 const { pgPool } = require('../config/db');
 const { ensureSoacTables } = require('../services/soacData');
 const { assertCoordOwnsClub } = require('../services/coordAuth');
+const { notifyManyUsers } = require('../services/notify');
 const cache = require('../services/cache');
 
 const COLS = [
@@ -140,6 +141,25 @@ const createClubAnnouncement = async (req, res, next) => {
 
     await cache.del(`announcements:club:${clubId}`);
     res.status(201).json({ announcement: toAnn(rows[0]) });
+
+    /* Fan out to every active member of this club — fire-and-forget, after the
+       response, so a large club doesn't delay the poster's own confirmation. */
+    pgPool.query(
+      `SELECT u.id FROM student_clubs sc
+       JOIN users u ON u.id = sc.user_id AND u.is_active = true
+       WHERE sc.club_id = $1::bigint AND sc.is_active = true`,
+      [clubId]
+    ).then(({ rows: members }) => {
+      if (!members.length) return;
+      notifyManyUsers({
+        userIds: members.map(m => m.id),
+        clubId,
+        title: title.trim(),
+        body:  (body || '').trim().slice(0, 150),
+        type:  'announcement',
+        url:   `/student/clubs/${clubId}`,
+      });
+    }).catch(() => {});
   } catch (err) { next(err); }
 };
 
@@ -173,6 +193,19 @@ const createSOACAnnouncement = async (req, res, next) => {
 
     await cache.del('announcements:soac');
     res.status(201).json({ announcement: toAnn(rows[0]) });
+
+    /* Fan out to every active student platform-wide — fire-and-forget. */
+    pgPool.query(`SELECT id FROM users WHERE role = 'student' AND is_active = true`)
+      .then(({ rows: students }) => {
+        if (!students.length) return;
+        notifyManyUsers({
+          userIds: students.map(s => s.id),
+          title: title.trim(),
+          body:  (body || '').trim().slice(0, 150),
+          type:  'announcement',
+          url:   '/student/soac-updates',
+        });
+      }).catch(() => {});
   } catch (err) { next(err); }
 };
 

@@ -44,14 +44,12 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: var(--red);
   color: #fff;
-  border-radius: 7px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 1.4px;
   text-transform: uppercase;
-  padding: 5px 13px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
   margin-bottom: 20px;
 }
 
@@ -59,7 +57,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--red);
   animation: bl 2s ease-in-out infinite;
 }
 

@@ -4,6 +4,7 @@ const { getCoordClubIds } = require('../services/coordAuth');
 const { destroyImage } = require('../config/cloudinary');
 const { getFileValue } = require('../config/multer');
 const { autoRefreshReportIfExists } = require('./reports.controller');
+const { notifyUser } = require('../services/notify');
 const cache = require('../services/cache');
 
 /* ── Column lists ───────────────────────────────────────────────────────────*/
@@ -464,14 +465,38 @@ async function awardRegistrationCoins(eventId, eventTitle, email) {
       [userId, `Event registration: ${eventTitle}`, entityId]
     );
     if (ins.rowCount > 0) {
-      await pgPool.query(
-        `INSERT INTO member_notifications (user_id, club_id, title, body, type)
-         VALUES ($1, NULL, 'Registration Reward', $2, 'achievement')`,
-        [userId, `You earned 55 coins for registering for "${eventTitle}"!`]
-      );
+      await notifyUser({
+        userId, clubId: null,
+        title: 'Registration Reward',
+        body:  `You earned 55 coins for registering for "${eventTitle}"!`,
+        type:  'achievement',
+        url:   '/student/profile',
+      });
     }
   } catch (e) {
     console.error('[coins] awardRegistrationCoins error:', e.message);
+  }
+}
+
+/* Sends the actual "you're registered" confirmation — fires on EVERY successful
+   registration (unlike awardRegistrationCoins, which is a one-time coin-earned
+   notice gated by idempotency). Registration doesn't require an account, so this
+   silently no-ops if the email doesn't match an active user. */
+async function notifyRegistrationConfirmed(event, email) {
+  try {
+    const { rows: userRows } = await pgPool.query(
+      `SELECT id FROM users WHERE LOWER(email) = $1 AND is_active = true LIMIT 1`, [email]
+    );
+    if (!userRows.length) return;
+    await notifyUser({
+      userId: userRows[0].id, clubId: null,
+      title: 'Registration confirmed',
+      body:  `You're registered for "${event.title}". See you there!`,
+      type:  'registration',
+      url:   `/student/events/${event.id}`,
+    });
+  } catch (e) {
+    console.error('[notify] notifyRegistrationConfirmed error:', e.message);
   }
 }
 
@@ -518,7 +543,9 @@ const register = async (req, res, next) => {
       ]
     );
     await cache.del(`events:${req.params.id}`);
-    awardRegistrationCoins(event.id, event.title, email.trim().toLowerCase()).catch(() => {});
+    const regEmail = email.trim().toLowerCase();
+    awardRegistrationCoins(event.id, event.title, regEmail).catch(() => {});
+    notifyRegistrationConfirmed(event, regEmail).catch(() => {});
     res.status(201).json({ message: 'Registration successful!', registration: rows[0] });
   } catch (err) {
     if (err.code === '23505') {

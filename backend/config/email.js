@@ -3,6 +3,16 @@ const nodemailer = require('nodemailer');
 const APP_URL   = process.env.CLIENT_URL || 'https://soac.info';
 const APP_LOGIN = `${APP_URL}/login`;
 
+/* Every email this app sends is transactional/no-reply. Resend already sends FROM this
+   address, so a reply naturally routes (and bounces, since nothing receives mail here) here
+   already. Gmail SMTP can't send AS this address without a verified "Send mail as" alias
+   (Google rejects/rewrites an unverified From) — but it CAN set Reply-To independently of
+   the authenticated From address, so hitting "Reply" on a Gmail-relayed email routes here
+   too, bouncing the same way Resend's does. Net effect: both providers behave identically
+   to the recipient for the one thing that matters — replying goes nowhere — even though
+   Gmail's raw From address still shows the real relay account. */
+const NO_REPLY_ADDRESS = process.env.EMAIL_REPLY_TO || 'noreply@soac.info';
+
 /* ─────────────────────────────────────────────────────────────────────────
    Priority 1 – Resend HTTP API  (set RESEND_API_KEY in Railway)
      Uses HTTPS port 443 — never blocked by any cloud provider.
@@ -20,7 +30,7 @@ async function sendViaResend({ to, subject, html }) {
       'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
       'Content-Type':  'application/json',
     },
-    body: JSON.stringify({ from, to, subject, html }),
+    body: JSON.stringify({ from, to, subject, html, reply_to: NO_REPLY_ADDRESS }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || `Resend API error ${res.status}`);
@@ -58,14 +68,20 @@ function getGmailTransport() {
   return _gmailTransport;
 }
 
-/* Log which provider is active on boot */
-if (process.env.RESEND_API_KEY) {
-  console.log('✉️  Email provider: Resend HTTP API');
-} else {
-  console.log('✉️  Email provider: Gmail SMTP (fallback)');
+async function sendViaGmail({ to, subject, html }) {
+  const { transport, from } = getGmailTransport();
+  await transport.sendMail({ from, to, subject, html, replyTo: NO_REPLY_ADDRESS });
 }
 
-/* ── Concurrency-limited, retrying send queue ────────────────────────────────
+/* Provider chain, in priority order. Resend is skipped entirely if no API key is
+   configured — Gmail then becomes the sole provider, same as before failover existed. */
+const PROVIDER_CHAIN = process.env.RESEND_API_KEY
+  ? [{ name: 'resend', send: sendViaResend }, { name: 'gmail', send: sendViaGmail }]
+  : [{ name: 'gmail', send: sendViaGmail }];
+
+console.log(`✉️  Email providers (in order): ${PROVIDER_CHAIN.map(p => p.name).join(' → ')}`);
+
+/* ── Concurrency-limited, retrying, failing-over send queue ─────────────────
    Both providers reject/drop requests once too many go out at once (Resend's
    free-tier rate limit; Gmail's per-account concurrent-connection limit).
    Without this, bulk sends (e.g. team-assignment emails to 50+ students at
@@ -74,7 +90,11 @@ if (process.env.RESEND_API_KEY) {
    concurrency and retrying transient failures keeps the whole batch delivering
    instead of silently failing past the first handful. */
 const MAX_CONCURRENT_SENDS = 2; // Resend's free tier is ~2 req/s; stay under it even when responses come back fast
-const MAX_SEND_RETRIES     = 3; // 500ms, 1500ms, 4500ms backoff — rides out short-lived 429s
+const FALLBACK_RETRIES = 1; // non-final providers: one quick retry, then move on — a persistent
+                             // failure (e.g. Resend's daily quota) won't be fixed by hammering
+                             // it with the same 500ms/1500ms/4500ms backoff used for a final leg
+const FINAL_RETRIES    = 3; // the last provider in the chain has nowhere left to fail over to,
+                             // so it gets the full retry treatment (500ms, 1500ms, 4500ms)
 let _activeSends = 0;
 const _sendQueue = [];
 
@@ -92,28 +112,39 @@ function _releaseSendSlot() {
 }
 const _wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function _sendOnce({ to, subject, html }) {
-  if (process.env.RESEND_API_KEY) {
-    await sendViaResend({ to, subject, html });
-  } else {
-    const { transport, from } = getGmailTransport();
-    await transport.sendMail({ from, to, subject, html });
+async function _sendWithRetries(providerFn, payload, maxRetries) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await providerFn(payload);
+      return;
+    } catch (err) {
+      if (attempt >= maxRetries) throw err;
+      await _wait(500 * 3 ** attempt); // 500ms, then 1500ms, then 4500ms
+    }
   }
 }
 
-/* ── Shared send wrapper ─────────────────────────────────────────────────── */
+/* ── Shared send wrapper — tries each provider in PROVIDER_CHAIN in order,
+   falling over to the next one if a provider exhausts its retries. Only
+   throws once every provider in the chain has failed. Returns the name of
+   whichever provider actually succeeded, so callers/diagnostics can tell
+   when a send only went through because of the fallback. ── */
 async function send({ to, subject, html }) {
   await _acquireSendSlot();
   try {
-    for (let attempt = 0; ; attempt++) {
+    let lastErr;
+    for (let i = 0; i < PROVIDER_CHAIN.length; i++) {
+      const { name, send: providerFn } = PROVIDER_CHAIN[i];
+      const isLast = i === PROVIDER_CHAIN.length - 1;
       try {
-        await _sendOnce({ to, subject, html });
-        return;
+        await _sendWithRetries(providerFn, { to, subject, html }, isLast ? FINAL_RETRIES : FALLBACK_RETRIES);
+        return name;
       } catch (err) {
-        if (attempt >= MAX_SEND_RETRIES) throw err;
-        await _wait(500 * 3 ** attempt); // 500ms, then 1500ms
+        lastErr = err;
+        console.error(`[email] ${name} failed${isLast ? '' : ' — falling back to next provider'}:`, err.message);
       }
     }
+    throw lastErr;
   } finally {
     _releaseSendSlot();
   }
@@ -271,16 +302,16 @@ const sendTeamAssignment = async ({ toEmail, toName, eventTitle, division, group
 
 /* ── Diagnostic: send a test email, return { ok, via, error } ─────────────── */
 const sendTestEmail = async (toEmail) => {
-  const via = process.env.RESEND_API_KEY ? 'Resend' : 'Gmail';
+  const chain = PROVIDER_CHAIN.map(p => p.name).join(' → ');
   try {
-    await send({
+    const via = await send({
       to:      toEmail,
       subject: 'SOAC Email Test',
-      html:    wrap(`${header()}<h2 style="color:#1a1040">Email is working!</h2><p style="color:#555">This test email confirms SOAC can send emails via <strong>${via}</strong>.</p>${footer()}`),
+      html:    wrap(`${header()}<h2 style="color:#1a1040">Email is working!</h2><p style="color:#555">This test email confirms SOAC can send emails (provider chain: <strong>${chain}</strong>).</p>${footer()}`),
     });
     return { ok: true, via };
   } catch (err) {
-    return { ok: false, via, error: err.message };
+    return { ok: false, via: chain, error: err.message };
   }
 };
 

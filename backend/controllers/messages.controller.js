@@ -4,6 +4,7 @@
  */
 const { pgPool } = require('../config/db');
 const { ensureSoacTables } = require('../services/soacData');
+const { notifyUser } = require('../services/notify');
 
 /* ── GET /api/messages/conversations ───────────────────────────────────────
    Returns all group chats (clubs student joined) + DM threads, each with
@@ -202,6 +203,14 @@ const sendDM = async (req, res, next) => {
         from_avatar: ur[0]?.avatar || '',
       },
     });
+
+    notifyUser({
+      userId: other,
+      title:  req.user.name,
+      body:   content.slice(0, 120),
+      type:   'message',
+      url:    '/student/messages',
+    }).catch(() => {});
   } catch (err) { next(err); }
 };
 

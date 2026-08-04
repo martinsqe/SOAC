@@ -3,6 +3,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import AnimatedOutlet from '../../components/AnimatedOutlet/AnimatedOutlet';
 import ProfileModal from '../../components/ProfileModal/ProfileModal';
+import PushOptInBanner from '../../components/PushOptInBanner/PushOptInBanner';
 import api from '../../api/client';
 import styles from './AdminLayout.module.css';
 
@@ -173,6 +174,7 @@ export default function AdminLayout() {
         </header>
 
         <main className={styles.content}>
+          <PushOptInBanner />
           <AnimatedOutlet />
         </main>
       </div>

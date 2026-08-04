@@ -2,22 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import api from '../../api/client';
 import s from './WallOfFame.module.css';
 
-const CAT_COLORS = {
-  Tech:     { bg: 'rgba(219,234,254,.92)', text: '#1d4ed8' },
-  Sports:   { bg: 'rgba(220,252,231,.92)', text: '#15803d' },
-  Cultural: { bg: 'rgba(255,237,213,.92)', text: '#c2410c' },
-  Social:   { bg: 'rgba(253,232,247,.92)', text: '#be185d' },
-  Academic: { bg: 'rgba(204,251,241,.92)', text: '#0f766e' },
-  General:  { bg: 'rgba(237,233,254,.92)', text: '#5b21b6' },
-};
-
 const RANK_MEDAL = ['🥇', '🥈', '🥉'];
 
 const FameCard = ({ item, idx }) => {
   const photos  = [item.imageUrl, ...(item.gallery || [])].filter(Boolean);
   const [cur, setCur] = useState(0);
   const touchX  = useRef(null);
-  const cat     = CAT_COLORS[item.category] || CAT_COLORS.General;
   const medal   = RANK_MEDAL[idx];
 
   const atStart = cur === 0;
@@ -37,13 +27,8 @@ const FameCard = ({ item, idx }) => {
     touchX.current = null;
   };
 
-  const rankClass = idx === 0 ? s.rank1 : idx === 1 ? s.rank2 : idx === 2 ? s.rank3 : '';
-
   return (
-    <article
-      className={`${s.card} ${rankClass}`}
-      style={{ animationDelay: `${Math.min(idx, 9) * 0.07}s` }}
-    >
+    <article className={s.card}>
       {/* ── Photo carousel ── */}
       <div className={s.photoBox} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
         {photos.length > 0 ? (
@@ -55,6 +40,9 @@ const FameCard = ({ item, idx }) => {
         ) : (
           <div className={s.photoInit}>{item.name.charAt(0)}</div>
         )}
+
+        {/* Top-3 medal */}
+        {medal && <span className={s.medal} aria-label={`Rank ${idx + 1}`}>{medal}</span>}
 
         {/* Photo counter */}
         {photos.length > 1 && (

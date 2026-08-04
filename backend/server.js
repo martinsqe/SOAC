@@ -136,6 +136,7 @@ app.use('/api/event-requests',  require('./routes/eventRequests.routes'));
 app.use('/api/club-proposals',  require('./routes/clubProposals.routes'));
 app.use('/api/reports',         require('./routes/reports.routes'));
 app.use('/api/explore',         require('./routes/explore.routes'));
+app.use('/api/push',            require('./routes/push.routes'));
 
 
 

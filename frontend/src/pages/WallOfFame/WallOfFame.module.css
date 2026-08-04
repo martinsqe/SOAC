@@ -16,7 +16,6 @@
   text-align: center;
   max-width: 680px;
   margin: 0 auto clamp(32px, 5vw, 60px);
-  animation: riseIn .7s ease-out;
 }
 
 .trophyIcon {
@@ -24,7 +23,6 @@
   display: block;
   margin-bottom: 14px;
   filter: drop-shadow(0 6px 20px rgba(245,158,11,.35));
-  animation: trophyFloat 3.4s ease-in-out infinite;
   line-height: 1;
 }
 
@@ -35,7 +33,7 @@
   padding: 5px 18px;
   background: linear-gradient(135deg, rgba(99,102,241,.1) 0%, rgba(245,158,11,.09) 100%);
   border: 1px solid rgba(99,102,241,.22);
-  border-radius: 100px;
+  border-radius: 0;
   font-size: 10.5px;
   font-weight: 800;
   text-transform: uppercase;
@@ -95,55 +93,16 @@
 /* ── Individual card ── */
 .card {
   background: #fff;
-  border-radius: 22px;
+  border-radius: 0;
   border: 1.5px solid #e2e8f0;
   overflow: hidden;
   box-shadow:
     0 1px 3px rgba(0,0,0,.04),
     0 4px 16px rgba(99,102,241,.06);
-  transition:
-    transform .3s cubic-bezier(.175,.885,.32,1.275),
-    box-shadow .3s ease,
-    border-color .25s ease;
-  animation: riseIn .5s ease-out both;
   position: relative;
 }
 
-.card:hover {
-  transform: translateY(-9px);
-  box-shadow:
-    0 2px 6px rgba(0,0,0,.04),
-    0 28px 60px rgba(99,102,241,.16);
-  border-color: #c7d2fe;
-}
-
-/* ── Top-3 prestige borders ── */
-.rank1 {
-  border-color: #fde68a;
-  box-shadow: 0 2px 14px rgba(245,158,11,.14), 0 1px 3px rgba(0,0,0,.04);
-}
-.rank1:hover {
-  border-color: #f59e0b;
-  box-shadow: 0 28px 60px rgba(245,158,11,.22), 0 2px 6px rgba(0,0,0,.04);
-}
-
-.rank2 {
-  border-color: #d1d5db;
-  box-shadow: 0 2px 14px rgba(148,163,184,.12), 0 1px 3px rgba(0,0,0,.04);
-}
-.rank2:hover {
-  border-color: #9ca3af;
-  box-shadow: 0 28px 60px rgba(148,163,184,.2), 0 2px 6px rgba(0,0,0,.04);
-}
-
-.rank3 {
-  border-color: #fed7aa;
-  box-shadow: 0 2px 14px rgba(234,88,12,.1), 0 1px 3px rgba(0,0,0,.04);
-}
-.rank3:hover {
-  border-color: #fb923c;
-  box-shadow: 0 28px 60px rgba(234,88,12,.17), 0 2px 6px rgba(0,0,0,.04);
-}
+/* Top-3 are distinguished only by their medal emoji (🥇🥈🥉) — no special border/lining. */
 
 /* ── Photo area — portrait ratio ── */
 .photoBox {
@@ -161,11 +120,6 @@
   object-fit: cover;
   object-position: top center;
   display: block;
-  transition: transform .55s ease;
-}
-
-.card:hover .photo {
-  transform: scale(1.055);
 }
 
 /* ── Initials placeholder ── */
@@ -182,13 +136,25 @@
   user-select: none;
 }
 
+/* ── Top-3 medal — the only thing distinguishing rank now that the colored
+   lining is gone ── */
+.medal {
+  position: absolute;
+  top: 11px;
+  left: 11px;
+  font-size: 22px;
+  line-height: 1;
+  z-index: 3;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,.4));
+}
+
 /* ── Photo counter ── */
 .photoCounter {
   position: absolute;
   top: 11px;
   right: 11px;
   padding: 3px 9px;
-  border-radius: 100px;
+  border-radius: 0;
   font-size: 10px;
   font-weight: 700;
   background: rgba(15,23,42,.48);
@@ -248,7 +214,7 @@
 .dot {
   width: 5px;
   height: 5px;
-  border-radius: 3px;
+  border-radius: 0;
   background: rgba(255,255,255,.48);
   border: none;
   cursor: pointer;
@@ -312,7 +278,7 @@
   color: #475569;
   background: #f1f5f9;
   padding: 3px 9px;
-  border-radius: 100px;
+  border-radius: 0;
   text-transform: uppercase;
   letter-spacing: .04em;
 }
@@ -330,7 +296,6 @@
   padding: 72px 20px;
   max-width: 420px;
   margin: 0 auto;
-  animation: riseIn .6s ease-out;
 }
 
 .emptyIcon {
@@ -365,7 +330,7 @@
 }
 
 .skeleton {
-  border-radius: 22px;
+  border-radius: 0;
   /* Portrait photo (4:5) + card body — approximate combined ratio */
   aspect-ratio: 4 / 6.4;
   background: linear-gradient(90deg, #f1f5f9 25%, #e8edf4 50%, #f1f5f9 75%);
@@ -373,50 +338,66 @@
   animation: shimmer 1.7s infinite;
 }
 
-/* ── Animations ── */
-@keyframes riseIn {
-  from { opacity: 0; transform: translateY(22px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
+/* ── Loading shimmer (functional loading indicator, not decorative) ── */
 @keyframes shimmer {
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
 
-@keyframes trophyFloat {
-  0%, 100% { transform: translateY(0) rotate(-2deg); }
-  50%       { transform: translateY(-8px) rotate(2deg); }
-}
-
 /* ══════════════════════════════════
-   RESPONSIVE BREAKPOINTS
+   MOBILE — "Reels" mode: each honoree fills the screen; scroll down for the next.
    ══════════════════════════════════ */
-
-/* Tablet portrait: keep 2 columns, compact cards */
 @media (max-width: 767px) {
+  .page { padding: 0; }
+  .header { padding: 28px 20px 22px; margin-bottom: 0; }
+
   .grid, .skeletonGrid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
+    display: block;
+    grid-template-columns: none;
+    gap: 0;
+    max-width: none;
+    height: 100dvh;
+    overflow-y: auto;
+    scroll-snap-type: y mandatory;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
   }
-  .body { padding: 11px 13px 13px; }
-  .desc { -webkit-line-clamp: 2; }
-}
 
-/* Large phone: 2 columns, tighter */
-@media (max-width: 560px) {
-  .ach  { font-size: 10px; letter-spacing: .07em; }
-  .name { font-size: 13.5px; }
-  .desc { display: none; }   /* hide description on small cards */
-  .club { font-size: 9.5px; padding: 2px 7px; }
-}
+  .card {
+    width: 100%;
+    height: 100dvh;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    border: none;
+    box-shadow: none;
+  }
 
-/* Small phone: single column, full-width card */
-@media (max-width: 400px) {
-  .page { padding: 24px 12px 60px; }
-  .grid, .skeletonGrid { grid-template-columns: 1fr; gap: 14px; }
-  .desc { display: -webkit-box; -webkit-line-clamp: 3; }
-  .body { padding: 14px 16px 16px; }
-  .name { font-size: 16px; }
-  .ach  { font-size: 11px; }
+  .skeleton {
+    width: 100%;
+    height: 100dvh;
+    scroll-snap-align: start;
+  }
+
+  /* Photo fills the entire slide; caption overlays the bottom like a Reels caption. */
+  .photoBox { height: 100%; aspect-ratio: unset; }
+
+  .body {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 20px 20px 36px;
+    background: linear-gradient(to top, rgba(0,0,0,.8) 0%, rgba(0,0,0,.45) 55%, transparent 100%);
+  }
+
+  .ach  { color: #fbbf24; }
+  .name { color: #fff; }
+  .desc {
+    color: rgba(255,255,255,.88);
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+  }
+  .footer  { border-top-color: rgba(255,255,255,.22); }
+  .club    { background: rgba(255,255,255,.16); color: #fff; }
+  .year    { color: rgba(255,255,255,.72); }
 }

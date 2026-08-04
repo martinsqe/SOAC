@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { CoordClubProvider, useCoordClub } from '../../context/CoordClubContext';
 import AnimatedOutlet from '../../components/AnimatedOutlet/AnimatedOutlet';
 import ProfileModal from '../../components/ProfileModal/ProfileModal';
+import PushOptInBanner from '../../components/PushOptInBanner/PushOptInBanner';
 import api from '../../api/client';
 import s from './CoordLayout.module.css';
 
@@ -289,6 +290,7 @@ function CoordLayoutInner() {
           </div>
         </header>
         <main className={s.content}>
+          <PushOptInBanner />
           <ClubGatedContent />
         </main>
       </div>

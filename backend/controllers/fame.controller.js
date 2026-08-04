@@ -1,6 +1,7 @@
 const { pgPool } = require('../config/db');
 const { destroyImage } = require('../config/cloudinary');
 const { getFileValue } = require('../config/multer');
+const { notifyUser } = require('../services/notify');
 const cache = require('../services/cache');
 
 const FAME_COLS = [
@@ -102,15 +103,13 @@ const create = async (req, res, next) => {
           [cleanEmail]
         );
         if (uRows.length) {
-          await pgPool.query(
-            `INSERT INTO member_notifications (user_id, title, body, type)
-             VALUES ($1, $2, $3, 'wall_of_fame')`,
-            [
-              uRows[0].id,
-              "You're on the Wall of Fame!",
-              `Honored for "${achievement}". Your excellence is now a permanent part of RK University's legacy — a moment you've truly earned.`,
-            ]
-          );
+          await notifyUser({
+            userId: uRows[0].id,
+            title: "You're on the Wall of Fame!",
+            body:  `Honored for "${achievement}". Your excellence is now a permanent part of RK University's legacy — a moment you've truly earned.`,
+            type:  'wall_of_fame',
+            url:   '/student/fame',
+          });
         }
       } catch (_) {}
     }

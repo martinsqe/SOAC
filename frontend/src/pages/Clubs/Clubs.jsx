@@ -55,10 +55,10 @@ const ALL_CLUBS = [
 
 const CAT_LABELS = {
   all:      'All',
-  sports:   '⚽ Sports',
-  cultural: '🎭 Cultural',
-  social:   '🤝 Social',
-  academic: '🎓 Academic',
+  sports:   'Sports',
+  cultural: 'Cultural',
+  social:   'Social',
+  academic: 'Academic',
 };
 
 const CAT_COLORS = {
@@ -545,7 +545,7 @@ const Clubs = () => {
                 <div key={club._id || club.name || i} className={styles.card}>
                   <div className={styles.cardTop} style={{ background: club.color + '18', borderBottom: `2px solid ${club.color}30` }}>
                     <span className={styles.cardCat} style={{ background: (CAT_COLORS[club.cat] || '#635BFF') + '14', color: CAT_COLORS[club.cat] || '#635BFF' }}>
-                      {CAT_LABELS[club.cat]?.replace(/^[^ ]+ /, '') || club.cat}
+                      {CAT_LABELS[club.cat] || club.cat}
                     </span>
                     <div className={styles.cardLogo}>
                       <img

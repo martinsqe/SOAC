@@ -6,6 +6,7 @@ const { getFileValue, useCloudinary, cloudinaryInstance } = require('../config/m
 const { destroyImage } = require('../config/cloudinary');
 const { getChampion, detectSport } = require('../services/bracketMath');
 const { renderCertificate, fetchImageBytes } = require('../services/certificateGenerator');
+const { notifyUser } = require('../services/notify');
 
 /* ── Migrations ── */
 (async () => {
@@ -428,11 +429,18 @@ const finalizeCertifications = async (req, res, next) => {
       if (deliveryMethod === 'dashboard' && prior?.delivery_method !== 'dashboard') {
         /* Only notify the first time this student's certificate becomes dashboard-available —
            avoids re-notifying on every harmless re-finalize where nothing changed for them. */
-        pgPool.query(
-          `INSERT INTO member_notifications (user_id, club_id, title, body, type)
-           SELECT u.id, $1, $2, $3, 'certificate' FROM users u WHERE LOWER(u.email) = $4 AND u.is_active = true`,
-          [event.club_id || null, `${CERT_LABEL[r.category]} ready`, `Your certificate for "${event.title}" is now available in My Activity.`, email]
-        ).catch(() => {});
+        pgPool.query(`SELECT id FROM users WHERE LOWER(email) = $1 AND is_active = true`, [email])
+          .then(({ rows: uRows }) => {
+            if (!uRows.length) return;
+            notifyUser({
+              userId: uRows[0].id, clubId: event.club_id || null,
+              title: `${CERT_LABEL[r.category]} ready`,
+              body:  `Your certificate for "${event.title}" is now available in My Activity.`,
+              type:  'certificate',
+              url:   '/student/profile',
+            });
+          })
+          .catch(() => {});
       }
     }
 
