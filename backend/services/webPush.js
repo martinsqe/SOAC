@@ -50,7 +50,9 @@ async function _sendToSubscription(sub, payload) {
     if (err.statusCode === 404 || err.statusCode === 410) {
       await pgPool.query(`DELETE FROM push_subscriptions WHERE id = $1`, [sub.id]).catch(() => {});
     } else {
-      console.error(`[push] send failed (user ${sub.user_id}):`, err.message);
+      console.error(
+        `[push] send failed (user ${sub.user_id}): status=${err.statusCode} body=${err.body} message=${err.message}`
+      );
     }
     return false;
   } finally {
