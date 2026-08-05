@@ -133,7 +133,7 @@ function ReportDetail({ eventId }) {
           </div>
           <div className={r.docMetaItem}>
             <span className={r.docMetaLabel}>Participants</span>
-            <span className={r.docMetaValue}>{data.summary_stats?.totalParticipants ?? data.participants?.length ?? 0}</span>
+            <span className={r.docMetaValue}>{narrative.participants_count || data.summary_stats?.totalParticipants || data.participants?.length || 0}</span>
           </div>
           <div className={r.docMetaItem}>
             <span className={r.docMetaLabel}>Academic Year</span>

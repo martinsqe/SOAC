@@ -402,17 +402,21 @@ export default function CoordEvents() {
     }
   };
 
-  /* Sync narrative form whenever a different report loads */
+  /* Sync narrative form whenever a different report loads. participants_count
+     defaults to the auto-counted registration total but can be overridden
+     (e.g. to account for walk-ins never entered as a registration). */
   useEffect(() => {
     const n = eventReport?.narrative || {};
+    const autoParticipants = eventReport?.summary_stats?.totalParticipants ?? eventReport?.participants?.length ?? '';
     setReportNarrative({
-      event_date:      n.event_date      || '',
-      association:     n.association     || '',
-      objective:       n.objective       || '',
-      key_highlights:  n.key_highlights  || '',
-      outcome:         n.outcome         || '',
-      acknowledgments: n.acknowledgments || '',
-      remarks:         n.remarks         || '',
+      event_date:         n.event_date         || '',
+      participants_count: n.participants_count || String(autoParticipants),
+      association:        n.association        || '',
+      objective:          n.objective          || '',
+      key_highlights:     n.key_highlights     || '',
+      outcome:             n.outcome           || '',
+      acknowledgments:     n.acknowledgments   || '',
+      remarks:             n.remarks           || '',
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventReport?.id]);
@@ -1994,7 +1998,12 @@ export default function CoordEvents() {
                             </div>
                             <div className={es.reportDocMetaItem}>
                               <span className={es.reportDocMetaLabel}>Participants</span>
-                              <span className={es.reportDocMetaValue}>{eventReport.summary_stats?.totalParticipants ?? eventReport.participants?.length ?? 0}</span>
+                              <input
+                                className={es.reportDocMetaEditable}
+                                placeholder="e.g. 120"
+                                value={reportNarrative.participants_count}
+                                disabled={!!eventReport.submitted_at}
+                                onChange={e => setReportNarrative(p => ({ ...p, participants_count: e.target.value }))} />
                             </div>
                             <div className={es.reportDocMetaItem}>
                               <span className={es.reportDocMetaLabel}>Academic Year</span>

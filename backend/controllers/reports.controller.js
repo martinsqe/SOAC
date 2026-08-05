@@ -679,7 +679,7 @@ const getSubmittedReports = async (req, res, next) => {
 ══════════════════════════════════════════════ */
 const updateNarrative = async (req, res, next) => {
   try {
-    const allowed = ['event_date', 'association', 'objective', 'key_highlights', 'outcome', 'acknowledgments', 'remarks'];
+    const allowed = ['event_date', 'participants_count', 'association', 'objective', 'key_highlights', 'outcome', 'acknowledgments', 'remarks'];
     const narrative = {};
     allowed.forEach(k => { if (req.body[k] !== undefined) narrative[k] = String(req.body[k] || ''); });
     const { rows } = await pgPool.query(
