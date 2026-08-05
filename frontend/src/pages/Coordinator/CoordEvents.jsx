@@ -84,6 +84,7 @@ export default function CoordEvents() {
   const [reportLoading,   setReportLoading]   = useState(false);
   const [reportGenerating, setReportGenerating] = useState(false);
   const [reportPhotoFiles, setReportPhotoFiles] = useState([]);
+  const [highlightPhotoFiles, setHighlightPhotoFiles] = useState([]);
   const [mvpPhotoUploading, setMvpPhotoUploading] = useState(false);
   const mvpCardRef = useRef(null);
 
@@ -326,6 +327,7 @@ export default function CoordEvents() {
     setEventReport(null);
     setCertPreview(null);
     setReportPhotoFiles([]);
+    setHighlightPhotoFiles([]);
     setExpandedTeams(new Set());
     setNewTeamName({ boys: '', girls: '' });
     setNewTeamSize({ boys: '', girls: '' });
@@ -506,6 +508,31 @@ export default function CoordEvents() {
       setReportPhotoFiles([]);
     } catch (err) {
       alert(err?.message || 'Failed to upload photos.');
+    }
+  };
+
+  const handleUploadHighlightPhotos = async () => {
+    if (!highlightPhotoFiles.length || !regEvent) return;
+    const fd = new FormData();
+    highlightPhotoFiles.forEach(f => fd.append('photos', f));
+    try {
+      const d = await api.patchForm(`/reports/events/${regEvent._id}/highlight-photos`, fd);
+      setEventReport(d.report);
+      setHighlightPhotoFiles([]);
+    } catch (err) {
+      alert(err?.message || 'Failed to upload photos.');
+    }
+  };
+
+  const handleReplaceHighlightPhoto = async (index, file) => {
+    if (!file || !regEvent) return;
+    const fd = new FormData();
+    fd.append('photo', file);
+    try {
+      const d = await api.patchForm(`/reports/events/${regEvent._id}/highlight-photos/${index}`, fd);
+      setEventReport(d.report);
+    } catch (err) {
+      alert(err?.message || 'Failed to upload photo.');
     }
   };
 
@@ -1231,12 +1258,15 @@ export default function CoordEvents() {
                   onClick={() => setRegsTab('scoreboard')}>
                   Scoreboard {eventLiveScores.some(s => s.status === 'live') && <span className={es.declaredBadge} style={{ background: '#fee2e2', color: '#dc2626' }}>🔴 Live</span>}
                 </button>
-                <button
-                  className={`${es.regsSubTab} ${regsTab === 'report' ? es.regsSubTabOn : ''}`}
-                  onClick={() => { setRegsTab('report'); loadEventReport(regEvent._id); }}>
-                  Report {eventReport && <span className={es.declaredBadge} style={{ background: '#dcfce7', color: '#16a34a' }}>Saved</span>}
-                </button>
               </>)}
+              {/* Report tab is available for every category — sports events get the
+                 full teams/fixtures/MVP sections inside it, other categories get the
+                 narrative-only version (see the regsTab === 'report' panel below). */}
+              <button
+                className={`${es.regsSubTab} ${regsTab === 'report' ? es.regsSubTabOn : ''}`}
+                onClick={() => { setRegsTab('report'); loadEventReport(regEvent._id); }}>
+                Report {eventReport && <span className={es.declaredBadge} style={{ background: '#dcfce7', color: '#16a34a' }}>Saved</span>}
+              </button>
               <button
                 className={`${es.regsSubTab} ${regsTab === 'certifications' ? es.regsSubTabOn : ''}`}
                 onClick={() => { setRegsTab('certifications'); loadCertPreview(regEvent._id); }}>
@@ -2005,7 +2035,7 @@ export default function CoordEvents() {
                                 <thead>
                                   <tr>
                                     <th>#</th><th>Name</th><th>Enrollment</th><th>Gender</th><th>Dept</th><th>Course</th>
-                                    <th>PTS</th><th>AST</th><th>REB</th><th>STL</th>
+                                    {regEvent?.category === 'sports' && (<><th>PTS</th><th>AST</th><th>REB</th><th>STL</th></>)}
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -2031,10 +2061,12 @@ export default function CoordEvents() {
                                           <td>{genderLabel(p.gender)}</td>
                                           <td>{p.dept || '—'}</td>
                                           <td>{p.course || '—'}</td>
-                                          <td className={es.reportStatCell}>{st.PTS || '—'}</td>
-                                          <td className={es.reportStatCell}>{st.AST || '—'}</td>
-                                          <td className={es.reportStatCell}>{st.REB || '—'}</td>
-                                          <td className={es.reportStatCell}>{st.STL || '—'}</td>
+                                          {regEvent?.category === 'sports' && (<>
+                                            <td className={es.reportStatCell}>{st.PTS || '—'}</td>
+                                            <td className={es.reportStatCell}>{st.AST || '—'}</td>
+                                            <td className={es.reportStatCell}>{st.REB || '—'}</td>
+                                            <td className={es.reportStatCell}>{st.STL || '—'}</td>
+                                          </>)}
                                         </tr>
                                       );
                                     });
@@ -2045,8 +2077,8 @@ export default function CoordEvents() {
                           </div>
                         )}
 
-                        {/* ── 2. GROUPS & TEAMS (per division) ── */}
-                        {DIVISIONS.map(division => {
+                        {/* ── 2. GROUPS & TEAMS (per division) — sports only ── */}
+                        {regEvent?.category === 'sports' && DIVISIONS.map(division => {
                           const divGroupsR = (eventReport.groups || []).filter(g => (g.division || 'boys') === division);
                           const divTeamsR  = (eventReport.teams  || []).filter(t => (t.division || 'boys') === division);
                           if (!divGroupsR.length && !divTeamsR.length) return null;
@@ -2091,8 +2123,8 @@ export default function CoordEvents() {
                           );
                         })}
 
-                        {/* ── 3. FIXTURES / RESULTS (per division) ── */}
-                        {DIVISIONS.map(division => {
+                        {/* ── 3. FIXTURES / RESULTS (per division) — sports only ── */}
+                        {regEvent?.category === 'sports' && DIVISIONS.map(division => {
                           const divFixturesR = (eventReport.fixtures || []).filter(f => (f.division || 'boys') === division);
                           if (!divFixturesR.length) return null;
                           return (
@@ -2124,8 +2156,8 @@ export default function CoordEvents() {
                           );
                         })}
 
-                        {/* ── 4. GAME MVPs ── */}
-                        {eventReport.match_mvps?.length > 0 && (
+                        {/* ── 4. GAME MVPs — sports only ── */}
+                        {regEvent?.category === 'sports' && eventReport.match_mvps?.length > 0 && (
                           <div className={es.reportSection}>
                             <div className={es.reportSectionTitle}>Game MVPs</div>
                             <div className={es.reportGameMvpRow}>
@@ -2178,8 +2210,9 @@ export default function CoordEvents() {
                            Reports generated before the Boys/Girls split only ever wrote a single
                            summary_stats.tournamentWinner (implicitly the boys/default division) and are
                            locked once submitted, so they can never be regenerated into the new shape —
-                           fall back to that legacy key under Boys so old reports keep showing a winner. */}
-                        {DIVISIONS.map(division => {
+                           fall back to that legacy key under Boys so old reports keep showing a winner.
+                           Sports only — non-sports events have no bracket to show a winner from. */}
+                        {regEvent?.category === 'sports' && DIVISIONS.map(division => {
                           const divFixturesR = (eventReport.fixtures || []).filter(f => (f.division || 'boys') === division);
                           const divGroupsR   = (eventReport.groups  || []).filter(g => (g.division || 'boys') === division);
                           const w = division === 'girls'
@@ -2242,8 +2275,8 @@ export default function CoordEvents() {
                           );
                         })}
 
-                        {/* ── 6. TOURNAMENT MVP CARD ── */}
-                        {eventReport.tournament_mvp && (
+                        {/* ── 6. TOURNAMENT MVP CARD — sports only ── */}
+                        {regEvent?.category === 'sports' && eventReport.tournament_mvp && (
                           <div className={es.reportSection}>
                             <div className={es.reportSectionTitle}>Tournament MVP</div>
                             <div className={es.reportMvpCardWrap}>
@@ -2299,6 +2332,44 @@ export default function CoordEvents() {
                             value={reportNarrative.key_highlights}
                             disabled={!!eventReport.submitted_at}
                             onChange={e => setReportNarrative(p => ({ ...p, key_highlights: e.target.value }))} />
+                        </div>
+
+                        {/* ══ KEY HIGHLIGHTS PHOTOS (no heading — same 4-photo cap as Event Photos) ══ */}
+                        <div className={es.reportNarrativeSection}>
+                          {!eventReport.submitted_at && (
+                            <div className={es.reportPhotoUpload}>
+                              <label className={es.reportPhotoLabel}>
+                                + Add Photos
+                                <input
+                                  type="file" accept="image/*" multiple
+                                  style={{ display: 'none' }}
+                                  onChange={e => setHighlightPhotoFiles(Array.from(e.target.files).slice(0, 4))}
+                                />
+                              </label>
+                              {highlightPhotoFiles.length > 0 && (
+                                <>
+                                  <span className={es.reportSavedAt}>{highlightPhotoFiles.length} selected</span>
+                                  <button className={es.reportGenBtn} onClick={handleUploadHighlightPhotos}>Upload</button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                          {eventReport.highlight_photos?.length > 0 && (
+                            <div className={es.reportPhotosRow} style={{ marginTop: 10 }}>
+                              {eventReport.highlight_photos.map((url, i) => (
+                                <div key={i} style={{ position: 'relative', display: 'inline-block' }}>
+                                  <img src={url} alt={`highlight-photo-${i}`} className={es.reportPhotoCard} />
+                                  {!eventReport.submitted_at && (
+                                    <label className={es.reportPhotoReplaceBtn} style={{ position: 'absolute', bottom: 6, right: 6 }}>
+                                      📷
+                                      <input type="file" accept="image/*" style={{ display: 'none' }}
+                                        onChange={e => e.target.files[0] && handleReplaceHighlightPhoto(i, e.target.files[0])} />
+                                    </label>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
 
                         {/* ══ OUTCOME ══ */}

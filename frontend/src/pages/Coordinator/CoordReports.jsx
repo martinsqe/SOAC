@@ -53,7 +53,7 @@ export default function CoordReports() {
       <div className={s.header}>
         <div>
           <h1 className={s.title}>Event Reports</h1>
-          <p className={s.sub}>Saved reports for all sports events organised by your club.</p>
+          <p className={s.sub}>Saved reports for all events organised by your club.</p>
         </div>
       </div>
 
@@ -182,6 +182,7 @@ function ReportDetail({ eventId }) {
   });
 
   const nav = data.narrative || {};
+  const isSports = data.event_category === 'sports';
 
   return (
     <div className={r.reportDetail}>
@@ -239,7 +240,7 @@ function ReportDetail({ eventId }) {
             <table className={r.table}>
               <thead>
                 <tr><th>#</th><th>Name</th><th>Enrollment</th><th>Gender</th><th>Dept</th><th>Course</th>
-                  <th>PTS</th><th>AST</th><th>REB</th><th>STL</th></tr>
+                  {isSports && (<><th>PTS</th><th>AST</th><th>REB</th><th>STL</th></>)}</tr>
               </thead>
               <tbody>
                 {data.participants.map((p, i) => {
@@ -250,10 +251,12 @@ function ReportDetail({ eventId }) {
                       <td>{i + 1}</td><td>{p.name}</td>
                       <td>{p.enrollment_no || '—'}</td><td>{gLbl}</td>
                       <td>{p.dept || '—'}</td><td>{p.course || '—'}</td>
-                      <td className={r.statCell}>{st.PTS || '—'}</td>
-                      <td className={r.statCell}>{st.AST || '—'}</td>
-                      <td className={r.statCell}>{st.REB || '—'}</td>
-                      <td className={r.statCell}>{st.STL || '—'}</td>
+                      {isSports && (<>
+                        <td className={r.statCell}>{st.PTS || '—'}</td>
+                        <td className={r.statCell}>{st.AST || '—'}</td>
+                        <td className={r.statCell}>{st.REB || '—'}</td>
+                        <td className={r.statCell}>{st.STL || '—'}</td>
+                      </>)}
                     </tr>
                   );
                 })}
@@ -263,8 +266,8 @@ function ReportDetail({ eventId }) {
         </div>
       )}
 
-      {/* ── GROUPS & TEAMS (per division) ── */}
-      {DIVISIONS.map(division => {
+      {/* ── GROUPS & TEAMS (per division) — sports only ── */}
+      {isSports && DIVISIONS.map(division => {
         const divGroups = (data.groups || []).filter(g => (g.division || 'boys') === division);
         const divTeams  = (data.teams  || []).filter(t => (t.division || 'boys') === division);
         if (!divGroups.length && !divTeams.length) return null;
@@ -309,8 +312,8 @@ function ReportDetail({ eventId }) {
         );
       })}
 
-      {/* ── MATCH RESULTS (per division) ── */}
-      {DIVISIONS.map(division => {
+      {/* ── MATCH RESULTS (per division) — sports only ── */}
+      {isSports && DIVISIONS.map(division => {
         const divFixturesR = (data.fixtures || []).filter(f => (f.division || 'boys') === division);
         if (!divFixturesR.length) return null;
         return (
@@ -340,8 +343,8 @@ function ReportDetail({ eventId }) {
         );
       })}
 
-      {/* ── GAME MVPs ── */}
-      {data.match_mvps?.length > 0 && (
+      {/* ── GAME MVPs — sports only ── */}
+      {isSports && data.match_mvps?.length > 0 && (
         <div className={r.detailSection}>
           <div className={r.detailSectionTitle}>Game MVPs</div>
           <div className={r.gameMvpRow}>
@@ -383,8 +386,9 @@ function ReportDetail({ eventId }) {
          never guessed from a fixture's free-text round label. Reports generated before
          the Boys/Girls split only wrote a single summary_stats.tournamentWinner
          (implicitly boys) and are locked once submitted, so fall back to that legacy
-         key under Boys so old reports keep showing a winner. */}
-      {DIVISIONS.map(division => {
+         key under Boys so old reports keep showing a winner.
+         Sports only — non-sports events have no bracket to show a winner from. */}
+      {isSports && DIVISIONS.map(division => {
         const divFixturesR = (data.fixtures || []).filter(f => (f.division || 'boys') === division);
         const divGroupsR   = (data.groups  || []).filter(g => (g.division || 'boys') === division);
         const w = division === 'girls'
@@ -438,8 +442,8 @@ function ReportDetail({ eventId }) {
         );
       })}
 
-      {/* ── TOURNAMENT MVP ── */}
-      {data.tournament_mvp && (
+      {/* ── TOURNAMENT MVP — sports only ── */}
+      {isSports && data.tournament_mvp && (
         <div className={r.detailSection}>
           <div className={r.detailSectionTitle}>Tournament MVP</div>
           <div className={r.mvpCardWrap}>
@@ -478,6 +482,17 @@ function ReportDetail({ eventId }) {
         <div className={r.detailSectionTitle}>Key Highlights</div>
         <p className={r.narrativeText}>{nav.key_highlights || '—'}</p>
       </div>
+
+      {/* ── KEY HIGHLIGHTS PHOTOS (no heading) ── */}
+      {data.highlight_photos?.length > 0 && (
+        <div className={r.detailSection}>
+          <div className={r.photosRow}>
+            {data.highlight_photos.map((url, i) => (
+              <img key={i} src={url} alt={`highlight-photo-${i}`} className={r.photoCard} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── OUTCOME ── */}
       <div className={r.detailSection}>

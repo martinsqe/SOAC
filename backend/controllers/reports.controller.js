@@ -7,6 +7,12 @@ pgPool.query(
   `ALTER TABLE event_reports ADD COLUMN IF NOT EXISTS narrative JSONB DEFAULT '{}'::jsonb`
 ).catch(() => {});
 
+/* Second photo strip shown right under Key Highlights (no heading) — separate
+   from the existing `photos` column, which stays at the bottom of the report. */
+pgPool.query(
+  `ALTER TABLE event_reports ADD COLUMN IF NOT EXISTS highlight_photos TEXT[] DEFAULT '{}'`
+).catch(() => {});
+
 /* ── Helpers ── */
 const academicYear = () => {
   const now   = new Date();
@@ -21,7 +27,10 @@ const academicYear = () => {
 const getEventReport = async (req, res, next) => {
   try {
     const { rows } = await pgPool.query(
-      `SELECT * FROM event_reports WHERE event_id = $1::bigint`,
+      `SELECT er.*, ev.category AS event_category
+       FROM event_reports er
+       LEFT JOIN events ev ON ev.id = er.event_id
+       WHERE er.event_id = $1::bigint`,
       [req.params.eventId]
     );
     res.json({ report: rows[0] || null });
@@ -36,11 +45,12 @@ const listReports = async (req, res, next) => {
     const clubId = req.query.clubId || req.user?.clubId;
     if (!clubId) return res.status(400).json({ message: 'clubId required' });
     const { rows } = await pgPool.query(
-      `SELECT id, event_id, event_title, academic_year, summary_stats, photos,
-              generated_at, updated_at
-       FROM event_reports
-       WHERE club_id = $1::bigint
-       ORDER BY generated_at DESC`,
+      `SELECT er.id, er.event_id, er.event_title, er.academic_year, er.summary_stats, er.photos,
+              er.generated_at, er.updated_at, ev.category AS event_category
+       FROM event_reports er
+       LEFT JOIN events ev ON ev.id = er.event_id
+       WHERE er.club_id = $1::bigint
+       ORDER BY er.generated_at DESC`,
       [clubId]
     );
     res.json({ reports: rows });
@@ -91,190 +101,209 @@ const regenerateReport = async (eventId, clubId, userId) => {
       [eventId]
     );
 
-    /* ── Teams with members (Boys/Girls division kept on each row) ── */
-    const { rows: teamRows } = await pgPool.query(
-      `SELECT t.id, t.name, t.max_size, t.division,
-              COALESCE(json_agg(
-                json_build_object('id', tm.id, 'name', tm.member_name, 'enrollmentNo', tm.enrollment_no)
-                ORDER BY tm.member_name
-              ) FILTER (WHERE tm.id IS NOT NULL), '[]') AS members
-       FROM event_teams t
-       LEFT JOIN event_team_members tm ON tm.team_id = t.id
-       WHERE t.event_id = $1::bigint
-       GROUP BY t.id ORDER BY t.name`,
-      [eventId]
-    );
-
-    /* ── Groups (with teams + members, division kept per group) ── */
-    const { rows: groupRows } = await pgPool.query(
-      `SELECT g.id, g.name, g.sort_order, g.division,
-              COALESCE(json_agg(
-                json_build_object('id', t.id, 'name', t.name)
-                ORDER BY t.name
-              ) FILTER (WHERE t.id IS NOT NULL), '[]') AS teams
-       FROM event_groups g
-       LEFT JOIN event_group_teams egt ON egt.group_id = g.id
-       LEFT JOIN event_teams t ON t.id = egt.team_id
-       WHERE g.event_id = $1::bigint
-       GROUP BY g.id ORDER BY g.sort_order`,
-      [eventId]
-    );
-    /* Attach member lists to each team inside each group */
-    const teamMemberMap = {};
-    teamRows.forEach(t => { teamMemberMap[String(t.id)] = t.members || []; });
-    const groupRowsWithMembers = groupRows.map(g => ({
-      ...g,
-      teams: (g.teams || []).map(t => ({
-        ...t,
-        members: teamMemberMap[String(t.id)] || [],
-      })),
-    }));
-    const groupsByDivision = (division) => groupRowsWithMembers.filter(g => g.division === division);
-
-    /* ── Fixtures / Results — live scores always win over stored fixture scores ── */
-    const { rows: fixtures } = await pgPool.query(
-      `SELECT f.id, f.team_a_name, f.team_b_name,
-              COALESCE(cls_id.team_score,     cls_nm.team_score,     f.score_a) AS score_a,
-              COALESCE(cls_id.opponent_score, cls_nm.opponent_score, f.score_b) AS score_b,
-              COALESCE(cls_id.winner_name, cls_nm.winner_name, f.winner_name)   AS winner_name,
-              f.match_date, f.match_time, f.round, f.venue, f.division
-       FROM event_fixtures f
-       -- primary: match by explicit fixture_id link
-       LEFT JOIN club_live_scores cls_id
-         ON cls_id.fixture_id = f.id
-         AND cls_id.status = 'ended'
-       -- fallback: match by team names within same event
-       LEFT JOIN club_live_scores cls_nm
-         ON cls_nm.event_id  = f.event_id
-         AND cls_nm.home_team     = f.team_a_name
-         AND cls_nm.opponent_name = f.team_b_name
-         AND cls_nm.status        = 'ended'
-         AND cls_id.id IS NULL
-       WHERE f.event_id = $1::bigint
-       ORDER BY f.match_date, f.sort_order`,
-      [eventId]
-    );
-
-    /* ── Match MVPs (with stats) — DISTINCT ON score_id prevents duplicates.
-       INNER JOIN ensures only MVPs from matches that still exist in Match Control
-       are pulled in, so a deleted-and-restarted match's stale MVP never lingers. ── */
-    const { rows: matchMvps } = await pgPool.query(
-      `SELECT DISTINCT ON (m.score_id)
-              m.score_id, m.player_name, m.stats, m.player_photo,
-              m.home_team, m.opponent_name, m.home_score, m.away_score,
-              m.sport, m.match_title, m.created_at
-       FROM match_mvp m
-       JOIN club_live_scores cls ON cls.id = m.score_id
-       WHERE m.event_id = $1::bigint
-          OR cls.event_id = $1::bigint
-       ORDER BY m.score_id, m.created_at`,
-      [eventId]
-    );
-
-    /* ── Tournament MVP: ranked by combined points + assists + blocks + attacks across
-       every match they played (the tournament's most impactful all-round performer;
-       ATK comes from volleyball's attack/kill stat), tie-broken by how many matches
-       they were named MVP in. ── */
+    /* ── Sports-only structures (teams/groups/fixtures/MVPs/tournament winners) —
+       social/academic/cultural events have no bracket or team engine at all, so
+       these queries are skipped entirely for them and every field below just
+       stays empty/null. ── */
+    const isSports = ev.category === 'sports';
+    let teamRows = [];
+    let groupRowsWithMembers = [];
+    let fixtures = [];
+    let matchMvps = [];
     let tournamentMvp = null;
-    if (matchMvps.length > 0) {
-      const counts = {};
-      for (const m of matchMvps) {
-        const k = m.player_name;
-        if (!k) continue;
-        if (!counts[k]) counts[k] = { player_name: k, wins: 0, photo: m.player_photo, sport: m.sport, stats: {} };
-        counts[k].wins++;
-        const pts = Number(m.stats?.PTS ?? m.stats?.GLS ?? m.stats?.RUNS ?? 0);
-        const ast = Number(m.stats?.AST ?? 0);
-        const reb = Number(m.stats?.REB ?? 0);
-        const stl = Number(m.stats?.STL ?? 0);
-        const blk = Number(m.stats?.BLK ?? 0);
-        const atk = Number(m.stats?.ATK ?? 0);
-        counts[k].stats.PTS = (counts[k].stats.PTS || 0) + pts;
-        counts[k].stats.AST = (counts[k].stats.AST || 0) + ast;
-        counts[k].stats.REB = (counts[k].stats.REB || 0) + reb;
-        counts[k].stats.STL = (counts[k].stats.STL || 0) + stl;
-        counts[k].stats.BLK = (counts[k].stats.BLK || 0) + blk;
-        counts[k].stats.ATK = (counts[k].stats.ATK || 0) + atk;
+    let tournamentWinnerBoys = null;
+    let tournamentWinnerGirls = null;
+
+    if (isSports) {
+      /* ── Teams with members (Boys/Girls division kept on each row) ── */
+      const { rows: teamRowsQ } = await pgPool.query(
+        `SELECT t.id, t.name, t.max_size, t.division,
+                COALESCE(json_agg(
+                  json_build_object('id', tm.id, 'name', tm.member_name, 'enrollmentNo', tm.enrollment_no)
+                  ORDER BY tm.member_name
+                ) FILTER (WHERE tm.id IS NOT NULL), '[]') AS members
+         FROM event_teams t
+         LEFT JOIN event_team_members tm ON tm.team_id = t.id
+         WHERE t.event_id = $1::bigint
+         GROUP BY t.id ORDER BY t.name`,
+        [eventId]
+      );
+      teamRows = teamRowsQ;
+
+      /* ── Groups (with teams + members, division kept per group) ── */
+      const { rows: groupRows } = await pgPool.query(
+        `SELECT g.id, g.name, g.sort_order, g.division,
+                COALESCE(json_agg(
+                  json_build_object('id', t.id, 'name', t.name)
+                  ORDER BY t.name
+                ) FILTER (WHERE t.id IS NOT NULL), '[]') AS teams
+         FROM event_groups g
+         LEFT JOIN event_group_teams egt ON egt.group_id = g.id
+         LEFT JOIN event_teams t ON t.id = egt.team_id
+         WHERE g.event_id = $1::bigint
+         GROUP BY g.id ORDER BY g.sort_order`,
+        [eventId]
+      );
+      /* Attach member lists to each team inside each group */
+      const teamMemberMap = {};
+      teamRows.forEach(t => { teamMemberMap[String(t.id)] = t.members || []; });
+      groupRowsWithMembers = groupRows.map(g => ({
+        ...g,
+        teams: (g.teams || []).map(t => ({
+          ...t,
+          members: teamMemberMap[String(t.id)] || [],
+        })),
+      }));
+      const groupsByDivision = (division) => groupRowsWithMembers.filter(g => g.division === division);
+
+      /* ── Fixtures / Results — live scores always win over stored fixture scores ── */
+      const { rows: fixturesQ } = await pgPool.query(
+        `SELECT f.id, f.team_a_name, f.team_b_name,
+                COALESCE(cls_id.team_score,     cls_nm.team_score,     f.score_a) AS score_a,
+                COALESCE(cls_id.opponent_score, cls_nm.opponent_score, f.score_b) AS score_b,
+                COALESCE(cls_id.winner_name, cls_nm.winner_name, f.winner_name)   AS winner_name,
+                f.match_date, f.match_time, f.round, f.venue, f.division
+         FROM event_fixtures f
+         -- primary: match by explicit fixture_id link
+         LEFT JOIN club_live_scores cls_id
+           ON cls_id.fixture_id = f.id
+           AND cls_id.status = 'ended'
+         -- fallback: match by team names within same event
+         LEFT JOIN club_live_scores cls_nm
+           ON cls_nm.event_id  = f.event_id
+           AND cls_nm.home_team     = f.team_a_name
+           AND cls_nm.opponent_name = f.team_b_name
+           AND cls_nm.status        = 'ended'
+           AND cls_id.id IS NULL
+         WHERE f.event_id = $1::bigint
+         ORDER BY f.match_date, f.sort_order`,
+        [eventId]
+      );
+      fixtures = fixturesQ;
+
+      /* ── Match MVPs (with stats) — DISTINCT ON score_id prevents duplicates.
+         INNER JOIN ensures only MVPs from matches that still exist in Match Control
+         are pulled in, so a deleted-and-restarted match's stale MVP never lingers. ── */
+      const { rows: matchMvpsQ } = await pgPool.query(
+        `SELECT DISTINCT ON (m.score_id)
+                m.score_id, m.player_name, m.stats, m.player_photo,
+                m.home_team, m.opponent_name, m.home_score, m.away_score,
+                m.sport, m.match_title, m.created_at
+         FROM match_mvp m
+         JOIN club_live_scores cls ON cls.id = m.score_id
+         WHERE m.event_id = $1::bigint
+            OR cls.event_id = $1::bigint
+         ORDER BY m.score_id, m.created_at`,
+        [eventId]
+      );
+      matchMvps = matchMvpsQ;
+
+      /* ── Tournament MVP: ranked by combined points + assists + blocks + attacks across
+         every match they played (the tournament's most impactful all-round performer;
+         ATK comes from volleyball's attack/kill stat), tie-broken by how many matches
+         they were named MVP in. ── */
+      if (matchMvps.length > 0) {
+        const counts = {};
+        for (const m of matchMvps) {
+          const k = m.player_name;
+          if (!k) continue;
+          if (!counts[k]) counts[k] = { player_name: k, wins: 0, photo: m.player_photo, sport: m.sport, stats: {} };
+          counts[k].wins++;
+          const pts = Number(m.stats?.PTS ?? m.stats?.GLS ?? m.stats?.RUNS ?? 0);
+          const ast = Number(m.stats?.AST ?? 0);
+          const reb = Number(m.stats?.REB ?? 0);
+          const stl = Number(m.stats?.STL ?? 0);
+          const blk = Number(m.stats?.BLK ?? 0);
+          const atk = Number(m.stats?.ATK ?? 0);
+          counts[k].stats.PTS = (counts[k].stats.PTS || 0) + pts;
+          counts[k].stats.AST = (counts[k].stats.AST || 0) + ast;
+          counts[k].stats.REB = (counts[k].stats.REB || 0) + reb;
+          counts[k].stats.STL = (counts[k].stats.STL || 0) + stl;
+          counts[k].stats.BLK = (counts[k].stats.BLK || 0) + blk;
+          counts[k].stats.ATK = (counts[k].stats.ATK || 0) + atk;
+        }
+        const impact = c => (c.stats.PTS || 0) + (c.stats.AST || 0) + (c.stats.BLK || 0) + (c.stats.ATK || 0);
+        const sorted = Object.values(counts).sort((a, b) => impact(b) - impact(a) || b.wins - a.wins);
+        tournamentMvp = sorted[0] || null;
       }
-      const impact = c => (c.stats.PTS || 0) + (c.stats.AST || 0) + (c.stats.BLK || 0) + (c.stats.ATK || 0);
-      const sorted = Object.values(counts).sort((a, b) => impact(b) - impact(a) || b.wins - a.wins);
-      tournamentMvp = sorted[0] || null;
+
+      /* ── Tournament winners — one per division, each resolved independently from
+         that division's own bracket structure (groups + fixtures), never guessed
+         from a fixture's free-text round label. ── */
+      const resolveDivisionWinner = (division) => {
+        const divFixtures = fixtures.filter(f => f.division === division);
+        const bracketFixtures = divFixtures.map(f => ({
+          teamA: f.team_a_name, teamB: f.team_b_name, winner: f.winner_name,
+        }));
+        const champion = getChampion(groupsByDivision(division), bracketFixtures);
+        if (!champion) return null;
+        const finalFx = divFixtures.find(f =>
+          (f.team_a_name === champion.name && f.team_b_name === champion.opponent) ||
+          (f.team_b_name === champion.name && f.team_a_name === champion.opponent)
+        );
+        const winnerIsTeamA = finalFx?.team_a_name === champion.name;
+        return {
+          name: champion.name,
+          opponent: champion.opponent,
+          round: finalFx?.round || null,
+          scoreFor:     finalFx ? (winnerIsTeamA ? finalFx.score_a : finalFx.score_b) : null,
+          scoreAgainst: finalFx ? (winnerIsTeamA ? finalFx.score_b : finalFx.score_a) : null,
+        };
+      };
+      tournamentWinnerBoys  = resolveDivisionWinner('boys');
+      tournamentWinnerGirls = resolveDivisionWinner('girls');
     }
 
-    /* ── Tournament winners — one per division, each resolved independently from
-       that division's own bracket structure (groups + fixtures), never guessed
-       from a fixture's free-text round label. ── */
-    const resolveDivisionWinner = (division) => {
-      const divFixtures = fixtures.filter(f => f.division === division);
-      const bracketFixtures = divFixtures.map(f => ({
-        teamA: f.team_a_name, teamB: f.team_b_name, winner: f.winner_name,
-      }));
-      const champion = getChampion(groupsByDivision(division), bracketFixtures);
-      if (!champion) return null;
-      const finalFx = divFixtures.find(f =>
-        (f.team_a_name === champion.name && f.team_b_name === champion.opponent) ||
-        (f.team_b_name === champion.name && f.team_a_name === champion.opponent)
-      );
-      const winnerIsTeamA = finalFx?.team_a_name === champion.name;
-      return {
-        name: champion.name,
-        opponent: champion.opponent,
-        round: finalFx?.round || null,
-        scoreFor:     finalFx ? (winnerIsTeamA ? finalFx.score_a : finalFx.score_b) : null,
-        scoreAgainst: finalFx ? (winnerIsTeamA ? finalFx.score_b : finalFx.score_a) : null,
-      };
-    };
-    const tournamentWinnerBoys  = resolveDivisionWinner('boys');
-    const tournamentWinnerGirls = resolveDivisionWinner('girls');
-
-    /* ── Summary stats ── */
+    /* ── Summary stats — tournament winners only ever populated for sports events ── */
     const completedFixtures = fixtures.filter(f => f.winner_name);
     const summaryStats = {
-      tournamentWinnerBoys,
-      tournamentWinnerGirls,
+      ...(isSports ? { tournamentWinnerBoys, tournamentWinnerGirls } : {}),
       totalParticipants: participants.length,
       totalTeams:        teamRows.length,
-      totalGroups:       groupRows.length,
+      totalGroups:       groupRowsWithMembers.length,
       totalFixtures:     fixtures.length,
       completedMatches:  completedFixtures.length,
       totalMvpGames:     matchMvps.length,
       venue:             ev.venue || null,
     };
 
-    /* ── Backfill fixture scores from live scores — always overwrite with latest live result ── */
-    await pgPool.query(
-      `UPDATE event_fixtures f
-       SET score_a = ls.team_score,
-           score_b = ls.opponent_score,
-           winner_name = COALESCE(ls.winner_name, f.winner_name)
-       FROM club_live_scores ls
-       WHERE ls.fixture_id = f.id
-         AND ls.status = 'ended'
-         AND f.event_id = $1::bigint`,
-      [eventId]
-    );
-    /* Backfill by team name for scoreboards not linked to a fixture_id */
-    await pgPool.query(
-      `UPDATE event_fixtures f
-       SET score_a = ls.team_score,
-           score_b = ls.opponent_score,
-           winner_name = COALESCE(ls.winner_name, f.winner_name)
-       FROM club_live_scores ls
-       WHERE ls.event_id      = f.event_id
-         AND ls.home_team     = f.team_a_name
-         AND ls.opponent_name = f.team_b_name
-         AND ls.status        = 'ended'
-         AND ls.fixture_id    IS NULL
-         AND f.event_id       = $1::bigint`,
-      [eventId]
-    );
+    if (isSports) {
+      /* ── Backfill fixture scores from live scores — always overwrite with latest live result ── */
+      await pgPool.query(
+        `UPDATE event_fixtures f
+         SET score_a = ls.team_score,
+             score_b = ls.opponent_score,
+             winner_name = COALESCE(ls.winner_name, f.winner_name)
+         FROM club_live_scores ls
+         WHERE ls.fixture_id = f.id
+           AND ls.status = 'ended'
+           AND f.event_id = $1::bigint`,
+        [eventId]
+      );
+      /* Backfill by team name for scoreboards not linked to a fixture_id */
+      await pgPool.query(
+        `UPDATE event_fixtures f
+         SET score_a = ls.team_score,
+             score_b = ls.opponent_score,
+             winner_name = COALESCE(ls.winner_name, f.winner_name)
+         FROM club_live_scores ls
+         WHERE ls.event_id      = f.event_id
+           AND ls.home_team     = f.team_a_name
+           AND ls.opponent_name = f.team_b_name
+           AND ls.status        = 'ended'
+           AND ls.fixture_id    IS NULL
+           AND f.event_id       = $1::bigint`,
+        [eventId]
+      );
+    }
 
     /* ── Keep existing photos, narrative, and coordinator-chosen MVP photos ── */
     const { rows: existing } = await pgPool.query(
-      `SELECT photos, tournament_mvp, narrative FROM event_reports WHERE event_id = $1::bigint`,
+      `SELECT photos, highlight_photos, tournament_mvp, narrative FROM event_reports WHERE event_id = $1::bigint`,
       [eventId]
     );
     const existingPhotos        = existing[0]?.photos || [];
+    const existingHighlightPhotos = existing[0]?.highlight_photos || [];
     const existingTmvp          = existing[0]?.tournament_mvp || {};
     const existingNarrative     = existing[0]?.narrative || {};
 
@@ -291,20 +320,21 @@ const regenerateReport = async (eventId, clubId, userId) => {
       `INSERT INTO event_reports
          (event_id, club_id, event_title, academic_year,
           participants, teams, groups, fixtures, match_mvps, tournament_mvp,
-          photos, summary_stats, narrative, created_by, generated_at, updated_at)
+          photos, highlight_photos, summary_stats, narrative, created_by, generated_at, updated_at)
        VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,
-               $11,$12::jsonb,$13::jsonb,$14,NOW(),NOW())
+               $11,$12,$13::jsonb,$14::jsonb,$15,NOW(),NOW())
        ON CONFLICT (event_id) DO UPDATE SET
-         participants   = EXCLUDED.participants,
-         teams          = EXCLUDED.teams,
-         groups         = EXCLUDED.groups,
-         fixtures       = EXCLUDED.fixtures,
-         match_mvps     = EXCLUDED.match_mvps,
-         tournament_mvp = EXCLUDED.tournament_mvp,
-         summary_stats  = EXCLUDED.summary_stats,
-         photos         = COALESCE(event_reports.photos, EXCLUDED.photos),
-         narrative      = COALESCE(event_reports.narrative, EXCLUDED.narrative),
-         updated_at     = NOW()
+         participants     = EXCLUDED.participants,
+         teams            = EXCLUDED.teams,
+         groups           = EXCLUDED.groups,
+         fixtures         = EXCLUDED.fixtures,
+         match_mvps       = EXCLUDED.match_mvps,
+         tournament_mvp   = EXCLUDED.tournament_mvp,
+         summary_stats    = EXCLUDED.summary_stats,
+         photos           = COALESCE(event_reports.photos, EXCLUDED.photos),
+         highlight_photos = COALESCE(event_reports.highlight_photos, EXCLUDED.highlight_photos),
+         narrative        = COALESCE(event_reports.narrative, EXCLUDED.narrative),
+         updated_at       = NOW()
        RETURNING *`,
       [
         eventId, effClubId, ev.title, year,
@@ -315,6 +345,7 @@ const regenerateReport = async (eventId, clubId, userId) => {
         JSON.stringify(matchMvps),
         JSON.stringify(tournamentMvp),
         existingPhotos,
+        existingHighlightPhotos,
         JSON.stringify(summaryStats),
         JSON.stringify(existingNarrative),
         userId,
@@ -389,6 +420,63 @@ const replaceReportPhoto = async (req, res, next) => {
 
     const { rows } = await pgPool.query(
       `UPDATE event_reports SET photos = $1, updated_at = NOW()
+       WHERE event_id = $2::bigint RETURNING *`,
+      [photos.filter(Boolean), req.params.eventId]
+    );
+    res.json({ report: rows[0] });
+  } catch (err) { next(err); }
+};
+
+/* ══════════════════════════════════════════════
+   PATCH /api/reports/events/:eventId/highlight-photos
+   Second photo strip shown directly under Key Highlights — same
+   4-photo cap and upload mechanics as the main photos[] field, kept
+   in its own column so the two strips never overwrite each other.
+══════════════════════════════════════════════ */
+const uploadHighlightPhotos = async (req, res, next) => {
+  try {
+    if (!req.files?.length) return res.status(400).json({ message: 'No photos uploaded.' });
+    const { rows: existing } = await pgPool.query(
+      `SELECT highlight_photos FROM event_reports WHERE event_id = $1::bigint`,
+      [req.params.eventId]
+    );
+    const current = existing[0]?.highlight_photos || [];
+    const newUrls = req.files.map(f => getFileValue(f));
+    const merged  = [...current, ...newUrls].slice(-4);
+
+    const { rows } = await pgPool.query(
+      `UPDATE event_reports SET highlight_photos = $1, updated_at = NOW()
+       WHERE event_id = $2::bigint RETURNING *`,
+      [merged, req.params.eventId]
+    );
+    if (!rows.length) return res.status(404).json({ message: 'Generate the report first before uploading photos.' });
+    res.json({ report: rows[0] });
+  } catch (err) { next(err); }
+};
+
+/* ══════════════════════════════════════════════
+   PATCH /api/reports/events/:eventId/highlight-photos/:index
+   Replace a single highlight photo at a specific slot (0-3)
+══════════════════════════════════════════════ */
+const replaceHighlightPhoto = async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No photo uploaded.' });
+    const idx = parseInt(req.params.index, 10);
+    if (isNaN(idx) || idx < 0 || idx > 3) return res.status(400).json({ message: 'Invalid photo index (0-3).' });
+    const photoUrl = getFileValue(req.file);
+
+    const { rows: existing } = await pgPool.query(
+      `SELECT highlight_photos FROM event_reports WHERE event_id = $1::bigint`,
+      [req.params.eventId]
+    );
+    if (!existing.length) return res.status(404).json({ message: 'Generate the report first.' });
+
+    const photos = [...(existing[0].highlight_photos || [])];
+    while (photos.length <= idx) photos.push(null);
+    photos[idx] = photoUrl;
+
+    const { rows } = await pgPool.query(
+      `UPDATE event_reports SET highlight_photos = $1, updated_at = NOW()
        WHERE event_id = $2::bigint RETURNING *`,
       [photos.filter(Boolean), req.params.eventId]
     );
@@ -574,9 +662,10 @@ const getSubmittedReports = async (req, res, next) => {
       `SELECT er.id, er.event_id, er.event_title, er.academic_year,
               er.summary_stats, er.photos, er.tournament_mvp,
               er.generated_at, er.submitted_at, er.club_id,
-              c.name AS club_name
+              c.name AS club_name, ev.category AS event_category
        FROM event_reports er
        LEFT JOIN clubs c ON c.id = er.club_id
+       LEFT JOIN events ev ON ev.id = er.event_id
        WHERE er.submitted_at IS NOT NULL
        ORDER BY er.submitted_at DESC`
     );
@@ -605,4 +694,4 @@ const updateNarrative = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto, updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears, regenerateReport, autoRefreshReportIfExists };
+module.exports = { getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, uploadHighlightPhotos, replaceHighlightPhoto, updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto, updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears, regenerateReport, autoRefreshReportIfExists };

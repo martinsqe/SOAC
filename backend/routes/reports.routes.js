@@ -5,7 +5,8 @@ const { uploadReportPhoto } = require('../config/multer');
 const { uploadMvpPhoto } = require('../config/multer');
 const {
   getEventReport, listReports, generateReport, deleteReport,
-  uploadReportPhotos, replaceReportPhoto, updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto,
+  uploadReportPhotos, replaceReportPhoto, uploadHighlightPhotos, replaceHighlightPhoto,
+  updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto,
   updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears,
 } = require('../controllers/reports.controller');
 
@@ -37,6 +38,18 @@ router.patch('/events/:eventId/photos', verifyToken,
 router.patch('/events/:eventId/photos/:index', verifyToken,
   uploadReportPhoto.single('photo'),
   replaceReportPhoto,
+);
+
+/* Upload photos for the second strip shown under Key Highlights (max 4 at a time) */
+router.patch('/events/:eventId/highlight-photos', verifyToken,
+  uploadReportPhoto.array('photos', 4),
+  uploadHighlightPhotos,
+);
+
+/* Replace a single highlight photo at a specific slot index */
+router.patch('/events/:eventId/highlight-photos/:index', verifyToken,
+  uploadReportPhoto.single('photo'),
+  replaceHighlightPhoto,
 );
 
 /* Upload / replace tournament MVP photo */
