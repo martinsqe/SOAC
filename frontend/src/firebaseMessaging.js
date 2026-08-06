@@ -93,16 +93,20 @@ export async function deleteFcmToken() {
   }
 }
 
-/* FCM registration tokens can rotate (Android Chrome in particular does this
-   more often than desktop) — nothing notifies the app when that happens, so
-   without this, a rotated token just silently stops receiving anything
-   forever: the old token still sits in the backend's push_subscriptions table
-   until FCM reports it dead on some future send, and only then gets cleaned
-   up, with no replacement ever taking its place.
+/* FCM registration tokens can be invalidated server-side (Google's FCM
+   registry, e.g. after extended inactivity) WITHOUT the browser's own
+   getToken() ever returning a different value — the client-side push
+   subscription can look perfectly "unchanged" while the backend row for it
+   has already been deleted after a failed send. A value-comparison check
+   can't catch that case at all, so this always re-POSTs (a harmless
+   idempotent upsert, see push.controller.js's ON CONFLICT) rather than only
+   POSTing when the token differs — that's the only way to guarantee the
+   backend row actually exists after any period away, not just after a
+   genuine client-visible rotation.
 
    Call on every app load while permission is already granted (not just at
-   the moment of clicking Enable) so a rotation gets caught and re-synced
-   quickly. No-ops if this device was never subscribed in the first place. */
+   the moment of clicking Enable). No-ops if this device was never
+   subscribed in the first place. */
 export async function syncFcmToken() {
   if (!fcmSupported() || Notification.permission !== 'granted') return;
   const stored = localStorage.getItem(FCM_TOKEN_STORAGE_KEY);
@@ -114,11 +118,13 @@ export async function syncFcmToken() {
       vapidKey: VAPID_KEY,
       serviceWorkerRegistration: registration,
     });
-    if (!token || token === stored) return;
+    if (!token) return;
 
     await api.post('/push/subscribe', { token });
-    localStorage.setItem(FCM_TOKEN_STORAGE_KEY, token);
-    api.delete('/push/subscribe', { token: stored }).catch(() => {});
+    if (token !== stored) {
+      localStorage.setItem(FCM_TOKEN_STORAGE_KEY, token);
+      api.delete('/push/subscribe', { token: stored }).catch(() => {});
+    }
   } catch (err) {
     console.error('[fcm] token refresh failed:', err.message);
   }
