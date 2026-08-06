@@ -20,9 +20,29 @@ function getMessagingInstance() {
 }
 
 /* Registered on its own scope, separate from the app's main PWA service
-   worker (src/sw.js, scope '/') — see the comment atop firebase-messaging-sw.js. */
+   worker (src/sw.js, scope '/') — see the comment atop firebase-messaging-sw.js.
+
+   register() resolves as soon as the registration exists, not once it's
+   actually active — and navigator.serviceWorker.ready only tracks the page's
+   main controlling worker, not this separately-scoped one. Calling
+   getToken()'s pushManager.subscribe() before activation finishes throws
+   "no active Service Worker", so this explicitly waits for that state. */
 async function registerFcmServiceWorker() {
-  return navigator.serviceWorker.register(FCM_SW_URL, { scope: FCM_SW_SCOPE });
+  const registration = await navigator.serviceWorker.register(FCM_SW_URL, { scope: FCM_SW_SCOPE });
+  if (registration.active) return registration;
+
+  const worker = registration.installing || registration.waiting;
+  if (!worker) return registration;
+
+  await new Promise((resolve) => {
+    worker.addEventListener('statechange', function onChange() {
+      if (worker.state === 'activated') {
+        worker.removeEventListener('statechange', onChange);
+        resolve();
+      }
+    });
+  });
+  return registration;
 }
 
 /* Requests Notification permission (if not already decided) and returns an FCM
