@@ -15,6 +15,7 @@ router.get('/me/event-registrations',                verifyToken, ctrl.myEventRe
 router.get('/me/activity',                           verifyToken, ctrl.myActivity);
 router.get('/me/weekly-evaluation',                  verifyToken, ctrl.weeklyEvaluation);
 router.get('/me/notifications',                      verifyToken, ctrl.getNotifications);
+router.get('/me/notifications/unread-count',          verifyToken, ctrl.unreadNotificationCount);
 router.patch('/me/notifications/:notifId/read',      verifyToken, ctrl.markNotificationRead);
 router.put('/me/profile', verifyToken, uploadAvatar.single('avatar'), ctrl.updateProfile);
 

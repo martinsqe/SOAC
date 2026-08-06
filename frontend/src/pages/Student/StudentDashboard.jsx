@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api/client';
+import { refreshAppBadge } from '../../utils/badge';
 import s from './StudentDashboard.module.css';
 
 /* ── College calendar type metadata ── */
@@ -127,7 +128,9 @@ export default function StudentDashboard() {
 
   const dismissWofNotif = (id) => {
     setWofNotif(null);
-    api.patch(`/users/me/notifications/${id}/read`, {}).catch(() => {});
+    api.patch(`/users/me/notifications/${id}/read`, {})
+      .then(() => refreshAppBadge(api))
+      .catch(() => {});
   };
 
   /* ── Fetch college calendar (current + next month) ── */

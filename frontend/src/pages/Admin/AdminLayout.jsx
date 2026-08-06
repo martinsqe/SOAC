@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import AnimatedOutlet from '../../components/AnimatedOutlet/AnimatedOutlet';
 import ProfileModal from '../../components/ProfileModal/ProfileModal';
 import PushOptInBanner from '../../components/PushOptInBanner/PushOptInBanner';
+import { refreshAppBadge } from '../../utils/badge';
 import api from '../../api/client';
 import styles from './AdminLayout.module.css';
 
@@ -57,6 +58,10 @@ export default function AdminLayout() {
   useEffect(() => {
     if (location.pathname.startsWith('/admin/chats')) setUnreadDMs(0);
   }, [location.pathname]);
+
+  /* Sync the OS-level app-icon badge on load — push events already keep it
+     current in real time, this just catches it up after being away. */
+  useEffect(() => { refreshAppBadge(api); }, []);
 
   const avatarUrl = user?.avatar ? (user.avatar.startsWith('http') ? user.avatar : AVATAR_BASE + user.avatar) : null;
   const initial   = user?.name?.charAt(0)?.toUpperCase() || 'A';

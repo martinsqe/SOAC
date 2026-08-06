@@ -1,23 +1,11 @@
-const webpush = require('web-push');
+const { admin, FIREBASE_ENABLED } = require('./firebaseAdmin');
 const { pgPool } = require('../config/db');
 
-/* Push simply stays inert if VAPID keys aren't configured — same degrade-gracefully
-   pattern as email.js when no provider is configured. */
-const PUSH_ENABLED = !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
-if (PUSH_ENABLED) {
-  webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT || 'mailto:admin@rku.ac.in',
-    process.env.VAPID_PUBLIC_KEY,
-    process.env.VAPID_PRIVATE_KEY
-  );
-  console.log('🔔 Web Push: enabled');
-} else {
-  console.log('🔔 Web Push: disabled (VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY not set)');
-}
+const PUSH_ENABLED = FIREBASE_ENABLED;
 
 /* ── Concurrency-limited send queue — same acquire/release-slot primitive as
    config/email.js, without the retry/backoff/provider-chain parts. A push failure
-   is almost always "this subscription is dead, clean it up," not "the provider
+   is almost always "this token is dead, clean it up," not "the provider
    rate-limited me," so there's no backoff-retry need the way email had. */
 const MAX_CONCURRENT_SENDS = 5;
 let _activeSends = 0;
@@ -36,23 +24,34 @@ function _releaseSlot() {
   if (next) { _activeSends++; next(); }
 }
 
-/* Sends to one subscription row; deletes it if the push service reports it's dead
-   (404/410 — the standard web-push contract for an expired/unsubscribed endpoint). */
+/* Sends to one FCM token; deletes the row if Firebase reports the token is
+   dead (unregistered/invalid — the standard FCM contract for an expired
+   registration). Data-only payload (no top-level "notification" key) so the
+   service worker's onBackgroundMessage is always the single source of truth
+   for what gets displayed — a "notification" payload would make some
+   browsers auto-display a system notification too, causing duplicates. */
 async function _sendToSubscription(sub, payload) {
   await _acquireSlot();
   try {
-    await webpush.sendNotification(
-      { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-      JSON.stringify(payload)
-    );
+    const data = {
+      title: String(payload.title || 'SOAC RKU'),
+      body:  String(payload.body  || ''),
+      url:   String(payload.url   || '/'),
+      type:  String(payload.type  || ''),
+    };
+    if (payload.badge != null) data.badge = String(payload.badge);
+    await admin.messaging().send({
+      token: sub.fcm_token,
+      data,
+      webpush: { fcmOptions: { link: payload.url || '/' } },
+    });
     return true;
   } catch (err) {
-    if (err.statusCode === 404 || err.statusCode === 410) {
+    const code = err.code || '';
+    if (code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-registration-token') {
       await pgPool.query(`DELETE FROM push_subscriptions WHERE id = $1`, [sub.id]).catch(() => {});
     } else {
-      console.error(
-        `[push] send failed (user ${sub.user_id}): status=${err.statusCode} body=${err.body} message=${err.message}`
-      );
+      console.error(`[push] send failed (user ${sub.user_id}): code=${code} message=${err.message}`);
     }
     return false;
   } finally {
@@ -70,7 +69,7 @@ async function sendPushToUser(userId, payload) {
   if (!PUSH_ENABLED) return { sent: 0 };
   try {
     const { rows } = await pgPool.query(
-      `SELECT id, user_id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1`,
+      `SELECT id, user_id, fcm_token FROM push_subscriptions WHERE user_id = $1`,
       [userId]
     );
     const results = await Promise.all(rows.map(sub => _sendToSubscription(sub, payload)));
@@ -86,15 +85,21 @@ async function sendPushToUser(userId, payload) {
  * already bounded per-subscription by the slot queue above, so this just maps over
  * users — no separate batching needed.
  * @param {number[]} userIds
+ * @param {object} payload
+ * @param {Object<number,number>} [badgeByUserId] — per-recipient unread count
+ *   (unread totals differ per user, so a single shared payload can't carry it)
  */
-async function sendPushToUsers(userIds, payload) {
+async function sendPushToUsers(userIds, payload, badgeByUserId = null) {
   if (!PUSH_ENABLED || !userIds.length) return { sent: 0 };
   try {
     const { rows } = await pgPool.query(
-      `SELECT id, user_id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ANY($1::int[])`,
+      `SELECT id, user_id, fcm_token FROM push_subscriptions WHERE user_id = ANY($1::int[])`,
       [userIds]
     );
-    const results = await Promise.all(rows.map(sub => _sendToSubscription(sub, payload)));
+    const results = await Promise.all(rows.map(sub => {
+      const badge = badgeByUserId ? badgeByUserId[sub.user_id] : undefined;
+      return _sendToSubscription(sub, badge != null ? { ...payload, badge } : payload);
+    }));
     return { sent: results.filter(Boolean).length };
   } catch (err) {
     console.error('[push] sendPushToUsers error:', err.message);

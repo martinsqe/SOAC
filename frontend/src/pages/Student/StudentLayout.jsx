@@ -5,6 +5,7 @@ import api from '../../api/client';
 import AnimatedOutlet from '../../components/AnimatedOutlet/AnimatedOutlet';
 import ProfileModal from '../../components/ProfileModal/ProfileModal';
 import PushOptInBanner from '../../components/PushOptInBanner/PushOptInBanner';
+import { refreshAppBadge } from '../../utils/badge';
 import s from './StudentLayout.module.css';
 
 const AVATAR_BASE = '/uploads/avatars/';
@@ -48,6 +49,10 @@ export default function StudentLayout() {
   useEffect(() => {
     if (location.pathname.includes('/messages')) setUnreadMsgs(0);
   }, [location.pathname]);
+
+  /* Sync the OS-level app-icon badge on load — push events already keep it
+     current in real time, this just catches it up after being away. */
+  useEffect(() => { refreshAppBadge(api); }, []);
 
   const avatarUrl = user?.avatar ? (user.avatar.startsWith('http') ? user.avatar : AVATAR_BASE + user.avatar) : null;
   const initial   = user?.name?.charAt(0)?.toUpperCase() || 'S';

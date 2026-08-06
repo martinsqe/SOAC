@@ -902,6 +902,19 @@ const getNotifications = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+/* GET /api/users/me/notifications/unread-count — true total, unlike
+   getNotifications() above which caps its list at 15. Powers the OS-level
+   app-icon badge (Badging API), which needs the real number, not a capped one. */
+const unreadNotificationCount = async (req, res, next) => {
+  try {
+    const { rows } = await pgPool.query(
+      `SELECT COUNT(*)::int AS count FROM member_notifications WHERE user_id = $1 AND is_read = false`,
+      [req.user.id]
+    );
+    res.json({ count: rows[0]?.count || 0 });
+  } catch (err) { next(err); }
+};
+
 /* PATCH /api/users/me/notifications/:id/read  — mark a notification read */
 const markNotificationRead = async (req, res, next) => {
   try {
@@ -1003,4 +1016,4 @@ const assignClub = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, create, update, remove, stats, auditLog, myClubs, updateProfile, assignClub, myCoins, myEventRegistrations, myClubLeaderboards, weeklyEvaluation, getNotifications, markNotificationRead, myActivity };
+module.exports = { getAll, create, update, remove, stats, auditLog, myClubs, updateProfile, assignClub, myCoins, myEventRegistrations, myClubLeaderboards, weeklyEvaluation, getNotifications, unreadNotificationCount, markNotificationRead, myActivity };

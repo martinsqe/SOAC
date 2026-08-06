@@ -14,11 +14,26 @@ async function notifyUser({ userId, clubId = null, title, body, type, url = '/' 
       [userId, clubId, title, body, type]
     );
   } catch (e) { console.error('[notify] member_notifications insert failed:', e.message); }
-  sendPushToUser(userId, { title, body, url, type }).catch(() => {});
+
+  /* The push payload carries the recipient's current unread total so the
+     service worker can set the OS app-icon badge straight from the push
+     event — it has no logged-in session/localStorage to call the API itself. */
+  let badge;
+  try {
+    const { rows } = await pgPool.query(
+      `SELECT COUNT(*)::int AS count FROM member_notifications WHERE user_id = $1 AND is_read = false`,
+      [userId]
+    );
+    badge = rows[0]?.count;
+  } catch { /* badge is best-effort — push still sends without it */ }
+
+  sendPushToUser(userId, { title, body, url, type, badge }).catch(() => {});
 }
 
 /* Fan-out variant — same title/body/type/url to many users at once (announcements,
-   group chat, SOAC-wide notices). One multi-row insert instead of N round trips. */
+   group chat, SOAC-wide notices). One multi-row insert instead of N round trips.
+   Each recipient still gets their OWN badge count (unread totals differ per user),
+   resolved via one grouped query rather than N individual round trips. */
 async function notifyManyUsers({ userIds, clubId = null, title, body, type, url = '/' }) {
   if (!userIds?.length) return;
   try {
@@ -28,7 +43,19 @@ async function notifyManyUsers({ userIds, clubId = null, title, body, type, url 
       [userIds, clubId, title, body, type]
     );
   } catch (e) { console.error('[notify] batch insert failed:', e.message); }
-  sendPushToUsers(userIds, { title, body, url, type }).catch(() => {});
+
+  let badgeByUserId = null;
+  try {
+    const { rows } = await pgPool.query(
+      `SELECT user_id, COUNT(*)::int AS count FROM member_notifications
+       WHERE user_id = ANY($1::int[]) AND is_read = false GROUP BY user_id`,
+      [userIds]
+    );
+    badgeByUserId = {};
+    rows.forEach(r => { badgeByUserId[r.user_id] = r.count; });
+  } catch { /* badge is best-effort — push still sends without it */ }
+
+  sendPushToUsers(userIds, { title, body, url, type }, badgeByUserId).catch(() => {});
 }
 
 module.exports = { notifyUser, notifyManyUsers };

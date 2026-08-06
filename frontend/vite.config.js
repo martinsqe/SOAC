@@ -22,7 +22,10 @@ export default defineConfig({
         injectionPoint: 'self.__WB_MANIFEST',
         // public/images has a stray unused 4MB HTML file (not referenced anywhere
         // in the app) — excluded so it never gets pulled into the SW precache.
-        globIgnores: ['images/**/*.html'],
+        // firebase-messaging-sw.js is a separate, independently-registered service
+        // worker (its own scope, see firebaseMessaging.js) — it must never be
+        // precached as a regular asset by this one.
+        globIgnores: ['images/**/*.html', 'firebase-messaging-sw.js'],
       },
       manifest: {
         name: 'SOAC RKU',

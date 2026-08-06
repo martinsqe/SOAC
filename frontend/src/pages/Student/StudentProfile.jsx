@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
+import { refreshAppBadge } from '../../utils/badge';
 import s from './StudentProfile.module.css';
 
 const AVATAR_BASE = '/uploads/avatars/';
@@ -165,6 +166,7 @@ export default function StudentProfile() {
         ...prev,
         notifications: prev.notifications.map(n => n.id === id ? { ...n, isRead: true } : n),
       } : prev);
+      refreshAppBadge(api);
     } catch { /* silent */ }
   };
 

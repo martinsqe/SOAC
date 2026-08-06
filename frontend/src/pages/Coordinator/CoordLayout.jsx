@@ -5,6 +5,7 @@ import { CoordClubProvider, useCoordClub } from '../../context/CoordClubContext'
 import AnimatedOutlet from '../../components/AnimatedOutlet/AnimatedOutlet';
 import ProfileModal from '../../components/ProfileModal/ProfileModal';
 import PushOptInBanner from '../../components/PushOptInBanner/PushOptInBanner';
+import { refreshAppBadge } from '../../utils/badge';
 import api from '../../api/client';
 import s from './CoordLayout.module.css';
 
@@ -144,6 +145,10 @@ function CoordLayoutInner() {
       localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString());
     }
   }, [location.pathname]);
+
+  /* Sync the OS-level app-icon badge on load — push events already keep it
+     current in real time, this just catches it up after being away. */
+  useEffect(() => { refreshAppBadge(api); }, []);
 
   const avatarUrl = user?.avatar ? (user.avatar.startsWith('http') ? user.avatar : AVATAR_BASE + user.avatar) : null;
   const initial   = user?.name?.charAt(0)?.toUpperCase() || 'C';
