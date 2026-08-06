@@ -1,4 +1,4 @@
-const { admin, FIREBASE_ENABLED } = require('./firebaseAdmin');
+const { messaging, FIREBASE_ENABLED } = require('./firebaseAdmin');
 const { pgPool } = require('../config/db');
 
 const PUSH_ENABLED = FIREBASE_ENABLED;
@@ -40,7 +40,7 @@ async function _sendToSubscription(sub, payload) {
       type:  String(payload.type  || ''),
     };
     if (payload.badge != null) data.badge = String(payload.badge);
-    await admin.messaging().send({
+    await messaging.send({
       token: sub.fcm_token,
       data,
       webpush: { fcmOptions: { link: payload.url || '/' } },
