@@ -6,6 +6,7 @@ import AnimatedOutlet from '../../components/AnimatedOutlet/AnimatedOutlet';
 import ProfileModal from '../../components/ProfileModal/ProfileModal';
 import PushOptInBanner from '../../components/PushOptInBanner/PushOptInBanner';
 import { refreshAppBadge } from '../../utils/badge';
+import { syncFcmToken } from '../../firebaseMessaging';
 import s from './StudentLayout.module.css';
 
 const AVATAR_BASE = '/uploads/avatars/';
@@ -53,6 +54,10 @@ export default function StudentLayout() {
   /* Sync the OS-level app-icon badge on load — push events already keep it
      current in real time, this just catches it up after being away. */
   useEffect(() => { refreshAppBadge(api); }, []);
+
+  /* Re-check the FCM token on load — it can rotate (Android in particular)
+     with nothing else to notice, silently going stale forever otherwise. */
+  useEffect(() => { syncFcmToken(); }, []);
 
   const avatarUrl = user?.avatar ? (user.avatar.startsWith('http') ? user.avatar : AVATAR_BASE + user.avatar) : null;
   const initial   = user?.name?.charAt(0)?.toUpperCase() || 'S';

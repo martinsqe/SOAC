@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { fcmSupported, requestFcmPermission, onForegroundMessage, deleteFcmToken } from '../../firebaseMessaging';
+import { fcmSupported, requestFcmPermission, onForegroundMessage, deleteFcmToken, FCM_TOKEN_STORAGE_KEY } from '../../firebaseMessaging';
 import api from '../../api/client';
 
 const DISMISS_KEY = 'soac_push_dismissed';
-const TOKEN_KEY = 'soac_fcm_token';
+const TOKEN_KEY = FCM_TOKEN_STORAGE_KEY;
 
 const initiallyVisible = () =>
   fcmSupported() &&

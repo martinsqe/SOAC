@@ -1,5 +1,6 @@
 import { getMessaging, getToken, deleteToken, onMessage } from 'firebase/messaging';
 import { firebaseApp } from './firebase';
+import api from './api/client';
 
 /* "Web Push certificates" key pair from Firebase Console → Project Settings →
    Cloud Messaging. Public by design (same as a VAPID public key) — required
@@ -8,6 +9,11 @@ const VAPID_KEY = 'BJROV1NTDNklfD2iGjx9_Z19cRtt3OG0s4DuKGf-8-34hQI-W6TMdPAQcFMG7
 
 const FCM_SW_URL = '/firebase-messaging-sw.js';
 const FCM_SW_SCOPE = '/firebase-cloud-messaging-push-scope';
+
+/* Where the current device's token is cached locally — exported so
+   PushOptInBanner.jsx uses the exact same key rather than a duplicated
+   string literal that could drift out of sync. */
+export const FCM_TOKEN_STORAGE_KEY = 'soac_fcm_token';
 
 export function fcmSupported() {
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -84,5 +90,36 @@ export async function deleteFcmToken() {
   } catch (err) {
     console.error('[fcm] deleteToken failed:', err.message);
     return false;
+  }
+}
+
+/* FCM registration tokens can rotate (Android Chrome in particular does this
+   more often than desktop) — nothing notifies the app when that happens, so
+   without this, a rotated token just silently stops receiving anything
+   forever: the old token still sits in the backend's push_subscriptions table
+   until FCM reports it dead on some future send, and only then gets cleaned
+   up, with no replacement ever taking its place.
+
+   Call on every app load while permission is already granted (not just at
+   the moment of clicking Enable) so a rotation gets caught and re-synced
+   quickly. No-ops if this device was never subscribed in the first place. */
+export async function syncFcmToken() {
+  if (!fcmSupported() || Notification.permission !== 'granted') return;
+  const stored = localStorage.getItem(FCM_TOKEN_STORAGE_KEY);
+  if (!stored) return;
+
+  try {
+    const registration = await registerFcmServiceWorker();
+    const token = await getToken(getMessagingInstance(), {
+      vapidKey: VAPID_KEY,
+      serviceWorkerRegistration: registration,
+    });
+    if (!token || token === stored) return;
+
+    await api.post('/push/subscribe', { token });
+    localStorage.setItem(FCM_TOKEN_STORAGE_KEY, token);
+    api.delete('/push/subscribe', { token: stored }).catch(() => {});
+  } catch (err) {
+    console.error('[fcm] token refresh failed:', err.message);
   }
 }

@@ -49,6 +49,7 @@ async function _sendToSubscription(sub, payload) {
   } catch (err) {
     const code = err.code || '';
     if (code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-registration-token') {
+      console.log(`[push] dropping stale token (user ${sub.user_id}, subscription ${sub.id}): ${code}`);
       await pgPool.query(`DELETE FROM push_subscriptions WHERE id = $1`, [sub.id]).catch(() => {});
     } else {
       console.error(`[push] send failed (user ${sub.user_id}): code=${code} message=${err.message}`);
