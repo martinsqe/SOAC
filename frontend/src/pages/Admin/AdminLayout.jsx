@@ -5,7 +5,7 @@ import AnimatedOutlet from '../../components/AnimatedOutlet/AnimatedOutlet';
 import ProfileModal from '../../components/ProfileModal/ProfileModal';
 import PushOptInModal from '../../components/PushOptInModal/PushOptInModal';
 import { refreshAppBadge } from '../../utils/badge';
-import { syncFcmToken } from '../../firebaseMessaging';
+import { syncFcmToken, onForegroundMessage, fcmSupported } from '../../firebaseMessaging';
 import api from '../../api/client';
 import styles from './AdminLayout.module.css';
 
@@ -67,6 +67,25 @@ export default function AdminLayout() {
   /* Re-check the FCM token on load — it can rotate (Android in particular)
      with nothing else to notice, silently going stale forever otherwise. */
   useEffect(() => { syncFcmToken(); }, []);
+
+  /* Foreground notification listener — wired here (not in PushOptInModal) so it
+     persists for the entire session. Uses reg.showNotification() via the already-
+     registered FCM service worker; Chrome 80+ silently drops new Notification()
+     calls made from the main thread. */
+  useEffect(() => {
+    if (!fcmSupported() || Notification.permission !== 'granted') return;
+    const unsub = onForegroundMessage((payload) => {
+      const { title, body, url } = payload.data || {};
+      navigator.serviceWorker.ready.then((reg) => {
+        reg.showNotification(title || 'SOAC RKU', {
+          body: body || '',
+          icon: '/images/icon-192.png',
+          data: { url: url || '/' },
+        });
+      }).catch(() => {});
+    });
+    return () => unsub();
+  }, []);
 
   const avatarUrl = user?.avatar ? (user.avatar.startsWith('http') ? user.avatar : AVATAR_BASE + user.avatar) : null;
   const initial   = user?.name?.charAt(0)?.toUpperCase() || 'A';

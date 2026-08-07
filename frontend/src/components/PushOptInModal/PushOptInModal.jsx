@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { fcmSupported, requestFcmPermission, onForegroundMessage, deleteFcmToken, FCM_TOKEN_STORAGE_KEY } from '../../firebaseMessaging';
+import { useState, useEffect } from 'react';
+import { fcmSupported, requestFcmPermission, deleteFcmToken, FCM_TOKEN_STORAGE_KEY } from '../../firebaseMessaging';
 import api from '../../api/client';
 import s from './PushOptInModal.module.css';
 
@@ -29,7 +29,6 @@ export default function PushOptInModal() {
   const [visible, setVisible] = useState(initiallyVisible);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const unsubForeground = useRef(null);
 
   useEffect(() => {
     if (visible) return; // already showing via the sync check above
@@ -37,21 +36,6 @@ export default function PushOptInModal() {
     if (localStorage.getItem(DISMISS_KEY)) return;
     if (!localStorage.getItem(TOKEN_KEY)) setVisible(true);
   }, [visible]);
-
-  /* FCM's onMessage() only fires the callback — it never displays a system
-     notification itself, unlike the service worker's background handler.
-     Wired up whenever permission is already granted (not just at the moment
-     of clicking Allow) so returning users with an existing subscription
-     still get notified while the tab is open and focused. */
-  useEffect(() => {
-    if (!fcmSupported() || Notification.permission !== 'granted') return;
-    unsubForeground.current = onForegroundMessage((payload) => {
-      const { title, body, url } = payload.data || {};
-      const n = new Notification(title || 'SOAC RKU', { body: body || '', icon: '/images/icon-192.png' });
-      n.onclick = () => { window.focus(); if (url) window.location.href = url; };
-    });
-    return () => unsubForeground.current?.();
-  }, []);
 
   if (!visible) return null;
 
