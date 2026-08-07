@@ -3,7 +3,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import AnimatedOutlet from '../../components/AnimatedOutlet/AnimatedOutlet';
 import ProfileModal from '../../components/ProfileModal/ProfileModal';
-import PushOptInBanner from '../../components/PushOptInBanner/PushOptInBanner';
+import PushOptInModal from '../../components/PushOptInModal/PushOptInModal';
 import { refreshAppBadge } from '../../utils/badge';
 import { syncFcmToken } from '../../firebaseMessaging';
 import api from '../../api/client';
@@ -184,12 +184,12 @@ export default function AdminLayout() {
         </header>
 
         <main className={styles.content}>
-          <PushOptInBanner />
           <AnimatedOutlet />
         </main>
       </div>
 
       {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} />}
+      <PushOptInModal />
     </div>
   );
 }

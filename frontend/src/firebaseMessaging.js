@@ -11,7 +11,7 @@ const FCM_SW_URL = '/firebase-messaging-sw.js';
 const FCM_SW_SCOPE = '/firebase-cloud-messaging-push-scope';
 
 /* Where the current device's token is cached locally — exported so
-   PushOptInBanner.jsx uses the exact same key rather than a duplicated
+   PushOptInModal.jsx uses the exact same key rather than a duplicated
    string literal that could drift out of sync. */
 export const FCM_TOKEN_STORAGE_KEY = 'soac_fcm_token';
 

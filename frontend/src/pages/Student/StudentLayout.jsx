@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
 import AnimatedOutlet from '../../components/AnimatedOutlet/AnimatedOutlet';
 import ProfileModal from '../../components/ProfileModal/ProfileModal';
-import PushOptInBanner from '../../components/PushOptInBanner/PushOptInBanner';
+import PushOptInModal from '../../components/PushOptInModal/PushOptInModal';
 import { refreshAppBadge } from '../../utils/badge';
 import { syncFcmToken } from '../../firebaseMessaging';
 import s from './StudentLayout.module.css';
@@ -165,12 +165,12 @@ export default function StudentLayout() {
           </div>
         </header>
         <main className={s.content}>
-          <PushOptInBanner />
           <AnimatedOutlet />
         </main>
       </div>
 
       {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} />}
+      <PushOptInModal />
     </div>
   );
 }
