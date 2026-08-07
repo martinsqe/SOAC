@@ -93,24 +93,27 @@ export async function deleteFcmToken() {
   }
 }
 
-/* FCM registration tokens can be invalidated server-side (Google's FCM
-   registry, e.g. after extended inactivity) WITHOUT the browser's own
-   getToken() ever returning a different value — the client-side push
-   subscription can look perfectly "unchanged" while the backend row for it
-   has already been deleted after a failed send. A value-comparison check
-   can't catch that case at all, so this always re-POSTs (a harmless
-   idempotent upsert, see push.controller.js's ON CONFLICT) rather than only
-   POSTing when the token differs — that's the only way to guarantee the
-   backend row actually exists after any period away, not just after a
-   genuine client-visible rotation.
+/* Ensures a valid subscription exists whenever permission is already granted
+   — regardless of HOW it got granted. Permission can end up "granted"
+   without our modal ever running (e.g. an installed PWA's Android-level
+   notification toggle grants it directly at the OS layer), and Android
+   granting permission does NOT itself create an FCM token or tell the
+   backend anything — only an actual getToken() + POST /push/subscribe call
+   does that. Previously this only ran when a token was already stored
+   locally ("refresh"), which silently skipped exactly that out-of-band-grant
+   case — permission showed "Allowed" everywhere, yet no subscription ever
+   existed server-side.
 
-   Call on every app load while permission is already granted (not just at
-   the moment of clicking Enable). No-ops if this device was never
-   subscribed in the first place. */
+   Separately, FCM can also invalidate a token server-side (Google's FCM
+   registry, e.g. after extended inactivity) WITHOUT the browser's own
+   getToken() ever returning a different value — so even in the "already
+   subscribed" case, this always re-POSTs (a harmless idempotent upsert, see
+   push.controller.js's ON CONFLICT) rather than only when the token visibly
+   differs, since a value-comparison check can't catch that either.
+
+   Call on every app load. */
 export async function syncFcmToken() {
   if (!fcmSupported() || Notification.permission !== 'granted') return;
-  const stored = localStorage.getItem(FCM_TOKEN_STORAGE_KEY);
-  if (!stored) return;
 
   try {
     const registration = await registerFcmServiceWorker();
@@ -121,11 +124,12 @@ export async function syncFcmToken() {
     if (!token) return;
 
     await api.post('/push/subscribe', { token });
+    const stored = localStorage.getItem(FCM_TOKEN_STORAGE_KEY);
     if (token !== stored) {
       localStorage.setItem(FCM_TOKEN_STORAGE_KEY, token);
-      api.delete('/push/subscribe', { token: stored }).catch(() => {});
+      if (stored) api.delete('/push/subscribe', { token: stored }).catch(() => {});
     }
   } catch (err) {
-    console.error('[fcm] token refresh failed:', err.message);
+    console.error('[fcm] token sync failed:', err.message);
   }
 }
