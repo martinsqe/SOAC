@@ -43,7 +43,19 @@ async function _sendToSubscription(sub, payload) {
     const messageId = await messaging.send({
       token: sub.fcm_token,
       data,
-      webpush: { fcmOptions: { link: payload.url || '/' } },
+      /* Data-only messages default to normal/low priority without this —
+         FCM can then legitimately defer, batch, or drop delivery once a
+         device is idle or battery-saving, which matches exactly what we saw:
+         send() succeeds and returns a real message ID every time, but the
+         message never actually reaches the device except sporadically.
+         Explicit high priority on every platform is required for prompt,
+         reliable delivery of data-only payloads. */
+      android: { priority: 'high' },
+      webpush: {
+        headers: { Urgency: 'high' },
+        fcmOptions: { link: payload.url || '/' },
+      },
+      apns: { headers: { 'apns-priority': '10' } },
     });
     console.log(`[push] sent OK (user ${sub.user_id}, subscription ${sub.id}): ${messageId}`);
     return true;
