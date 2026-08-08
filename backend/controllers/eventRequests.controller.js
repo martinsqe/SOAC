@@ -1,6 +1,7 @@
 const { pgPool } = require('../config/db');
 const { ensureSoacTables } = require('../services/soacData');
 const { getCoordClubIds, assertCoordOwnsClub } = require('../services/coordAuth');
+const { notifyUser } = require('../services/notify');
 
 /* ── POST /api/event-requests  (coordinator submits proposal) ── */
 const createRequest = async (req, res, next) => {
@@ -203,6 +204,15 @@ const approveRequest = async (req, res, next) => {
     );
 
     res.json({ message: 'Request approved. Event created.', event: evRes.rows[0] });
+
+    notifyUser({
+      userId: r.coordinator_id,
+      clubId: resolvedClubId,
+      title:  'Event request approved',
+      body:   `"${evRes.rows[0].title}" was approved and is now live.`,
+      type:   'event_request',
+      url:    '/coordinator/events',
+    }).catch(() => {});
   } catch (err) { next(err); }
 };
 
@@ -221,6 +231,17 @@ const rejectRequest = async (req, res, next) => {
     if (!rows.length)
       return res.status(404).json({ message: 'Request not found or already reviewed.' });
     res.json({ request: asRequest(rows[0]) });
+
+    notifyUser({
+      userId: rows[0].coordinator_id,
+      clubId: rows[0].club_id,
+      title:  'Event request rejected',
+      body:   admin_note.trim()
+        ? `"${rows[0].title}" was rejected: ${admin_note.trim()}`
+        : `"${rows[0].title}" was rejected.`,
+      type:   'event_request',
+      url:    '/coordinator/events',
+    }).catch(() => {});
   } catch (err) { next(err); }
 };
 

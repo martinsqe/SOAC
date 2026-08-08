@@ -194,7 +194,8 @@ const createSOACAnnouncement = async (req, res, next) => {
     await cache.del('announcements:soac');
     res.status(201).json({ announcement: toAnn(rows[0]) });
 
-    /* Fan out to every active student platform-wide — fire-and-forget. */
+    /* Fan out platform-wide — fire-and-forget. Students and coordinators land on
+       different routes, so this is two calls rather than one shared-url fan-out. */
     pgPool.query(`SELECT id FROM users WHERE role = 'student' AND is_active = true`)
       .then(({ rows: students }) => {
         if (!students.length) return;
@@ -204,6 +205,17 @@ const createSOACAnnouncement = async (req, res, next) => {
           body:  (body || '').trim().slice(0, 150),
           type:  'announcement',
           url:   '/student/soac-updates',
+        });
+      }).catch(() => {});
+    pgPool.query(`SELECT id FROM users WHERE role = 'coordinator' AND is_active = true`)
+      .then(({ rows: coords }) => {
+        if (!coords.length) return;
+        notifyManyUsers({
+          userIds: coords.map(c => c.id),
+          title: title.trim(),
+          body:  (body || '').trim().slice(0, 150),
+          type:  'announcement',
+          url:   '/coordinator/soac',
         });
       }).catch(() => {});
   } catch (err) { next(err); }

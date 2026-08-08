@@ -3,6 +3,7 @@ const { pgPool } = require('../config/db');
 const { sendCredentials, sendApproval } = require('../config/email');
 const { ensureSoacTables } = require('../services/soacData');
 const { getCoordClubIds, assertCoordOwnsClub } = require('../services/coordAuth');
+const { notifyUser, notifyManyUsers } = require('../services/notify');
 const cache = require('../services/cache');
 
 const RKU_DOMAIN = '@rku.ac.in';
@@ -184,6 +185,22 @@ const create = async (req, res, next) => {
     );
     await cache.del('stats:admin');
     res.status(201).json({ request: toJR(rows[0]) });
+
+    /* Notify every coordinator assigned to this club — fire-and-forget. */
+    pgPool.query(
+      `SELECT user_id FROM coordinator_club_assignments WHERE club_id = $1 AND is_active = true`,
+      [clubId]
+    ).then(({ rows: coords }) => {
+      if (!coords.length) return;
+      notifyManyUsers({
+        userIds: coords.map(c => c.user_id),
+        clubId,
+        title: 'New join request',
+        body:  `${name.trim()} wants to join ${clubName || 'your club'}.`,
+        type:  'join_request',
+        url:   '/coordinator/requests',
+      });
+    }).catch(() => {});
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ message: 'A pending request for this club already exists from this email.' });
     next(err);
@@ -309,6 +326,15 @@ const approve = async (req, res, next) => {
       emailSent,
       emailError:  emailError || undefined,
     });
+
+    notifyUser({
+      userId: userId,
+      clubId: jr.club_id,
+      title:  'Join request approved',
+      body:   `You're now a member of ${jr.club_name}.`,
+      type:   'join_request',
+      url:    `/student/clubs/${jr.club_id}`,
+    }).catch(() => {});
   } catch (err) {
     await pgClient.query('ROLLBACK').catch(() => {});
     next(err);
@@ -320,9 +346,8 @@ const approve = async (req, res, next) => {
 /* POST /api/requests/:id/decline  (coordinator/admin) */
 const decline = async (req, res, next) => {
   try {
-    /* Only fetch columns needed for validation — not the whole row */
     const { rows } = await pgPool.query(
-      `SELECT id, status, club_id FROM join_requests WHERE id = $1`,
+      `SELECT id, status, club_id, club_name, email FROM join_requests WHERE id = $1`,
       [req.params.id]
     );
     const jr = rows[0];
@@ -340,6 +365,21 @@ const decline = async (req, res, next) => {
     );
     await cache.del('stats:admin');
     res.json({ message: 'Request declined.' });
+
+    /* Only notify if this email already has an account — a declined request
+       for someone who never got one has nowhere to deliver a notification. */
+    pgPool.query(`SELECT id FROM users WHERE email = $1`, [jr.email])
+      .then(({ rows: uRows }) => {
+        if (!uRows.length) return;
+        notifyUser({
+          userId: uRows[0].id,
+          clubId: jr.club_id,
+          title:  'Join request declined',
+          body:   `Your request to join ${jr.club_name} was declined.`,
+          type:   'join_request',
+          url:    '/student/clubs',
+        });
+      }).catch(() => {});
   } catch (err) { next(err); }
 };
 
