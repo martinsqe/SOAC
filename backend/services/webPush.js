@@ -40,11 +40,12 @@ async function _sendToSubscription(sub, payload) {
       type:  String(payload.type  || ''),
     };
     if (payload.badge != null) data.badge = String(payload.badge);
-    await messaging.send({
+    const messageId = await messaging.send({
       token: sub.fcm_token,
       data,
       webpush: { fcmOptions: { link: payload.url || '/' } },
     });
+    console.log(`[push] sent OK (user ${sub.user_id}, subscription ${sub.id}): ${messageId}`);
     return true;
   } catch (err) {
     const code = err.code || '';
@@ -67,12 +68,16 @@ async function _sendToSubscription(sub, payload) {
  * @param {{title:string, body:string, url?:string, type?:string}} payload
  */
 async function sendPushToUser(userId, payload) {
-  if (!PUSH_ENABLED) return { sent: 0 };
+  if (!PUSH_ENABLED) {
+    console.log(`[push] sendPushToUser(${userId}): skipped, PUSH_ENABLED=false`);
+    return { sent: 0 };
+  }
   try {
     const { rows } = await pgPool.query(
       `SELECT id, user_id, fcm_token FROM push_subscriptions WHERE user_id = $1`,
       [userId]
     );
+    console.log(`[push] sendPushToUser(${userId}): found ${rows.length} subscription(s)`);
     const results = await Promise.all(rows.map(sub => _sendToSubscription(sub, payload)));
     return { sent: results.filter(Boolean).length };
   } catch (err) {

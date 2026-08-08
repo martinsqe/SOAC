@@ -7,6 +7,7 @@ const { sendPushToUser, sendPushToUsers } = require('./webPush');
    try/caught so one channel failing never blocks the other. Never throws — always
    safe to call fire-and-forget. */
 async function notifyUser({ userId, clubId = null, title, body, type, url = '/' }) {
+  console.log(`[notify] notifyUser called: userId=${userId} type=${type}`);
   try {
     await pgPool.query(
       `INSERT INTO member_notifications (user_id, club_id, title, body, type)
