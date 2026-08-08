@@ -5,6 +5,7 @@ import { CoordClubProvider, useCoordClub } from '../../context/CoordClubContext'
 import AnimatedOutlet from '../../components/AnimatedOutlet/AnimatedOutlet';
 import ProfileModal from '../../components/ProfileModal/ProfileModal';
 import PushOptInModal from '../../components/PushOptInModal/PushOptInModal';
+import PushDebugPanel from '../../components/PushDebugPanel/PushDebugPanel';
 import { refreshAppBadge } from '../../utils/badge';
 import { syncFcmToken, onForegroundMessage, fcmSupported } from '../../firebaseMessaging';
 import api from '../../api/client';
@@ -325,6 +326,7 @@ function CoordLayoutInner() {
 
       {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} />}
       <PushOptInModal />
+      <PushDebugPanel />
     </div>
   );
 }
