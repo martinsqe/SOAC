@@ -1,7 +1,6 @@
 import { getMessaging, getToken, deleteToken, onMessage } from 'firebase/messaging';
 import { firebaseApp } from './firebase';
 import api from './api/client';
-import { pushDebugLog, pushDebugError } from './utils/debugLog';
 
 /* "Web Push certificates" key pair from Firebase Console → Project Settings →
    Cloud Messaging. Public by design (same as a VAPID public key) — required
@@ -114,36 +113,23 @@ export async function deleteFcmToken() {
 
    Call on every app load. */
 export async function syncFcmToken() {
-  pushDebugLog('[fcm] syncFcmToken: starting, permission=', Notification.permission, 'supported=', fcmSupported());
-  if (!fcmSupported() || Notification.permission !== 'granted') {
-    pushDebugLog('[fcm] syncFcmToken: bailing early (unsupported or not granted)');
-    return;
-  }
+  if (!fcmSupported() || Notification.permission !== 'granted') return;
 
   try {
-    pushDebugLog('[fcm] syncFcmToken: registering service worker…');
     const registration = await registerFcmServiceWorker();
-    pushDebugLog('[fcm] syncFcmToken: SW registration ready, active=', !!registration.active);
-
     const token = await getToken(getMessagingInstance(), {
       vapidKey: VAPID_KEY,
       serviceWorkerRegistration: registration,
     });
-    pushDebugLog('[fcm] syncFcmToken: getToken() returned:', token ? `${token.slice(0, 12)}…` : token);
-    if (!token) {
-      pushDebugLog('[fcm] syncFcmToken: bailing, getToken() returned falsy');
-      return;
-    }
+    if (!token) return;
 
-    pushDebugLog('[fcm] syncFcmToken: POSTing to /push/subscribe…');
     await api.post('/push/subscribe', { token });
-    pushDebugLog('[fcm] syncFcmToken: POST succeeded');
     const stored = localStorage.getItem(FCM_TOKEN_STORAGE_KEY);
     if (token !== stored) {
       localStorage.setItem(FCM_TOKEN_STORAGE_KEY, token);
       if (stored) api.delete('/push/subscribe', { token: stored }).catch(() => {});
     }
   } catch (err) {
-    pushDebugError('[fcm] token sync failed:', err.message);
+    console.error('[fcm] token sync failed:', err.message);
   }
 }

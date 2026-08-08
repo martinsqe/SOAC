@@ -5,7 +5,6 @@ import api from '../../api/client';
 import AnimatedOutlet from '../../components/AnimatedOutlet/AnimatedOutlet';
 import ProfileModal from '../../components/ProfileModal/ProfileModal';
 import PushOptInModal from '../../components/PushOptInModal/PushOptInModal';
-import PushDebugPanel from '../../components/PushDebugPanel/PushDebugPanel';
 import { refreshAppBadge } from '../../utils/badge';
 import { syncFcmToken, onForegroundMessage, fcmSupported } from '../../firebaseMessaging';
 import s from './StudentLayout.module.css';
@@ -191,7 +190,6 @@ export default function StudentLayout() {
 
       {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} />}
       <PushOptInModal />
-      <PushDebugPanel />
     </div>
   );
 }
