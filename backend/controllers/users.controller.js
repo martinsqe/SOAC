@@ -6,6 +6,7 @@ const { pgPool } = require('../config/db');
 const { cloudinaryInstance, useCloudinary } = require('../config/multer');
 const { ensureSoacTables } = require('../services/soacData');
 const { sendCredentials } = require('../config/email');
+const { notifyUser } = require('../services/notify');
 const cache = require('../services/cache');
 
 const AVATAR_ALLOWED = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
@@ -1013,6 +1014,22 @@ const assignClub = async (req, res, next) => {
     );
     await cache.del(`session:user:${userId}`);
     res.json({ user: rows[0] });
+
+    /* Notify the coordinator when actually assigned to a club (not on removal). */
+    if (clubId) {
+      pgPool.query(`SELECT name FROM clubs WHERE id = $1`, [clubId])
+        .then(({ rows: clubRows }) => {
+          const clubName = clubRows[0]?.name || 'a club';
+          notifyUser({
+            userId,
+            clubId,
+            title: 'You were assigned as coordinator',
+            body:  `You're now the coordinator of ${clubName}.`,
+            type:  'coordinator_assignment',
+            url:   '/coordinator/my-club',
+          });
+        }).catch(() => {});
+    }
   } catch (err) { next(err); }
 };
 

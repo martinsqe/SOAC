@@ -1,6 +1,7 @@
 const { pgPool }    = require('../config/db');
 const { getFileValue } = require('../config/multer');
 const { getChampion } = require('../services/bracketMath');
+const { notifyManyUsers } = require('../services/notify');
 
 /* Add narrative column if it doesn't exist yet */
 pgPool.query(
@@ -650,6 +651,19 @@ const submitReport = async (req, res, next) => {
       [req.user?.id, req.params.eventId]
     );
     res.json({ report: rows[0] });
+
+    /* Notify every admin — fire-and-forget. */
+    pgPool.query(`SELECT id FROM users WHERE role = 'admin' AND is_active = true`)
+      .then(({ rows: admins }) => {
+        if (!admins.length) return;
+        notifyManyUsers({
+          userIds: admins.map(a => a.id),
+          title: 'New event report submitted',
+          body:  `${req.user?.name || 'A coordinator'} submitted the report for "${rows[0].event_title}".`,
+          type:  'report_submitted',
+          url:   '/admin/reports',
+        });
+      }).catch(() => {});
   } catch (err) { next(err); }
 };
 
