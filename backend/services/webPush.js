@@ -24,12 +24,27 @@ function _releaseSlot() {
   if (next) { _activeSends++; next(); }
 }
 
+const MAX_SEND_ATTEMPTS = 3;
+const RETRY_DELAY_MS = [300, 900]; // between attempts 1→2 and 2→3
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+/* Codes that mean "this token is permanently dead" — retrying changes nothing,
+   drop the row immediately. Anything else (network blips, transient FCM-side
+   errors, quota hiccups) is worth a couple of quick retries before giving up,
+   since those are exactly the kind of failure that silently drops a
+   notification for no recoverable reason otherwise. */
+const DEAD_TOKEN_CODES = new Set([
+  'messaging/registration-token-not-registered',
+  'messaging/invalid-registration-token',
+]);
+
 /* Sends to one FCM token; deletes the row if Firebase reports the token is
-   dead (unregistered/invalid — the standard FCM contract for an expired
-   registration). Data-only payload (no top-level "notification" key) so the
-   service worker's onBackgroundMessage is always the single source of truth
-   for what gets displayed — a "notification" payload would make some
-   browsers auto-display a system notification too, causing duplicates. */
+   dead (the standard FCM contract for an expired registration). Data-only
+   payload (no top-level "notification" key) so the service worker's
+   onBackgroundMessage is always the single source of truth for what gets
+   displayed — a "notification" payload would make some browsers auto-display
+   a system notification too, causing duplicates. */
 async function _sendToSubscription(sub, payload) {
   await _acquireSlot();
   try {
@@ -40,7 +55,7 @@ async function _sendToSubscription(sub, payload) {
       type:  String(payload.type  || ''),
     };
     if (payload.badge != null) data.badge = String(payload.badge);
-    const messageId = await messaging.send({
+    const message = {
       token: sub.fcm_token,
       data,
       /* Data-only messages default to normal/low priority without this —
@@ -56,17 +71,29 @@ async function _sendToSubscription(sub, payload) {
         fcmOptions: { link: payload.url || '/' },
       },
       apns: { headers: { 'apns-priority': '10' } },
-    });
-    console.log(`[push] sent OK (user ${sub.user_id}, subscription ${sub.id}): ${messageId}`);
-    return true;
-  } catch (err) {
-    const code = err.code || '';
-    if (code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-registration-token') {
-      console.log(`[push] dropping stale token (user ${sub.user_id}, subscription ${sub.id}): ${code}`);
-      await pgPool.query(`DELETE FROM push_subscriptions WHERE id = $1`, [sub.id]).catch(() => {});
-    } else {
-      console.error(`[push] send failed (user ${sub.user_id}): code=${code} message=${err.message}`);
+    };
+
+    let lastErr;
+    for (let attempt = 1; attempt <= MAX_SEND_ATTEMPTS; attempt++) {
+      try {
+        const messageId = await messaging.send(message);
+        console.log(`[push] sent OK (user ${sub.user_id}, subscription ${sub.id}, attempt ${attempt}): ${messageId}`);
+        return true;
+      } catch (err) {
+        lastErr = err;
+        const code = err.code || '';
+        if (DEAD_TOKEN_CODES.has(code)) {
+          console.log(`[push] dropping stale token (user ${sub.user_id}, subscription ${sub.id}): ${code}`);
+          await pgPool.query(`DELETE FROM push_subscriptions WHERE id = $1`, [sub.id]).catch(() => {});
+          return false;
+        }
+        if (attempt < MAX_SEND_ATTEMPTS) {
+          console.warn(`[push] send attempt ${attempt} failed (user ${sub.user_id}): code=${code} message=${err.message} — retrying`);
+          await sleep(RETRY_DELAY_MS[attempt - 1]);
+        }
+      }
     }
+    console.error(`[push] send failed after ${MAX_SEND_ATTEMPTS} attempts (user ${sub.user_id}): code=${lastErr.code || ''} message=${lastErr.message}`);
     return false;
   } finally {
     _releaseSlot();

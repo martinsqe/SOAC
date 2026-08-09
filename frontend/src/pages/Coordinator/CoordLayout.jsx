@@ -151,9 +151,15 @@ function CoordLayoutInner() {
      current in real time, this just catches it up after being away. */
   useEffect(() => { refreshAppBadge(api); }, []);
 
-  /* Re-check the FCM token on load — it can rotate (Android in particular)
-     with nothing else to notice, silently going stale forever otherwise. */
-  useEffect(() => { syncFcmToken(); }, []);
+  /* Re-check the FCM token on load, then periodically — it can rotate or be
+     invalidated server-side (Android in particular) with nothing else to
+     notice. Without the interval, a tab left open for hours only self-heals
+     on the next full reload; this catches it within the same session. */
+  useEffect(() => {
+    syncFcmToken();
+    const t = setInterval(syncFcmToken, 20 * 60 * 1000);
+    return () => clearInterval(t);
+  }, []);
 
   /* Foreground notification listener — wired here (not in PushOptInModal) so it
      persists for the entire session. Uses reg.showNotification() via the already-
