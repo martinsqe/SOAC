@@ -21,6 +21,14 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
+/* Without these, a new version of this file sits "waiting" until every open
+   instance of the app is fully closed before it takes over — on an installed
+   iOS PWA that can mean force-quitting from the app switcher, not just
+   reopening. This makes updates (like this diagnostic) take effect on next
+   load instead. */
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+
 /* Fires when a push arrives while no tab has focus (app closed / backgrounded).
    Foreground messages are handled separately via onMessage() in firebaseMessaging.js,
    since FCM does not run this handler while a tab is actively focused.
