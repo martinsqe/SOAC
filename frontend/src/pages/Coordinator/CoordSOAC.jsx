@@ -11,11 +11,6 @@ const TAG_TEXT = {
   Update: '#007a5e', Finance: '#7c3aed', Announcement: '#c4005d', Achievement: '#007a5e',
 };
 
-const TAG_ICON = {
-  Important: '📢', Deadline: '📋', Event: '🏆',
-  Update: '📰', Finance: '💰', Announcement: '📣', Achievement: '🎖️',
-};
-
 function timeAgo(isoStr) {
   if (!isoStr) return '';
   const diff = Date.now() - new Date(isoStr).getTime();
@@ -66,7 +61,6 @@ export default function CoordSOAC() {
         </div>
       ) : announcements.length === 0 ? (
         <div className={s.empty}>
-          <div className={s.emptyIcon}>📋</div>
           <p>No SOAC announcements yet</p>
           <span>
             Official university-wide announcements from the SOAC admin will appear here.
@@ -76,25 +70,20 @@ export default function CoordSOAC() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {announcements.map((a) => (
-            <div key={a._id} className={s.card} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-              <div style={{ fontSize: 22, flexShrink: 0 }}>
-                {TAG_ICON[a.tag] || '📣'}
+            <div key={a._id} className={s.card}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                <span className={s.mName}>{a.title}</span>
+                <span className={s.tag} style={{
+                  background: TAG_COLOR[a.tag] || '#f4f4f8',
+                  color:      TAG_TEXT[a.tag]  || '#555',
+                }}>{a.tag}</span>
+                {a.pinned && (
+                  <span className={s.tag} style={{ background: '#ff950014', color: '#c47700' }}>Pinned</span>
+                )}
               </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-                  <span className={s.mName}>{a.title}</span>
-                  <span className={s.tag} style={{
-                    background: TAG_COLOR[a.tag] || '#f4f4f8',
-                    color:      TAG_TEXT[a.tag]  || '#555',
-                  }}>{a.tag}</span>
-                  {a.pinned && (
-                    <span className={s.tag} style={{ background: '#ff950014', color: '#c47700' }}>📌 Pinned</span>
-                  )}
-                </div>
-                {a.body && <p className={s.desc} style={{ margin: 0 }}>{a.body}</p>}
-                <div className={s.muted} style={{ marginTop: 5, fontSize: 11 }}>
-                  SOAC · Posted by {a.authorName} · {timeAgo(a.createdAt)}
-                </div>
+              {a.body && <p className={s.desc} style={{ margin: 0 }}>{a.body}</p>}
+              <div className={s.muted} style={{ marginTop: 5, fontSize: 11 }}>
+                SOAC · Posted by {a.authorName} · {timeAgo(a.createdAt)}
               </div>
             </div>
           ))}

@@ -16,10 +16,6 @@ const TAG_TEXT = {
   Important: '#be123c', Deadline: '#c47700', Event: '#4338ca',
   Update: '#15803d', Finance: '#7c3aed', Announcement: '#9d174d', Achievement: '#15803d',
 };
-const TAG_ICON = {
-  Important: '📢', Deadline: '⏰', Event: '🎉',
-  Update: '📰', Finance: '💰', Announcement: '📣', Achievement: '🎖️',
-};
 const EV_CAT_BG   = { tech:'#eef2ff', sports:'#fef2f2', cultural:'#fdf4ff', health:'#f0fdf4', 'annual-fest':'#fffbeb', general:'#f9fafb' };
 const EV_CAT_TEXT = { tech:'#4338ca', sports:'#be123c', cultural:'#7e22ce', health:'#15803d', 'annual-fest':'#92400e', general:'#6b7280' };
 
@@ -79,7 +75,6 @@ export function StudentSOACUpdates() {
       {/* ── Page header — shown immediately ── */}
       <div className={su.header}>
         <div className={su.headerTop}>
-          <div className={su.headerIcon}>🏛️</div>
           <div>
             <h1 className={su.title}>SOAC Official Updates</h1>
             <p className={su.subtitle}>
@@ -97,7 +92,7 @@ export function StudentSOACUpdates() {
         <div>
           <div className={su.secHead}>
             <span className={su.secTitle}>
-              📋 Announcements
+              Announcements
               <span className={su.secCount}>{announcements.length}</span>
             </span>
           </div>
@@ -108,7 +103,6 @@ export function StudentSOACUpdates() {
             </div>
           ) : announcements.length === 0 ? (
             <div className={su.empty}>
-              <div className={su.emptyIcon}>📢</div>
               <p className={su.emptyTitle}>No announcements yet</p>
               <p className={su.emptySub}>Official SOAC updates will appear here once published by the admin.</p>
             </div>
@@ -119,14 +113,6 @@ export function StudentSOACUpdates() {
                   key={a.id || a._id}
                   className={`${su.annCard} ${a.pinned ? su.annPinned : ''}`}
                 >
-                  {/* Icon */}
-                  <div
-                    className={su.annIconWrap}
-                    style={{ background: TAG_BG[a.tag] || '#f9fafb' }}
-                  >
-                    {TAG_ICON[a.tag] || '📣'}
-                  </div>
-
                   <div className={su.annBody}>
                     {/* Title + badges */}
                     <div className={su.annMeta}>
@@ -135,7 +121,7 @@ export function StudentSOACUpdates() {
                         <span className={`${su.badge} ${su.badgeNew}`}>NEW</span>
                       )}
                       {a.pinned && (
-                        <span className={`${su.badge} ${su.badgePinned}`}>📌 Pinned</span>
+                        <span className={`${su.badge} ${su.badgePinned}`}>Pinned</span>
                       )}
                       <span
                         className={su.badge}
@@ -147,7 +133,7 @@ export function StudentSOACUpdates() {
 
                     {/* Body */}
                     {a.body && (
-                      <p className={`${su.annText} ${su.clamped}`}>{a.body}</p>
+                      <p className={su.annText}>{a.body}</p>
                     )}
 
                     {/* Footer */}
@@ -165,7 +151,7 @@ export function StudentSOACUpdates() {
         {/* ══════════════════════ RIGHT — Events Calendar ══════════════════════ */}
         <div className={su.calCard}>
           <div className={su.secHead}>
-            <span className={su.secTitle}>📅 College Events Calendar</span>
+            <span className={su.secTitle}>College Events Calendar</span>
           </div>
 
           {loading ? (
@@ -174,7 +160,6 @@ export function StudentSOACUpdates() {
             </div>
           ) : events.length === 0 ? (
             <div className={su.empty} style={{ padding: '32px 16px' }}>
-              <div className={su.emptyIcon}>📅</div>
               <p className={su.emptyTitle}>No upcoming events</p>
               <p className={su.emptySub}>Check back soon.</p>
             </div>
