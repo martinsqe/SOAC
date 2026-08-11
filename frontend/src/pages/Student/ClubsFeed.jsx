@@ -4,25 +4,33 @@ import cf from './ClubsFeed.module.css';
 
 /* One slide — only the currently-active (mostly-in-view) slide actually
    mounts a YouTube iframe. Others show just the thumbnail, so scrolling
-   through a long feed never has a dozen players loaded/competing at once. */
-function Slide({ video, active, registerRef }) {
-  const [muted, setMuted] = useState(true);
+   through a long feed never has a dozen players loaded/competing at once.
+
+   Sound is a session-wide preference (see ClubsFeed below), not per-slide —
+   tap unmute once and every video for the rest of the session plays with
+   sound, matching how the user actually expects a Reels-style feed to work. */
+function Slide({ video, active, soundOn, onToggleSound, registerRef }) {
   const iframeRef = useRef(null);
 
-  const toggleMute = () => {
-    const win = iframeRef.current?.contentWindow;
-    if (!win) return;
-    const func = muted ? 'unMute' : 'mute';
-    win.postMessage(JSON.stringify({ event: 'command', func, args: [] }), '*');
-    setMuted(m => !m);
-  };
-
-  /* Reset to muted whenever a slide becomes active again — matches how
-     Reels/Shorts always start muted, tap-to-unmute each time. */
-  useEffect(() => { if (active) setMuted(true); }, [active]);
+  /* Captured once when this slide becomes active, not reactive to soundOn
+     afterward — otherwise toggling sound would change the iframe's src and
+     restart the video from 0:00 instead of just relaying the change live. */
+  const mountSoundRef = useRef(soundOn);
+  useEffect(() => { if (active) mountSoundRef.current = soundOn; }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const embedSrc = `https://www.youtube.com/embed/${video.videoId}` +
-    `?autoplay=1&mute=1&playsinline=1&rel=0&modestbranding=1&enablejsapi=1`;
+    `?autoplay=1&mute=${mountSoundRef.current ? 0 : 1}&playsinline=1&rel=0&modestbranding=1&enablejsapi=1`;
+
+  /* Relays a live sound-preference change to the currently-playing video
+     without touching its src (which would restart it). Best-effort — the
+     initial src above already carries the correct starting state, so this
+     only matters for a toggle that happens while this exact slide is active. */
+  useEffect(() => {
+    if (!active) return;
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    win.postMessage(JSON.stringify({ event: 'command', func: soundOn ? 'unMute' : 'mute', args: [] }), '*');
+  }, [soundOn, active]);
 
   return (
     <div className={cf.slide} ref={registerRef} data-video-id={video.videoId}>
@@ -42,8 +50,8 @@ function Slide({ video, active, registerRef }) {
       <div className={cf.overlay} />
 
       {active && (
-        <button className={cf.muteBtn} onClick={toggleMute} aria-label={muted ? 'Unmute' : 'Mute'}>
-          {muted ? '🔇' : '🔊'}
+        <button className={cf.muteBtn} onClick={onToggleSound} aria-label={soundOn ? 'Mute' : 'Unmute'}>
+          {soundOn ? '🔊' : '🔇'}
         </button>
       )}
 
@@ -66,6 +74,10 @@ export default function ClubsFeed() {
   const [error,    setError]    = useState('');
   const [apiKeySet, setApiKeySet] = useState(true);
   const [activeId, setActiveId] = useState(null);
+  /* Session-wide sound preference — starts muted (autoplay-with-sound is
+     blocked without a prior user gesture), tapping the button once turns it
+     on for every video for the rest of this visit, current and future. */
+  const [soundOn, setSoundOn] = useState(false);
 
   const containerRef = useRef(null);
   const slideRefs     = useRef(new Map());
@@ -112,6 +124,8 @@ export default function ClubsFeed() {
     if (videos.length && !activeId) setActiveId(videos[0].videoId);
   }, [videos, activeId]);
 
+  const toggleSound = () => setSoundOn(s => !s);
+
   if (loading) {
     return <div className={cf.state}>Loading your Clubs Feed…</div>;
   }
@@ -154,6 +168,8 @@ export default function ClubsFeed() {
           key={v.videoId}
           video={v}
           active={activeId === v.videoId}
+          soundOn={soundOn}
+          onToggleSound={toggleSound}
           registerRef={registerRef(v.videoId)}
         />
       ))}
