@@ -1,18 +1,23 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../../api/client';
+import { loadYouTubeIframeApi } from '../../utils/youtubeIframeApi';
 import cf from './ClubsFeed.module.css';
 
-/* One slide.
+/* One slide, driven by YouTube's real IFrame Player API (YT.Player) rather
+   than a raw <iframe> + guessed postMessage commands — the official API
+   gives real play()/pause()/mute() methods with a genuine onReady signal, so
+   commands are never silently dropped the way an unready raw iframe can drop
+   them. This is what makes instant start/stop actually reliable.
+
    mode is one of:
      'active'  — the one currently in view; plays with the real session
                  sound preference, shows the mute button + caption.
-     'preload' — one slide away (previous or next); mounted and playing
-                 muted in the background, off-screen, purely so it's already
-                 buffered by the time the user actually scrolls to it —
-                 without this, every scroll paid YouTube's full embed +
-                 buffer time before playback could start.
-     'idle'    — everything else; just a thumbnail, no player mounted, so a
-                 long feed never has more than 3 players loaded at once.
+     'preload' — one slide away (previous or next); its player is created
+                 and cued (YouTube loads/buffers enough to start instantly)
+                 but never actually playing, so switching to it is instant
+                 without wasting bandwidth on an extra simultaneous stream.
+     'idle'    — everything else; just a thumbnail, no player instance at
+                 all, so a long feed never holds more than 2 players.
 
    Sound is a session-wide preference (see ClubsFeed below), not per-slide —
    tap unmute once and every video for the rest of the session plays with
@@ -20,46 +25,98 @@ import cf from './ClubsFeed.module.css';
 function Slide({ video, mode, soundOn, onToggleSound, registerRef }) {
   const active  = mode === 'active';
   const mounted = mode === 'active' || mode === 'preload';
-  const iframeRef = useRef(null);
 
-  /* Captured synchronously during render (via useMemo, not a post-commit
-     useEffect) the moment this slide becomes active, then frozen until it
-     becomes active again — otherwise toggling sound would change the
-     iframe's src and restart the video from 0:00 instead of just relaying
-     the change live. A useEffect-based capture ran one render too late here:
-     it fires after the DOM (and the iframe's src) already committed, so a
-     newly-active slide always built its src from the stale pre-toggle value.
-     Preloading slides are always forced muted regardless of soundOn — they're
-     playing off-screen purely to warm up, never meant to be heard. */
-  const initiallyMuted = useMemo(() => !(active && soundOn), [active]); // eslint-disable-line react-hooks/exhaustive-deps
+  const mountElRef = useRef(null);
+  const playerRef  = useRef(null);
+  const readyRef   = useRef(false);
+  /* Refs mirroring the latest props — read inside the async onReady callback,
+     which closes over whatever `mode`/`soundOn` were at the time the player
+     STARTED loading, not necessarily what they are by the time it's ready. */
+  const modeRef    = useRef(mode);
+  const soundRef   = useRef(soundOn);
+  modeRef.current  = mode;
+  soundRef.current = soundOn;
 
-  const embedSrc = `https://www.youtube.com/embed/${video.videoId}` +
-    `?autoplay=1&mute=${initiallyMuted ? 1 : 0}&playsinline=1&rel=0&modestbranding=1&enablejsapi=1`;
+  const [posterVisible, setPosterVisible] = useState(true);
 
-  /* Relays a live sound-preference change to the currently-playing video
-     without touching its src (which would restart it). Best-effort — the
-     initial src above already carries the correct starting state, so this
-     only matters for a toggle that happens while this exact slide is active. */
+  /* Create the player once this slide enters the preload/active window;
+     destroy it once it falls back out — caps how many players ever exist
+     at once regardless of how far the feed is scrolled. */
   useEffect(() => {
-    if (!active) return;
-    const win = iframeRef.current?.contentWindow;
-    if (!win) return;
-    win.postMessage(JSON.stringify({ event: 'command', func: soundOn ? 'unMute' : 'mute', args: [] }), '*');
+    if (!mounted) return;
+    let cancelled = false;
+
+    loadYouTubeIframeApi().then((YT) => {
+      if (cancelled || !mountElRef.current) return;
+      playerRef.current = new YT.Player(mountElRef.current, {
+        videoId: video.videoId,
+        playerVars: {
+          autoplay: 0, mute: 1, playsinline: 1, rel: 0, modestbranding: 1,
+        },
+        events: {
+          onReady: (e) => {
+            readyRef.current = true;
+            if (modeRef.current === 'active') {
+              if (soundRef.current) e.target.unMute(); else e.target.mute();
+              e.target.playVideo();
+            }
+            setPosterVisible(false);
+          },
+        },
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      playerRef.current?.destroy?.();
+      playerRef.current = null;
+      readyRef.current = false;
+      setPosterVisible(true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, video.videoId]);
+
+  /* Leaving a video pauses it immediately; the newly-active one plays
+     immediately — since a 'preload' slide's player already exists and is
+     cued, this transition is instant rather than paying embed/buffer time. */
+  useEffect(() => {
+    if (!readyRef.current || !playerRef.current) return;
+    if (active) {
+      if (soundOn) playerRef.current.unMute(); else playerRef.current.mute();
+      playerRef.current.playVideo();
+    } else {
+      playerRef.current.pauseVideo();
+    }
+  }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* Live sound-preference relay while remaining the active slide. */
+  useEffect(() => {
+    if (!readyRef.current || !playerRef.current || !active) return;
+    if (soundOn) playerRef.current.unMute(); else playerRef.current.mute();
   }, [soundOn, active]);
 
   return (
     <div className={cf.slide} ref={registerRef} data-video-id={video.videoId}>
-      {mounted ? (
-        <iframe
-          ref={iframeRef}
-          className={cf.frame}
-          src={embedSrc}
-          title={video.title}
-          allow="autoplay; encrypted-media; picture-in-picture"
-          allowFullScreen
+      {/* Poster stays visible underneath until the player has actually
+         signalled ready — a fresh player is blank/white for a moment while
+         YouTube's embed page and chrome load, which otherwise reads as a
+         stall even once the preload window is warming it up in advance. */}
+      {video.image && (
+        <img
+          src={video.image}
+          alt=""
+          className={cf.poster}
+          loading="lazy"
+          style={!posterVisible ? { opacity: 0 } : undefined}
         />
-      ) : (
-        video.image && <img src={video.image} alt="" className={cf.poster} loading="lazy" />
+      )}
+      {/* YT.Player replaces this inner div with its own fresh <iframe> (which
+         won't inherit a className), so positioning lives on the wrapper
+         instead — the replacement iframe just fills it via CSS. */}
+      {mounted && (
+        <div className={cf.frame}>
+          <div ref={mountElRef} className={cf.playerMount} />
+        </div>
       )}
 
       <div className={cf.overlay} />

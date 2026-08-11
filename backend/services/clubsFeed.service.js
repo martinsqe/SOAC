@@ -174,6 +174,16 @@ function shuffle(arr) {
   return a;
 }
 
+/* Shown to every student alongside their club-specific topics, regardless of
+   which clubs they're in — the platform value (teamwork, being a good club
+   member) matters the same whether you're in a sports club or a debate
+   club. Same pooled/cached/shuffled treatment as any other topic. */
+const UNIVERSAL_TOPICS = [
+  'teamwork and collaboration skills tips',
+  'how to be a valuable team member',
+  'importance of joining clubs and extracurricular activities',
+];
+
 /* ── Main export ──
    Returns { videos, topics, apiKeySet }. videos are pre-shuffled — callers
    should render them in the order given, not re-sort. */
@@ -181,7 +191,7 @@ async function buildClubsFeed(clubs) {
   const apiKeySet = !!YOUTUBE_API_KEY();
   if (!clubs.length) return { videos: [], topics: [], apiKeySet };
 
-  const topics = [...new Set(clubs.map(topicForClub))];
+  const topics = [...new Set([...clubs.map(topicForClub), ...UNIVERSAL_TOPICS])];
   const pools  = await Promise.all(topics.map(fetchPoolForTopic));
 
   const seen = new Set();

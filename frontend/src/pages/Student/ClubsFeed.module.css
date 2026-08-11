@@ -22,16 +22,37 @@
 }
 
 .frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+/* YT.Player replaces this element with its own <iframe>, sized to fill
+   whatever container it started in — the parent .frame supplies the actual
+   positioning since the replacement element won't carry our class names. */
+.playerMount {
+  width: 100%;
+  height: 100%;
+}
+
+/* YT.Player's generated iframe defaults to a fixed 640x390px via HTML
+   attributes otherwise — this forces it to actually fill .frame. */
+.frame iframe {
   width: 100%;
   height: 100%;
   border: none;
 }
 
 .poster {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   filter: brightness(0.75);
+  transition: opacity 0.25s ease;
 }
 
 .overlay {
