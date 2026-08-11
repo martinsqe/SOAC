@@ -13,7 +13,7 @@ const getFeed = async (req, res, next) => {
     const userId = req.user.id;
 
     const { rows: clubs } = await pgPool.query(
-      `SELECT c.id, c.name, c.category
+      `SELECT c.id, c.name, c.category, c.tags
        FROM   student_clubs sc
        JOIN   clubs c ON c.id = sc.club_id AND c.is_active = true
        WHERE  sc.user_id = $1 AND sc.is_active = true

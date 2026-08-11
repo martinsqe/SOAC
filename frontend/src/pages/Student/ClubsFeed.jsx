@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import api from '../../api/client';
 import cf from './ClubsFeed.module.css';
 
@@ -12,14 +12,17 @@ import cf from './ClubsFeed.module.css';
 function Slide({ video, active, soundOn, onToggleSound, registerRef }) {
   const iframeRef = useRef(null);
 
-  /* Captured once when this slide becomes active, not reactive to soundOn
-     afterward — otherwise toggling sound would change the iframe's src and
-     restart the video from 0:00 instead of just relaying the change live. */
-  const mountSoundRef = useRef(soundOn);
-  useEffect(() => { if (active) mountSoundRef.current = soundOn; }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* Captured synchronously during render (via useMemo, not a post-commit
+     useEffect) the moment this slide becomes active, then frozen until it
+     becomes active again — otherwise toggling sound would change the
+     iframe's src and restart the video from 0:00 instead of just relaying
+     the change live. A useEffect-based capture ran one render too late here:
+     it fires after the DOM (and the iframe's src) already committed, so a
+     newly-active slide always built its src from the stale pre-toggle value. */
+  const initiallyMuted = useMemo(() => !soundOn, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const embedSrc = `https://www.youtube.com/embed/${video.videoId}` +
-    `?autoplay=1&mute=${mountSoundRef.current ? 0 : 1}&playsinline=1&rel=0&modestbranding=1&enablejsapi=1`;
+    `?autoplay=1&mute=${initiallyMuted ? 1 : 0}&playsinline=1&rel=0&modestbranding=1&enablejsapi=1`;
 
   /* Relays a live sound-preference change to the currently-playing video
      without touching its src (which would restart it). Best-effort — the

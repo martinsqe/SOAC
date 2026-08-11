@@ -64,24 +64,6 @@ const SPORT_QUERY = {
   kabaddi:    'kabaddi highlights skills training',
 };
 
-/* [name pattern, search topic] — checked in order, first match wins */
-const CLUB_TYPE_KEYWORDS = [
-  [/photo/i,                          'photography tutorial tips'],
-  [/danc/i,                           'dance tutorial choreography'],
-  [/music|band|choir/i,               'music tutorial performance'],
-  [/cod(e|ing)|programming|dev/i,     'programming tutorial coding tips'],
-  [/robot/i,                          'robotics projects tutorial'],
-  [/debat/i,                          'debate skills public speaking'],
-  [/drama|theatre|theater/i,          'theatre acting tutorial'],
-  [/\bart\b|painting|sketch/i,        'art tutorial painting techniques'],
-  [/quiz/i,                           'quiz general knowledge facts'],
-  [/literary|writing|literature/i,    'creative writing tips'],
-  [/entrepreneur|business/i,          'entrepreneurship business tips'],
-  [/environment|eco\b/i,              'environment sustainability tips'],
-  [/yoga|fitness|gym/i,               'fitness workout tips'],
-  [/chess/i,                          'chess strategy tutorial'],
-];
-
 const CATEGORY_FALLBACK = {
   sports:   'sports highlights training tips',
   cultural: 'cultural arts performance tutorial',
@@ -89,13 +71,27 @@ const CATEGORY_FALLBACK = {
   social:   'community service volunteering',
 };
 
+/* Every real club on this platform is coordinator-tagged with 4-5 precise
+   keywords (e.g. IoT Club → "IoT, Arduino, Raspberry Pi, Embedded, Smart
+   Systems"; Webify → "Web Dev, React, Node.js, UI/UX, Full Stack") — this is
+   a far more reliable topic signal than guessing from the club's name, which
+   can be branded/non-descriptive (e.g. "IRONCREED" is tagged "Basketball,
+   Fitness..." with nothing in the name itself suggesting either). Tags are
+   the primary source; name/category-based detection only covers the
+   defensive case of a club somehow having none set. */
 function topicForClub(club) {
+  const tags = (club.tags || []).filter(Boolean);
+  if (tags.length > 0) {
+    /* Primary tag drives relevance; OR-ing in the second broadens recall
+       without diluting specificity the way combining 3+ tags as one
+       AND-ish query would (risks zero results for less common combos). */
+    const core = tags.length > 1 ? `${tags[0]} | ${tags[1]}` : tags[0];
+    return `${core} highlights tutorial tips`;
+  }
+
   if (club.category === 'sports') {
     const sport = detectSport(club.name);
     if (SPORT_QUERY[sport]) return SPORT_QUERY[sport];
-  }
-  for (const [pattern, topic] of CLUB_TYPE_KEYWORDS) {
-    if (pattern.test(club.name)) return topic;
   }
   return CATEGORY_FALLBACK[club.category] || `${club.name} club activities highlights`;
 }
