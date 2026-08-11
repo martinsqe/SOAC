@@ -27,6 +27,18 @@ const { errorHandler } = require('./middleware/errorHandler');
 const CLIENT_ORIGIN = process.env.CLIENT_URL || 'http://localhost:5173';
 
 const app = express();
+
+/* Railway puts exactly one reverse proxy in front of this app, which sets
+   X-Forwarded-For on every request. Without telling Express to trust that
+   one hop, express-rate-limit's IP resolution can't safely tell a real
+   client IP from a spoofable header and throws ERR_ERL_FORWARDED_HEADER on
+   every request that reaches it — breaking whichever routes sit behind a
+   rate limiter. `1` (not `true`) trusts exactly the known single hop rather
+   than any proxy chain, which is what express-rate-limit's own docs
+   recommend for this exact error. Must be set before any rate limiter
+   middleware below. */
+app.set('trust proxy', 1);
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
