@@ -2,14 +2,24 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import api from '../../api/client';
 import cf from './ClubsFeed.module.css';
 
-/* One slide — only the currently-active (mostly-in-view) slide actually
-   mounts a YouTube iframe. Others show just the thumbnail, so scrolling
-   through a long feed never has a dozen players loaded/competing at once.
+/* One slide.
+   mode is one of:
+     'active'  — the one currently in view; plays with the real session
+                 sound preference, shows the mute button + caption.
+     'preload' — one slide away (previous or next); mounted and playing
+                 muted in the background, off-screen, purely so it's already
+                 buffered by the time the user actually scrolls to it —
+                 without this, every scroll paid YouTube's full embed +
+                 buffer time before playback could start.
+     'idle'    — everything else; just a thumbnail, no player mounted, so a
+                 long feed never has more than 3 players loaded at once.
 
    Sound is a session-wide preference (see ClubsFeed below), not per-slide —
    tap unmute once and every video for the rest of the session plays with
    sound, matching how the user actually expects a Reels-style feed to work. */
-function Slide({ video, active, soundOn, onToggleSound, registerRef }) {
+function Slide({ video, mode, soundOn, onToggleSound, registerRef }) {
+  const active  = mode === 'active';
+  const mounted = mode === 'active' || mode === 'preload';
   const iframeRef = useRef(null);
 
   /* Captured synchronously during render (via useMemo, not a post-commit
@@ -18,8 +28,10 @@ function Slide({ video, active, soundOn, onToggleSound, registerRef }) {
      iframe's src and restart the video from 0:00 instead of just relaying
      the change live. A useEffect-based capture ran one render too late here:
      it fires after the DOM (and the iframe's src) already committed, so a
-     newly-active slide always built its src from the stale pre-toggle value. */
-  const initiallyMuted = useMemo(() => !soundOn, [active]); // eslint-disable-line react-hooks/exhaustive-deps
+     newly-active slide always built its src from the stale pre-toggle value.
+     Preloading slides are always forced muted regardless of soundOn — they're
+     playing off-screen purely to warm up, never meant to be heard. */
+  const initiallyMuted = useMemo(() => !(active && soundOn), [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const embedSrc = `https://www.youtube.com/embed/${video.videoId}` +
     `?autoplay=1&mute=${initiallyMuted ? 1 : 0}&playsinline=1&rel=0&modestbranding=1&enablejsapi=1`;
@@ -37,7 +49,7 @@ function Slide({ video, active, soundOn, onToggleSound, registerRef }) {
 
   return (
     <div className={cf.slide} ref={registerRef} data-video-id={video.videoId}>
-      {active ? (
+      {mounted ? (
         <iframe
           ref={iframeRef}
           className={cf.frame}
@@ -76,7 +88,7 @@ export default function ClubsFeed() {
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState('');
   const [apiKeySet, setApiKeySet] = useState(true);
-  const [activeId, setActiveId] = useState(null);
+  const [activeIndex, setActiveIndex] = useState(0);
   /* Session-wide sound preference — starts muted (autoplay-with-sound is
      blocked without a prior user gesture), tapping the button once turns it
      on for every video for the rest of this visit, current and future. */
@@ -101,7 +113,7 @@ export default function ClubsFeed() {
       .finally(() => setLoading(false));
   }, []);
 
-  /* Track which slide is most in view — that one gets its player mounted. */
+  /* Track which slide is most in view — that one becomes active. */
   useEffect(() => {
     if (!videos.length) return;
     const observer = new IntersectionObserver(
@@ -109,7 +121,9 @@ export default function ClubsFeed() {
         const visible = entries
           .filter(e => e.isIntersecting)
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-        if (visible) setActiveId(visible.target.dataset.videoId);
+        if (!visible) return;
+        const idx = videos.findIndex(v => v.videoId === visible.target.dataset.videoId);
+        if (idx !== -1) setActiveIndex(idx);
       },
       { root: containerRef.current, threshold: [0.6] }
     );
@@ -121,11 +135,6 @@ export default function ClubsFeed() {
     if (el) slideRefs.current.set(videoId, el);
     else slideRefs.current.delete(videoId);
   }, []);
-
-  /* Auto-activate the first slide once loaded (observer only fires on scroll). */
-  useEffect(() => {
-    if (videos.length && !activeId) setActiveId(videos[0].videoId);
-  }, [videos, activeId]);
 
   const toggleSound = () => setSoundOn(s => !s);
 
@@ -166,16 +175,21 @@ export default function ClubsFeed() {
 
   return (
     <div className={cf.container} ref={containerRef}>
-      {videos.map((v) => (
-        <Slide
-          key={v.videoId}
-          video={v}
-          active={activeId === v.videoId}
-          soundOn={soundOn}
-          onToggleSound={toggleSound}
-          registerRef={registerRef(v.videoId)}
-        />
-      ))}
+      {videos.map((v, i) => {
+        const mode = i === activeIndex ? 'active'
+          : (i === activeIndex - 1 || i === activeIndex + 1) ? 'preload'
+          : 'idle';
+        return (
+          <Slide
+            key={v.videoId}
+            video={v}
+            mode={mode}
+            soundOn={soundOn}
+            onToggleSound={toggleSound}
+            registerRef={registerRef(v.videoId)}
+          />
+        );
+      })}
     </div>
   );
 }

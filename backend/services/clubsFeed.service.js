@@ -96,7 +96,16 @@ function topicForClub(club) {
   return CATEGORY_FALLBACK[club.category] || `${club.name} club activities highlights`;
 }
 
-/* ── YouTube fetch, cached per topic ── */
+/* YouTube's search API mixes in Shorts (sub-60s vertical clips) by default,
+   and they dominate relevance ranking for exactly these training/highlight
+   keywords — which is why the feed was showing almost nothing else. Fetching
+   "medium" (4-20 min, real highlight reels/tutorials) and "long" (20 min+,
+   full games/matches) explicitly excludes Shorts entirely (anything under
+   4 minutes never appears in either bucket), and covers both what "NBA
+   highlights" and "full NBA games" actually mean length-wise. Two calls per
+   topic instead of one — still well within quota given the 6h cache. */
+const VIDEO_DURATIONS = ['medium', 'long'];
+
 async function fetchPoolForTopic(topic) {
   const cacheKey = `clubsfeed:pool:${topic}`;
   const cached = await cache.get(cacheKey);
@@ -105,39 +114,51 @@ async function fetchPoolForTopic(topic) {
   const key = YOUTUBE_API_KEY();
   if (!key) return [];
 
-  const url =
-    `https://www.googleapis.com/youtube/v3/search` +
-    `?part=snippet&type=video` +
-    `&q=${encodeURIComponent(topic)}` +
-    `&maxResults=${MAX_RESULTS_PER_TOPIC}&relevanceLanguage=en&safeSearch=strict` +
-    `&key=${encodeURIComponent(key)}`;
+  const resultsPerDuration = Math.ceil(MAX_RESULTS_PER_TOPIC / VIDEO_DURATIONS.length);
 
-  const { ok, data } = await httpsGet(url);
+  const batches = await Promise.all(VIDEO_DURATIONS.map(async (videoDuration) => {
+    const url =
+      `https://www.googleapis.com/youtube/v3/search` +
+      `?part=snippet&type=video` +
+      `&q=${encodeURIComponent(topic)}` +
+      `&videoDuration=${videoDuration}` +
+      `&maxResults=${resultsPerDuration}&relevanceLanguage=en&safeSearch=strict` +
+      `&key=${encodeURIComponent(key)}`;
 
-  if (!ok) {
-    console.warn('[ClubsFeed] YouTube network error — check connectivity');
-    return [];
-  }
-  if (data?.error) {
-    console.warn('[ClubsFeed] YouTube API error:', data.error.code, data.error.message);
-    return [];
-  }
-  if (!data?.items) return [];
+    const { ok, data } = await httpsGet(url);
 
-  const videos = data.items
-    .filter((v) => v.id?.videoId && v.snippet?.title)
-    .map((v) => ({
-      id:          v.id.videoId,
-      videoId:     v.id.videoId,
-      title:       v.snippet.title,
-      description: v.snippet.description || '',
-      image:
-        v.snippet.thumbnails?.high?.url   ||
-        v.snippet.thumbnails?.medium?.url ||
-        v.snippet.thumbnails?.default?.url || null,
-      channel:     v.snippet.channelTitle || 'YouTube',
-      publishedAt: v.snippet.publishedAt,
-    }));
+    if (!ok) {
+      console.warn('[ClubsFeed] YouTube network error — check connectivity');
+      return [];
+    }
+    if (data?.error) {
+      console.warn('[ClubsFeed] YouTube API error:', data.error.code, data.error.message);
+      return [];
+    }
+    if (!data?.items) return [];
+
+    return data.items
+      .filter((v) => v.id?.videoId && v.snippet?.title)
+      .map((v) => ({
+        id:          v.id.videoId,
+        videoId:     v.id.videoId,
+        title:       v.snippet.title,
+        description: v.snippet.description || '',
+        image:
+          v.snippet.thumbnails?.high?.url   ||
+          v.snippet.thumbnails?.medium?.url ||
+          v.snippet.thumbnails?.default?.url || null,
+        channel:     v.snippet.channelTitle || 'YouTube',
+        publishedAt: v.snippet.publishedAt,
+      }));
+  }));
+
+  const seen = new Set();
+  const videos = batches.flat().filter((v) => {
+    if (seen.has(v.videoId)) return false;
+    seen.add(v.videoId);
+    return true;
+  });
 
   await cache.set(cacheKey, videos, POOL_CACHE_TTL);
   return videos;
