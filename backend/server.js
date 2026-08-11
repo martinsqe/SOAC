@@ -129,6 +129,7 @@ app.use('/api/users',         require('./routes/users.routes'));
 app.use('/api/requests',      require('./routes/requests.routes'));
 app.use('/api/messages',      require('./routes/messages.routes'));
 app.use('/api/news-feed',     require('./routes/newsFeed.routes'));
+app.use('/api/clubs-feed',    require('./routes/clubsFeed.routes'));
 app.use('/api/announcements', require('./routes/announcements.routes'));
 app.use('/api/fame',          require('./routes/fame.routes'));
 app.use('/api/calendar',       require('./routes/calendar.routes'));

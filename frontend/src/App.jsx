@@ -47,6 +47,7 @@ import {
   StudentFame,
 } from './pages/Student/StudentPages';
 import StudentMessages from './pages/Student/StudentMessages';
+import ClubsFeed from './pages/Student/ClubsFeed';
 import WallOfFame from './pages/WallOfFame/WallOfFame';
 
 /* Coordinator layout + pages */
@@ -188,6 +189,7 @@ function AppInner() {
           <Route path="clubs"           element={<StudentClubs />} />
           <Route path="clubs/:id"       element={<StudentClubDetail />} />
           <Route path="soac-updates"  element={<StudentSOACUpdates />} />
+          <Route path="clubs-feed"    element={<ClubsFeed />} />
           <Route path="fame"          element={<WallOfFame />} />
           <Route path="messages"      element={<StudentMessages />} />
           <Route path="profile"       element={<StudentProfile />} />

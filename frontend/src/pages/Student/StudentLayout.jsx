@@ -15,6 +15,7 @@ const NAV_MAIN = [
   { to: '/student',              icon: '▣',  label: 'Dashboard',  end: true },
   { to: '/student/events',       icon: '📅', label: 'Events'                },
   { to: '/student/clubs',        icon: '🏆', label: 'My Clubs'              },
+  { to: '/student/clubs-feed',   icon: '🎬', label: 'Clubs Feed'            },
   { to: '/student/calendar',     icon: '🗓️', label: 'Calendar'             },
   { to: '/student/soac-updates', icon: '🏛️', label: 'SOAC Updates'         },
 ];
