@@ -26,6 +26,7 @@
 const https  = require('https');
 const cache  = require('./cache');
 const { detectSport } = require('./bracketMath');
+const { generateAiTopic } = require('./aiTopic');
 
 const YOUTUBE_API_KEY = () => (process.env.YOUTUBE_API_KEY || '').trim();
 
@@ -79,7 +80,7 @@ const CATEGORY_FALLBACK = {
    Fitness..." with nothing in the name itself suggesting either). Tags are
    the primary source; name/category-based detection only covers the
    defensive case of a club somehow having none set. */
-function topicForClub(club) {
+function ruleBasedTopic(club) {
   const tags = (club.tags || []).filter(Boolean);
   if (tags.length > 0) {
     /* Primary tag drives relevance; OR-ing in the second broadens recall
@@ -94,6 +95,16 @@ function topicForClub(club) {
     if (SPORT_QUERY[sport]) return SPORT_QUERY[sport];
   }
   return CATEGORY_FALLBACK[club.category] || `${club.name} club activities highlights`;
+}
+
+/* AI-refined topic first (Claude reads the club's full description/vision/
+   tags for nuance the rule-based version can't see — see aiTopic.js), with
+   the rule-based derivation as a safety net if the AI is unconfigured, still
+   warming its cache, or fails for any reason. Cached per club for 30 days,
+   so this only actually calls the model once per club, ever. */
+async function topicForClub(club) {
+  const aiTopic = await generateAiTopic(club);
+  return aiTopic || ruleBasedTopic(club);
 }
 
 /* YouTube's search API mixes in Shorts (sub-60s vertical clips) by default,
@@ -222,7 +233,7 @@ async function buildClubsFeed(clubs, engagementByTopic = {}) {
   const apiKeySet = !!YOUTUBE_API_KEY();
   if (!clubs.length) return { videos: [], topics: [], apiKeySet };
 
-  const clubTopics = [...new Set(clubs.map(topicForClub))];
+  const clubTopics = [...new Set(await Promise.all(clubs.map(topicForClub)))];
   const allTopics   = [...new Set([...clubTopics, ...UNIVERSAL_TOPICS])];
   const pools       = await Promise.all(allTopics.map(fetchPoolForTopic));
 
