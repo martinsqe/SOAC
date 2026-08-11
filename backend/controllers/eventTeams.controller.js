@@ -70,7 +70,7 @@ async function notifyTeamAssignments(eventId, division) {
   const summary = { attempted: 0, sent: 0, failed: 0, reason: null };
   try {
     const { rows: evRows } = await pgPool.query(
-      `SELECT e.title, c.category
+      `SELECT e.title, e.club_id, c.category
        FROM events e LEFT JOIN clubs c ON c.id = e.club_id
        WHERE e.id = $1::bigint`,
       [eventId]
@@ -78,15 +78,21 @@ async function notifyTeamAssignments(eventId, division) {
     if (!evRows.length) { summary.reason = 'event_not_found'; return summary; }
     if (evRows[0].category !== 'sports') { summary.reason = 'not_sports'; return summary; }
     const eventTitle = evRows[0].title;
+    const clubId     = evRows[0].club_id || null;
 
+    /* user_id resolved (best-effort, same email-match used elsewhere in this
+       file — e.g. awardEventParticipationCoins) so registrants who also have
+       a platform account get a push notification, not just the email. A
+       registrant with no matching account still gets the email above. */
     const { rows } = await pgPool.query(
       `SELECT t.id AS team_id, t.name AS team_name, g.name AS group_name,
-              tm.member_name, er.email
+              tm.member_name, er.email, u.id AS user_id
        FROM event_teams t
        LEFT JOIN event_group_teams egt ON egt.team_id = t.id
        LEFT JOIN event_groups g ON g.id = egt.group_id
        JOIN event_team_members tm ON tm.team_id = t.id
        JOIN event_registrations er ON er.id = tm.registration_id
+       LEFT JOIN users u ON u.email = er.email AND u.is_active = true
        WHERE t.event_id = $1::bigint AND t.division = $2`,
       [eventId, division]
     );
@@ -96,7 +102,7 @@ async function notifyTeamAssignments(eventId, division) {
     for (const r of rows) {
       const key = String(r.team_id);
       if (!teams[key]) teams[key] = { teamName: r.team_name, groupName: r.group_name, members: [] };
-      teams[key].members.push({ name: r.member_name, email: r.email });
+      teams[key].members.push({ name: r.member_name, email: r.email, userId: r.user_id });
     }
 
     const divisionLabel = division === 'girls' ? 'Girls' : 'Boys';
@@ -104,6 +110,15 @@ async function notifyTeamAssignments(eventId, division) {
     for (const team of Object.values(teams)) {
       const teammateNames = team.members.map(m => m.name);
       for (const m of team.members) {
+        if (m.userId) {
+          notifyUser({
+            userId: m.userId, clubId,
+            title:  'Team assignment declared',
+            body:   `You're on ${team.teamName}${team.groupName ? ` (${team.groupName})` : ''} for "${eventTitle}".`,
+            type:   'team_assignment',
+            url:    `/student/events/${eventId}`,
+          }).catch(() => {});
+        }
         if (!m.email) continue;
         summary.attempted++;
         sendJobs.push(

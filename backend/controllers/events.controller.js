@@ -4,7 +4,7 @@ const { getCoordClubIds } = require('../services/coordAuth');
 const { destroyImage } = require('../config/cloudinary');
 const { getFileValue } = require('../config/multer');
 const { autoRefreshReportIfExists } = require('./reports.controller');
-const { notifyUser } = require('../services/notify');
+const { notifyUser, notifyManyUsers } = require('../services/notify');
 const cache = require('../services/cache');
 
 /* ── Column lists ───────────────────────────────────────────────────────────*/
@@ -309,6 +309,44 @@ const create = async (req, res, next) => {
     await logAudit(req.user.id, req.user.name, 'CREATE_EVENT', 'event', event.id, { title });
     await Promise.all([cache.delPattern('events:*'), cache.del('stats:admin')]);
     res.status(201).json({ event: withImageUrl(event) });
+
+    /* Notify students a new event was posted — fire-and-forget, after the
+       response, so a large club/SOAC-wide fan-out never delays the creator's
+       own confirmation. Club-scoped events notify only that club's active
+       members; general/SOAC events (no clubId) notify every active student. */
+    const notifTitle = 'New event posted';
+    const notifBody  = `${clubName || 'SOAC'} posted a new event: "${event.title}".`;
+    const notifUrl   = `/student/events/${event.id}`;
+    if (resolvedClubId) {
+      pgPool.query(
+        `SELECT u.id FROM student_clubs sc
+         JOIN users u ON u.id = sc.user_id AND u.is_active = true
+         WHERE sc.club_id = $1::bigint AND sc.is_active = true`,
+        [resolvedClubId]
+      ).then(({ rows: members }) => {
+        if (!members.length) return;
+        notifyManyUsers({
+          userIds: members.map(m => m.id),
+          clubId:  resolvedClubId,
+          title:   notifTitle,
+          body:    notifBody,
+          type:    'event',
+          url:     notifUrl,
+        });
+      }).catch(() => {});
+    } else {
+      pgPool.query(`SELECT id FROM users WHERE role = 'student' AND is_active = true`)
+        .then(({ rows: students }) => {
+          if (!students.length) return;
+          notifyManyUsers({
+            userIds: students.map(s => s.id),
+            title:   notifTitle,
+            body:    notifBody,
+            type:    'event',
+            url:     notifUrl,
+          });
+        }).catch(() => {});
+    }
   } catch (err) { next(err); }
 };
 
