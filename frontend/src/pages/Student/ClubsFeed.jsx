@@ -37,6 +37,19 @@ function Slide({ video, mode, soundOn, onToggleSound, registerRef }) {
   modeRef.current  = mode;
   soundRef.current = soundOn;
 
+  /* When this slide became active — cleared once reported, so the same
+     watch window is never double-counted. */
+  const watchStartRef = useRef(null);
+
+  const reportWatch = useCallback(() => {
+    const startedAt = watchStartRef.current;
+    watchStartRef.current = null;
+    if (!startedAt) return;
+    const seconds = (Date.now() - startedAt) / 1000;
+    if (seconds < 2) return; // a quick scroll-past isn't a real engagement signal
+    api.post('/clubs-feed/watch', { topic: video.topic, seconds }).catch(() => {});
+  }, [video.topic]);
+
   const [posterVisible, setPosterVisible] = useState(true);
 
   /* Create the player once this slide enters the preload/active window;
@@ -78,8 +91,14 @@ function Slide({ video, mode, soundOn, onToggleSound, registerRef }) {
 
   /* Leaving a video pauses it immediately; the newly-active one plays
      immediately — since a 'preload' slide's player already exists and is
-     cued, this transition is instant rather than paying embed/buffer time. */
+     cued, this transition is instant rather than paying embed/buffer time.
+     Also starts/stops the watch-time clock used for engagement weighting. */
   useEffect(() => {
+    if (active) {
+      watchStartRef.current = Date.now();
+    } else {
+      reportWatch();
+    }
     if (!readyRef.current || !playerRef.current) return;
     if (active) {
       if (soundOn) playerRef.current.unMute(); else playerRef.current.mute();
@@ -88,6 +107,10 @@ function Slide({ video, mode, soundOn, onToggleSound, registerRef }) {
       playerRef.current.pauseVideo();
     }
   }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* Covers the last-watched video when the whole page unmounts (navigating
+     away) rather than just scrolling to the next slide. */
+  useEffect(() => () => reportWatch(), [reportWatch]);
 
   /* Live sound-preference relay while remaining the active slide. */
   useEffect(() => {

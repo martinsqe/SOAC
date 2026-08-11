@@ -175,36 +175,75 @@ function shuffle(arr) {
 }
 
 /* Shown to every student alongside their club-specific topics, regardless of
-   which clubs they're in — the platform value (teamwork, being a good club
-   member) matters the same whether you're in a sports club or a debate
-   club. Same pooled/cached/shuffled treatment as any other topic. */
-const UNIVERSAL_TOPICS = [
-  'teamwork and collaboration skills tips',
-  'how to be a valuable team member',
-  'importance of joining clubs and extracurricular activities',
-];
+   which clubs they're in — but deliberately kept to a small handful of
+   videos (see MAX_UNIVERSAL_VIDEOS below), never a full equal-weight topic.
+   The feed's job is making a student love THEIR specific club (basketball
+   drills, BHASHA debate content, IoT projects, Android tutorials, whatever
+   it is) — teamwork/club-value content is a light seasoning, not the meal. */
+const UNIVERSAL_TOPICS = ['teamwork, collaboration, and being a valuable club member'];
+const MAX_UNIVERSAL_VIDEOS = 2;
+
+/* How many videos a topic contributes to the final feed, before engagement
+   weighting. Topics the student has actually watched more of scale this up
+   (see engagementWeight), so "show more of what they're into" doesn't
+   require any extra YouTube quota — it's a selection choice over the same
+   cached pool, not a new fetch. */
+const BASE_TAKE_PER_TOPIC = 6;
+const MAX_ENGAGEMENT_MULTIPLIER = 3; // an extremely-watched topic caps at 3x representation
+
+/* Random sample of `count` items from `pool` without replacement — used
+   instead of taking the pool's first N so which videos surface still varies
+   across requests even within one topic. */
+function sampleWithoutReplacement(pool, count) {
+  if (count >= pool.length) return pool.slice();
+  const shuffled = shuffle(pool);
+  return shuffled.slice(0, count);
+}
+
+/* Engagement score (total watched seconds on this topic) → a soft,
+   diminishing-returns multiplier on how many of that topic's videos appear.
+   log-scaled so an early burst of watching doesn't instantly max out, and
+   capped so one topic can never fully crowd out a student's other clubs. */
+function engagementWeight(watchedSeconds) {
+  if (!watchedSeconds) return 1;
+  const bonus = Math.log10(1 + watchedSeconds / 60); // ~0 at 0s, ~1 at 9min, ~2 at 99min
+  return Math.min(MAX_ENGAGEMENT_MULTIPLIER, 1 + bonus);
+}
 
 /* ── Main export ──
    Returns { videos, topics, apiKeySet }. videos are pre-shuffled — callers
-   should render them in the order given, not re-sort. */
-async function buildClubsFeed(clubs) {
+   should render them in the order given, not re-sort.
+   @param {Array} clubs
+   @param {Object<string,number>} [engagementByTopic] — total watched seconds
+     per topic for this student, from clubsFeedEngagement.service.js. Videos
+     from topics they've engaged with more get proportionally more
+     representation in the feed. */
+async function buildClubsFeed(clubs, engagementByTopic = {}) {
   const apiKeySet = !!YOUTUBE_API_KEY();
   if (!clubs.length) return { videos: [], topics: [], apiKeySet };
 
-  const topics = [...new Set([...clubs.map(topicForClub), ...UNIVERSAL_TOPICS])];
-  const pools  = await Promise.all(topics.map(fetchPoolForTopic));
+  const clubTopics = [...new Set(clubs.map(topicForClub))];
+  const allTopics   = [...new Set([...clubTopics, ...UNIVERSAL_TOPICS])];
+  const pools       = await Promise.all(allTopics.map(fetchPoolForTopic));
 
   const seen = new Set();
-  const all  = [];
+  const selected = [];
+
   pools.forEach((pool, i) => {
-    pool.forEach((v) => {
-      if (seen.has(v.videoId)) return;
+    const topic = allTopics[i];
+    const isUniversal = UNIVERSAL_TOPICS.includes(topic);
+    const take = isUniversal
+      ? MAX_UNIVERSAL_VIDEOS
+      : Math.round(BASE_TAKE_PER_TOPIC * engagementWeight(engagementByTopic[topic]));
+
+    for (const v of sampleWithoutReplacement(pool, take)) {
+      if (seen.has(v.videoId)) continue;
       seen.add(v.videoId);
-      all.push({ ...v, topic: topics[i] });
-    });
+      selected.push({ ...v, topic });
+    }
   });
 
-  return { videos: shuffle(all), topics, apiKeySet };
+  return { videos: shuffle(selected), topics: clubTopics, apiKeySet };
 }
 
 module.exports = { buildClubsFeed };
