@@ -56,24 +56,6 @@ messaging.onBackgroundMessage((payload) => {
   }
 });
 
-/* TEMPORARY diagnostic — fires on every raw push event regardless of whether
-   Firebase's SDK can parse it, so we can isolate "does the push event reach
-   this worker at all on iOS" from "does firebase-messaging-compat.js's own
-   parsing/onBackgroundMessage dispatch work correctly on Safari". Multiple
-   listeners on the same event type all run, so this fires alongside
-   onBackgroundMessage above, not instead of it. Safe to remove once iOS
-   delivery is confirmed working. */
-self.addEventListener('push', (event) => {
-  let raw = '(no data)';
-  try { raw = event.data ? event.data.text() : '(empty)'; } catch (e) { raw = `(unreadable: ${e.message})`; }
-  event.waitUntil(
-    self.registration.showNotification('🔧 Raw push received', {
-      body: raw.slice(0, 150),
-      icon: '/images/icon-192.png',
-    })
-  );
-});
-
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const url = event.notification.data?.url || '/';
