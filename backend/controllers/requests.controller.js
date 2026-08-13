@@ -304,6 +304,21 @@ const approve = async (req, res, next) => {
       cache.delPattern('clubs:*'),
     ]);
 
+    /* Fire the push the moment membership is actually committed — deliberately
+       BEFORE the awaited email send below, not after. notifyUser() is already
+       fire-and-forget, but it still can't run until the interpreter reaches
+       this line, and an SMTP round trip (500ms-plus, sometimes multi-second)
+       sitting ahead of it in source order was silently delaying "instant"
+       delivery by however long that email took. */
+    notifyUser({
+      userId: userId,
+      clubId: jr.club_id,
+      title:  'Join request approved',
+      body:   `You're now a member of ${jr.club_name}.`,
+      type:   'join_request',
+      url:    `/student/clubs/${jr.club_id}`,
+    }).catch(() => {});
+
     /* 5. Email — attempt send, capture failure so UI can warn */
     let emailSent = false;
     let emailError = null;
@@ -326,15 +341,6 @@ const approve = async (req, res, next) => {
       emailSent,
       emailError:  emailError || undefined,
     });
-
-    notifyUser({
-      userId: userId,
-      clubId: jr.club_id,
-      title:  'Join request approved',
-      body:   `You're now a member of ${jr.club_name}.`,
-      type:   'join_request',
-      url:    `/student/clubs/${jr.club_id}`,
-    }).catch(() => {});
   } catch (err) {
     await pgClient.query('ROLLBACK').catch(() => {});
     next(err);

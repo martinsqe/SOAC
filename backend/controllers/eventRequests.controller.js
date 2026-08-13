@@ -1,7 +1,7 @@
 const { pgPool } = require('../config/db');
 const { ensureSoacTables } = require('../services/soacData');
 const { getCoordClubIds, assertCoordOwnsClub } = require('../services/coordAuth');
-const { notifyUser } = require('../services/notify');
+const { notifyUser, notifyManyUsers } = require('../services/notify');
 
 /* ── POST /api/event-requests  (coordinator submits proposal) ── */
 const createRequest = async (req, res, next) => {
@@ -213,6 +213,45 @@ const approveRequest = async (req, res, next) => {
       type:   'event_request',
       url:    '/coordinator/events',
     }).catch(() => {});
+
+    /* This path creates the event via a direct INSERT rather than calling
+       events.controller.js's create(), so it needs its own copy of the
+       "new event posted" student fan-out — otherwise events approved this
+       way silently never notify anyone but the coordinator who proposed it. */
+    const newEvent = evRes.rows[0];
+    const studentNotifTitle = 'New event posted';
+    const studentNotifBody  = `${resolvedClubName || 'SOAC'} posted a new event: "${newEvent.title}".`;
+    const studentNotifUrl   = `/student/events/${newEvent.id}`;
+    if (resolvedClubId) {
+      pgPool.query(
+        `SELECT u.id FROM student_clubs sc
+         JOIN users u ON u.id = sc.user_id AND u.is_active = true
+         WHERE sc.club_id = $1::bigint AND sc.is_active = true`,
+        [resolvedClubId]
+      ).then(({ rows: members }) => {
+        if (!members.length) return;
+        notifyManyUsers({
+          userIds: members.map(m => m.id),
+          clubId:  resolvedClubId,
+          title:   studentNotifTitle,
+          body:    studentNotifBody,
+          type:    'event',
+          url:     studentNotifUrl,
+        });
+      }).catch(() => {});
+    } else {
+      pgPool.query(`SELECT id FROM users WHERE role = 'student' AND is_active = true`)
+        .then(({ rows: students }) => {
+          if (!students.length) return;
+          notifyManyUsers({
+            userIds: students.map(s => s.id),
+            title:   studentNotifTitle,
+            body:    studentNotifBody,
+            type:    'event',
+            url:     studentNotifUrl,
+          });
+        }).catch(() => {});
+    }
   } catch (err) { next(err); }
 };
 

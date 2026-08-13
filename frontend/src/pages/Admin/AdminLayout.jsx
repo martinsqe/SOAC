@@ -5,7 +5,7 @@ import AnimatedOutlet from '../../components/AnimatedOutlet/AnimatedOutlet';
 import ProfileModal from '../../components/ProfileModal/ProfileModal';
 import PushOptInModal from '../../components/PushOptInModal/PushOptInModal';
 import { refreshAppBadge } from '../../utils/badge';
-import { syncFcmToken, onForegroundMessage, fcmSupported } from '../../firebaseMessaging';
+import { syncFcmToken, onForegroundMessage, fcmSupported, registerFcmServiceWorker } from '../../firebaseMessaging';
 import api from '../../api/client';
 import styles from './AdminLayout.module.css';
 
@@ -75,14 +75,21 @@ export default function AdminLayout() {
   }, []);
 
   /* Foreground notification listener — wired here (not in PushOptInModal) so it
-     persists for the entire session. Uses reg.showNotification() via the already-
-     registered FCM service worker; Chrome 80+ silently drops new Notification()
-     calls made from the main thread. */
+     persists for the entire session. Uses reg.showNotification() via the FCM
+     service worker's OWN registration — NOT navigator.serviceWorker.ready,
+     which resolves to the main PWA worker (src/sw.js, scope '/') since that's
+     the one actually controlling this page. A notification shown through that
+     registration fires notificationclick on src/sw.js, which has no such
+     listener, so tapping it silently did nothing; firebase-messaging-sw.js
+     (registered at its own scope) is the only one wired to navigate to
+     data.url on click. Chrome 80+ also silently drops new Notification()
+     calls made from the main thread, which is why this goes through a
+     registration at all rather than the constructor directly. */
   useEffect(() => {
     if (!fcmSupported() || Notification.permission !== 'granted') return;
     const unsub = onForegroundMessage((payload) => {
       const { title, body, url } = payload.data || {};
-      navigator.serviceWorker.ready.then((reg) => {
+      registerFcmServiceWorker().then((reg) => {
         reg.showNotification(title || 'SOAC RKU', {
           body: body || '',
           icon: '/images/icon-192.png',

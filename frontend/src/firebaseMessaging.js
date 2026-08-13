@@ -33,7 +33,7 @@ function getMessagingInstance() {
    main controlling worker, not this separately-scoped one. Calling
    getToken()'s pushManager.subscribe() before activation finishes throws
    "no active Service Worker", so this explicitly waits for that state. */
-async function registerFcmServiceWorker() {
+export async function registerFcmServiceWorker() {
   const registration = await navigator.serviceWorker.register(FCM_SW_URL, { scope: FCM_SW_SCOPE });
   if (registration.active) return registration;
 

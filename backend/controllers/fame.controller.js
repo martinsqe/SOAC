@@ -95,26 +95,28 @@ const create = async (req, res, next) => {
     await logAudit(req.user.id, req.user.name, 'CREATE_FAME_ITEM', item.id, { name: item.name });
     await cache.del('fame:all');
 
-    // Notify the student if their RKU email maps to a registered user
-    if (cleanEmail) {
-      try {
-        const { rows: uRows } = await pgPool.query(
-          `SELECT id FROM users WHERE LOWER(email) = $1 AND is_active = true LIMIT 1`,
-          [cleanEmail]
-        );
-        if (uRows.length) {
-          await notifyUser({
-            userId: uRows[0].id,
-            title: "You're on the Wall of Fame!",
-            body:  `Honored for "${achievement}". Your excellence is now a permanent part of RK University's legacy — a moment you've truly earned.`,
-            type:  'wall_of_fame',
-            url:   '/student/fame',
-          });
-        }
-      } catch (_) {}
-    }
-
     res.status(201).json({ item });
+
+    /* Notify the student if their RKU email maps to a registered user — fire-
+       and-forget, after the response, matching every other trigger in this
+       codebase. This used to be awaited ahead of res.json, which meant the
+       admin's own request hung on the full push send (including FCM retries)
+       before they got their confirmation back. */
+    if (cleanEmail) {
+      pgPool.query(
+        `SELECT id FROM users WHERE LOWER(email) = $1 AND is_active = true LIMIT 1`,
+        [cleanEmail]
+      ).then(({ rows: uRows }) => {
+        if (!uRows.length) return;
+        notifyUser({
+          userId: uRows[0].id,
+          title: "You're on the Wall of Fame!",
+          body:  `Honored for "${achievement}". Your excellence is now a permanent part of RK University's legacy — a moment you've truly earned.`,
+          type:  'wall_of_fame',
+          url:   '/student/fame',
+        });
+      }).catch(() => {});
+    }
   } catch (err) { next(err); }
 };
 
