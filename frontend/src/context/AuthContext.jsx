@@ -51,6 +51,12 @@ export const AuthProvider = ({ children }) => {
     return data.user;
   }, []);
 
+  /* Deliberate: logout does NOT revoke the device's push subscription. Once a
+     device has an account logged in and notifications enabled, it keeps
+     receiving that account's pushes regardless of login state afterward —
+     only uninstalling the app or revoking OS-level notification permission
+     stops it. (Confirmed product choice — the alternative, revoking on
+     logout, protects shared/borrowed devices but was explicitly not wanted.) */
   const logout = useCallback(async () => {
     try { await api.post('/auth/logout', {}); } catch (_) {}
     localStorage.removeItem('soac_token');

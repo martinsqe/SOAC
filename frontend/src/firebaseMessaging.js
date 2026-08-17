@@ -35,6 +35,17 @@ function getMessagingInstance() {
    "no active Service Worker", so this explicitly waits for that state. */
 export async function registerFcmServiceWorker() {
   const registration = await navigator.serviceWorker.register(FCM_SW_URL, { scope: FCM_SW_SCOPE });
+
+  /* Explicitly ask the browser to check for a newer version of this file on
+     every call, instead of relying on its own background check — browsers
+     throttle that to roughly once a day (worse on iOS), which is exactly why
+     a since-fixed bug (the old raw-push diagnostic listener) kept firing on
+     real devices for days after the corrected file was actually deployed.
+     Fire-and-forget: this only affects which version takes over on the
+     *next* activation, so it must never delay returning the registration
+     that's active right now below. */
+  registration.update().catch(() => {});
+
   if (registration.active) return registration;
 
   const worker = registration.installing || registration.waiting;
