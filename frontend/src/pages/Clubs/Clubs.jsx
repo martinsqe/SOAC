@@ -427,6 +427,15 @@ const Clubs = () => {
   const [showModal,    setShowModal]    = useState(false);
   const [joiningClub,  setJoiningClub]  = useState(null);
   const [clubs, setClubs] = useState(ALL_CLUBS); // static shown instantly; replaced when API responds
+  /* Which cards have their description expanded — keyed by club._id (falls
+     back to name/index for the static fallback data, matching the map's own
+     key derivation below) so it survives re-filtering/search. */
+  const [expandedDescs, setExpandedDescs] = useState(() => new Set());
+  const toggleDesc = (key) => setExpandedDescs(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
 
   useEffect(() => {
     fetch('/api/clubs')
@@ -541,43 +550,59 @@ const Clubs = () => {
             </div>
           ) : (
             <div className={styles.grid}>
-              {filtered.map((club, i) => (
-                <div key={club._id || club.name || i} className={styles.card}>
-                  <div className={styles.cardTop} style={{ background: club.color + '18', borderBottom: `2px solid ${club.color}30` }}>
-                    <span className={styles.cardCat} style={{ background: (CAT_COLORS[club.cat] || '#635BFF') + '14', color: CAT_COLORS[club.cat] || '#635BFF' }}>
-                      {CAT_LABELS[club.cat] || club.cat}
-                    </span>
-                    <div className={styles.cardLogo}>
-                      <img
-                        src={club._apiLogo || `/logos/${club.logo}`}
-                        alt={club.name}
-                        loading="lazy"
-                        onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
-                      />
-                      <div className={styles.cardLogoFallback} style={{ background: club.color + '20', color: club.color }}>{club.name[0]}</div>
+              {filtered.map((club, i) => {
+                const key = club._id || club.name || i;
+                const isExpanded = expandedDescs.has(key);
+                return (
+                  <div key={key} className={styles.card}>
+                    <div className={styles.cardTop} style={{ background: club.color + '18', borderBottom: `2px solid ${club.color}30` }}>
+                      <span className={styles.cardCat} style={{ background: (CAT_COLORS[club.cat] || '#635BFF') + '14', color: CAT_COLORS[club.cat] || '#635BFF' }}>
+                        {CAT_LABELS[club.cat] || club.cat}
+                      </span>
+                      <div className={styles.cardLogo}>
+                        <img
+                          src={club._apiLogo || `/logos/${club.logo}`}
+                          alt={club.name}
+                          loading="lazy"
+                          onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
+                        />
+                        <div className={styles.cardLogoFallback} style={{ background: club.color + '20', color: club.color }}>{club.name[0]}</div>
+                      </div>
+                    </div>
+                    <div className={styles.cardBody}>
+                      <div className={styles.cardName}>{club.name}</div>
+                      <div className={styles.cardCoord}>Coordinator: {club.coord} · Est. {club.yr}</div>
+                      {club.desc ? (
+                        <div className={styles.cardDescWrap}>
+                          <span className={`${styles.cardDesc} ${isExpanded ? styles.cardDescOpen : ''}`}>
+                            {club.desc}
+                          </span>
+                          <button
+                            type="button"
+                            className={styles.readMoreBtn}
+                            onClick={() => toggleDesc(key)}
+                          >
+                            {isExpanded ? 'Show less' : 'Read more'}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className={styles.cardDescEmpty}>No description added yet.</div>
+                      )}
+                    </div>
+                    <div className={styles.cardFoot}>
+                      {user ? (
+                        <button className={styles.cardBtn} onClick={() => navigate('/student/clubs')}>
+                          View My Clubs →
+                        </button>
+                      ) : (
+                        <button className={styles.cardBtn} onClick={() => setJoiningClub(club)}>
+                          Join Club →
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <div className={styles.cardBody}>
-                    <div className={styles.cardName}>{club.name}</div>
-                    <div className={styles.cardCoord}>👔 {club.coord} · Est. {club.yr}</div>
-                    <div className={styles.cardStats}>
-                      <span style={{ color: '#635BFF' }}>👥 {club.members} members</span>
-                      <span style={{ color: '#00C896' }}>📅 {club.events} events</span>
-                    </div>
-                  </div>
-                  <div className={styles.cardFoot}>
-                    {user ? (
-                      <button className={styles.cardBtn} onClick={() => navigate('/student/clubs')}>
-                        View My Clubs →
-                      </button>
-                    ) : (
-                      <button className={styles.cardBtn} onClick={() => setJoiningClub(club)}>
-                        Join Club →
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
