@@ -477,16 +477,16 @@ const getAllMembers = async (req, res, next) => {
     }
     if (dept) {
       values.push(dept);
-      filterClauses.push(`COALESCE(jr.dept, '') = $${values.length}`);
+      filterClauses.push(`COALESCE(profile.dept, '') = $${values.length}`);
     }
     if (year) {
       values.push(year);
-      filterClauses.push(`COALESCE(jr.year, '') = $${values.length}`);
+      filterClauses.push(`COALESCE(profile.year, '') = $${values.length}`);
     }
     if (search) {
       values.push(`%${search}%`);
       const idx = values.length;
-      filterClauses.push(`(u.name ILIKE $${idx} OR u.email ILIKE $${idx} OR COALESCE(jr.enrollment_no,'') ILIKE $${idx})`);
+      filterClauses.push(`(u.name ILIKE $${idx} OR u.email ILIKE $${idx} OR COALESCE(profile.enrollment_no,'') ILIKE $${idx})`);
     }
 
     const whereSQL = filterClauses.length ? `WHERE ${filterClauses.join(' AND ')}` : '';
@@ -503,24 +503,43 @@ const getAllMembers = async (req, res, next) => {
          u.name,
          u.email,
          u.is_active,
-         COALESCE(jr.dept,          '') AS dept,
-         COALESCE(jr.year,          '') AS year,
-         COALESCE(jr.phone,         '') AS phone,
-         COALESCE(jr.enrollment_no, '') AS "enrollmentNo",
-         COALESCE(jr.gender,        '') AS gender,
-         COALESCE(jr.message,       '') AS message,
+         COALESCE(profile.dept,          '') AS dept,
+         COALESCE(profile.year,          '') AS year,
+         COALESCE(profile.phone,         '') AS phone,
+         COALESCE(profile.enrollment_no, '') AS "enrollmentNo",
+         COALESCE(profile.gender,        '') AS gender,
+         COALESCE(thisClubMsg.message,   '') AS message,
          COUNT(*) OVER()               AS total_count
        FROM student_clubs sc
        JOIN users u ON u.id = sc.user_id
+       /* Phone/dept/enrollment/gender/year are facts about the STUDENT, not
+          about this specific membership — scoping the lookup to club_id =
+          sc.club_id meant a student added to a club by any path other than
+          that exact club's own approved join request (e.g. an approved
+          request for a different club, then reassigned/added elsewhere)
+          showed blank contact info here even though the platform has their
+          real details on file. Match by email only, across every club they
+          ever applied to; prefer an approved request but fall back to any
+          status, since even a pending/declined one still has real answers. */
        LEFT JOIN LATERAL (
-         SELECT dept, year, phone, enrollment_no, gender, message
+         SELECT dept, year, phone, enrollment_no, gender
+         FROM   join_requests
+         WHERE  email = u.email
+         ORDER BY (status = 'approved') DESC, updated_at DESC
+         LIMIT 1
+       ) profile ON true
+       /* The "why do you want to join" message, in contrast, genuinely is
+          specific to this exact club — only shown when it was actually
+          written for this membership's own approved request. */
+       LEFT JOIN LATERAL (
+         SELECT message
          FROM   join_requests
          WHERE  club_id = sc.club_id
            AND  email   = u.email
            AND  status  = 'approved'
          ORDER BY updated_at DESC
          LIMIT 1
-       ) jr ON true
+       ) thisClubMsg ON true
        ${whereSQL}
        ORDER BY sc.joined_at DESC
        LIMIT $${values.length - 1} OFFSET $${values.length}`,

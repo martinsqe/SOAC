@@ -226,11 +226,11 @@ function UsersTab({ clubs }) {
       ) : filtered.length === 0 ? (
         <div className={s.empty}><p>No members found</p><span>Try a different filter</span></div>
       ) : (
-        <div className={s.tableCard}>
-          <table className={s.table}>
+        <div className={s.tableCard} style={{ overflowX:'auto' }}>
+          <table className={s.table} style={{ minWidth:880 }}>
             <thead>
               <tr>
-                <th>Member</th><th>Email</th><th>Role</th><th>Assigned Club</th><th>Status</th><th>Last Login</th><th></th>
+                <th>Member</th><th>Email</th><th>Phone</th><th>Role</th><th>Assigned Club</th><th>Status</th><th>Last Login</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -241,7 +241,7 @@ function UsersTab({ clubs }) {
                 <Fragment key={u.id}>
                   {groupBreak && (
                     <tr key={`hdr-${u.role}`}>
-                      <td colSpan={7} style={{
+                      <td colSpan={8} style={{
                         padding: '9px 16px', fontSize: 11, fontWeight: 800,
                         letterSpacing: '.06em', textTransform: 'uppercase',
                         color: ROLE_COLOR[u.role] || '#6b7280',
@@ -255,6 +255,7 @@ function UsersTab({ clubs }) {
                   <tr key={u.id}>
                   <td data-label=""><div className={s.memberCell}><Avatar name={u.name}/><span className={s.memberName}>{u.name}</span></div></td>
                   <td data-label="Email" className={s.emailCell}>{u.email}</td>
+                  <td data-label="Phone" className={s.muted}>{u.phone || '—'}</td>
                   <td data-label="Role">
                     <span className={s.roleBadge} style={{ borderBottomColor: ROLE_COLOR[u.role] || '#f4f4f8', color: ROLE_COLOR[u.role] || '#555' }}>{u.role}</span>
                   </td>
