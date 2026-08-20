@@ -56,7 +56,8 @@ const getAll = async (req, res, next) => {
     const { rows } = await pgPool.query(
       `SELECT u.id, u.email, u.name, u.role, u.is_active,
               u.must_change_password, u.managed_club_id, u.created_at, u.last_login,
-              COALESCE(profile.phone, '') AS phone,
+              COALESCE(profile.phone,  '') AS phone,
+              COALESCE(profile.gender, '') AS gender,
               COALESCE(
                 json_agg(jsonb_build_object('id', sc.club_id, 'name', sc.club_name))
                   FILTER (WHERE sc.id IS NOT NULL),
@@ -65,20 +66,20 @@ const getAll = async (req, res, next) => {
               COUNT(*) OVER() AS total_count
        FROM users u
        LEFT JOIN student_clubs sc ON sc.user_id = u.id AND sc.is_active = true
-       /* Phone number as registered on any of this account's join requests —
+       /* Phone/gender as registered on any of this account's join requests —
           same "student profile fact, not membership fact" lookup used by
-          GET /clubs/members, so the same number shows here regardless of
-          which club (if any) it was originally submitted for. Coordinators/
-          admins simply have no join_requests row, so phone stays blank for
+          GET /clubs/members, so the same values show here regardless of
+          which club (if any) they were originally submitted for. Coordinators/
+          admins simply have no join_requests row, so both stay blank for
           them, which is correct — they never filled out that form. */
        LEFT JOIN LATERAL (
-         SELECT phone
+         SELECT phone, gender
          FROM   join_requests
          WHERE  email = u.email
          ORDER BY (status = 'approved') DESC, updated_at DESC
          LIMIT 1
        ) profile ON true
-       GROUP BY u.id, profile.phone
+       GROUP BY u.id, profile.phone, profile.gender
        ORDER BY u.created_at DESC
        LIMIT $1 OFFSET $2`,
       [limit, offset]
