@@ -38,6 +38,13 @@ export default function CoordDashboard() {
 
   const [members,   setMembers]   = useState([]);
   const [requests,  setRequests]  = useState([]);
+  /* Pending-request COUNT, kept separate from the `requests` array. The array
+     only ever needs to hold what the preview list actually renders (3 rows,
+     see requests.slice(0, 3) below), but a club with more pending requests
+     than the backend's default page size (50) would otherwise silently
+     under-report its own count here — the stat card showed requests.length,
+     which is just however many happened to be fetched, not the real total. */
+  const [requestsTotal, setRequestsTotal] = useState(0);
   const [events,    setEvents]    = useState([]);
   const [loading,   setLoading]   = useState(false);
   const [actionId,  setActionId]  = useState(null);
@@ -60,16 +67,20 @@ export default function CoordDashboard() {
     const clubId = String(club.id || club._id);
     Promise.all([
       api.get(`/clubs/${clubId}/members`).catch(() => ({ members: [] })),
-      api.get(`/requests?clubId=${clubId}&status=pending`).catch(() => ({ requests: [] })),
+      // limit=3 matches exactly what the preview list below renders (requests.slice(0, 3)) —
+      // pagination.total (not requests.length) is what drives the actual count shown elsewhere.
+      api.get(`/requests?clubId=${clubId}&status=pending&limit=3`).catch(() => ({ requests: [], pagination: { total: 0 } })),
       // Use clubId param (not club name) to avoid mismatches with special chars
       api.get(`/events?clubId=${clubId}`).catch(() => api.get(`/events?club=${encodeURIComponent(club.name)}`).catch(() => ({ events: [] }))),
     ]).then(([mRes, rRes, eRes]) => {
       setMembers(mRes.members || []);
       setRequests(rRes.requests || []);
+      setRequestsTotal(rRes.pagination?.total ?? (rRes.requests || []).length);
       setEvents((eRes.events || []).filter(e => e.status === 'upcoming').slice(0, 4));
     }).catch(() => {
       setMembers([]);
       setRequests([]);
+      setRequestsTotal(0);
       setEvents([]);
     }).finally(() => setLoading(false));
   }, [club]);
@@ -114,6 +125,7 @@ export default function CoordDashboard() {
     try {
       await api.post(`/requests/${req._id}/approve`, {});
       setRequests(p => p.filter(r => r._id !== req._id));
+      setRequestsTotal(t => Math.max(0, t - 1));
       setMembers(p => [...p, { name: req.name, email: req.email, dept: req.dept, year: req.year, joined_at: new Date().toISOString() }]);
     } catch (_) {} finally { setActionId(null); }
   };
@@ -123,6 +135,7 @@ export default function CoordDashboard() {
     try {
       await api.post(`/requests/${req._id}/decline`, {});
       setRequests(p => p.filter(r => r._id !== req._id));
+      setRequestsTotal(t => Math.max(0, t - 1));
     } catch (_) {} finally { setActionId(null); }
   };
 
@@ -167,10 +180,10 @@ export default function CoordDashboard() {
             <div className={s.scBadge} style={{ background:'#635bff14', color:'#635bff' }}>Click to manage</div>
           </div>
           <div className={`${s.sc} ${s.fu} ${s.d2}`} onClick={() => navigate('/coordinator/requests')} style={{cursor:'pointer'}}>
-            <div className={s.scVal} style={{ color:'#FF9500' }}>{loading ? '—' : requests.length}</div>
+            <div className={s.scVal} style={{ color:'#FF9500' }}>{loading ? '—' : requestsTotal}</div>
             <div className={s.scName}>Pending Requests</div>
             <div className={s.scBadge} style={{ background:'#ff950014', color:'#c47700' }}>
-              {requests.length > 0 ? 'Action needed' : 'All clear'}
+              {requestsTotal > 0 ? 'Action needed' : 'All clear'}
             </div>
           </div>
           <div className={`${s.sc} ${s.fu} ${s.d3}`} onClick={() => navigate('/coordinator/events')} style={{cursor:'pointer'}}>
@@ -238,7 +251,7 @@ export default function CoordDashboard() {
             </div>
             {loading ? (
               <div className={s.emptyState}>Loading…</div>
-            ) : requests.length === 0 ? (
+            ) : requestsTotal === 0 ? (
               <div className={s.emptyState}>All requests reviewed</div>
             ) : (
               <div className={s.requestList}>
