@@ -629,12 +629,12 @@ const Events = () => {
                       <div className={styles.upCardBody}>
                         <h4 className={styles.upCardTitle}>{ev.title}</h4>
                         <p className={styles.upCardClub}>{ev.club}</p>
+                        {ev.desc && <p className={styles.upCardDesc}>{ev.desc}</p>}
                         <div className={styles.upCardMeta}>
-                          <span>📅 {ev.date}</span>
-                          <span>📍 {ev.venue}</span>
+                          <span><strong className={styles.upCardMetaLabel}>Date:</strong> {ev.date}</span>
+                          <span><strong className={styles.upCardMetaLabel}>Venue:</strong> {ev.venue}</span>
                         </div>
                         <div className={styles.upCardFooter}>
-                          <span className={styles.upCardSeats}>🎟️ {ev.seats}</span>
                           {registeredIds.has(String(ev.id)) && ev.category === 'sports' ? (
                             <button className={styles.fixturesBtn} onClick={() => openFixtures(ev)}>Teams &amp; Fixtures</button>
                           ) : (
