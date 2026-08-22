@@ -170,34 +170,46 @@ async function assertCoordOwnsClub(userId, clubId) {
 
 /**
  * Reverse of getCoordClubIds: given a club, returns every coordinator user_id
- * responsible for it. Mirrors the same three-tier fallback (assignments table,
- * then legacy managed_club_id, then clubs.coordinator name match) so a
- * coordinator whose assignment row was never persisted still gets club-scoped
- * notifications (join requests, etc.) instead of being silently skipped.
+ * responsible for it. UNIONS three sources — assignments table, legacy
+ * managed_club_id, and clubs.coordinator name match — rather than returning
+ * whichever one happens to have rows first.
+ *
+ * This must NOT short-circuit on the first non-empty tier: a club can have a
+ * stale-but-active coordinator_club_assignments row left over from a previous
+ * coordinator (e.g. reassigned via editing the club's coordinator name/managed_club_id
+ * without deactivating the old assignment row) while the CURRENT, correctly
+ * displayed coordinator has no assignment row of their own. Short-circuiting on
+ * tier 1 in that case silently notifies the old coordinator and never reaches
+ * the real one — confirmed as the exact cause of a coordinator missing every
+ * join-request notification for their club despite being correctly shown
+ * everywhere else in the UI. Unioning trades a small risk of over-notifying a
+ * genuinely stale coordinator for guaranteeing the real one is never missed.
  *
  * @param {number|string} clubId
  * @returns {Promise<number[]>} Array of coordinator user IDs (may be empty)
  */
 async function getClubCoordinatorIds(clubId) {
-  // ── Fast path ──
+  const ids = new Set();
+
+  // ── Assignments table ──
   const { rows: asgn } = await pgPool.query(
     `SELECT user_id FROM coordinator_club_assignments
      WHERE club_id = $1 AND is_active = true`,
     [clubId]
   );
-  if (asgn.length) return asgn.map(r => r.user_id);
+  asgn.forEach(r => ids.add(r.user_id));
 
-  // ── Fallback 1: legacy managed_club_id ──
+  // ── Legacy managed_club_id ──
   const { rows: legacy } = await pgPool.query(
     `SELECT id FROM users WHERE managed_club_id = $1 AND role = 'coordinator' AND is_active = true`,
     [clubId]
   );
-  if (legacy.length) {
-    legacy.forEach(u => autoRepair(u.id, clubId));
-    return legacy.map(u => u.id);
-  }
+  legacy.forEach(u => {
+    if (!ids.has(u.id)) autoRepair(u.id, clubId);
+    ids.add(u.id);
+  });
 
-  // ── Fallback 2: clubs.coordinator name match ──
+  // ── clubs.coordinator name match — the name actually shown as "the" coordinator ──
   const { rows: clubRows } = await pgPool.query(
     `SELECT coordinator FROM clubs WHERE id = $1 AND is_active = true`, [clubId]
   );
@@ -212,13 +224,19 @@ async function getClubCoordinatorIds(clubId) {
          )`,
       [coordName]
     );
-    if (nameMatch.length) {
-      nameMatch.forEach(u => autoRepair(u.id, clubId));
-      return nameMatch.map(u => u.id);
-    }
+    nameMatch.forEach(u => {
+      if (!ids.has(u.id)) autoRepair(u.id, clubId);
+      ids.add(u.id);
+    });
   }
 
-  return [];
+  const result = [...ids];
+  if (result.length) {
+    console.log(`[coordAuth] getClubCoordinatorIds(${clubId}): resolved ->`, result);
+  } else {
+    console.warn(`[coordAuth] getClubCoordinatorIds(${clubId}): NO coordinator resolvable via any tier (club.coordinator="${coordName}")`);
+  }
+  return result;
 }
 
 module.exports = { getCoordClubIds, assertCoordOwnsClub, getClubCoordinatorIds };

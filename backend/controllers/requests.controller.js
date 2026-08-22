@@ -201,7 +201,7 @@ const create = async (req, res, next) => {
         type:  'join_request',
         url:   '/coordinator/requests',
       });
-    }).catch(() => {});
+    }).catch((e) => console.error(`[requests] join-request coordinator notify failed for club ${clubId}:`, e.message));
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ message: 'A pending request for this club already exists from this email.' });
     next(err);

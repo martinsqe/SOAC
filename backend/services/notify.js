@@ -36,7 +36,11 @@ async function notifyUser({ userId, clubId = null, title, body, type, url = '/' 
    Each recipient still gets their OWN badge count (unread totals differ per user),
    resolved via one grouped query rather than N individual round trips. */
 async function notifyManyUsers({ userIds, clubId = null, title, body, type, url = '/' }) {
-  if (!userIds?.length) return;
+  if (!userIds?.length) {
+    console.log(`[notify] notifyManyUsers called with 0 userIds: type=${type} — nothing to send`);
+    return;
+  }
+  console.log(`[notify] notifyManyUsers called: userIds=[${userIds}] type=${type}`);
   try {
     await pgPool.query(
       `INSERT INTO member_notifications (user_id, club_id, title, body, type)
