@@ -73,6 +73,20 @@ const createRequest = async (req, res, next) => {
       ]
     );
     res.status(201).json({ request: asRequest(rows[0]) });
+
+    /* Notify every admin of the new pending proposal — fire-and-forget. */
+    pgPool.query(`SELECT id FROM users WHERE role = 'admin' AND is_active = true`)
+      .then(({ rows: admins }) => {
+        if (!admins.length) return;
+        notifyManyUsers({
+          userIds: admins.map(a => a.id),
+          clubId:  club.id,
+          title:   'New event request',
+          body:    `${req.user.name || club.name} proposed "${title.trim()}".`,
+          type:    'event_request',
+          url:     '/admin/events',
+        });
+      }).catch(() => {});
   } catch (err) { next(err); }
 };
 

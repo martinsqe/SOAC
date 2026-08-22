@@ -168,4 +168,57 @@ async function assertCoordOwnsClub(userId, clubId) {
   return false;
 }
 
-module.exports = { getCoordClubIds, assertCoordOwnsClub };
+/**
+ * Reverse of getCoordClubIds: given a club, returns every coordinator user_id
+ * responsible for it. Mirrors the same three-tier fallback (assignments table,
+ * then legacy managed_club_id, then clubs.coordinator name match) so a
+ * coordinator whose assignment row was never persisted still gets club-scoped
+ * notifications (join requests, etc.) instead of being silently skipped.
+ *
+ * @param {number|string} clubId
+ * @returns {Promise<number[]>} Array of coordinator user IDs (may be empty)
+ */
+async function getClubCoordinatorIds(clubId) {
+  // ── Fast path ──
+  const { rows: asgn } = await pgPool.query(
+    `SELECT user_id FROM coordinator_club_assignments
+     WHERE club_id = $1 AND is_active = true`,
+    [clubId]
+  );
+  if (asgn.length) return asgn.map(r => r.user_id);
+
+  // ── Fallback 1: legacy managed_club_id ──
+  const { rows: legacy } = await pgPool.query(
+    `SELECT id FROM users WHERE managed_club_id = $1 AND role = 'coordinator' AND is_active = true`,
+    [clubId]
+  );
+  if (legacy.length) {
+    legacy.forEach(u => autoRepair(u.id, clubId));
+    return legacy.map(u => u.id);
+  }
+
+  // ── Fallback 2: clubs.coordinator name match ──
+  const { rows: clubRows } = await pgPool.query(
+    `SELECT coordinator FROM clubs WHERE id = $1 AND is_active = true`, [clubId]
+  );
+  const coordName = (clubRows[0]?.coordinator || '').trim();
+  if (coordName) {
+    const { rows: nameMatch } = await pgPool.query(
+      `SELECT id FROM users
+       WHERE role = 'coordinator' AND is_active = true
+         AND (
+           trim(name) ILIKE trim($1)
+           OR $1 ILIKE '%' || trim(name) || '%'
+         )`,
+      [coordName]
+    );
+    if (nameMatch.length) {
+      nameMatch.forEach(u => autoRepair(u.id, clubId));
+      return nameMatch.map(u => u.id);
+    }
+  }
+
+  return [];
+}
+
+module.exports = { getCoordClubIds, assertCoordOwnsClub, getClubCoordinatorIds };

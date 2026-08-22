@@ -2,7 +2,7 @@ const bcrypt   = require('bcryptjs');
 const { pgPool } = require('../config/db');
 const { sendCredentials, sendApproval } = require('../config/email');
 const { ensureSoacTables } = require('../services/soacData');
-const { getCoordClubIds, assertCoordOwnsClub } = require('../services/coordAuth');
+const { getCoordClubIds, assertCoordOwnsClub, getClubCoordinatorIds } = require('../services/coordAuth');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
 const cache = require('../services/cache');
 
@@ -186,14 +186,15 @@ const create = async (req, res, next) => {
     await cache.del('stats:admin');
     res.status(201).json({ request: toJR(rows[0]) });
 
-    /* Notify every coordinator assigned to this club — fire-and-forget. */
-    pgPool.query(
-      `SELECT user_id FROM coordinator_club_assignments WHERE club_id = $1 AND is_active = true`,
-      [clubId]
-    ).then(({ rows: coords }) => {
-      if (!coords.length) return;
+    /* Notify every coordinator assigned to this club — fire-and-forget.
+       Uses the same tiered fallback as coordinator auth (not a raw
+       coordinator_club_assignments query) so a coordinator whose assignment
+       row was never persisted still gets notified instead of silently missing
+       every join request for their club. */
+    getClubCoordinatorIds(clubId).then((coordIds) => {
+      if (!coordIds.length) return;
       notifyManyUsers({
-        userIds: coords.map(c => c.user_id),
+        userIds: coordIds,
         clubId,
         title: 'New join request',
         body:  `${name.trim()} wants to join ${clubName || 'your club'}.`,
