@@ -13,13 +13,19 @@ import cf from './ClubsFeed.module.css';
      'active'          — the one currently in view; plays with the real
                           session sound preference, shows the mute button +
                           caption.
-     'preload-ahead'    — up to PRELOAD_AHEAD slides in the scroll direction
-                          the student is headed. Its player is created AND
+     'preload-near'     — the very next slide. Its player is created AND
                           started playing muted in the background the moment
                           it's ready — not just cued — so by the time the
                           student actually scrolls to it, the video is
                           already mid-buffer/mid-playback and switching to
                           active is just an unmute, never a cold start.
+     'preload-far'      — up to PRELOAD_AHEAD slides ahead, beyond the
+                          immediate next one. Created and cued (embed/init
+                          overhead paid up front) but NOT actively playing —
+                          only one video ever silently plays in the
+                          background at a time, so scroll performance on a
+                          real phone doesn't pay for multiple simultaneous
+                          decode streams it doesn't need yet.
      'preload-behind'   — the slide just scrolled past. Kept mounted and
                           cued (so scrolling back is instant) but paused,
                           since replaying it in the background would waste
@@ -82,14 +88,18 @@ function Slide({ video, mode, soundOn, onToggleSound, registerRef }) {
             if (modeRef.current === 'active') {
               if (soundRef.current) e.target.unMute(); else e.target.mute();
               e.target.playVideo();
-            } else if (modeRef.current === 'preload-ahead') {
+            } else if (modeRef.current === 'preload-near') {
               /* Silent warm-up: actually playing (muted), not just cued, so
                  the video is genuinely progressing/buffered by the time the
                  student arrives — this is what makes the active transition
-                 feel instant instead of stalling on real buffering time. */
+                 feel instant instead of stalling on real buffering time.
+                 Only the immediate-next slide does this — see 'preload-far'. */
               e.target.mute();
               e.target.playVideo();
             }
+            /* 'preload-far' deliberately does nothing here — created and
+               cued (embed/init cost paid early) but left paused, so only one
+               video is ever silently decoding in the background at once. */
           },
           /* The poster stays up until real frames are actually rendering —
              onReady only means the player API will accept commands, not
@@ -115,7 +125,7 @@ function Slide({ video, mode, soundOn, onToggleSound, registerRef }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted, video.videoId]);
 
-  /* Drives play/pause/mute across every mode transition. A preload-ahead
+  /* Drives play/pause/mute across every mode transition. A preload-near
      slide that's already silently playing just gets unmuted on becoming
      active (playVideo() on an already-playing video is a no-op, never a
      restart) — genuinely instant. A cold idle→active jump (fast multi-slide
@@ -131,7 +141,7 @@ function Slide({ video, mode, soundOn, onToggleSound, registerRef }) {
     if (active) {
       if (soundOn) playerRef.current.unMute(); else playerRef.current.mute();
       playerRef.current.playVideo();
-    } else if (mode === 'preload-ahead') {
+    } else if (mode === 'preload-near') {
       playerRef.current.mute();
       playerRef.current.playVideo();
     } else {
@@ -273,27 +283,49 @@ export default function ClubsFeed() {
       .finally(() => { fetchingMoreRef.current = false; });
   }, [activeIndex, videos.length, hasMore]);
 
-  /* Track which slide is most in view — that one becomes active. */
+  /* Latest videos array, readable from the observer callback below without
+     that callback needing to close over (and the observer needing to be
+     recreated whenever) `videos` itself. */
+  const videosRef = useRef(videos);
+  videosRef.current = videos;
+
+  const observerRef = useRef(null);
+
+  /* Track which slide is most in view — that one becomes active. Created
+     ONCE for the life of the page, not per videos-array change: infinite
+     scroll appends a new array reference on every "load more" batch, and
+     tearing down + recreating the observer on every append (a) is real
+     main-thread work landing mid-scroll and (b) re-observing already-
+     intersecting elements re-fires the callback, which could transiently
+     flip activeIndex away from and back to the slide already playing —
+     unmounting/remounting its player mid-watch, which resets it to muted
+     and restarts it from 0. New elements are observed individually as they
+     mount instead, via registerRef below. */
   useEffect(() => {
-    if (!videos.length) return;
     const observer = new IntersectionObserver(
       (entries) => {
         const visible = entries
           .filter(e => e.isIntersecting)
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
         if (!visible) return;
-        const idx = videos.findIndex(v => v.videoId === visible.target.dataset.videoId);
+        const idx = videosRef.current.findIndex(v => v.videoId === visible.target.dataset.videoId);
         if (idx !== -1) setActiveIndex(idx);
       },
       { root: containerRef.current, threshold: [0.6] }
     );
-    slideRefs.current.forEach((el) => el && observer.observe(el));
-    return () => observer.disconnect();
-  }, [videos]);
+    observerRef.current = observer;
+    return () => { observer.disconnect(); observerRef.current = null; };
+  }, []);
 
   const registerRef = useCallback((videoId) => (el) => {
-    if (el) slideRefs.current.set(videoId, el);
-    else slideRefs.current.delete(videoId);
+    const prev = slideRefs.current.get(videoId);
+    if (prev && prev !== el) observerRef.current?.unobserve(prev);
+    if (el) {
+      slideRefs.current.set(videoId, el);
+      observerRef.current?.observe(el);
+    } else {
+      slideRefs.current.delete(videoId);
+    }
   }, []);
 
   const toggleSound = () => setSoundOn(s => !s);
@@ -337,7 +369,8 @@ export default function ClubsFeed() {
     <div className={cf.container} ref={containerRef}>
       {videos.map((v, i) => {
         const mode = i === activeIndex ? 'active'
-          : (i > activeIndex && i <= activeIndex + PRELOAD_AHEAD) ? 'preload-ahead'
+          : (i === activeIndex + 1) ? 'preload-near'
+          : (i > activeIndex + 1 && i <= activeIndex + PRELOAD_AHEAD) ? 'preload-far'
           : (i === activeIndex - 1) ? 'preload-behind'
           : 'idle';
         return (
