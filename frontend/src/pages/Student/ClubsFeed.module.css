@@ -126,3 +126,12 @@
 
 .stateTitle { font-size: 1rem; font-weight: 800; color: #374151; margin: 0; }
 .stateSub   { font-size: .875rem; color: #9ca3af; margin: 0; max-width: 320px; }
+
+.endSlide {
+  flex-direction: column;
+  gap: 8px;
+  padding: 32px;
+  text-align: center;
+}
+.endSlide .stateTitle { color: #fff; }
+.endSlide .stateSub   { color: rgba(255,255,255,0.6); }

@@ -7,24 +7,34 @@ import cf from './ClubsFeed.module.css';
    than a raw <iframe> + guessed postMessage commands — the official API
    gives real play()/pause()/mute() methods with a genuine onReady signal, so
    commands are never silently dropped the way an unready raw iframe can drop
-   them. This is what makes instant start/stop actually reliable.
+   them.
 
    mode is one of:
-     'active'  — the one currently in view; plays with the real session
-                 sound preference, shows the mute button + caption.
-     'preload' — one slide away (previous or next); its player is created
-                 and cued (YouTube loads/buffers enough to start instantly)
-                 but never actually playing, so switching to it is instant
-                 without wasting bandwidth on an extra simultaneous stream.
-     'idle'    — everything else; just a thumbnail, no player instance at
-                 all, so a long feed never holds more than 2 players.
+     'active'          — the one currently in view; plays with the real
+                          session sound preference, shows the mute button +
+                          caption.
+     'preload-ahead'    — up to PRELOAD_AHEAD slides in the scroll direction
+                          the student is headed. Its player is created AND
+                          started playing muted in the background the moment
+                          it's ready — not just cued — so by the time the
+                          student actually scrolls to it, the video is
+                          already mid-buffer/mid-playback and switching to
+                          active is just an unmute, never a cold start.
+     'preload-behind'   — the slide just scrolled past. Kept mounted and
+                          cued (so scrolling back is instant) but paused,
+                          since replaying it in the background would waste
+                          bandwidth on a video the student already moved on
+                          from.
+     'idle'             — everything else; just a thumbnail, no player
+                          instance at all, so a long feed only ever holds a
+                          handful of players regardless of feed length.
 
    Sound is a session-wide preference (see ClubsFeed below), not per-slide —
    tap unmute once and every video for the rest of the session plays with
    sound, matching how the user actually expects a Reels-style feed to work. */
 function Slide({ video, mode, soundOn, onToggleSound, registerRef }) {
   const active  = mode === 'active';
-  const mounted = mode === 'active' || mode === 'preload';
+  const mounted = mode !== 'idle';
 
   const mountElRef = useRef(null);
   const playerRef  = useRef(null);
@@ -72,8 +82,24 @@ function Slide({ video, mode, soundOn, onToggleSound, registerRef }) {
             if (modeRef.current === 'active') {
               if (soundRef.current) e.target.unMute(); else e.target.mute();
               e.target.playVideo();
+            } else if (modeRef.current === 'preload-ahead') {
+              /* Silent warm-up: actually playing (muted), not just cued, so
+                 the video is genuinely progressing/buffered by the time the
+                 student arrives — this is what makes the active transition
+                 feel instant instead of stalling on real buffering time. */
+              e.target.mute();
+              e.target.playVideo();
             }
-            setPosterVisible(false);
+          },
+          /* The poster stays up until real frames are actually rendering —
+             onReady only means the player API will accept commands, not
+             that playback has visibly started, so clearing the poster there
+             left a window where the iframe was blank/buffering underneath
+             an already-faded poster, which read as a stall. Tying it to the
+             genuine PLAYING state instead means the poster masks 100% of any
+             real buffering time. */
+          onStateChange: (e) => {
+            if (e.data === YT.PlayerState.PLAYING) setPosterVisible(false);
           },
         },
       });
@@ -89,9 +115,11 @@ function Slide({ video, mode, soundOn, onToggleSound, registerRef }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted, video.videoId]);
 
-  /* Leaving a video pauses it immediately; the newly-active one plays
-     immediately — since a 'preload' slide's player already exists and is
-     cued, this transition is instant rather than paying embed/buffer time.
+  /* Drives play/pause/mute across every mode transition. A preload-ahead
+     slide that's already silently playing just gets unmuted on becoming
+     active (playVideo() on an already-playing video is a no-op, never a
+     restart) — genuinely instant. A cold idle→active jump (fast multi-slide
+     scroll skipping the preload window) still falls back to a normal start.
      Also starts/stops the watch-time clock used for engagement weighting. */
   useEffect(() => {
     if (active) {
@@ -103,10 +131,13 @@ function Slide({ video, mode, soundOn, onToggleSound, registerRef }) {
     if (active) {
       if (soundOn) playerRef.current.unMute(); else playerRef.current.mute();
       playerRef.current.playVideo();
+    } else if (mode === 'preload-ahead') {
+      playerRef.current.mute();
+      playerRef.current.playVideo();
     } else {
       playerRef.current.pauseVideo();
     }
-  }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Covers the last-watched video when the whole page unmounts (navigating
      away) rather than just scrolling to the next slide. */
@@ -162,6 +193,17 @@ function Slide({ video, mode, soundOn, onToggleSound, registerRef }) {
   );
 }
 
+/* How many slides ahead of the active one get created and silently
+   pre-played (muted) so they're already buffering/progressing before the
+   student scrolls to them. 2 gives real lead time at natural swipe speed
+   without holding an unbounded number of simultaneous players. */
+const PRELOAD_AHEAD = 2;
+
+/* How close to the end of the currently-loaded feed (in slides) triggers the
+   next "load more" fetch — needs enough head start that the fetch resolves
+   before the student actually scrolls that far. */
+const LOAD_MORE_THRESHOLD = 4;
+
 export default function ClubsFeed() {
   const [videos,   setVideos]   = useState([]);
   const [clubs,    setClubs]    = useState([]);
@@ -169,6 +211,7 @@ export default function ClubsFeed() {
   const [error,    setError]    = useState('');
   const [apiKeySet, setApiKeySet] = useState(true);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [hasMore,  setHasMore]  = useState(true);
   /* Session-wide sound preference — starts muted (autoplay-with-sound is
      blocked without a prior user gesture), tapping the button once turns it
      on for every video for the rest of this visit, current and future. */
@@ -176,6 +219,15 @@ export default function ClubsFeed() {
 
   const containerRef = useRef(null);
   const slideRefs     = useRef(new Map());
+  /* Every video ID ever shown this session — sent back as `exclude` so
+     "load more" prefers genuinely new videos over immediate repeats. A ref
+     (not state) since it's read inside the fetch call, never rendered. */
+  const shownIdsRef  = useRef(new Set());
+  const fetchingMoreRef = useRef(false);
+  /* Two consecutive load-more calls that append nothing new means every
+     topic's pool is genuinely exhausted (or the feed API is unconfigured) —
+     stops further auto-fetching so a dead end doesn't retry forever. */
+  const emptyStreakRef = useRef(0);
 
   /* Fresh fetch on every mount — leaving the page and coming back (or a hard
      reload) always re-requests, and the backend shuffles fresh on every
@@ -184,7 +236,9 @@ export default function ClubsFeed() {
     setLoading(true);
     api.get('/clubs-feed')
       .then((d) => {
-        setVideos(d.videos || []);
+        const list = d.videos || [];
+        list.forEach(v => shownIdsRef.current.add(v.videoId));
+        setVideos(list);
         setClubs(d.clubs || []);
         setApiKeySet(d.apiKeySet !== false);
         setError('');
@@ -192,6 +246,32 @@ export default function ClubsFeed() {
       .catch((err) => setError(err.message || 'Could not load your Clubs Feed.'))
       .finally(() => setLoading(false));
   }, []);
+
+  /* Infinite scroll: once the active slide gets within LOAD_MORE_THRESHOLD
+     of the end of what's loaded, fetch the next batch and append it —
+     scrolling through a Clubs Feed should never hit a hard stop the way a
+     one-shot fixed list would. */
+  useEffect(() => {
+    if (!hasMore || fetchingMoreRef.current) return;
+    if (!videos.length) return;
+    if (activeIndex < videos.length - LOAD_MORE_THRESHOLD) return;
+
+    fetchingMoreRef.current = true;
+    api.post('/clubs-feed/more', { exclude: [...shownIdsRef.current] })
+      .then((d) => {
+        const incoming = (d.videos || []).filter(v => !shownIdsRef.current.has(v.videoId));
+        incoming.forEach(v => shownIdsRef.current.add(v.videoId));
+        if (incoming.length) {
+          emptyStreakRef.current = 0;
+          setVideos(prev => [...prev, ...incoming]);
+        } else {
+          emptyStreakRef.current += 1;
+          if (emptyStreakRef.current >= 2) setHasMore(false);
+        }
+      })
+      .catch(() => { emptyStreakRef.current += 1; if (emptyStreakRef.current >= 2) setHasMore(false); })
+      .finally(() => { fetchingMoreRef.current = false; });
+  }, [activeIndex, videos.length, hasMore]);
 
   /* Track which slide is most in view — that one becomes active. */
   useEffect(() => {
@@ -257,7 +337,8 @@ export default function ClubsFeed() {
     <div className={cf.container} ref={containerRef}>
       {videos.map((v, i) => {
         const mode = i === activeIndex ? 'active'
-          : (i === activeIndex - 1 || i === activeIndex + 1) ? 'preload'
+          : (i > activeIndex && i <= activeIndex + PRELOAD_AHEAD) ? 'preload-ahead'
+          : (i === activeIndex - 1) ? 'preload-behind'
           : 'idle';
         return (
           <Slide
@@ -270,6 +351,12 @@ export default function ClubsFeed() {
           />
         );
       })}
+      {!hasMore && (
+        <div className={`${cf.slide} ${cf.endSlide}`}>
+          <p className={cf.stateTitle}>You're all caught up</p>
+          <p className={cf.stateSub}>New videos for your clubs show up here as they're published.</p>
+        </div>
+      )}
     </div>
   );
 }

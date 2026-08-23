@@ -228,11 +228,20 @@ function engagementWeight(watchedSeconds) {
    @param {Object<string,number>} [engagementByTopic] — total watched seconds
      per topic for this student, from clubsFeedEngagement.service.js. Videos
      from topics they've engaged with more get proportionally more
-     representation in the feed. */
-async function buildClubsFeed(clubs, engagementByTopic = {}) {
+     representation in the feed.
+   @param {string[]} [excludeIds] — video IDs already shown earlier this
+     session (from a prior initial load or "load more" call). Used to keep an
+     infinite-scroll feed from immediately repeating itself: each topic's
+     cached pool prefers videos NOT in this set, only falling back to the
+     full pool (allowing a repeat) once that topic's unseen videos actually
+     run out — so scrolling never dead-ends into an empty feed, it just
+     starts gently looping, the same way a real Reels-style feed eventually
+     does once you've scrolled through everything genuinely new. */
+async function buildClubsFeed(clubs, engagementByTopic = {}, excludeIds = []) {
   const apiKeySet = !!YOUTUBE_API_KEY();
   if (!clubs.length) return { videos: [], topics: [], apiKeySet };
 
+  const excludeSet = new Set(excludeIds);
   const clubTopics = [...new Set(await Promise.all(clubs.map(topicForClub)))];
   const allTopics   = [...new Set([...clubTopics, ...UNIVERSAL_TOPICS])];
   const pools       = await Promise.all(allTopics.map(fetchPoolForTopic));
@@ -247,7 +256,10 @@ async function buildClubsFeed(clubs, engagementByTopic = {}) {
       ? MAX_UNIVERSAL_VIDEOS
       : Math.round(BASE_TAKE_PER_TOPIC * engagementWeight(engagementByTopic[topic]));
 
-    for (const v of sampleWithoutReplacement(pool, take)) {
+    const unseen = pool.filter(v => !excludeSet.has(v.videoId));
+    const source = unseen.length > 0 ? unseen : pool; // loop once genuinely exhausted
+
+    for (const v of sampleWithoutReplacement(source, take)) {
       if (seen.has(v.videoId)) continue;
       seen.add(v.videoId);
       selected.push({ ...v, topic });

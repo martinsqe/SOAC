@@ -61,6 +61,46 @@ const getFeed = async (req, res, next) => {
 };
 
 /**
+ * POST /api/clubs-feed/more
+ * Body: { exclude: string[] }  — video IDs already shown this session.
+ *
+ * Powers infinite scroll: called as the student approaches the end of their
+ * currently-loaded feed. Reuses the same club/topic/engagement resolution as
+ * getFeed, but samples around whatever's already been shown so continuing to
+ * scroll never dead-ends — no extra YouTube quota cost, since topic pools are
+ * already cached by getFeed/fetchPoolForTopic.
+ */
+const getMoreFeed = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const exclude = Array.isArray(req.body?.exclude)
+      ? req.body.exclude.filter(id => typeof id === 'string').slice(-500)
+      : [];
+
+    const { rows: clubs } = await pgPool.query(
+      `SELECT c.id, c.name, c.category, c.tags, c.description, c.vision
+       FROM   student_clubs sc
+       JOIN   clubs c ON c.id = sc.club_id AND c.is_active = true
+       WHERE  sc.user_id = $1 AND sc.is_active = true
+       ORDER  BY sc.joined_at ASC`,
+      [userId]
+    );
+
+    const { rows: engagementRows } = await pgPool.query(
+      `SELECT topic, watch_seconds FROM clubs_feed_engagement WHERE user_id = $1`,
+      [userId]
+    );
+    const engagementByTopic = {};
+    engagementRows.forEach(r => { engagementByTopic[r.topic] = r.watch_seconds; });
+
+    const feed = await buildClubsFeed(clubs, engagementByTopic, exclude);
+    res.json(feed);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
  * POST /api/clubs-feed/watch
  * Body: { topic: string, seconds: number }
  *
@@ -95,4 +135,4 @@ const recordWatch = async (req, res, next) => {
   }
 };
 
-module.exports = { getFeed, recordWatch };
+module.exports = { getFeed, getMoreFeed, recordWatch };

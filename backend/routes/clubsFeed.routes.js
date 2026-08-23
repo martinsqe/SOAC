@@ -5,6 +5,9 @@ const ctrl            = require('../controllers/clubsFeed.controller');
 /* GET /api/clubs-feed  — authenticated student */
 router.get('/', verifyToken, ctrl.getFeed);
 
+/* POST /api/clubs-feed/more  — infinite scroll: next batch, avoiding repeats */
+router.post('/more', verifyToken, ctrl.getMoreFeed);
+
 /* POST /api/clubs-feed/watch  — record watch-time engagement for a topic */
 router.post('/watch', verifyToken, ctrl.recordWatch);
 
