@@ -1,9 +1,10 @@
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { StatsProvider } from './context/StatsContext';
 import AdminRoute from './components/AdminRoute/AdminRoute';
 import RouteProgress from './components/RouteProgress/RouteProgress';
+import InstallPrompt from './components/InstallPrompt/InstallPrompt';
 
 /* Guest layout */
 import Navbar  from './components/Navbar/Navbar';
@@ -112,31 +113,54 @@ function ScrollToTop() {
   return null;
 }
 
-/* ── Auth loading splash ── */
-function LoadingSplash() {
+/* ── Auth loading splash ──
+   Three red dots pulse in sequence, one dot after another — a full "cycle"
+   is all three dots pulsing once. The splash stays up for at least two full
+   cycles even if auth resolves sooner (a deliberate branded intro rather
+   than an abrupt flash), and for longer than that if auth genuinely takes
+   longer — the dot animation itself runs indefinitely (never freezes mid-
+   cycle), a plain iteration counter just gates when it's safe to dismiss. */
+function LoadingSplash({ onIntroDone }) {
+  const cycleCountRef = useRef(0);
+  const firedRef = useRef(false);
+
+  const handleCycle = () => {
+    cycleCountRef.current += 1;
+    if (cycleCountRef.current >= 2 && !firedRef.current) {
+      firedRef.current = true;
+      onIntroDone();
+    }
+  };
+
   return (
     <div style={{
       position: 'fixed', inset: 0, background: '#fff',
       display: 'flex', flexDirection: 'column', alignItems: 'center',
-      justifyContent: 'center', gap: 20, zIndex: 9999,
+      justifyContent: 'center', gap: 24, zIndex: 9999,
       animation: 'splashIn 0.2s ease both',
     }}>
       <style>{`
         @keyframes splashIn { from { opacity: 0 } to { opacity: 1 } }
         @keyframes splashOut { from { opacity: 1 } to { opacity: 0 } }
-        @keyframes barSlide  { 0%,100% { transform: translateX(-100%) } 50% { transform: translateX(200%) } }
         @keyframes logoPulse { 0%,100% { opacity: 1 } 50% { opacity: 0.6 } }
+        @keyframes dotPulse  { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.35 } 40% { transform: scale(1); opacity: 1 } }
       `}</style>
       <img
         src="/images/asset-44.png"
         alt="SOAC"
         style={{ width: 72, height: 72, objectFit: 'contain', animation: 'logoPulse 1.2s ease-in-out infinite' }}
       />
-      <div style={{ width: 48, height: 3, borderRadius: 2, background: '#f0f0f5', overflow: 'hidden' }}>
-        <div style={{
-          height: '100%', width: '50%', background: '#0f766e', borderRadius: 2,
-          animation: 'barSlide 1s ease-in-out infinite',
-        }} />
+      <div style={{ display: 'flex', gap: 10 }}>
+        {[0, 1, 2].map(i => (
+          <span
+            key={i}
+            onAnimationIteration={i === 2 ? handleCycle : undefined}
+            style={{
+              width: 12, height: 12, borderRadius: '50%', background: '#D32F2F',
+              animation: `dotPulse 0.9s ease-in-out ${i * 0.15}s infinite`,
+            }}
+          />
+        ))}
       </div>
     </div>
   );
@@ -145,11 +169,28 @@ function LoadingSplash() {
 /* ── Inner app — reads auth loading state ── */
 function AppInner() {
   const { loading } = useAuth();
+  const [introDone, setIntroDone] = useState(false);
 
-  if (loading) return <LoadingSplash />;
+  /* InstallPrompt is mounted unconditionally, before the splash-done check —
+     the browser can fire beforeinstallprompt at any point after page load,
+     including during the ~2s splash window, and it only fires once. Gating
+     this component's mount on the splash being done would mean no listener
+     is attached yet when an early event arrives, silently losing it for the
+     rest of the session. The splash's higher z-index already covers the
+     banner visually for as long as it's up, so mounting early costs nothing. */
+  if (loading || !introDone) {
+    return (
+      <>
+        <InstallPrompt />
+        <LoadingSplash onIntroDone={() => setIntroDone(true)} />
+      </>
+    );
+  }
 
   return (
-    <Router>
+    <>
+      <InstallPrompt />
+      <Router>
       <ScrollToTop />
       <RouteProgress />
       <Routes>
@@ -214,6 +255,7 @@ function AppInner() {
         </Route>
       </Routes>
     </Router>
+    </>
   );
 }
 
