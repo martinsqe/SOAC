@@ -379,7 +379,7 @@
 
 .shareBtn {
   flex: 0 0 auto;
-  padding: 9px 12px;
+  padding: 9px 14px;
   border-radius: 8px;
   border: 1.5px solid var(--border);
   background: transparent;

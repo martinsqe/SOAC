@@ -654,7 +654,7 @@ const Clubs = () => {
                           onClick={() => copyClubLink(club)}
                           title="Copy a direct link to this club"
                         >
-                          {copiedKey === key ? 'Link copied ✓' : '🔗 Share'}
+                          {copiedKey === key ? 'Copied ✓' : '🔗'}
                         </button>
                       )}
                     </div>
