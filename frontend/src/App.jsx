@@ -120,7 +120,7 @@ function ScrollToTop() {
    than an abrupt flash), and for longer than that if auth genuinely takes
    longer — the dot animation itself runs indefinitely (never freezes mid-
    cycle), a plain iteration counter just gates when it's safe to dismiss. */
-function LoadingSplash({ onIntroDone }) {
+function LoadingSplash({ onIntroDone, fadingOut }) {
   const cycleCountRef = useRef(0);
   const firedRef = useRef(false);
 
@@ -137,26 +137,27 @@ function LoadingSplash({ onIntroDone }) {
       position: 'fixed', inset: 0, background: '#fff',
       display: 'flex', flexDirection: 'column', alignItems: 'center',
       justifyContent: 'center', gap: 24, zIndex: 9999,
-      animation: 'splashIn 0.2s ease both',
+      animation: fadingOut ? 'splashOut 0.4s ease both' : 'splashIn 0.2s ease both',
+      pointerEvents: fadingOut ? 'none' : 'auto',
     }}>
       <style>{`
         @keyframes splashIn { from { opacity: 0 } to { opacity: 1 } }
         @keyframes splashOut { from { opacity: 1 } to { opacity: 0 } }
-        @keyframes logoPulse { 0%,100% { opacity: 1 } 50% { opacity: 0.6 } }
-        @keyframes dotPulse  { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.35 } 40% { transform: scale(1); opacity: 1 } }
+        @keyframes dotPulse  { 0%, 80%, 100% { transform: scale(0.75); opacity: 0.55 } 40% { transform: scale(1); opacity: 1 } }
       `}</style>
       <img
         src="/images/asset-44.png"
         alt="SOAC"
-        style={{ width: 72, height: 72, objectFit: 'contain', animation: 'logoPulse 1.2s ease-in-out infinite' }}
+        style={{ width: 96, height: 96, objectFit: 'contain', filter: 'contrast(1.15) saturate(1.1)' }}
       />
-      <div style={{ display: 'flex', gap: 10 }}>
+      <div style={{ display: 'flex', gap: 12 }}>
         {[0, 1, 2].map(i => (
           <span
             key={i}
             onAnimationIteration={i === 2 ? handleCycle : undefined}
             style={{
-              width: 12, height: 12, borderRadius: '50%', background: '#D32F2F',
+              width: 16, height: 16, borderRadius: '50%', background: '#C81E1E',
+              boxShadow: '0 1px 3px rgba(200,30,30,0.35)',
               animation: `dotPulse 0.9s ease-in-out ${i * 0.15}s infinite`,
             }}
           />
@@ -169,7 +170,33 @@ function LoadingSplash({ onIntroDone }) {
 /* ── Inner app — reads auth loading state ── */
 function AppInner() {
   const { loading } = useAuth();
-  const [introDone, setIntroDone] = useState(false);
+  const [introDone, setIntroDone]   = useState(false);
+  const [splashFading, setSplashFading] = useState(false);
+  const [splashGone,   setSplashGone]   = useState(false);
+
+  /* Once both the real auth check and the minimum 2-cycle intro are done,
+     the Router mounts UNDERNEATH the still-fully-opaque splash and gets a
+     brief head start to actually paint before the splash fades away — a
+     hard cut here (splash unmounts the instant it's "ready") let a mostly-
+     blank page (Navbar rendered, hero content not painted yet) flash
+     through as a jarring second screen before real content appeared. */
+  const ready = !loading && introDone;
+  const fadeStartedRef = useRef(false);
+  useEffect(() => {
+    /* fadeStartedRef (not splashFading state) guards this — putting the
+       state itself in the dependency array made setting it re-trigger this
+       same effect, whose cleanup then cancelled the very timeout it had
+       just scheduled, so splashGone never actually flipped: the splash div
+       sat at opacity 0 but stayed mounted, invisibly eating every click on
+       the real page underneath since a position:fixed full-viewport overlay
+       with no pointer-events:none still captures the pointer regardless of
+       opacity. */
+    if (!ready || fadeStartedRef.current) return;
+    fadeStartedRef.current = true;
+    setSplashFading(true);
+    const t = setTimeout(() => setSplashGone(true), 400);
+    return () => clearTimeout(t);
+  }, [ready]);
 
   /* InstallPrompt is mounted unconditionally, before the splash-done check —
      the browser can fire beforeinstallprompt at any point after page load,
@@ -178,18 +205,13 @@ function AppInner() {
      is attached yet when an early event arrives, silently losing it for the
      rest of the session. The splash's higher z-index already covers the
      banner visually for as long as it's up, so mounting early costs nothing. */
-  if (loading || !introDone) {
-    return (
-      <>
-        <InstallPrompt />
-        <LoadingSplash onIntroDone={() => setIntroDone(true)} />
-      </>
-    );
-  }
-
   return (
     <>
       <InstallPrompt />
+      {!splashGone && (
+        <LoadingSplash onIntroDone={() => setIntroDone(true)} fadingOut={splashFading} />
+      )}
+      {ready && (
       <Router>
       <ScrollToTop />
       <RouteProgress />
@@ -255,6 +277,7 @@ function AppInner() {
         </Route>
       </Routes>
     </Router>
+      )}
     </>
   );
 }
