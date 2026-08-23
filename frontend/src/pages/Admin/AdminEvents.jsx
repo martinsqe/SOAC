@@ -35,6 +35,14 @@ const REQ_STATUS_META = {
 function EventCard({ ev, onEdit, onDelete, onViewRegs }) {
   const color = CAT_COLOR[ev.category] || '#888';
   const imgSrc = ev.imageUrl || (ev.image ? `/images/${ev.image}` : null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const copyLink = () => {
+    const url = `${window.location.origin}/events/${ev._id}`;
+    navigator.clipboard?.writeText(url).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 1800);
+    }).catch(() => {});
+  };
 
   return (
     <div className={s.card}>
@@ -63,6 +71,11 @@ function EventCard({ ev, onEdit, onDelete, onViewRegs }) {
         <button className={s.regsBtn} onClick={() => onViewRegs(ev)}>Registrations</button>
         <button className={s.editBtn} onClick={() => onEdit(ev)}>Edit</button>
         <button className={s.delBtn} onClick={() => onDelete(ev._id)}>Delete</button>
+      </div>
+      <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
+        <button className={s.regsBtn} onClick={copyLink} style={{ width: '100%' }} title="Copy a direct link students can use to register">
+          {linkCopied ? 'Link copied ✓' : '🔗 Copy Registration Link'}
+        </button>
       </div>
     </div>
   );

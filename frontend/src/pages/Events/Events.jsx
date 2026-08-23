@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import styles from './Events.module.css';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
@@ -293,8 +293,12 @@ const EMPTY_FORM = { name: '', enrollmentNo: '', dept: '', course: '', phone: ''
 
 const Events = () => {
   const navigate = useNavigate();
+  const { id: linkedEventId } = useParams(); // set when opened via a shared /events/:id link
   const { user } = useAuth();
   const [filter, setFilter] = useState('all');
+  const [linkedEventMissing, setLinkedEventMissing] = useState(false);
+  const [copiedEventKey, setCopiedEventKey] = useState(null);
+  const linkHandledRef = useRef(false);
   /* Start empty (not the static demo array) so a real admin-uploaded image is the ONLY
      image ever shown for a real event — no flash of the placeholder "Galore 2027" demo
      card/photo while /api/events is still loading, even on a slow connection. */
@@ -417,6 +421,27 @@ const Events = () => {
       .finally(() => setEventsLoading(false));
   }, []);
 
+  /* Opened via a shared /events/:id link — once real event data has loaded,
+     open that event's registration form directly, exactly like clicking
+     "Register Now" on it. If the event can't be found (removed, or the link
+     was mistyped) shows a small notice instead of silently doing nothing. */
+  useEffect(() => {
+    if (!linkedEventId || linkHandledRef.current || eventsLoading) return;
+    linkHandledRef.current = true;
+    const target = events.find(e => String(e.id) === String(linkedEventId));
+    if (!target) { setLinkedEventMissing(true); return; }
+    openReg(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedEventId, events, eventsLoading]);
+
+  const copyEventLink = (ev) => {
+    const url = `${window.location.origin}/events/${ev.id}`;
+    navigator.clipboard?.writeText(url).then(() => {
+      setCopiedEventKey(ev.id);
+      setTimeout(() => setCopiedEventKey(k => (k === ev.id ? null : k)), 1800);
+    }).catch(() => {});
+  };
+
   /* Light poll: live count badge on the trigger button only */
   useEffect(() => {
     const refreshCount = () => {
@@ -517,6 +542,15 @@ const Events = () => {
         </div>
       </div>
 
+      {/* ── LINKED EVENT NOT FOUND ── */}
+      {linkedEventMissing && (
+        <div className="wrap" style={{ marginTop: 16 }}>
+          <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', color: '#be123c', padding: '12px 16px', borderRadius: 10, fontSize: 14, fontWeight: 600 }}>
+            ⚠️ That event link isn't valid — it may have been removed or the link was mistyped. Browse all events below instead.
+          </div>
+        </div>
+      )}
+
       {/* ── FILTER BAR ── */}
       <div className={styles.filterBar}>
         <div className="wrap">
@@ -609,11 +643,16 @@ const Events = () => {
                     <div className={styles.featTags}>
                       {featured.tags.map(t => <span key={t} className={styles.tag}>{t}</span>)}
                     </div>
-                    {registeredIds.has(String(featured.id)) && featured.category === 'sports' ? (
-                      <button className={styles.fixturesBtn} onClick={() => openFixtures(featured)}>Teams &amp; Fixtures</button>
-                    ) : (
-                      <button className={styles.regBtn} onClick={() => openReg(featured)}>Register Now →</button>
-                    )}
+                    <div className={styles.featBtnRow}>
+                      {registeredIds.has(String(featured.id)) && featured.category === 'sports' ? (
+                        <button className={styles.fixturesBtn} onClick={() => openFixtures(featured)}>Teams &amp; Fixtures</button>
+                      ) : (
+                        <button className={styles.regBtn} onClick={() => openReg(featured)}>Register Now →</button>
+                      )}
+                      <button type="button" className={styles.shareBtn} onClick={() => copyEventLink(featured)} title="Copy a direct link to this event">
+                        {copiedEventKey === featured.id ? 'Link copied ✓' : '🔗 Share'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -640,6 +679,9 @@ const Events = () => {
                           ) : (
                             <button className={styles.upRegBtn} onClick={() => openReg(ev)}>Register Now →</button>
                           )}
+                          <button type="button" className={styles.shareBtnLight} onClick={() => copyEventLink(ev)} title="Copy a direct link to this event">
+                            {copiedEventKey === ev.id ? 'Copied ✓' : '🔗'}
+                          </button>
                         </div>
                       </div>
                     </div>

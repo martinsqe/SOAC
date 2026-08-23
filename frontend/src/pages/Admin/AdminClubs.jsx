@@ -15,6 +15,14 @@ const EMPTY = {
 function ClubCard({ club, onEdit, onDelete, onViewRequests, onViewMembers, onAssignCoord, onViewLeadership }) {
   const accent = club.color || CAT_COLORS[club.category] || '#635bff';
   const logoSrc = club.logoUrl || (club.logo ? `/logos/${club.logo}` : null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const copyLink = () => {
+    const url = `${window.location.origin}/clubs/${club._id}`;
+    navigator.clipboard?.writeText(url).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 1800);
+    }).catch(() => {});
+  };
 
   return (
     <div className={s.card}>
@@ -67,6 +75,11 @@ function ClubCard({ club, onEdit, onDelete, onViewRequests, onViewMembers, onAss
       <div className={s.cardActions}>
         <button className={s.reqsBtn}   onClick={() => onViewRequests(club)}>Requests</button>
         <button className={s.membsBtn}  onClick={() => onViewMembers(club)}>Members</button>
+      </div>
+      <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
+        <button className={s.membsBtn} onClick={copyLink} style={{ width: '100%' }} title="Copy a direct link students can use to join this club">
+          {linkCopied ? 'Link copied ✓' : '🔗 Copy Join Link'}
+        </button>
       </div>
       <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
         <button className={s.leaderBtn} onClick={() => onViewLeadership(club)} style={{ width: '100%' }}>

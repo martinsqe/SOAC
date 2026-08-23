@@ -349,6 +349,49 @@
   box-shadow: 0 10px 28px rgba(211,47,47,.4);
 }
 
+.featBtnRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.shareBtn {
+  padding: 8px 14px;
+  border-radius: 9px;
+  border: 1.5px solid rgba(255,255,255,.3);
+  background: rgba(255,255,255,.08);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.shareBtn:hover {
+  background: rgba(255,255,255,.16);
+  border-color: rgba(255,255,255,.5);
+}
+
+/* Light-background variant, used on the white upcoming-grid cards */
+.shareBtnLight {
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1.5px solid var(--border);
+  background: transparent;
+  color: var(--mid);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.shareBtnLight:hover {
+  border-color: var(--dark);
+  color: var(--dark);
+}
+
 /* ── OTHER UPCOMING GRID ── */
 .upcomingGrid {
   display: grid;

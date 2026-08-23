@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useStats } from '../../context/StatsContext';
 import styles from './Clubs.module.css';
@@ -420,6 +420,7 @@ const normalise = (c) => ({
 
 const Clubs = () => {
   const navigate = useNavigate();
+  const { id: linkedClubId } = useParams(); // set when opened via a shared /clubs/:id link
   const { user } = useAuth();
   const { clubs: totalFromStats } = useStats();
   const [filter,    setFilter]    = useState('all');
@@ -427,6 +428,8 @@ const Clubs = () => {
   const [showModal,    setShowModal]    = useState(false);
   const [joiningClub,  setJoiningClub]  = useState(null);
   const [clubs, setClubs] = useState(ALL_CLUBS); // static shown instantly; replaced when API responds
+  const [linkedClubMissing, setLinkedClubMissing] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(null);
   /* Which cards have their description expanded — keyed by club._id (falls
      back to name/index for the static fallback data, matching the map's own
      key derivation below) so it survives re-filtering/search. */
@@ -443,6 +446,33 @@ const Clubs = () => {
       .then(d => { if (d.clubs?.length) setClubs(d.clubs.map(normalise)); })
       .catch(() => {}); // silently keep static fallback on error
   }, []);
+
+  /* Opened via a shared /clubs/:id link — once real club data has loaded,
+     jump straight to that club's card and open its Join form, exactly like
+     clicking "Join Club" on it directly. Logged-in users are sent to their
+     portal instead (matching the normal card behavior below), since the
+     public join form is for guests who don't have an account yet. */
+  const linkHandledRef = useRef(false);
+  const cardRefs = useRef(new Map());
+  useEffect(() => {
+    if (!linkedClubId || linkHandledRef.current || clubs === ALL_CLUBS) return;
+    linkHandledRef.current = true;
+    const target = clubs.find(c => String(c._id) === String(linkedClubId));
+    if (!target) { setLinkedClubMissing(true); return; }
+    if (user) { navigate('/student/clubs'); return; }
+    const key = target._id || target.name;
+    cardRefs.current.get(key)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setJoiningClub(target);
+  }, [linkedClubId, clubs, user, navigate]);
+
+  const copyClubLink = (club) => {
+    const key = club._id || club.name;
+    const url = `${window.location.origin}/clubs/${club._id}`;
+    navigator.clipboard?.writeText(url).then(() => {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(k => (k === key ? null : k)), 1800);
+    }).catch(() => {});
+  };
 
   const matchesSearch = (c) => {
     if (!search) return true;
@@ -513,6 +543,20 @@ const Clubs = () => {
         </div>
       </div>
 
+      {/* ── LINKED CLUB NOT FOUND ── */}
+      {linkedClubMissing && (
+        <div className={styles.infoBanner} style={{ background: '#fff1f2' }}>
+          <div className="wrap">
+            <div className={styles.infoInner}>
+              <span style={{ fontSize: 20 }}>⚠️</span>
+              <div>
+                <strong>That club link isn't valid.</strong> It may have been removed or the link was mistyped — browse all clubs below instead.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── INFO BANNER ── */}
       <div className={styles.infoBanner}>
         <div className="wrap">
@@ -554,7 +598,11 @@ const Clubs = () => {
                 const key = club._id || club.name || i;
                 const isExpanded = expandedDescs.has(key);
                 return (
-                  <div key={key} className={styles.card}>
+                  <div
+                    key={key}
+                    className={styles.card}
+                    ref={el => { if (el) cardRefs.current.set(key, el); else cardRefs.current.delete(key); }}
+                  >
                     <div className={styles.cardTop} style={{ background: club.color + '18', borderBottom: `2px solid ${club.color}30` }}>
                       <span className={styles.cardCat} style={{ background: (CAT_COLORS[club.cat] || '#635BFF') + '14', color: CAT_COLORS[club.cat] || '#635BFF' }}>
                         {CAT_LABELS[club.cat] || club.cat}
@@ -597,6 +645,16 @@ const Clubs = () => {
                       ) : (
                         <button className={styles.cardBtn} onClick={() => setJoiningClub(club)}>
                           Join Club →
+                        </button>
+                      )}
+                      {club._id && (
+                        <button
+                          type="button"
+                          className={styles.shareBtn}
+                          onClick={() => copyClubLink(club)}
+                          title="Copy a direct link to this club"
+                        >
+                          {copiedKey === key ? 'Link copied ✓' : '🔗 Share'}
                         </button>
                       )}
                     </div>

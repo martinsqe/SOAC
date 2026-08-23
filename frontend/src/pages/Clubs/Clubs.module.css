@@ -354,10 +354,12 @@
 
 .cardFoot {
   padding: 0 16px 16px;
+  display: flex;
+  gap: 8px;
 }
 
 .cardBtn {
-  width: 100%;
+  flex: 1;
   padding: 9px;
   border-radius: 8px;
   border: 1.5px solid var(--border);
@@ -371,6 +373,26 @@
 }
 
 .cardBtn:hover {
+  border-color: var(--dark);
+  color: var(--dark);
+}
+
+.shareBtn {
+  flex: 0 0 auto;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mid);
+  cursor: pointer;
+  transition: all 0.18s;
+  font-family: 'DM Sans', sans-serif;
+  white-space: nowrap;
+}
+
+.shareBtn:hover {
   border-color: var(--dark);
   color: var(--dark);
 }

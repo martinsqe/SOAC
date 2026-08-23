@@ -157,8 +157,10 @@ function AppInner() {
         <Route path="/"        element={<GuestLayout><Home    /></GuestLayout>} />
         <Route path="/about"   element={<GuestLayout><About   /></GuestLayout>} />
         <Route path="/clubs"   element={<GuestLayout><Clubs   /></GuestLayout>} />
+        <Route path="/clubs/:id"   element={<GuestLayout><Clubs   /></GuestLayout>} />
         <Route path="/events"      element={<GuestLayout><Events    /></GuestLayout>} />
         <Route path="/events/live" element={<GuestLayout><LiveGames /></GuestLayout>} />
+        <Route path="/events/:id"  element={<GuestLayout><Events    /></GuestLayout>} />
         <Route path="/explore"     element={<GuestLayout><Explore   /></GuestLayout>} />
         <Route path="/gallery" element={<GuestLayout><Gallery /></GuestLayout>} />
         <Route path="/contact" element={<GuestLayout><Contact /></GuestLayout>} />
