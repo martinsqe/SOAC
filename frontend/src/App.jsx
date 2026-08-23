@@ -167,12 +167,25 @@ function LoadingSplash({ onIntroDone, fadingOut }) {
   );
 }
 
+/* sessionStorage (not localStorage) — survives the full-page reload Login.jsx
+   does via window.location.replace() after signing in (same browser tab/
+   session), so the splash never replays right after login, but a genuinely
+   new tab/window opening the app still gets it, matching "only on opening
+   the application" rather than "only once ever on this device". */
+const SPLASH_SESSION_KEY = 'soac_splash_shown';
+
 /* ── Inner app — reads auth loading state ── */
 function AppInner() {
   const { loading } = useAuth();
-  const [introDone, setIntroDone]   = useState(false);
+  const alreadyShownRef = useRef(sessionStorage.getItem(SPLASH_SESSION_KEY) === '1');
+  const [introDone, setIntroDone]   = useState(alreadyShownRef.current);
   const [splashFading, setSplashFading] = useState(false);
-  const [splashGone,   setSplashGone]   = useState(false);
+  const [splashGone,   setSplashGone]   = useState(alreadyShownRef.current);
+
+  const handleIntroDone = () => {
+    sessionStorage.setItem(SPLASH_SESSION_KEY, '1');
+    setIntroDone(true);
+  };
 
   /* Once both the real auth check and the minimum 2-cycle intro are done,
      the Router mounts UNDERNEATH the still-fully-opaque splash and gets a
@@ -191,7 +204,7 @@ function AppInner() {
        the real page underneath since a position:fixed full-viewport overlay
        with no pointer-events:none still captures the pointer regardless of
        opacity. */
-    if (!ready || fadeStartedRef.current) return;
+    if (!ready || fadeStartedRef.current || alreadyShownRef.current) return;
     fadeStartedRef.current = true;
     setSplashFading(true);
     const t = setTimeout(() => setSplashGone(true), 400);
@@ -209,7 +222,7 @@ function AppInner() {
     <>
       <InstallPrompt />
       {!splashGone && (
-        <LoadingSplash onIntroDone={() => setIntroDone(true)} fadingOut={splashFading} />
+        <LoadingSplash onIntroDone={handleIntroDone} fadingOut={splashFading} />
       )}
       {ready && (
       <Router>
