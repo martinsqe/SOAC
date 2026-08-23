@@ -38,9 +38,31 @@ import cf from './ClubsFeed.module.css';
    Sound is a session-wide preference (see ClubsFeed below), not per-slide —
    tap unmute once and every video for the rest of the session plays with
    sound, matching how the user actually expects a Reels-style feed to work. */
-function Slide({ video, mode, soundOn, onToggleSound, registerRef }) {
+function Slide({ video, mode, soundOn, onToggleSound, observerRef }) {
   const active  = mode === 'active';
   const mounted = mode !== 'idle';
+
+  /* Stable ref callback for the WHOLE lifetime of this Slide instance — only
+     ever recreated if video.videoId itself changes, which never happens for
+     a mounted instance (the same array item keeps the same object identity).
+     This used to be manufactured fresh in the parent's render on every
+     re-render of ClubsFeed (any re-render, not just scrolling — e.g. an
+     unrelated poll in a layout higher up the tree), which meant React
+     detached and reattached this ref on every single one of those renders.
+     Reattaching churns the IntersectionObserver's observe/unobserve for
+     every slide constantly, and re-observing an element mid-scroll can
+     misfire the observer callback for a slide that's only partially in
+     view — which could flip activeIndex off this slide and back again,
+     destroying and recreating its player (resetting it to muted, from 0). */
+  const slideElRef = useRef(null);
+  const registerSlideEl = useCallback((el) => {
+    if (slideElRef.current && slideElRef.current !== el) {
+      observerRef.current?.unobserve(slideElRef.current);
+    }
+    slideElRef.current = el;
+    if (el) observerRef.current?.observe(el);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [video.videoId]);
 
   const mountElRef = useRef(null);
   const playerRef  = useRef(null);
@@ -160,7 +182,7 @@ function Slide({ video, mode, soundOn, onToggleSound, registerRef }) {
   }, [soundOn, active]);
 
   return (
-    <div className={cf.slide} ref={registerRef} data-video-id={video.videoId}>
+    <div className={cf.slide} ref={registerSlideEl} data-video-id={video.videoId}>
       {/* Poster stays visible underneath until the player has actually
          signalled ready — a fresh player is blank/white for a moment while
          YouTube's embed page and chrome load, which otherwise reads as a
@@ -228,7 +250,6 @@ export default function ClubsFeed() {
   const [soundOn, setSoundOn] = useState(false);
 
   const containerRef = useRef(null);
-  const slideRefs     = useRef(new Map());
   /* Every video ID ever shown this session — sent back as `exclude` so
      "load more" prefers genuinely new videos over immediate repeats. A ref
      (not state) since it's read inside the fetch call, never rendered. */
@@ -299,8 +320,9 @@ export default function ClubsFeed() {
      intersecting elements re-fires the callback, which could transiently
      flip activeIndex away from and back to the slide already playing —
      unmounting/remounting its player mid-watch, which resets it to muted
-     and restarts it from 0. New elements are observed individually as they
-     mount instead, via registerRef below. */
+     and restarts it from 0. Each Slide observes/unobserves its own element
+     directly (see registerSlideEl in Slide above) via this ref, rather than
+     the parent re-scanning a list on every videos-array change. */
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -315,17 +337,6 @@ export default function ClubsFeed() {
     );
     observerRef.current = observer;
     return () => { observer.disconnect(); observerRef.current = null; };
-  }, []);
-
-  const registerRef = useCallback((videoId) => (el) => {
-    const prev = slideRefs.current.get(videoId);
-    if (prev && prev !== el) observerRef.current?.unobserve(prev);
-    if (el) {
-      slideRefs.current.set(videoId, el);
-      observerRef.current?.observe(el);
-    } else {
-      slideRefs.current.delete(videoId);
-    }
   }, []);
 
   const toggleSound = () => setSoundOn(s => !s);
@@ -380,7 +391,7 @@ export default function ClubsFeed() {
             mode={mode}
             soundOn={soundOn}
             onToggleSound={toggleSound}
-            registerRef={registerRef(v.videoId)}
+            observerRef={observerRef}
           />
         );
       })}
