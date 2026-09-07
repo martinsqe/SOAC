@@ -184,7 +184,7 @@ const sendDM = async (req, res, next) => {
       return res.status(400).json({ message: 'Invalid recipient.' });
     }
 
-    const { rows: check } = await pgPool.query(`SELECT id FROM users WHERE id = $1`, [other]);
+    const { rows: check } = await pgPool.query(`SELECT id, role FROM users WHERE id = $1`, [other]);
     if (!check.length) return res.status(404).json({ message: 'User not found.' });
 
     const { rows: ur } = await pgPool.query(`SELECT avatar FROM users WHERE id = $1`, [me]);
@@ -204,12 +204,22 @@ const sendDM = async (req, res, next) => {
       },
     });
 
+    /* DMs are cross-role (student <-> coordinator <-> admin all share this
+       one endpoint), so the notification's destination has to match the
+       RECIPIENT's own portal — a coordinator or admin sent to /student/messages
+       would land on a route they don't have access to. Admin has no dedicated
+       /admin/messages page; their own DMs live inside Monitor Chats' "DMs" tab. */
+    const messagesUrl =
+      check[0].role === 'coordinator' ? '/coordinator/messages' :
+      check[0].role === 'admin'       ? '/admin/chats' :
+      '/student/messages';
+
     notifyUser({
       userId: other,
       title:  req.user.name,
       body:   content.slice(0, 120),
       type:   'message',
-      url:    '/student/messages',
+      url:    messagesUrl,
     }).catch(() => {});
   } catch (err) { next(err); }
 };
