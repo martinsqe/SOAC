@@ -15,10 +15,10 @@ const NAV = [
   {
     section: 'Overview', items: [
       { to: '/admin',         label: 'Dashboard',     end: true },
-      { to: '/admin/notifications', label: 'Notifications' },
       { to: '/admin/clubs',   label: 'All Clubs'     },
       { to: '/admin/members', label: 'All Members'   },
       { to: '/admin/events',  label: 'Events'        },
+      { to: '/admin/notifications', label: 'Notifications' },
     ],
   },
   {

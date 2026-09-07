@@ -15,11 +15,11 @@ const AVATAR_BASE   = '/uploads/avatars/';
 
 const NAV = [
   { to: '/coordinator',           label: 'Dashboard',  end: true },
-  { to: '/coordinator/notifications', label: 'Notifications'    },
   { to: '/coordinator/members',   label: 'Members'             },
   { to: '/coordinator/requests',  label: 'Requests'            },
   { to: '/coordinator/messages',  label: 'Messages'            },
   { to: '/coordinator/events',    label: 'Events'              },
+  { to: '/coordinator/notifications', label: 'Notifications'    },
   { to: '/coordinator/leaders',   label: 'Leadership'          },
   { to: '/coordinator/soac',      label: 'SOAC News'           },
   { to: '/coordinator/calendar',  label: 'College Calendar'    },
