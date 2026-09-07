@@ -15,6 +15,7 @@ const AVATAR_BASE   = '/uploads/avatars/';
 
 const NAV = [
   { to: '/coordinator',           label: 'Dashboard',  end: true },
+  { to: '/coordinator/notifications', label: 'Notifications'    },
   { to: '/coordinator/members',   label: 'Members'             },
   { to: '/coordinator/requests',  label: 'Requests'            },
   { to: '/coordinator/messages',  label: 'Messages'            },
@@ -101,8 +102,27 @@ function CoordLayoutInner() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [unreadGroup, setUnreadGroup] = useState(0);
   const [unreadDMs,   setUnreadDMs]   = useState(0);
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
 
   const unreadMsgs = unreadGroup + unreadDMs;
+
+  /* Poll unread notification count every 15 s */
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { count } = await api.get('/users/me/notifications/unread-count');
+        setUnreadNotifs(count || 0);
+      } catch (_) {}
+    };
+    load();
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
+  }, []);
+
+  /* Clear badge immediately when the coordinator opens Notifications */
+  useEffect(() => {
+    if (location.pathname.includes('/notifications')) setUnreadNotifs(0);
+  }, [location.pathname]);
 
   /* Poll club group chat for messages from others since last visit */
   useEffect(() => {
@@ -237,6 +257,9 @@ function CoordLayoutInner() {
             <span className={s.navLabel}>{label}</span>
             {to === '/coordinator/messages' && unreadMsgs > 0 && (
               <span className={s.navBadge}>{unreadMsgs > 99 ? '99+' : unreadMsgs}</span>
+            )}
+            {to === '/coordinator/notifications' && unreadNotifs > 0 && (
+              <span className={s.navBadge}>{unreadNotifs > 99 ? '99+' : unreadNotifs}</span>
             )}
           </NavLink>
         ))}

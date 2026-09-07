@@ -50,6 +50,7 @@ import {
 import StudentMessages from './pages/Student/StudentMessages';
 import ClubsFeed from './pages/Student/ClubsFeed';
 import WallOfFame from './pages/WallOfFame/WallOfFame';
+import NotificationsPage from './pages/Notifications/NotificationsPage';
 
 /* Coordinator layout + pages */
 import CoordRoute     from './components/CoordRoute/CoordRoute';
@@ -258,6 +259,7 @@ function AppInner() {
           <Route path="chats"           element={<AdminMonitorChats />} />
           <Route path="reports"         element={<AdminReports />} />
           <Route path="audit"           element={<AdminAuditLog />} />
+          <Route path="notifications"   element={<NotificationsPage />} />
         </Route>
 
         {/* ── Student routes (protected) ── */}
@@ -272,6 +274,7 @@ function AppInner() {
           <Route path="messages"      element={<StudentMessages />} />
           <Route path="profile"       element={<StudentProfile />} />
           <Route path="calendar"      element={<CalendarView />} />
+          <Route path="notifications" element={<NotificationsPage />} />
         </Route>
 
         {/* ── Coordinator routes (protected) ── */}
@@ -287,6 +290,7 @@ function AppInner() {
           <Route path="my-club"      element={<CoordMyClub />} />
           <Route path="calendar"     element={<CalendarView />} />
           <Route path="reports"      element={<CoordReports />} />
+          <Route path="notifications" element={<NotificationsPage />} />
         </Route>
       </Routes>
     </Router>

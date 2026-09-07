@@ -563,8 +563,8 @@ const createAttendanceSession = async (req, res, next) => {
               const msg = CONSISTENCY_MESSAGES[Math.floor(Math.random() * CONSISTENCY_MESSAGES.length)];
               const title = 'Consistency Champion! +100 bonus coins';
               await client.query(
-                `INSERT INTO member_notifications (user_id, club_id, title, body, type)
-                 VALUES ($1::int, $2::bigint, $3, $4, 'achievement')`,
+                `INSERT INTO member_notifications (user_id, club_id, title, body, type, url)
+                 VALUES ($1::int, $2::bigint, $3, $4, 'achievement', '/student/profile')`,
                 [r.user_id, clubId, title, msg]
               );
               pendingPushes.push({ userId: r.user_id, title, body: msg });

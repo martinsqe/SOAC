@@ -416,6 +416,9 @@ const ensureSoacTables = async () => {
     )
   `);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_member_notif_user ON member_notifications(user_id, created_at DESC)`);
+  /* Migration: url wasn't originally stored (only ever passed through to the push
+     payload) — added so the in-app Notifications page can deep-link, not just push. */
+  await pgPool.query(`ALTER TABLE member_notifications ADD COLUMN IF NOT EXISTS url VARCHAR(500) NOT NULL DEFAULT '/'`);
 
   /* ── Live scoreboards (sports clubs) ───────────────────────────────────── */
   await pgPool.query(`

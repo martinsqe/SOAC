@@ -13,6 +13,7 @@ const AVATAR_BASE = '/uploads/avatars/';
 
 const NAV_MAIN = [
   { to: '/student',              icon: '▣',  label: 'Dashboard',  end: true },
+  { to: '/student/notifications', icon: '🔔', label: 'Notifications'        },
   { to: '/student/events',       icon: '📅', label: 'Events'                },
   { to: '/student/clubs',        icon: '🏆', label: 'My Clubs'              },
   { to: '/student/clubs-feed',   icon: '🎬', label: 'Clubs Feed'            },
@@ -32,6 +33,7 @@ export default function StudentLayout() {
   const [mobileOpen,  setMobileOpen]  = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [unreadMsgs,  setUnreadMsgs]  = useState(0);
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
 
   /* Poll unread DM count every 30 s */
   useEffect(() => {
@@ -46,6 +48,24 @@ export default function StudentLayout() {
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
   }, []);
+
+  /* Poll unread notification count every 15 s */
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { count } = await api.get('/users/me/notifications/unread-count');
+        setUnreadNotifs(count || 0);
+      } catch (_) {}
+    };
+    load();
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
+  }, []);
+
+  /* Clear badge immediately when the user navigates to /notifications */
+  useEffect(() => {
+    if (location.pathname.includes('/notifications')) setUnreadNotifs(0);
+  }, [location.pathname]);
 
   /* Clear badge immediately when the user navigates to /messages */
   useEffect(() => {
@@ -121,6 +141,9 @@ export default function StudentLayout() {
             className={({ isActive }) => `${s.navLink} ${isActive ? s.navLinkActive : ''}`}
           >
             <span className={s.navLabel}>{label}</span>
+            {to === '/student/notifications' && unreadNotifs > 0 && (
+              <span className={s.navBadge}>{unreadNotifs > 99 ? '99+' : unreadNotifs}</span>
+            )}
           </NavLink>
         ))}
 

@@ -10,9 +10,9 @@ async function notifyUser({ userId, clubId = null, title, body, type, url = '/' 
   console.log(`[notify] notifyUser called: userId=${userId} type=${type}`);
   try {
     await pgPool.query(
-      `INSERT INTO member_notifications (user_id, club_id, title, body, type)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [userId, clubId, title, body, type]
+      `INSERT INTO member_notifications (user_id, club_id, title, body, type, url)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [userId, clubId, title, body, type, url]
     );
   } catch (e) { console.error('[notify] member_notifications insert failed:', e.message); }
 
@@ -43,9 +43,9 @@ async function notifyManyUsers({ userIds, clubId = null, title, body, type, url 
   console.log(`[notify] notifyManyUsers called: userIds=[${userIds}] type=${type}`);
   try {
     await pgPool.query(
-      `INSERT INTO member_notifications (user_id, club_id, title, body, type)
-       SELECT unnest($1::int[]), $2, $3, $4, $5`,
-      [userIds, clubId, title, body, type]
+      `INSERT INTO member_notifications (user_id, club_id, title, body, type, url)
+       SELECT unnest($1::int[]), $2, $3, $4, $5, $6`,
+      [userIds, clubId, title, body, type, url]
     );
   } catch (e) { console.error('[notify] batch insert failed:', e.message); }
 

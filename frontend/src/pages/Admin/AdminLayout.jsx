@@ -15,6 +15,7 @@ const NAV = [
   {
     section: 'Overview', items: [
       { to: '/admin',         label: 'Dashboard',     end: true },
+      { to: '/admin/notifications', label: 'Notifications' },
       { to: '/admin/clubs',   label: 'All Clubs'     },
       { to: '/admin/members', label: 'All Members'   },
       { to: '/admin/events',  label: 'Events'        },
@@ -39,6 +40,7 @@ export default function AdminLayout() {
   const [mobileOpen,    setMobileOpen]    = useState(false);
   const [profileOpen,   setProfileOpen]   = useState(false);
   const [unreadDMs,     setUnreadDMs]     = useState(0);
+  const [unreadNotifs,  setUnreadNotifs]  = useState(0);
 
   /* Poll unread DM count every 5 s */
   const refreshUnread = useCallback(async () => {
@@ -58,6 +60,24 @@ export default function AdminLayout() {
   /* Clear badge immediately when admin opens Monitor Chats */
   useEffect(() => {
     if (location.pathname.startsWith('/admin/chats')) setUnreadDMs(0);
+  }, [location.pathname]);
+
+  /* Poll unread notification count every 15 s */
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { count } = await api.get('/users/me/notifications/unread-count');
+        setUnreadNotifs(count || 0);
+      } catch (_) {}
+    };
+    load();
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
+  }, []);
+
+  /* Clear badge immediately when admin opens Notifications */
+  useEffect(() => {
+    if (location.pathname.startsWith('/admin/notifications')) setUnreadNotifs(0);
   }, [location.pathname]);
 
   /* Sync the OS-level app-icon badge on load — push events already keep it
@@ -138,6 +158,11 @@ export default function AdminLayout() {
                 {to === '/admin/chats' && unreadDMs > 0 && (
                   <span className={styles.navBadge}>
                     {unreadDMs > 99 ? '99+' : unreadDMs}
+                  </span>
+                )}
+                {to === '/admin/notifications' && unreadNotifs > 0 && (
+                  <span className={styles.navBadge}>
+                    {unreadNotifs > 99 ? '99+' : unreadNotifs}
                   </span>
                 )}
               </NavLink>

@@ -1,0 +1,70 @@
+.page { padding: 28px 32px; max-width: 720px; margin: 0 auto; }
+
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+.title  { font-size: 1.6rem; font-weight: 700; color: #0f0a2e; margin: 0 0 4px; }
+.sub    { font-size: 0.85rem; color: #6b7280; margin: 0; }
+
+.markAllBtn {
+  padding: 9px 16px; border-radius: 9px; border: 1.5px solid #e5e7eb;
+  background: #fff; color: #635bff; font-size: 0.82rem; font-weight: 700;
+  cursor: pointer; white-space: nowrap; transition: all 0.15s;
+}
+.markAllBtn:hover:not(:disabled) { border-color: #635bff; background: #635bff0c; }
+.markAllBtn:disabled { opacity: 0.6; cursor: default; }
+
+.filterRow {
+  display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 18px;
+  scrollbar-width: none;
+}
+.filterRow::-webkit-scrollbar { display: none; }
+
+.filterChip {
+  flex: 0 0 auto; padding: 7px 14px; border-radius: 999px; border: 1.5px solid #e5e7eb;
+  background: #fff; color: #6b7280; font-size: 0.8rem; font-weight: 600;
+  cursor: pointer; white-space: nowrap; transition: all 0.15s;
+}
+.filterChip:hover { border-color: #d1d5db; color: #374151; }
+.filterChipOn { background: #635bff; border-color: #635bff; color: #fff; }
+.filterChipOn:hover { background: #5850e6; border-color: #5850e6; color: #fff; }
+
+.section { margin-bottom: 22px; }
+.sectionLabel {
+  font-size: 0.72rem; font-weight: 700; color: #9ca3af; text-transform: uppercase;
+  letter-spacing: 0.05em; margin-bottom: 8px; padding: 0 2px;
+}
+
+.row {
+  display: flex; align-items: flex-start; gap: 12px; width: 100%;
+  padding: 12px 10px; border-radius: 10px; border: none; background: transparent;
+  cursor: pointer; text-align: left; transition: background 0.12s;
+}
+.row:hover { background: #fafafa; }
+.rowUnread { background: #635bff08; }
+.rowUnread:hover { background: #635bff10; }
+
+.dot {
+  flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%;
+  background: #635bff; margin-top: 7px;
+}
+
+.rowBody { flex: 1; min-width: 0; }
+.rowTitle { font-size: 0.9rem; font-weight: 600; color: #0f0a2e; line-height: 1.4; }
+.rowText  { font-size: 0.83rem; color: #6b7280; line-height: 1.4; margin-top: 2px; }
+
+.rowTime { flex: 0 0 auto; font-size: 0.75rem; color: #9ca3af; padding-top: 2px; }
+
+.loadMoreBtn {
+  display: block; margin: 8px auto 0; padding: 9px 22px; border-radius: 9px;
+  border: 1.5px solid #e5e7eb; background: #fff; color: #374151;
+  font-size: 0.82rem; font-weight: 700; cursor: pointer; transition: all 0.15s;
+}
+.loadMoreBtn:hover:not(:disabled) { border-color: #635bff; color: #635bff; }
+.loadMoreBtn:disabled { opacity: 0.6; cursor: default; }
+
+.state { text-align: center; padding: 64px 16px; color: #6b7280; }
+.stateTitle { font-size: 1rem; font-weight: 700; color: #374151; margin: 0 0 4px; }
+.stateSub   { font-size: 0.875rem; color: #9ca3af; margin: 0; }
+
+@media (max-width: 640px) {
+  .page { padding: 16px; }
+}

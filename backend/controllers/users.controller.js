@@ -923,7 +923,7 @@ const getNotifications = async (req, res, next) => {
   try {
     const [notifRes, wofRes] = await Promise.all([
       pgPool.query(
-        `SELECT id, club_id, title, body, type, is_read, created_at
+        `SELECT id, club_id, title, body, type, is_read, created_at, url
          FROM member_notifications
          WHERE user_id = $1 AND is_read = false
          ORDER BY created_at DESC LIMIT 15`,
@@ -945,6 +945,7 @@ const getNotifications = async (req, res, next) => {
         type:      n.type,
         isRead:    n.is_read,
         createdAt: n.created_at,
+        url:       n.url || '/',
       })),
     });
   } catch (err) { next(err); }
@@ -969,6 +970,64 @@ const markNotificationRead = async (req, res, next) => {
     await pgPool.query(
       `UPDATE member_notifications SET is_read = true WHERE id = $1::bigint AND user_id = $2`,
       [req.params.notifId, req.user.id]
+    );
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+};
+
+/* GET /api/users/me/notifications/all  — full history for the Notifications
+   page, paginated, optionally filtered by ?type=. Distinct from
+   getNotifications() above, which is capped at 15 unread-only rows for a
+   dropdown preview — this is the real "every notification, read or not"
+   list a dedicated page needs. */
+const getAllNotifications = async (req, res, next) => {
+  try {
+    const page  = Math.max(1, parseInt(req.query.page,  10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 30));
+    const offset = (page - 1) * limit;
+    const { type } = req.query;
+
+    const values  = [req.user.id];
+    const clauses = ['user_id = $1'];
+    if (type) {
+      values.push(type);
+      clauses.push(`type = $${values.length}`);
+    }
+    values.push(limit, offset);
+
+    const { rows } = await pgPool.query(
+      `SELECT id, club_id, title, body, type, is_read, created_at, url,
+              COUNT(*) OVER() AS total_count
+       FROM member_notifications
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY created_at DESC
+       LIMIT $${values.length - 1} OFFSET $${values.length}`,
+      values
+    );
+
+    const total = rows[0]?.total_count ? Number(rows[0].total_count) : 0;
+    res.json({
+      notifications: rows.map(n => ({
+        id:        String(n.id),
+        clubId:    n.club_id ? String(n.club_id) : null,
+        title:     n.title,
+        body:      n.body,
+        type:      n.type,
+        isRead:    n.is_read,
+        createdAt: n.created_at,
+        url:       n.url || '/',
+      })),
+      pagination: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) },
+    });
+  } catch (err) { next(err); }
+};
+
+/* PATCH /api/users/me/notifications/read-all */
+const markAllNotificationsRead = async (req, res, next) => {
+  try {
+    await pgPool.query(
+      `UPDATE member_notifications SET is_read = true WHERE user_id = $1 AND is_read = false`,
+      [req.user.id]
     );
     res.json({ ok: true });
   } catch (err) { next(err); }
@@ -1080,4 +1139,4 @@ const assignClub = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, create, update, remove, stats, auditLog, myClubs, updateProfile, assignClub, myCoins, myEventRegistrations, myClubLeaderboards, weeklyEvaluation, getNotifications, unreadNotificationCount, markNotificationRead, myActivity };
+module.exports = { getAll, create, update, remove, stats, auditLog, myClubs, updateProfile, assignClub, myCoins, myEventRegistrations, myClubLeaderboards, weeklyEvaluation, getNotifications, unreadNotificationCount, markNotificationRead, getAllNotifications, markAllNotificationsRead, myActivity };
