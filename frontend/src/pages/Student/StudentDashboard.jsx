@@ -14,19 +14,6 @@ const CAL_TYPE_META = {
   academic: { label: 'Academic', color: '#3b82f6', bg: '#eff6ff' },
 };
 
-/* ── Coin helpers (mirrors backend formula) ── */
-const TIERS = [
-  { min: 1000, label: 'Platinum Elite', color: '#a855f7', bg: '#faf5ff', icon: '💎' },
-  { min: 500,  label: 'Gold Member',    color: '#d97706', bg: '#fffbeb', icon: '🥇' },
-  { min: 200,  label: 'Silver Member',  color: '#64748b', bg: '#f1f5f9', icon: '🥈' },
-  { min: 50,   label: 'Bronze Member',  color: '#92400e', bg: '#fef3c7', icon: '🥉' },
-  { min: 0,    label: 'Newcomer',       color: '#9ca3af', bg: '#f9fafb', icon: '🌱' },
-];
-const getTier = (coins) => TIERS.find(t => coins >= t.min) || TIERS[TIERS.length - 1];
-
-/* Top-3 qualify for the Free Registration award */
-const FREE_REG_RANKS = 3;
-
 function greeting() {
   const h = new Date().getHours();
   if (h < 12) return 'Good morning';
@@ -67,16 +54,18 @@ export default function StudentDashboard() {
 
   /* ── Coin / leaderboard state ── */
   const [myCoins,          setMyCoins]          = useState(0);
-  const [myClubProg,       setMyClubProg]       = useState([]);
-  const [clubLeaderboards, setClubLeaderboards] = useState([]);
-  const [coinsLoading,     setCoinsLoading]     = useState(true);
-
   /* ── College calendar state ── */
   const [calEvents,    setCalEvents]    = useState([]);
   const [calLoading,   setCalLoading]   = useState(true);
 
   /* ── Wall of Fame notification ── */
   const [wofNotif, setWofNotif] = useState(null);
+
+  /* ── SOAC Updates + Notifications preview (replaces the coins/leaderboard cards) ── */
+  const [soacUpdates,  setSoacUpdates]  = useState([]);
+  const [soacLoading,  setSoacLoading]  = useState(true);
+  const [recentNotifs, setRecentNotifs] = useState([]);
+  const [notifsLoading, setNotifsLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
@@ -103,17 +92,11 @@ export default function StudentDashboard() {
     }).finally(() => setLoading(false));
   }, []);
 
-  /* ── Fetch coins + per-club leaderboards ──
-     Students only ever see rankings within their own club(s), never a SOAC-wide list. */
+  /* ── Fetch coins (still used by the hero "Coins" stat) ── */
   useEffect(() => {
-    Promise.all([
-      api.get('/users/me/coins').catch(() => ({ coins: 0, rank: null, clubs: [] })),
-      api.get('/users/me/club-leaderboards?limit=3').catch(() => ({ clubs: [] })),
-    ]).then(([coinsRes, lbRes]) => {
-      setMyCoins(coinsRes.coins || 0);
-      setMyClubProg(coinsRes.clubs || []);
-      setClubLeaderboards(lbRes.clubs || []);
-    }).finally(() => setCoinsLoading(false));
+    api.get('/users/me/coins')
+      .then(d => setMyCoins(d.coins || 0))
+      .catch(() => setMyCoins(0));
   }, []);
 
   /* ── Fetch Wall of Fame notification ── */
@@ -124,6 +107,22 @@ export default function StudentDashboard() {
         if (wof) setWofNotif(wof);
       })
       .catch(() => {});
+  }, []);
+
+  /* ── SOAC Updates preview ── */
+  useEffect(() => {
+    api.get('/announcements/soac')
+      .then(d => setSoacUpdates((d.announcements || []).slice(0, 4)))
+      .catch(() => setSoacUpdates([]))
+      .finally(() => setSoacLoading(false));
+  }, []);
+
+  /* ── Notifications preview ── */
+  useEffect(() => {
+    api.get('/users/me/notifications/all?limit=4')
+      .then(d => setRecentNotifs(d.notifications || []))
+      .catch(() => setRecentNotifs([]))
+      .finally(() => setNotifsLoading(false));
   }, []);
 
   const dismissWofNotif = (id) => {
@@ -152,10 +151,6 @@ export default function StudentDashboard() {
 
   const firstName = user?.name?.split(' ')[0] || 'Student';
   const slotsLeft = 3 - myClubs.length;
-  const myTier    = getTier(myCoins);
-  /* Free Registration is a per-club award — qualifies if top-3 in any of my clubs */
-  const freeRegClubs = clubLeaderboards.filter(c => c.myRank !== null && c.myRank <= FREE_REG_RANKS);
-  const isFreeReg     = freeRegClubs.length > 0;
 
   return (
     <div className={s.page}>
@@ -246,125 +241,61 @@ export default function StudentDashboard() {
         ))}
       </div>
 
-      {/* ── Coins card + Leaderboard ── */}
+      {/* ── SOAC Updates + Notifications ── */}
       <div className={s.rewardRow}>
 
-        {/* Personal coins card */}
-        <div className={s.coinsCard} style={{ borderColor: myTier.color + '40', background: myTier.bg }}>
-          {isFreeReg && (
-            <div className={s.freeRegBanner}>
-              Free Registration Award — Top {FREE_REG_RANKS} in {freeRegClubs.map(c => c.clubName).join(', ')}!
-            </div>
-          )}
-          <div className={s.coinsTop}>
-            <div>
-              <div className={s.coinsTierIcon}>{myTier.icon}</div>
-              <div className={s.coinsTierLabel} style={{ color: myTier.color }}>{myTier.label}</div>
-            </div>
-            <div className={s.coinsMain}>
-              <span className={s.coinsNumber} style={{ color: myTier.color }}>{myCoins}</span>
-              <span className={s.coinsSuffix}>coins</span>
-            </div>
-          </div>
-          {/* Per-club breakdown */}
-          {myClubProg.length > 0 && (
-            <div className={s.coinsBreakdown}>
-              {myClubProg.map((p, i) => (
-                <div key={i} className={s.coinsBkRow}>
-                  <div className={s.coinsBkDot} style={{ background: p.color || '#635BFF' }} />
-                  <span className={s.coinsBkName}>{p.club_name}</span>
-                  <span className={s.coinsBkVal}>{p.xp} XP · <strong>{p.coins}</strong> coins</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {myClubProg.length === 0 && !coinsLoading && (
-            <p className={s.coinsEmpty}>Join clubs and get your progress tracked by coordinators to earn coins.</p>
-          )}
-          <div className={s.coinsHint}>
-            Coins = XP × level multiplier (Expert=3× · Advanced=2× · Intermediate=1.5× · Beginner=1×)
-          </div>
-        </div>
-
-        {/* Per-club leaderboards — students only ever see rankings within their own club(s) */}
+        {/* SOAC Updates */}
         <div className={s.lbCard}>
           <div className={s.lbHead}>
             <div>
-              <div className={s.lbTitle}>Coin Leaderboard</div>
-              <div className={s.lbSub}>Top 3 in each club earn free event registration at year end</div>
+              <div className={s.lbTitle}>SOAC Updates</div>
+              <div className={s.lbSub}>Latest announcements from SOAC</div>
             </div>
+            <button className={s.seeAll} onClick={() => navigate('/student/soac-updates')}>View All</button>
           </div>
-          {coinsLoading ? (
+          {soacLoading ? (
             <div className={s.loadList}>
               {[1,2,3].map(i => <div key={i} className={s.shimmer} style={{ height:44, borderRadius:9 }} />)}
             </div>
-          ) : clubLeaderboards.length === 0 ? (
-            <div className={s.empty}>Join a club to see its coin leaderboard.</div>
+          ) : soacUpdates.length === 0 ? (
+            <div className={s.empty}>No updates yet.</div>
           ) : (
-            <div className={s.lbClubsWrap}>
-              {clubLeaderboards.map(club => {
-                const top     = club.leaderboard;
-                const iInTop  = top.some(e => e.userId === String(user?.id));
-                const gap1    = top[0] ? top[0].coins - club.myCoins : 0;
-                const gap3    = top[2] ? top[2].coins - club.myCoins : (top[1] ? top[1].coins - club.myCoins : 0);
-                return (
-                  <div key={club.clubId} className={s.lbClubSection}>
-                    <div className={s.lbClubName} style={{ color: club.color || '#635BFF' }}>{club.clubName}</div>
-                    {top.length === 0 ? (
-                      <div className={s.empty}>No progress tracked yet in this club.</div>
-                    ) : (
-                      <div className={s.lbList}>
-                        {top.map(entry => {
-                          const isMe = entry.userId === String(user?.id);
-                          return (
-                            <div key={entry.userId}
-                              className={`${s.lbRow} ${isMe ? s.lbRowMe : ''} ${s.lbRowTop}`}>
-                              <div className={s.lbRank}>#{entry.rank}</div>
-                              <div className={s.lbAvatar} style={{ background: (club.color || '#635BFF') + '22', color: club.color || '#635BFF' }}>
-                                {entry.userName?.charAt(0)?.toUpperCase() || '?'}
-                              </div>
-                              <div className={s.lbInfo}>
-                                <span className={s.lbName}>
-                                  {entry.userName}
-                                  {isMe && <span className={s.lbYou}>you</span>}
-                                  {entry.rank <= FREE_REG_RANKS && <span className={s.lbFreeReg}>Free Reg</span>}
-                                </span>
-                                <span className={s.lbMeta}>{entry.xp} XP</span>
-                              </div>
-                              <div className={s.lbCoins}>{entry.coins}</div>
-                            </div>
-                          );
-                        })}
+            <div className={s.updList}>
+              {soacUpdates.map(u => (
+                <button key={u.id} className={s.updRow} onClick={() => navigate('/student/soac-updates')}>
+                  <div className={s.updTitle}>{u.title}</div>
+                  {u.body && <div className={s.updBody}>{u.body}</div>}
+                  <div className={s.updMeta}>{new Date(u.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
-                        {/* Student's own row — only if not already shown above and tracked in this club */}
-                        {!iInTop && club.myRank && (
-                          <>
-                            <div className={s.lbDivider}>· · ·</div>
-                            <div className={`${s.lbRow} ${s.lbRowMe}`}>
-                              <div className={s.lbRank}>#{club.myRank}</div>
-                              <div className={s.lbAvatar} style={{ background: (club.color || '#635BFF') + '22', color: club.color || '#635BFF' }}>
-                                {user?.name?.charAt(0)?.toUpperCase() || '?'}
-                              </div>
-                              <div className={s.lbInfo}>
-                                <span className={s.lbName}>
-                                  {user?.name}
-                                  <span className={s.lbYou}>you</span>
-                                </span>
-                                <span className={s.lbMeta}>
-                                  {gap1 > 0
-                                    ? `${gap1} coins behind #1${gap3 > 0 && gap3 !== gap1 ? ` · ${gap3} to reach Top 3` : ''}`
-                                    : 'You\'re in the top 3!'}
-                                </span>
-                              </div>
-                              <div className={s.lbCoins}>{club.myCoins}</div>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+        {/* Notifications */}
+        <div className={s.lbCard}>
+          <div className={s.lbHead}>
+            <div>
+              <div className={s.lbTitle}>Notifications</div>
+              <div className={s.lbSub}>Everything sent to you</div>
+            </div>
+            <button className={s.seeAll} onClick={() => navigate('/student/notifications')}>View All</button>
+          </div>
+          {notifsLoading ? (
+            <div className={s.loadList}>
+              {[1,2,3].map(i => <div key={i} className={s.shimmer} style={{ height:44, borderRadius:9 }} />)}
+            </div>
+          ) : recentNotifs.length === 0 ? (
+            <div className={s.empty}>No notifications yet.</div>
+          ) : (
+            <div className={s.updList}>
+              {recentNotifs.map(n => (
+                <button key={n.id} className={s.updRow} onClick={() => navigate('/student/notifications')}>
+                  <div className={s.updTitle} style={{ fontWeight: n.isRead ? 600 : 800 }}>{n.title}</div>
+                  {n.body && <div className={s.updBody}>{n.body}</div>}
+                  <div className={s.updMeta}>{new Date(n.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</div>
+                </button>
+              ))}
             </div>
           )}
         </div>

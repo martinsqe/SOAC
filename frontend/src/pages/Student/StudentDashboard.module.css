@@ -132,86 +132,26 @@
 }
 @media (max-width: 900px) { .rewardRow { grid-template-columns: 1fr; } }
 
-/* ── Personal Coins Card ── */
-.coinsCard {
-  border: 2px solid; border-radius: 16px;
-  padding: 20px; display: flex; flex-direction: column; gap: 14px;
-  transition: box-shadow .2s;
-}
-.coinsCard:hover { box-shadow: 0 6px 24px rgba(0,0,0,.08); }
-
-.freeRegBanner {
-  background: linear-gradient(135deg, #d97706, #f59e0b);
-  color: #fff; border-radius: 9px; padding: 8px 14px;
-  font-size: .78rem; font-weight: 700; text-align: center; letter-spacing: .2px;
-}
-
-.coinsTop { display: flex; align-items: center; justify-content: space-between; }
-.coinsTierIcon { font-size: 2rem; line-height: 1; }
-.coinsTierLabel { font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; margin-top: 4px; }
-
-.coinsMain { display: flex; align-items: baseline; gap: 5px; }
-.coinsNumber { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.4rem; font-weight: 900; line-height: 1; }
-.coinsSuffix { font-size: .875rem; font-weight: 700; color: #9ca3af; }
-
-.coinsRank { font-size: .78rem; font-weight: 700; color: #6b7280; margin-top: -8px; }
-
-.coinsBreakdown { display: flex; flex-direction: column; gap: 6px; }
-.coinsBkRow { display: flex; align-items: center; gap: 8px; }
-.coinsBkDot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.coinsBkName { flex: 1; font-size: .78rem; font-weight: 600; color: #374151; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.coinsBkVal { font-size: .75rem; color: #9ca3af; flex-shrink: 0; }
-.coinsBkVal strong { color: #374151; }
-
-.coinsEmpty { font-size: .78rem; color: #9ca3af; text-align: center; line-height: 1.6; margin: 0; }
-.coinsHint {
-  font-size: .68rem; color: #9ca3af; line-height: 1.5;
-  border-top: 1px solid rgba(0,0,0,.06); padding-top: 10px; margin-top: 2px;
-}
-
-/* ── Leaderboard Card ── */
+/* ── SOAC Updates / Notifications cards — plain, no color-coding ── */
 .lbCard {
   background: #fff; border: 1.5px solid #f0f0f5;
   border-radius: 16px; padding: 20px;
 }
-.lbHead { margin-bottom: 16px; }
+.lbHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
 .lbTitle { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1rem; font-weight: 800; color: #0f172a; }
 .lbSub { font-size: .75rem; color: #9ca3af; margin-top: 3px; }
 
-.lbClubsWrap { display: flex; flex-direction: column; gap: 20px; }
-.lbClubSection + .lbClubSection { padding-top: 16px; border-top: 1.5px solid #f0f0f5; }
-.lbClubName { font-size: .8rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
-
-.lbList { display: flex; flex-direction: column; gap: 6px; }
-.lbRow {
-  display: flex; align-items: center; gap: 10px;
+.updList { display: flex; flex-direction: column; gap: 4px; }
+.updRow {
+  display: block; width: 100%; text-align: left;
   padding: 10px 12px; border-radius: 10px;
-  background: #fafafa; border: 1.5px solid transparent;
-  transition: border-color .14s, background .14s;
+  background: transparent; border: none; cursor: pointer;
+  transition: background .14s;
 }
-.lbRowTop  { background: #fffbeb; border-color: #fde68a; }
-.lbRowMe   { background: #f0fdf4; border-color: #6ee7b7; }
-.lbDivider { text-align: center; color: #d1d5db; font-size: 13px; letter-spacing: 4px; padding: 4px 0; }
-
-.lbRank { width: 28px; font-size: .875rem; font-weight: 800; text-align: center; flex-shrink: 0; color: #6b7280; }
-.lbAvatar {
-  width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center;
-  font-size: .875rem; font-weight: 800;
-}
-.lbInfo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.lbName { font-size: .875rem; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 5px; }
-.lbMeta { font-size: .72rem; color: #9ca3af; }
-.lbYou {
-  font-size: .65rem; font-weight: 800; background: #d1fae5; color: #059669;
-  padding: 1px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: .3px;
-}
-.lbFreeReg {
-  font-size: .65rem; font-weight: 800;
-  background: linear-gradient(135deg,#d97706,#f59e0b); color: #fff;
-  padding: 1px 7px; border-radius: 4px; text-transform: uppercase; letter-spacing: .3px;
-}
-.lbCoins { font-size: .875rem; font-weight: 800; flex-shrink: 0; }
+.updRow:hover { background: #fafafa; }
+.updTitle { font-size: .85rem; font-weight: 600; color: #0f172a; line-height: 1.4; }
+.updBody  { font-size: .78rem; color: #6b7280; line-height: 1.4; margin-top: 2px; }
+.updMeta  { font-size: .7rem; color: #9ca3af; margin-top: 4px; }
 
 @keyframes shimmer {
   0%   { background-position: -400px 0; }
