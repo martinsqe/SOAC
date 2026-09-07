@@ -93,6 +93,19 @@ export default function CoordEvents() {
   const [certLoading,    setCertLoading]    = useState(false);
   const [certFinalizing, setCertFinalizing] = useState(false);
 
+  /* ── Attendance state — every active club member, marked present/absent
+     per day of the event; local edits are held here until "Save" pushes
+     them for that day. ── */
+  const [attendMembers,   setAttendMembers]   = useState([]);
+  const [attendSessions,  setAttendSessions]  = useState([]);
+  const [attendMarks,     setAttendMarks]     = useState({}); // `${sessionId}:${userId}` -> 'present' | 'absent'
+  const [attendLoading,   setAttendLoading]   = useState(false);
+  const [attendSaving,    setAttendSaving]    = useState(null); // sessionId currently saving, or null
+  const [attendDirty,     setAttendDirty]     = useState(new Set()); // sessionIds with unsaved edits
+  const [newDayDate,      setNewDayDate]      = useState('');
+  const [newDayLabel,     setNewDayLabel]     = useState('');
+  const [addingDay,       setAddingDay]       = useState(false);
+
   /* ── Narrative (coordinator-written report text) ── */
   const [reportNarrative, setReportNarrative] = useState({
     event_date: '', association: '', objective: '', key_highlights: '', outcome: '', acknowledgments: '', remarks: '',
@@ -399,6 +412,86 @@ export default function CoordEvents() {
       showToast(err.message || 'Failed to issue certificates.', 'err');
     } finally {
       setCertFinalizing(false);
+    }
+  };
+
+  /* ── Attendance ── */
+  const loadAttendance = async (eventId) => {
+    setAttendLoading(true);
+    try {
+      const d = await api.get(`/events/${eventId}/attendance`);
+      setAttendMembers(d.members || []);
+      setAttendSessions(d.sessions || []);
+      const marks = {};
+      (d.records || []).forEach(r => { marks[`${r.session_id}:${r.user_id}`] = r.status; });
+      setAttendMarks(marks);
+      setAttendDirty(new Set());
+    } catch (err) {
+      setAttendMembers([]);
+      setAttendSessions([]);
+      showToast(err.message || 'Failed to load attendance.', 'err');
+    } finally {
+      setAttendLoading(false);
+    }
+  };
+
+  const handleAddDay = async () => {
+    if (!regEvent || !newDayDate) return;
+    setAddingDay(true);
+    try {
+      const { session } = await api.post(`/events/${regEvent._id}/attendance/sessions`, {
+        date: newDayDate, label: newDayLabel.trim(),
+      });
+      setAttendSessions(prev => [...prev, session].sort((a, b) => a.session_date.localeCompare(b.session_date)));
+      setNewDayDate('');
+      setNewDayLabel('');
+    } catch (err) {
+      showToast(err.message || 'Failed to add attendance day.', 'err');
+    } finally {
+      setAddingDay(false);
+    }
+  };
+
+  const handleDeleteDay = async (sessionId) => {
+    if (!regEvent) return;
+    try {
+      await api.delete(`/events/${regEvent._id}/attendance/sessions/${sessionId}`);
+      setAttendSessions(prev => prev.filter(s => s.id !== sessionId));
+      setAttendMarks(prev => {
+        const next = { ...prev };
+        Object.keys(next).forEach(k => { if (k.startsWith(`${sessionId}:`)) delete next[k]; });
+        return next;
+      });
+    } catch (err) {
+      showToast(err.message || 'Failed to remove attendance day.', 'err');
+    }
+  };
+
+  const toggleMark = (sessionId, userId) => {
+    const key = `${sessionId}:${userId}`;
+    setAttendMarks(prev => ({
+      ...prev,
+      [key]: prev[key] === 'present' ? 'absent' : 'present',
+    }));
+    setAttendDirty(prev => new Set(prev).add(sessionId));
+  };
+
+  const handleSaveDay = async (sessionId) => {
+    if (!regEvent) return;
+    setAttendSaving(sessionId);
+    try {
+      const records = attendMembers.map(m => ({
+        userId: m.id,
+        userName: m.name,
+        status: attendMarks[`${sessionId}:${m.id}`] === 'present' ? 'present' : 'absent',
+      }));
+      await api.patch(`/events/${regEvent._id}/attendance/sessions/${sessionId}`, { records });
+      setAttendDirty(prev => { const next = new Set(prev); next.delete(sessionId); return next; });
+      showToast('Attendance saved.');
+    } catch (err) {
+      showToast(err.message || 'Failed to save attendance.', 'err');
+    } finally {
+      setAttendSaving(null);
     }
   };
 
@@ -1275,6 +1368,11 @@ export default function CoordEvents() {
                 className={`${es.regsSubTab} ${regsTab === 'certifications' ? es.regsSubTabOn : ''}`}
                 onClick={() => { setRegsTab('certifications'); loadCertPreview(regEvent._id); }}>
                 Certifications {certPreview?.alreadyFinalizedAt && <span className={es.declaredBadge} style={{ background: '#dcfce7', color: '#16a34a' }}>Issued</span>}
+              </button>
+              <button
+                className={`${es.regsSubTab} ${regsTab === 'attendance' ? es.regsSubTabOn : ''}`}
+                onClick={() => { setRegsTab('attendance'); loadAttendance(regEvent._id); }}>
+                Attendance {attendSessions.length > 0 && <span className={es.declaredBadge}>{attendSessions.length}</span>}
               </button>
             </div>
 
@@ -2608,6 +2706,110 @@ export default function CoordEvents() {
                     </>
                   );
                 })()}
+              </div>
+            )}
+
+            {/* ── ATTENDANCE TAB — every active club member, marked present/
+               absent per day of the event. Roster is the whole club (not just
+               registrants), matching how club-meeting attendance already
+               works elsewhere in the coordinator dashboard. ── */}
+            {regsTab === 'attendance' && (
+              <div className={es.reportPanel}>
+                <div className={es.reportSectionTitle}>Add an attendance day</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
+                  <input
+                    type="date"
+                    className={es.regsSearch}
+                    style={{ maxWidth: 170 }}
+                    value={newDayDate}
+                    onChange={e => setNewDayDate(e.target.value)}
+                  />
+                  <input
+                    type="text"
+                    className={es.regsSearch}
+                    style={{ maxWidth: 200 }}
+                    placeholder="Label (optional) — e.g. Day 1"
+                    value={newDayLabel}
+                    onChange={e => setNewDayLabel(e.target.value)}
+                  />
+                  <button
+                    className={es.saveDeclareBtn}
+                    style={{ padding: '8px 18px' }}
+                    onClick={handleAddDay}
+                    disabled={!newDayDate || addingDay}>
+                    {addingDay ? 'Adding…' : '+ Add Day'}
+                  </button>
+                </div>
+
+                {attendLoading ? (
+                  <div className={es.reportPlaceholder}>Loading attendance…</div>
+                ) : attendMembers.length === 0 ? (
+                  <div className={es.reportPlaceholder}>This club has no active members yet.</div>
+                ) : attendSessions.length === 0 ? (
+                  <div className={es.reportPlaceholder}>No attendance days added yet — add one above to start recording.</div>
+                ) : (
+                  <div className={es.regsTableWrap} style={{ overflowX: 'auto' }}>
+                    <table className={es.regsTable} style={{ minWidth: 480 + attendSessions.length * 150 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ position: 'sticky', left: 0, background: '#fafafa' }}>Member</th>
+                          {attendSessions.map(s => (
+                            <th key={s.id} style={{ textAlign: 'center', minWidth: 140 }}>
+                              <div>{s.session_label || new Date(s.session_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</div>
+                              {s.session_label && (
+                                <div style={{ fontWeight: 400, fontSize: '.72rem', color: '#9ca3af' }}>
+                                  {new Date(s.session_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                </div>
+                              )}
+                              <div style={{ display: 'flex', gap: 4, justifyContent: 'center', marginTop: 4 }}>
+                                <button
+                                  className={es.saveDeclareBtn}
+                                  style={{ padding: '3px 10px', fontSize: '.72rem' }}
+                                  onClick={() => handleSaveDay(s.id)}
+                                  disabled={attendSaving === s.id || !attendDirty.has(s.id)}>
+                                  {attendSaving === s.id ? 'Saving…' : attendDirty.has(s.id) ? 'Save' : 'Saved'}
+                                </button>
+                                <button
+                                  className={es.delBtn}
+                                  style={{ padding: '3px 8px', fontSize: '.72rem' }}
+                                  onClick={() => handleDeleteDay(s.id)}
+                                  title="Remove this attendance day">
+                                  ✕
+                                </button>
+                              </div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {attendMembers.map(m => (
+                          <tr key={m.id}>
+                            <td className={es.regsName} style={{ position: 'sticky', left: 0, background: '#fff' }}>{m.name}</td>
+                            {attendSessions.map(s => {
+                              const status = attendMarks[`${s.id}:${m.id}`] === 'present' ? 'present' : 'absent';
+                              const present = status === 'present';
+                              return (
+                                <td key={s.id} style={{ textAlign: 'center' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleMark(s.id, m.id)}
+                                    style={{
+                                      padding: '5px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                                      fontSize: '.75rem', fontWeight: 700,
+                                      background: present ? '#dcfce7' : '#fee2e2',
+                                      color:      present ? '#16a34a' : '#dc2626',
+                                    }}>
+                                    {present ? 'Present' : 'Absent'}
+                                  </button>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
 

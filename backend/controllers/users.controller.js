@@ -442,7 +442,7 @@ const myActivity = async (req, res, next) => {
     if (!uRows.length) return res.status(404).json({ message: 'Not found.' });
     const { email, name } = uRows[0];
 
-    const [regRes, psContribRes, bgeContribRes] = await Promise.all([
+    const [regRes, psContribRes, bgeContribRes, attendRes] = await Promise.all([
       /* Events this student registered for — with all coin totals per event */
       pgPool.query(
         `SELECT er.id AS registration_id, er.event_id, er.event_title, er.registered_at,
@@ -521,6 +521,27 @@ const myActivity = async (req, res, next) => {
          ORDER BY ct.created_at DESC`,
         [userId]
       ),
+      /* Event-day attendance percentage per club this student is an active member
+         of — across every attendance day recorded for ANY event that club has
+         organized, not just events this student personally registered for (the
+         roster a coordinator records against is the whole club, per
+         eventAttendance.controller.js). LEFT JOIN so a day with no record yet for
+         this student still counts toward the denominator (as not-yet-marked,
+         same as absent until recorded) rather than being silently excluded. */
+      pgPool.query(
+        `SELECT c.id AS club_id, c.name AS club_name,
+                COUNT(DISTINCT s.id) AS total_sessions,
+                COUNT(DISTINCT CASE WHEN r.status = 'present' THEN s.id END) AS present_sessions
+         FROM student_clubs sc
+         JOIN clubs c ON c.id = sc.club_id AND c.is_active = true
+         JOIN events e ON e.club_id = c.id AND e.is_active = true
+         JOIN event_attendance_sessions s ON s.event_id = e.id
+         LEFT JOIN event_attendance_records r ON r.session_id = s.id AND r.user_id = $1
+         WHERE sc.user_id = $1 AND sc.is_active = true
+         GROUP BY c.id, c.name
+         ORDER BY c.name`,
+        [userId]
+      ),
     ]);
 
     /* Build event_id → one aggregated row per stat category (not one row per click) —
@@ -582,6 +603,17 @@ const myActivity = async (req, res, next) => {
           contributions: Array.from((contribMap.get(String(r.event_id)) || new Map()).values())
             .map(c => ({ label: c.label, value: c.value, coins: c.coins }))
             .sort((a, b) => b.coins - a.coins),
+        };
+      }),
+      attendance: attendRes.rows.map(a => {
+        const total   = Number(a.total_sessions   || 0);
+        const present = Number(a.present_sessions || 0);
+        return {
+          clubId:          a.club_id,
+          clubName:        a.club_name,
+          totalSessions:   total,
+          presentSessions: present,
+          percentage:      total > 0 ? Math.round((present / total) * 100) : null,
         };
       }),
     });

@@ -3,6 +3,7 @@ const ctrl        = require('../controllers/events.controller');
 const teamCtrl    = require('../controllers/eventTeams.controller');
 const groupCtrl   = require('../controllers/eventGroups.controller');
 const certCtrl    = require('../controllers/certificates.controller');
+const attendCtrl  = require('../controllers/eventAttendance.controller');
 const cd          = require('../controllers/clubDetail.controller');
 const { verifyToken }  = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/requireAdmin');
@@ -70,5 +71,11 @@ router.put ('/:id/certificate-templates/:category/anchors', verifyToken, require
 /* Certifications preview + finalize (coordinator/admin) */
 router.get ('/:id/certifications/preview',  verifyToken, requireCoordOrAdmin, certCtrl.previewCertifications);
 router.post('/:id/certifications/finalize', verifyToken, requireCoordOrAdmin, certCtrl.finalizeCertifications);
+
+/* Event attendance — every active club member, recorded per day of the event (coordinator/admin) */
+router.get   ('/:id/attendance',                        verifyToken, requireCoordOrAdmin, attendCtrl.getAttendance);
+router.post  ('/:id/attendance/sessions',                verifyToken, requireCoordOrAdmin, attendCtrl.createSession);
+router.delete('/:id/attendance/sessions/:sessionId',     verifyToken, requireCoordOrAdmin, attendCtrl.deleteSession);
+router.patch ('/:id/attendance/sessions/:sessionId',     verifyToken, requireCoordOrAdmin, attendCtrl.recordAttendance);
 
 module.exports = router;

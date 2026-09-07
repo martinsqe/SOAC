@@ -572,6 +572,30 @@ export default function StudentProfile() {
               <div className={s.weeklyLoading}>Loading activity…</div>
             ) : (
               <>
+                {/* ── Event Attendance — per club, across every day a coordinator
+                   has recorded for that club's events. Only clubs with at least
+                   one recorded day show up here. ── */}
+                {activityData.attendance?.some(a => a.percentage !== null) && (
+                  <>
+                    <div className={s.actSectionTitle}>Event Attendance</div>
+                    <div style={{ marginBottom: 20 }}>
+                      {activityData.attendance.filter(a => a.percentage !== null).map(a => (
+                        <div key={a.clubId} style={{ marginBottom: 12 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <span style={{ fontSize: '.85rem', fontWeight: 600, color: '#374151' }}>{a.clubName}</span>
+                            <span style={{ fontSize: '.8rem', fontWeight: 700, color: '#635bff' }}>
+                              {a.percentage}% <span style={{ fontWeight: 400, color: '#9ca3af' }}>({a.presentSessions}/{a.totalSessions} days)</span>
+                            </span>
+                          </div>
+                          <div className={s.weeklyProgressBar}>
+                            <div className={s.weeklyProgressFill} style={{ width: `${a.percentage}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+
                 {/* ── Events Participated In ── */}
                 <div className={s.actSectionTitle}>Events Participated In</div>
                 {activityData.registrations?.length > 0 ? activityData.registrations.map((r, i) => {
