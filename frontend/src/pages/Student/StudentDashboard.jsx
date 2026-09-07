@@ -61,11 +61,12 @@ export default function StudentDashboard() {
   /* ── Wall of Fame notification ── */
   const [wofNotif, setWofNotif] = useState(null);
 
-  /* ── SOAC Updates + Notifications preview (replaces the coins/leaderboard cards) ── */
+  /* ── SOAC Updates + My Activity preview (replaces the coins/leaderboard cards).
+     Notifications has its own dedicated sidebar page — not duplicated here. ── */
   const [soacUpdates,  setSoacUpdates]  = useState([]);
   const [soacLoading,  setSoacLoading]  = useState(true);
-  const [recentNotifs, setRecentNotifs] = useState([]);
-  const [notifsLoading, setNotifsLoading] = useState(true);
+  const [myActivity,   setMyActivity]   = useState([]);
+  const [activityLoading, setActivityLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
@@ -117,12 +118,12 @@ export default function StudentDashboard() {
       .finally(() => setSoacLoading(false));
   }, []);
 
-  /* ── Notifications preview ── */
+  /* ── My Activity preview (recent event registrations) ── */
   useEffect(() => {
-    api.get('/users/me/notifications/all?limit=4')
-      .then(d => setRecentNotifs(d.notifications || []))
-      .catch(() => setRecentNotifs([]))
-      .finally(() => setNotifsLoading(false));
+    api.get('/users/me/activity')
+      .then(d => setMyActivity((d.registrations || []).slice(0, 4)))
+      .catch(() => setMyActivity([]))
+      .finally(() => setActivityLoading(false));
   }, []);
 
   const dismissWofNotif = (id) => {
@@ -241,7 +242,7 @@ export default function StudentDashboard() {
         ))}
       </div>
 
-      {/* ── SOAC Updates + Notifications ── */}
+      {/* ── SOAC Updates + My Activity ── */}
       <div className={s.rewardRow}>
 
         {/* SOAC Updates */}
@@ -272,28 +273,33 @@ export default function StudentDashboard() {
           )}
         </div>
 
-        {/* Notifications */}
+        {/* My Activity */}
         <div className={s.lbCard}>
           <div className={s.lbHead}>
             <div>
-              <div className={s.lbTitle}>Notifications</div>
-              <div className={s.lbSub}>Everything sent to you</div>
+              <div className={s.lbTitle}>My Activity</div>
+              <div className={s.lbSub}>Events you've registered for</div>
             </div>
-            <button className={s.seeAll} onClick={() => navigate('/student/notifications')}>View All</button>
+            <button className={s.seeAll} onClick={() => navigate('/student/profile')}>View All</button>
           </div>
-          {notifsLoading ? (
+          {activityLoading ? (
             <div className={s.loadList}>
               {[1,2,3].map(i => <div key={i} className={s.shimmer} style={{ height:44, borderRadius:9 }} />)}
             </div>
-          ) : recentNotifs.length === 0 ? (
-            <div className={s.empty}>No notifications yet.</div>
+          ) : myActivity.length === 0 ? (
+            <div className={s.empty}>No activity yet.</div>
           ) : (
             <div className={s.updList}>
-              {recentNotifs.map(n => (
-                <button key={n.id} className={s.updRow} onClick={() => navigate('/student/notifications')}>
-                  <div className={s.updTitle} style={{ fontWeight: n.isRead ? 600 : 800 }}>{n.title}</div>
-                  {n.body && <div className={s.updBody}>{n.body}</div>}
-                  <div className={s.updMeta}>{new Date(n.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</div>
+              {myActivity.map(r => (
+                <button key={r.eventId} className={s.updRow} onClick={() => navigate('/student/profile')}>
+                  <div className={s.updTitle}>{r.eventTitle}</div>
+                  <div className={s.updBody}>{r.clubName}{r.category ? ` · ${r.category}` : ''}</div>
+                  <div className={s.updMeta}>
+                    {/* eventDate is a free-text display string (e.g. "23 & 24th"), not an
+                       ISO date — shown verbatim, never parsed. registeredAt is a real
+                       timestamp and is the fallback when no eventDate was set. */}
+                    {r.eventDate || (r.registeredAt ? new Date(r.registeredAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—')}
+                  </div>
                 </button>
               ))}
             </div>
