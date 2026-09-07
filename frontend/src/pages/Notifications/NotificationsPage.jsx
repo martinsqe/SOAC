@@ -1,7 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
 import s from './NotificationsPage.module.css';
+
+/* Where "no specific place to go" should land, per role — never the bare '/',
+   which is the public guest homepage and reads as a broken redirect out of
+   the dashboard entirely. Covers both notifications with no url at all and
+   older rows stored before member_notifications tracked one (they default
+   to '/'). */
+const ROLE_HOME = { student: '/student', coordinator: '/coordinator', admin: '/admin' };
 
 /* Buckets the many raw notification `type` values (one per trigger point —
    see notify.js call sites across the backend) into a handful of filter
@@ -61,6 +69,7 @@ const sectionOf = (iso) => {
 
 export default function NotificationsPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState('');
@@ -104,7 +113,8 @@ export default function NotificationsPage() {
       setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, isRead: true } : x));
       api.patch(`/users/me/notifications/${n.id}/read`).catch(() => {});
     }
-    navigate(n.url || '/');
+    const dest = (n.url && n.url !== '/') ? n.url : (ROLE_HOME[user?.role] || '/');
+    navigate(dest);
   };
 
   const filtered = category === 'all'

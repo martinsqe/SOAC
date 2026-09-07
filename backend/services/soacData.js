@@ -420,6 +420,37 @@ const ensureSoacTables = async () => {
      payload) — added so the in-app Notifications page can deep-link, not just push. */
   await pgPool.query(`ALTER TABLE member_notifications ADD COLUMN IF NOT EXISTS url VARCHAR(500) NOT NULL DEFAULT '/'`);
 
+  /* One-time backfill for rows created before the column above existed — they're
+     all sitting at the '/' default, which sends a click straight to the public
+     guest homepage instead of anywhere useful. Reconstructs a real destination
+     from (type, club_id, recipient's role) for the types where that's enough
+     context; anything without enough context to be precise (event/registration/
+     team_assignment reference a specific event, which isn't stored here) is left
+     for the frontend's own role-home fallback rather than guessed at. Only ever
+     touches rows still at the default, so safe to run on every startup. */
+  await pgPool.query(`
+    UPDATE member_notifications n SET url = CASE
+      WHEN n.type = 'message' THEN
+        CASE u.role WHEN 'coordinator' THEN '/coordinator/messages'
+                     WHEN 'admin'       THEN '/admin/chats'
+                     ELSE '/student/messages' END
+      WHEN n.type = 'announcement' THEN
+        CASE WHEN n.club_id IS NOT NULL THEN '/student/clubs/' || n.club_id
+             WHEN u.role = 'coordinator' THEN '/coordinator/soac'
+             ELSE '/student/soac-updates' END
+      WHEN n.type = 'join_request'          THEN '/coordinator/requests'
+      WHEN n.type = 'event_request' THEN
+        CASE WHEN u.role = 'admin' THEN '/admin/events' ELSE '/coordinator/events' END
+      WHEN n.type = 'certificate'           THEN '/student/profile'
+      WHEN n.type = 'wall_of_fame'          THEN '/student/fame'
+      WHEN n.type = 'coordinator_assignment' THEN '/coordinator/my-club'
+      WHEN n.type = 'report_submitted'      THEN '/admin/reports'
+      ELSE n.url
+    END
+    FROM users u
+    WHERE u.id = n.user_id AND n.url = '/'
+  `).catch(err => console.error('[member_notifications] url backfill failed:', err.message));
+
   /* ── Live scoreboards (sports clubs) ───────────────────────────────────── */
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS club_live_scores (
