@@ -26,6 +26,7 @@ router.delete('/:id',  verifyToken, requireAdmin, ctrl.remove);
 
 /* Registration routes */
 router.post('/:id/register',     ctrl.register);                                         /* public            */
+router.post('/:id/team-roster',  ctrl.submitTeamRoster);                                  /* public — Sports Fiesta captain */
 router.get('/:id/registrations', verifyToken, requireCoordOrAdmin, ctrl.listRegistrations); /* admin + coord */
 router.patch('/:id/registrations/:regId', verifyToken, requireAdmin, ctrl.updateRegistration); /* admin only */
 

@@ -1377,7 +1377,44 @@ export default function CoordEvents() {
             </div>
 
             {/* ── REGISTRATIONS LIST ── */}
-            {regsTab === 'list' && (<>
+            {regsTab === 'list' && regEvent?.eventFormat === 'sports_fiesta' && (
+              <div className={es.regsTableWrap} style={{ padding: 16 }}>
+                {regEvent.paymentLink && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize:'.78rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:8 }}>
+                      Payment
+                    </div>
+                    <p style={{ margin: 0 }}>
+                      <a href={regEvent.paymentLink} target="_blank" rel="noreferrer">Payment link ↗</a>
+                    </p>
+                  </div>
+                )}
+                <div>
+                  <div style={{ fontSize:'.78rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:8 }}>
+                    Teams
+                  </div>
+                  {teams.length === 0 ? (
+                    <div className={es.regsEmpty}>
+                      <div style={{ fontSize:'2rem', marginBottom:8 }}>📋</div>
+                      <p>No captain has submitted a team yet.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <p style={{ fontSize:'.85rem', color:'#6b7280', marginBottom:10 }}>
+                        Every team a captain has submitted (this event can have several, each with its own captain)
+                        is ready in the <strong>Teams</strong> tab — rename one, add or remove members, any time. Once
+                        they're how you want them, head to <strong>Fixtures</strong> to schedule matches.
+                      </p>
+                      <button className={es.regsBtn} onClick={() => setRegsTab('teams')}>
+                        Go to Teams ({teams.length}) →
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {regsTab === 'list' && regEvent?.eventFormat !== 'sports_fiesta' && (<>
               <div className={es.regsSearchWrap}>
                 <input
                   className={es.regsSearch}

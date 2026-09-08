@@ -7,6 +7,13 @@ import s from './AdminEvents.module.css';
 const CATS   = ['tech','sports','cultural','annual-fest','health','leadership','community','general'];
 const STATUS = ['upcoming','past'];
 
+/* Sports Fiesta teammates (unlike the captain) never supply a real email on
+   the roster form, so each gets a synthetic @roster.internal placeholder just
+   to satisfy the registrations table's unique-email constraint — never meant
+   to be shown to anyone. Blank it out wherever registrations are displayed. */
+const isPlaceholderEmail = (email) => /@roster\.internal$/i.test(email || '');
+const displayEmail = (email) => isPlaceholderEmail(email) ? '—' : (email || '—');
+
 const CAT_COLOR = {
   tech: '#635BFF', sports: '#FF4757', cultural: '#FF6B9D',
   'annual-fest': '#D32F2F', health: '#00C896', leadership: '#9B2335',
@@ -23,6 +30,19 @@ const EMPTY = {
   date: '', startDate: '', time: '', venue: '',
   description: '', seats: '', highlight: '', registrationUrl: '',
   isFree: true, feeAmount: '',
+};
+
+/* Sports Fiesta events collect the same core details as Other Events
+   (club, category, schedule, venue, description, fee, tags…) plus a
+   roster-size cap the admin decides and a payment link. The captain fills
+   in their own contact details and team member names later via the public
+   event page — the admin just sets how many teammates they're allowed to add. */
+const EMPTY_SF = {
+  title: '', clubId: '', category: 'sports', status: 'upcoming',
+  date: '', startDate: '', time: '', venue: '',
+  description: '', seats: '', highlight: '', registrationUrl: '',
+  isFree: true, feeAmount: '',
+  teamSize: '', paymentLink: '',
 };
 
 const REQ_STATUS_META = {
@@ -81,10 +101,81 @@ function EventCard({ ev, onEdit, onDelete, onViewRegs }) {
   );
 }
 
+/* ── Sports Fiesta Card — the admin sets up the event + roster cap; captains
+   fill in their own contact details and their team's members later via the
+   public event page (the shareable link below). Every one of them (captain
+   included) lands in event_registrations just like an Other Events sign-up,
+   so "Registrations" here opens the exact same panel/CSV export, just
+   showing every team's members instead of individual sign-ups. ── */
+function SportsFiestaCard({ ev, onEdit, onDelete, onViewRegs }) {
+  const imgSrc = ev.imageUrl || (ev.image ? `/images/${ev.image}` : null);
+  const captainSet = !!ev.captainName;
+  const [linkCopied, setLinkCopied] = useState(false);
+  const copyLink = () => {
+    const url = `${window.location.origin}/events/${ev._id}`;
+    navigator.clipboard?.writeText(url).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 1800);
+    }).catch(() => {});
+  };
+
+  return (
+    <div className={s.card}>
+      <div className={s.cardImg}>
+        {imgSrc
+          ? <img src={imgSrc} alt={ev.title} loading="lazy" onError={e => { e.target.style.display = 'none'; }} />
+          : <div className={s.cardImgFallback}>Banner</div>
+        }
+      </div>
+      <div className={s.cardBody}>
+        <div className={s.cardTitle}>{ev.title}</div>
+        <div className={s.cardClub}>Organizer: {ev.club || 'No organizer'}</div>
+        <div className={s.cardMeta}>
+          {ev.date && <span>Date: {ev.date}</span>}
+          {ev.venue && <span>Venue: {ev.venue}</span>}
+          {ev.time && <span>Time: {ev.time}</span>}
+        </div>
+        {/* The event can have several teams, each with its own captain — this
+            card only mirrors the MOST RECENT submission (cheap, no extra
+            join), so it's labelled "Latest", not "The". See the coordinator's
+            Teams tab (or dashboard) for the full list of teams. */}
+        <div className={s.cardMeta}>
+          {captainSet
+            ? <>
+                <span>Latest team: {ev.captainName}</span>
+                {ev.captainEmail && <span>Email: {ev.captainEmail}</span>}
+                {ev.captainPhone && <span>Phone: {ev.captainPhone}</span>}
+              </>
+            : <span>No teams submitted yet</span>
+          }
+        </div>
+        {ev.paymentLink && (
+          <div className={s.cardMeta}>
+            <a href={ev.paymentLink} target="_blank" rel="noreferrer">Payment link ↗</a>
+          </div>
+        )}
+      </div>
+      <div className={s.cardActions}>
+        <button className={s.regsBtn} onClick={() => onViewRegs(ev)}>Registrations</button>
+        <button className={s.editBtn} onClick={() => onEdit(ev)}>Edit</button>
+        <button className={s.delBtn} onClick={() => onDelete(ev._id)}>Delete</button>
+      </div>
+      <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
+        <button className={s.regsBtn} onClick={copyLink} style={{ width: '100%' }} title="Copy the link the captain uses to fill in their team roster">
+          {linkCopied ? 'Link copied ✓' : '🔗 Copy Team Link'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ══ Main AdminEvents ══ */
 export default function AdminEvents() {
   /* ── page tab ── */
   const [pageTab,     setPageTab]     = useState('events');
+
+  /* ── event-format tab (within "All Events"): other | sports_fiesta | galore ── */
+  const [formatTab,   setFormatTab]   = useState('other');
 
   /* ── events state ── */
   const [events,      setEvents]      = useState([]);
@@ -124,6 +215,18 @@ export default function AdminEvents() {
   const [regsLoading, setRegsLoading] = useState(false);
   const [regSearch,   setRegSearch]   = useState('');
   const fileRef = useRef();
+
+  /* ── Sports Fiesta add/edit modal (separate from the Other Events modal, but
+     collects the same core event fields plus captain + roster-cap + payment link) ── */
+  const [sfModal,   setSfModal]   = useState(false); // false | 'add' | 'edit'
+  const [sfForm,    setSfForm]    = useState(EMPTY_SF);
+  const [sfEditing, setSfEditing] = useState(null);
+  const [sfImgFile, setSfImgFile] = useState(null);
+  const [sfImgPrev, setSfImgPrev] = useState('');
+  const [sfTagsStr, setSfTagsStr] = useState('');
+  const [sfSaving,  setSfSaving]  = useState(false);
+  const [sfError,   setSfError]   = useState('');
+  const sfFileRef = useRef();
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
 
@@ -286,6 +389,71 @@ export default function AdminEvents() {
     } catch (err) { setError(err.message); }
   };
 
+  /* ── Sports Fiesta modal handlers ── */
+  const openAddSF = () => {
+    setSfForm(EMPTY_SF); setSfEditing(null);
+    setSfImgFile(null); setSfImgPrev(''); setSfTagsStr(''); setSfError('');
+    setSfModal('add');
+  };
+
+  const openEditSF = (ev) => {
+    setSfForm({
+      title: ev.title, clubId: ev.clubId || '', category: ev.category || 'sports', status: ev.status || 'upcoming',
+      date: ev.date || '', startDate: ev.startDate ? ev.startDate.slice(0, 10) : '',
+      time: ev.time || '', venue: ev.venue || '', description: ev.description || '',
+      seats: ev.seats || '', highlight: ev.highlight || '', registrationUrl: ev.registrationUrl || '',
+      isFree: ev.isFree !== false, feeAmount: ev.feeAmount || '',
+      teamSize: ev.teamSize || '', paymentLink: ev.paymentLink || '',
+    });
+    setSfEditing(ev._id);
+    setSfImgPrev(ev.imageUrl || (ev.image ? `/images/${ev.image}` : ''));
+    setSfImgFile(null); setSfTagsStr((ev.tags || []).join(', ')); setSfError('');
+    setSfModal('edit');
+  };
+
+  const closeSFModal = () => {
+    setSfModal(false); setSfImgFile(null); setSfImgPrev(''); setSfError('');
+  };
+
+  const handleSFFile = (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    setSfImgFile(f);
+    setSfImgPrev(URL.createObjectURL(f));
+  };
+
+  const sfSet = (k) => (e) => setSfForm(p => ({ ...p, [k]: e.target.value }));
+
+  const handleSaveSF = async (e) => {
+    e.preventDefault();
+    if (!sfForm.title.trim())        return setSfError('Event title is required.');
+    if (!sfForm.teamSize || Number(sfForm.teamSize) < 1) return setSfError('Number of team members is required.');
+    setSfSaving(true); setSfError('');
+    try {
+      const fd = new FormData();
+      const { isFree, feeAmount, ...rest } = sfForm;
+      Object.entries(rest).forEach(([k, v]) => fd.append(k, v));
+      fd.append('eventFormat', 'sports_fiesta');
+      fd.append('isFree', isFree);
+      fd.append('feeAmount', isFree ? 0 : Number(feeAmount) || 0);
+      fd.append('tags', JSON.stringify(sfTagsStr.split(',').map(t => t.trim()).filter(Boolean)));
+      if (sfImgFile) fd.append('image', sfImgFile);
+
+      if (sfModal === 'add') {
+        await api.postForm('/events', fd);
+      } else {
+        await api.putForm(`/events/${sfEditing}`, fd);
+      }
+      load();
+      closeSFModal();
+      showToast(sfModal === 'add' ? 'Sports Fiesta event created!' : 'Sports Fiesta event updated!');
+    } catch (err) {
+      setSfError(err.message || 'Failed to save.');
+    } finally {
+      setSfSaving(false);
+    }
+  };
+
   /* Reject a coordinator request */
   const handleReject = async () => {
     if (!rejectModal) return;
@@ -328,7 +496,7 @@ export default function AdminEvents() {
       `"${r.course || ''}"`,
       r.gender || '',
       r.phone || '',
-      r.email || '',
+      isPlaceholderEmail(r.email) ? '' : (r.email || ''),
       r.registered_at ? new Date(r.registered_at).toLocaleString('en-IN') : '',
     ]);
     const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
@@ -392,6 +560,12 @@ export default function AdminEvents() {
     return ms && mq;
   });
 
+  /* "All Events" is split into 3 sub-tabs by event_format; legacy events
+     (created before this feature) have no event_format set and fall back to
+     'other', which keeps them exactly where they already were. */
+  const otherEvents        = filtered.filter(ev => (ev.eventFormat || 'other') === 'other');
+  const sportsFiestaEvents = filtered.filter(ev => ev.eventFormat === 'sports_fiesta');
+
   const pendingCount = requests.filter(r => r.status === 'pending').length;
   const displayReqs  = reqFilter === 'all' ? requests : requests.filter(r => r.status === reqFilter);
 
@@ -417,8 +591,11 @@ export default function AdminEvents() {
               : `${requests.length} total requests · ${pendingCount} pending review`}
           </p>
         </div>
-        {pageTab === 'events' && (
+        {pageTab === 'events' && formatTab === 'other' && (
           <button className={s.addBtn} onClick={openAdd}>+ Add Event</button>
+        )}
+        {pageTab === 'events' && formatTab === 'sports_fiesta' && (
+          <button className={s.addBtn} onClick={openAddSF}>+ Add Sports Fiesta Event</button>
         )}
       </div>
 
@@ -445,42 +622,99 @@ export default function AdminEvents() {
 
       {/* ══════════════ EVENTS TAB ══════════════ */}
       {pageTab === 'events' && (<>
-        <div className={s.filters}>
-          <div className={s.searchWrap}>
-            <svg className={s.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            <input className={s.searchInput} placeholder="Search events or organizers…"
-              value={search} onChange={e => setSearch(e.target.value)} />
-          </div>
-          <div className={s.statusTabs}>
-            {['all','upcoming','past'].map(st => (
-              <button key={st}
-                className={`${s.statusTab} ${statusF === st ? s.statusTabOn : ''}`}
-                style={statusF === st && st === 'upcoming' ? { background:'#00c89618', color:'#007a5e', borderColor:'#00c89640' }
-                     : statusF === st && st === 'past'     ? { background:'#63636314', color:'#555', borderColor:'#88888830' }
-                     : {}}
-                onClick={() => setStatusF(st)}>
-                {st === 'all' ? `All (${events.length})` : st === 'upcoming' ? `Upcoming (${upcoming.length})` : `Past (${past.length})`}
-              </button>
-            ))}
-          </div>
+        {/* ── Event-format sub-tabs ── */}
+        <div className={s.statusTabs} style={{ marginBottom: 20 }}>
+          <button
+            className={`${s.statusTab} ${formatTab === 'other' ? s.statusTabOn : ''}`}
+            onClick={() => setFormatTab('other')}>
+            Other Events {!loading && `(${otherEvents.length})`}
+          </button>
+          <button
+            className={`${s.statusTab} ${formatTab === 'sports_fiesta' ? s.statusTabOn : ''}`}
+            onClick={() => setFormatTab('sports_fiesta')}>
+            Sports Fiesta {!loading && `(${sportsFiestaEvents.length})`}
+          </button>
+          <button
+            className={`${s.statusTab} ${formatTab === 'galore' ? s.statusTabOn : ''}`}
+            onClick={() => setFormatTab('galore')}>
+            Galore
+          </button>
         </div>
 
-        {error && !modal && <div className={s.errorBar}>{error}</div>}
-
-        {loading ? (
-          <div className={s.grid}>{Array.from({ length:6 }).map((_,i) => <div key={i} className={s.skeleton} />)}</div>
-        ) : filtered.length === 0 ? (
-          <div className={s.empty}>
-            <p>No events found</p>
-            <span>Try a different filter or <button onClick={openAdd}>add a new event</button></span>
+        {formatTab === 'other' && (<>
+          <div className={s.filters}>
+            <div className={s.searchWrap}>
+              <svg className={s.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input className={s.searchInput} placeholder="Search events or organizers…"
+                value={search} onChange={e => setSearch(e.target.value)} />
+            </div>
+            <div className={s.statusTabs}>
+              {['all','upcoming','past'].map(st => (
+                <button key={st}
+                  className={`${s.statusTab} ${statusF === st ? s.statusTabOn : ''}`}
+                  style={statusF === st && st === 'upcoming' ? { background:'#00c89618', color:'#007a5e', borderColor:'#00c89640' }
+                       : statusF === st && st === 'past'     ? { background:'#63636314', color:'#555', borderColor:'#88888830' }
+                       : {}}
+                  onClick={() => setStatusF(st)}>
+                  {st === 'all' ? `All (${events.length})` : st === 'upcoming' ? `Upcoming (${upcoming.length})` : `Past (${past.length})`}
+                </button>
+              ))}
+            </div>
           </div>
-        ) : (
-          <div className={s.grid}>
-            {filtered.map(ev => (
-              <EventCard key={ev._id} ev={ev} onEdit={openEdit} onDelete={setDeleteId} onViewRegs={viewRegs} />
-            ))}
+
+          {error && !modal && <div className={s.errorBar}>{error}</div>}
+
+          {loading ? (
+            <div className={s.grid}>{Array.from({ length:6 }).map((_,i) => <div key={i} className={s.skeleton} />)}</div>
+          ) : otherEvents.length === 0 ? (
+            <div className={s.empty}>
+              <p>No events found</p>
+              <span>Try a different filter or <button onClick={openAdd}>add a new event</button></span>
+            </div>
+          ) : (
+            <div className={s.grid}>
+              {otherEvents.map(ev => (
+                <EventCard key={ev._id} ev={ev} onEdit={openEdit} onDelete={setDeleteId} onViewRegs={viewRegs} />
+              ))}
+            </div>
+          )}
+        </>)}
+
+        {formatTab === 'sports_fiesta' && (<>
+          <div className={s.filters}>
+            <div className={s.searchWrap}>
+              <svg className={s.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input className={s.searchInput} placeholder="Search Sports Fiesta events…"
+                value={search} onChange={e => setSearch(e.target.value)} />
+            </div>
+          </div>
+
+          {sfError && !sfModal && <div className={s.errorBar}>{sfError}</div>}
+
+          {loading ? (
+            <div className={s.grid}>{Array.from({ length:3 }).map((_,i) => <div key={i} className={s.skeleton} />)}</div>
+          ) : sportsFiestaEvents.length === 0 ? (
+            <div className={s.empty}>
+              <p>No Sports Fiesta events yet</p>
+              <span>Try a different search or <button onClick={openAddSF}>add a new Sports Fiesta event</button></span>
+            </div>
+          ) : (
+            <div className={s.grid}>
+              {sportsFiestaEvents.map(ev => (
+                <SportsFiestaCard key={ev._id} ev={ev} onEdit={openEditSF} onDelete={setDeleteId} onViewRegs={viewRegs} />
+              ))}
+            </div>
+          )}
+        </>)}
+
+        {formatTab === 'galore' && (
+          <div className={s.empty}>
+            <p>Galore is coming soon</p>
+            <span>This event format is being worked on next.</span>
           </div>
         )}
       </>)}
@@ -767,6 +1001,182 @@ export default function AdminEvents() {
         </div>
       )}
 
+      {/* ══ Sports Fiesta Add / Edit Modal ══ */}
+      {sfModal && (
+        <div className={s.overlay} onClick={closeSFModal}>
+          <div className={s.modal} onClick={e => e.stopPropagation()}>
+            <div className={s.modalHeader}>
+              <div>
+                <div className={s.modalTag}>
+                  {sfModal === 'add' ? 'New Sports Fiesta Event' : 'Edit Sports Fiesta Event'}
+                </div>
+                <h2 className={s.modalTitle}>
+                  {sfModal === 'add' ? 'Add Sports Fiesta Event' : sfForm.title || 'Edit Sports Fiesta Event'}
+                </h2>
+              </div>
+              <button className={s.closeBtn} onClick={closeSFModal}>✕</button>
+            </div>
+
+            <form onSubmit={handleSaveSF} className={s.form}>
+              {/* Image upload */}
+              <div className={s.imgSection}>
+                <div className={s.imgBox} onClick={() => sfFileRef.current.click()}>
+                  {sfImgPrev
+                    ? <img src={sfImgPrev} alt="preview" className={s.imgPreview} />
+                    : <div className={s.imgPlaceholder}><span>Click to upload banner</span></div>
+                  }
+                </div>
+                <input ref={sfFileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleSFFile} />
+                <div className={s.imgHint}>JPG, PNG, WEBP · max 10 MB · Recommended: 16:9</div>
+              </div>
+
+              <div className={s.field}>
+                <label>Event Title <span className={s.req}>*</span></label>
+                <input value={sfForm.title} onChange={sfSet('title')} placeholder="e.g. Sports Fiesta 2027 — Basketball" required />
+              </div>
+
+              <div className={s.row2}>
+                <div className={s.field}>
+                  <label>Club / Organizer</label>
+                  <select value={sfForm.clubId} onChange={sfSet('clubId')}>
+                    <option value="">SOAC · RK University (non-club event)</option>
+                    {clubs.map(cl => (
+                      <option key={cl._id || cl.id} value={cl._id || cl.id}>{cl.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className={s.field}>
+                  <label>Category</label>
+                  <select value={sfForm.category} onChange={sfSet('category')}>
+                    {CATS.map(c => <option key={c} value={c}>{CAT_LABEL[c] || c}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className={s.row2}>
+                <div className={s.field}>
+                  <label>Status</label>
+                  <select value={sfForm.status} onChange={sfSet('status')}>
+                    {STATUS.map(st => <option key={st} value={st}>{st.charAt(0).toUpperCase() + st.slice(1)}</option>)}
+                  </select>
+                </div>
+                <div className={s.field}>
+                  <label>Start Date</label>
+                  <input type="date" value={sfForm.startDate} onChange={sfSet('startDate')} />
+                </div>
+              </div>
+
+              <div className={s.row2}>
+                <div className={s.field}>
+                  <label>Display Date</label>
+                  <input value={sfForm.date} onChange={sfSet('date')} placeholder="e.g. Feb 2–8, 2027" />
+                </div>
+                <div className={s.field}>
+                  <label>Time</label>
+                  <input value={sfForm.time} onChange={sfSet('time')} placeholder="e.g. 9:00 AM onwards" />
+                </div>
+              </div>
+
+              <div className={s.row2}>
+                <div className={s.field}>
+                  <label>Venue</label>
+                  <input value={sfForm.venue} onChange={sfSet('venue')} placeholder="e.g. RKU Main Campus" />
+                </div>
+                <div className={s.field}>
+                  <label>Seats / Availability</label>
+                  <input value={sfForm.seats} onChange={sfSet('seats')} placeholder="e.g. 180 seats left" />
+                </div>
+              </div>
+
+              <div className={s.field}>
+                <label>Description</label>
+                <textarea rows={3} value={sfForm.description} onChange={sfSet('description')} placeholder="Event description…" />
+              </div>
+
+              {/* ── Registration Fee ── */}
+              <div style={{ background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:10, padding:'14px 16px' }}>
+                <div style={{ fontSize:'.78rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:10 }}>
+                  Registration Fee
+                </div>
+                <div style={{ display:'flex', gap:8, marginBottom: sfForm.isFree ? 0 : 12 }}>
+                  {[{ val:true, label:'🎟 Free Entry', active:'#ecfdf5', border:'#059669', text:'#059669' },
+                    { val:false, label:'💳 Paid Event', active:'#fffbeb', border:'#d97706', text:'#d97706' }].map(opt => (
+                    <button key={String(opt.val)} type="button"
+                      onClick={() => setSfForm(p => ({ ...p, isFree: opt.val, feeAmount: opt.val ? '' : p.feeAmount }))}
+                      style={{
+                        flex:1, padding:'8px 12px', border:'1.5px solid',
+                        borderColor: sfForm.isFree === opt.val ? opt.border : '#e5e7eb',
+                        borderRadius:8, background: sfForm.isFree === opt.val ? opt.active : '#fff',
+                        color: sfForm.isFree === opt.val ? opt.text : '#6b7280',
+                        fontSize:'.83rem', fontWeight:600, cursor:'pointer', transition:'all .14s',
+                      }}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                {!sfForm.isFree && (
+                  <div className={s.field}>
+                    <label>Fee Amount <span className={s.req}>*</span></label>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <span style={{ fontWeight:700, fontSize:'1rem', color:'#374151' }}>₹</span>
+                      <input type="number" min="1" step="1" style={{ flex:1, maxWidth:160 }}
+                        value={sfForm.feeAmount}
+                        onChange={e => setSfForm(p => ({ ...p, feeAmount: e.target.value }))}
+                        placeholder="e.g. 100" required={!sfForm.isFree} />
+                      <span style={{ fontSize:'.78rem', color:'#9ca3af', whiteSpace:'nowrap' }}>INR per student</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className={s.row2}>
+                <div className={s.field}>
+                  <label>Tags <span className={s.hint}>(comma-separated)</span></label>
+                  <input value={sfTagsStr} onChange={e => setSfTagsStr(e.target.value)} placeholder="e.g. Mega Fest, 7 Days, All Clubs" />
+                </div>
+                <div className={s.field}>
+                  <label>Highlight <span className={s.hint}>(past events)</span></label>
+                  <input value={sfForm.highlight} onChange={sfSet('highlight')} placeholder="e.g. Best Edition Yet" />
+                </div>
+              </div>
+
+              {/* ── Sports Fiesta specific — the captain fills in their own contact
+                   details and team member names on the public event page; the
+                   admin only decides the roster-size cap and the payment link. ── */}
+              <div style={{ background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:10, padding:'14px 16px', display:'flex', flexDirection:'column', gap:12 }}>
+                <div style={{ fontSize:'.78rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.04em' }}>
+                  Team
+                </div>
+                <div className={s.field} style={{ marginBottom: 0 }}>
+                  <label>Number of Team Members <span className={s.req}>*</span></label>
+                  <input type="number" min="1" step="1" value={sfForm.teamSize} onChange={sfSet('teamSize')}
+                    placeholder="e.g. 5" required />
+                </div>
+                <p style={{ fontSize:'.76rem', color:'#9ca3af', margin:0 }}>
+                  The captain fills in their own contact details and team member names on the public event page — this just sets how many teammates they're allowed to add.
+                </p>
+                <div className={s.field} style={{ marginBottom: 0 }}>
+                  <label>Payment Link</label>
+                  {/* type="text", not "url" — browsers reject a bare domain (no https://)
+                      under native url validation, but that's exactly what the server's
+                      normalizePaymentLink() is meant to accept and fix up. */}
+                  <input type="text" value={sfForm.paymentLink} onChange={sfSet('paymentLink')} placeholder="e.g. https://payment-gateway.com/pay/..." />
+                </div>
+              </div>
+
+              {sfError && <div className={s.formError}>{sfError}</div>}
+
+              <div className={s.modalFooter}>
+                <button type="button" className={s.cancelBtn} onClick={closeSFModal}>Cancel</button>
+                <button type="submit" className={s.saveBtn} disabled={sfSaving}>
+                  {sfSaving ? 'Saving…' : sfModal === 'add' ? 'Create Event' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* ══ Reject Modal ══ */}
       {rejectModal && (
         <div className={s.overlay} onClick={() => setRejectModal(null)}>
@@ -867,7 +1277,7 @@ export default function AdminEvents() {
                               <td>{r.phone || '—'}</td>
                             </>
                           )}
-                          <td className={s.regsEmail}>{r.email || '—'}</td>
+                          <td className={s.regsEmail}>{displayEmail(r.email)}</td>
                           <td className={s.regsDate}>
                             {r.registered_at
                               ? new Date(r.registered_at).toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })

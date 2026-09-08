@@ -874,6 +874,13 @@ const asEvent = (row) => ({
   certificatesFinalizedAt: row.certificates_finalized_at || null,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
+  eventFormat: row.event_format || 'other',
+  captainName: row.captain_name || '',
+  captainEmail: row.captain_email || '',
+  captainPhone: row.captain_phone || '',
+  teamMembers: row.team_members || [],
+  paymentLink: row.payment_link || '',
+  teamSize: Number(row.team_size || 0),
 });
 
 /**

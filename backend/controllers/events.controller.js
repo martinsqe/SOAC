@@ -14,12 +14,54 @@ const EVENT_COLS = [
   'highlight', 'registration_url', 'is_free', 'fee_amount',
   'is_active', 'created_at', 'updated_at', 'fixtures_declared',
   'certificates_finalized_at',
+  'event_format', 'captain_name', 'captain_email', 'captain_phone',
+  'team_members', 'payment_link', 'team_size',
 ].join(', ');
+
+/* team_members is a jsonb column, so its INSERT/UPDATE param must be a valid
+   JSON *string* — re-stringifying (rather than passing the parsed array) keeps
+   this safe from node-pg's array-literal serialization of raw JS arrays. */
+function toTeamMembersJson(raw) {
+  if (!raw) return '[]';
+  try {
+    const parsed = JSON.parse(raw);
+    return JSON.stringify(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return '[]';
+  }
+}
+
+/* Whoever pastes a payment link may leave off the scheme (e.g. "pay.example.com/x")
+   — without one, an <a href> treats it as a relative path on our own site instead
+   of navigating out to the actual payment page. Default to https:// so any link
+   the admin adds always redirects straight there. */
+function normalizePaymentLink(raw) {
+  const link = String(raw || '').trim();
+  if (!link) return '';
+  return /^https?:\/\//i.test(link) ? link : `https://${link}`;
+}
 
 (async () => {
   try {
     await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS fixtures_declared BOOLEAN NOT NULL DEFAULT false`);
     await pgPool.query(`ALTER TABLE event_registrations ADD COLUMN IF NOT EXISTS gender CHAR(1) DEFAULT NULL`);
+    /* event_format drives the 3 admin creation tabs (Other Events / Sports Fiesta /
+       Galore) — a distinct dimension from `category` (sports/cultural/academic/...),
+       which existing sports-specific features (Teams, Fixtures, Scoreboard, cert
+       sport-detection) already key off. Every pre-existing event defaults to
+       'other', so it keeps showing under the Other Events tab exactly as before.
+       The captain/team/payment-link columns are only ever populated for
+       'sports_fiesta' events; left null/empty for every other format. */
+    await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS event_format VARCHAR(20) NOT NULL DEFAULT 'other'`);
+    await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS captain_name VARCHAR(255) NOT NULL DEFAULT ''`);
+    await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS captain_email VARCHAR(255) NOT NULL DEFAULT ''`);
+    await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS captain_phone VARCHAR(20) NOT NULL DEFAULT ''`);
+    await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS team_members JSONB NOT NULL DEFAULT '[]'`);
+    await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS payment_link VARCHAR(500) NOT NULL DEFAULT ''`);
+    /* team_size is the cap the admin sets at creation time — the guest-facing
+       team-roster form (captain fills in member names) enforces it client- and
+       server-side. team_members starts empty and is filled in later from there. */
+    await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS team_size INTEGER NOT NULL DEFAULT 0`);
     console.log('[events] migrations ready');
   } catch (err) {
     console.error('[events] migration failed:', err.message);
@@ -277,7 +319,19 @@ const create = async (req, res, next) => {
       title, clubId, category, status, date, startDate, time, venue,
       description, tags, seats, highlight, registrationUrl,
       isFree, feeAmount,
+      eventFormat, teamSize, paymentLink,
     } = req.body;
+
+    const format = ['sports_fiesta', 'galore'].includes(eventFormat) ? eventFormat : 'other';
+
+    /* Sports Fiesta events are created with just a roster-size cap (the
+       admin's call) and a payment link — the captain fills in their own
+       contact details plus the team member names later, via the public
+       event page's team-roster form, so captain_* and team_members always
+       start blank/empty here regardless of what's posted. */
+    if (format === 'sports_fiesta') {
+      if (!teamSize || Number(teamSize) < 1) return res.status(400).json({ message: 'Number of team members is required.' });
+    }
 
     // Resolve club name from clubId (if provided); SOAC if blank
     let clubName = '';
@@ -292,17 +346,27 @@ const create = async (req, res, next) => {
 
     const image   = getFileValue(req.file) ?? '';
     const is_free = isFree === 'false' || isFree === false ? false : true;
+    /* Sports Fiesta events default to category 'sports' even if the caller
+       omits it — that's what turns on the existing Teams/Fixtures/Scoreboard
+       tabs and sport-detection for certificates elsewhere in the app. */
+    const resolvedCategory = category || (format === 'sports_fiesta' ? 'sports' : 'general');
     const { rows } = await pgPool.query(
       `INSERT INTO events
        (title, club, club_id, category, status, date, start_date, time, venue,
-        description, image, tags, seats, highlight, registration_url, is_free, fee_amount)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        description, image, tags, seats, highlight, registration_url, is_free, fee_amount,
+        event_format, captain_name, captain_email, captain_phone, team_members, payment_link, team_size)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
        RETURNING ${EVENT_COLS}`,
       [
-        title, clubName, resolvedClubId, category || 'general', status || 'upcoming', date || '',
+        title, clubName, resolvedClubId, resolvedCategory, status || 'upcoming', date || '',
         startDate ? new Date(startDate) : null, time || '', venue || '', description || '', image,
         tags ? JSON.parse(tags) : [], seats || '', highlight || '', registrationUrl || '',
         is_free, is_free ? 0 : Number(feeAmount) || 0,
+        /* captain_* and team_members always start blank/empty — the captain
+           fills all of it in later via the public event page's team-roster
+           form (see submitTeamRoster below), capped at the admin's teamSize. */
+        format, '', '', '',
+        '[]', normalizePaymentLink(paymentLink), format === 'sports_fiesta' ? Number(teamSize) || 0 : 0,
       ]
     );
     const event = asEvent(rows[0]);
@@ -401,8 +465,14 @@ const update = async (req, res, next) => {
            image            = $16,
            is_free          = COALESCE($17, is_free),
            fee_amount       = COALESCE($18, fee_amount),
+           captain_name     = COALESCE($19, captain_name),
+           captain_email    = COALESCE($20, captain_email),
+           captain_phone    = COALESCE($21, captain_phone),
+           team_members     = COALESCE($22, team_members),
+           payment_link     = COALESCE($23, payment_link),
+           team_size        = COALESCE($24, team_size),
            updated_at       = NOW()
-       WHERE id = $19
+       WHERE id = $25
        RETURNING ${EVENT_COLS}`,
       [
         req.body.title        ?? null,   // $1
@@ -423,7 +493,13 @@ const update = async (req, res, next) => {
         req.file ? getFileValue(req.file) : cur[0].image,  // $16
         is_free   ?? null,               // $17
         is_free === undefined ? null : (is_free ? 0 : Number(req.body.feeAmount) || 0),  // $18
-        req.params.id,                   // $19
+        req.body.captainName  ?? null,   // $19
+        req.body.captainEmail ?? null,   // $20
+        req.body.captainPhone ?? null,   // $21
+        req.body.teamMembers ? toTeamMembersJson(req.body.teamMembers) : null,  // $22
+        req.body.paymentLink !== undefined ? normalizePaymentLink(req.body.paymentLink) : null,   // $23
+        req.body.teamSize !== undefined ? Number(req.body.teamSize) || 0 : null,  // $24
+        req.params.id,                   // $25
       ]
     );
     const event = asEvent(rows[0]);
@@ -593,6 +669,135 @@ const register = async (req, res, next) => {
   }
 };
 
+/* POST /api/events/:id/team-roster  (public — no auth)
+   A Sports Fiesta captain's link to submit their own contact details and
+   their team's member names, up to the cap the admin set (team_size) at
+   creation. Unlike Other Events (individual public self-registration, teams
+   built by the coordinator afterward), a single submission here creates the
+   whole team directly — a real event_teams row plus one event_registrations
+   + event_team_members pair per person (captain included) — so it plugs
+   straight into the same Teams/Groups/Fixtures/Scoreboard pipeline Other
+   Events use, and the coordinator only has to build fixtures, not assemble
+   teams by hand. The event accepts as many teams as different captains
+   submit — one submission per captain email; a captain email that's already
+   registered a team for this event is rejected, so they know to contact
+   their coordinator instead of double-submitting. */
+const submitTeamRoster = async (req, res, next) => {
+  try {
+    const { rows } = await pgPool.query(
+      `SELECT id, title, event_format, team_size FROM events WHERE id = $1 AND is_active = true`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ message: 'Event not found.' });
+    const event = rows[0];
+    if (event.event_format !== 'sports_fiesta') {
+      return res.status(400).json({ message: 'This event does not accept a team roster submission.' });
+    }
+
+    const { teamName: rawTeamName, captainName, captainEmail, captainPhone, teamMembers } = req.body;
+    if (!rawTeamName?.trim())  return res.status(400).json({ message: 'Team name is required.' });
+    if (!captainName?.trim())  return res.status(400).json({ message: "Captain's name is required." });
+    if (!captainEmail?.trim()) return res.status(400).json({ message: "Captain's email is required." });
+    if (!captainPhone?.trim()) return res.status(400).json({ message: "Captain's phone number is required." });
+    if (!Array.isArray(teamMembers)) return res.status(400).json({ message: 'Team members list is required.' });
+    const cleaned = teamMembers.map(m => String(m || '').trim()).filter(Boolean);
+    if (!cleaned.length) return res.status(400).json({ message: 'Add at least one team member.' });
+    if (event.team_size && cleaned.length > event.team_size) {
+      return res.status(400).json({ message: `This team can have at most ${event.team_size} member(s).` });
+    }
+    const emailNorm = captainEmail.trim().toLowerCase();
+
+    /* Only captains ever submit a real email on this form (teammates get a
+       synthetic one below), so a match here means this exact email already
+       registered a team for this event. */
+    const { rows: dupe } = await pgPool.query(
+      `SELECT id FROM event_registrations WHERE event_id = $1 AND email = $2`,
+      [event.id, emailNorm]
+    );
+    if (dupe.length) {
+      return res.status(409).json({ message: 'This email has already registered a team for this event.' });
+    }
+
+    /* Team names must be unique per (event, division) — the captain picks the
+       name, but if it collides with an existing team we disambiguate rather
+       than reject, so a common name (e.g. "Titans") doesn't block signup. */
+    const { rows: existingTeamNames } = await pgPool.query(
+      `SELECT name FROM event_teams WHERE event_id = $1 AND division = 'boys'`, [event.id]
+    );
+    const takenNames = new Set(existingTeamNames.map(r => r.name));
+    let teamName = rawTeamName.trim();
+    let suffix = 2;
+    while (takenNames.has(teamName)) { teamName = `${rawTeamName.trim()} (${suffix})`; suffix++; }
+
+    const pgClient = await pgPool.connect();
+    try {
+      await pgClient.query('BEGIN');
+
+      /* The captain's own registration carries their real identity. */
+      const { rows: capReg } = await pgClient.query(
+        `INSERT INTO event_registrations (event_id, event_title, name, email, phone)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, name`,
+        [event.id, event.title, captainName.trim(), emailNorm, captainPhone.trim()]
+      );
+
+      /* One team, named after the captain — max_size covers the captain + roster cap. */
+      const { rows: teamRows } = await pgClient.query(
+        `INSERT INTO event_teams (event_id, name, max_size, division) VALUES ($1, $2, $3, 'boys') RETURNING id`,
+        [event.id, teamName, cleaned.length + 1]
+      );
+      const teamId = teamRows[0].id;
+
+      await pgClient.query(
+        `INSERT INTO event_team_members (team_id, registration_id, member_name, enrollment_no) VALUES ($1, $2, $3, '')`,
+        [teamId, capReg[0].id, capReg[0].name]
+      );
+
+      /* Teammates have no email of their own on this form, so each gets a
+         synthetic, event-scoped placeholder — unique enough to satisfy the
+         (event_id, email) constraint, never shown anywhere, and never relied
+         on for login/notification (only the captain's real email is). */
+      for (let i = 0; i < cleaned.length; i++) {
+        const memberName = cleaned[i];
+        const placeholderEmail = `sf-roster-${event.id}-${teamId}-${i}-${Date.now()}@roster.internal`;
+        const { rows: memReg } = await pgClient.query(
+          `INSERT INTO event_registrations (event_id, event_title, name, email) VALUES ($1, $2, $3, $4) RETURNING id, name`,
+          [event.id, event.title, memberName, placeholderEmail]
+        );
+        await pgClient.query(
+          `INSERT INTO event_team_members (team_id, registration_id, member_name, enrollment_no) VALUES ($1, $2, $3, '')`,
+          [teamId, memReg[0].id, memberName]
+        );
+      }
+
+      /* Mirror the most recent submission onto the event row too — a cheap,
+         informational-only summary (the event can have many teams/captains;
+         the live, authoritative roster for all of them always lives in
+         event_teams, shown in full on the coordinator's Teams tab). */
+      await pgClient.query(
+        `UPDATE events SET captain_name = $1, captain_email = $2, captain_phone = $3, team_members = $4, updated_at = NOW() WHERE id = $5`,
+        [captainName.trim(), captainEmail.trim(), captainPhone.trim(), JSON.stringify(cleaned), event.id]
+      );
+
+      await pgClient.query('COMMIT');
+    } catch (err) {
+      await pgClient.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      pgClient.release();
+    }
+
+    const { rows: updated } = await pgPool.query(`SELECT ${EVENT_COLS} FROM events WHERE id = $1`, [event.id]);
+    await cache.del(`events:${req.params.id}`);
+    res.json({ message: 'Team submitted!', event: withImageUrl(asEvent(updated[0])) });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ message: 'This email has already registered a team for this event.' });
+    }
+    next(err);
+  }
+};
+
 /* GET /api/events/:id/registrations  (admin or coordinator for their own club's event)
    Supports ?page=&limit= */
 const listRegistrations = async (req, res, next) => {
@@ -690,4 +895,4 @@ const updateRegistration = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, getLiveScores, getPastScores, getOne, create, update, remove, register, listRegistrations, updateRegistration };
+module.exports = { getAll, getLiveScores, getPastScores, getOne, create, update, remove, register, submitTeamRoster, listRegistrations, updateRegistration };

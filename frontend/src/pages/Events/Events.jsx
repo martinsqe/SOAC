@@ -286,6 +286,13 @@ const normaliseEvent = (e) => ({
   tags: e.tags || [],
   seats: e.seats,
   highlight: e.highlight,
+  eventFormat: e.eventFormat || 'other',
+  captainName: e.captainName || '',
+  captainEmail: e.captainEmail || '',
+  captainPhone: e.captainPhone || '',
+  teamMembers: e.teamMembers || [],
+  teamSize: e.teamSize || 0,
+  paymentLink: e.paymentLink || '',
 });
 
 const DEPTS = ['ACH', 'AI/ML', 'FOT', 'SOE', 'SOM', 'SOP', 'SPT', 'SDS', 'SOS'];
@@ -330,7 +337,7 @@ const Events = () => {
     setRegisteredIds(prev => {
       const next = new Set(prev);
       next.add(String(eventId));
-      try { localStorage.setItem(`soac_ev_regs_${user?.id || 'guest'}`, JSON.stringify([...next])); } catch {}
+      try { localStorage.setItem(`soac_ev_regs_${user?.id || 'guest'}`, JSON.stringify([...next])); } catch { /* private browsing / storage full — non-fatal */ }
       return next;
     });
   };
@@ -359,7 +366,20 @@ const Events = () => {
     setFixtureLoading(false);
   };
 
+  /* ── Sports Fiesta team-roster modal state — the captain's own link to fill
+     in their own contact details plus their team's member names (one field,
+     one name per line), up to the admin-set cap (teamSize). A distinct flow
+     from the individual student registration above: one submission per
+     event, covering the whole team at once. ── */
+  const EMPTY_ROSTER_FORM = { teamName: '', captainName: '', captainEmail: '', captainPhone: '', teamMatesText: '' };
+  const [rosterModal,   setRosterModal]   = useState(null); // null | the normalised SF event
+  const [rosterForm,    setRosterForm]    = useState(EMPTY_ROSTER_FORM);
+  const [rosterErr,     setRosterErr]     = useState('');
+  const [rosterDone,    setRosterDone]    = useState(false);
+  const [rosterLoading, setRosterLoading] = useState(false);
+
   const openReg = (ev) => {
+    if (ev.eventFormat === 'sports_fiesta') { openRoster(ev); return; }
     setRegModal({ id: ev.id, title: ev.title });
     setRegForm(user
       ? { ...EMPTY_FORM, name: user.name || '', email: user.email || '' }
@@ -372,6 +392,65 @@ const Events = () => {
   const closeReg = () => setRegModal(null);
 
   const sf = (k) => (e) => setRegForm(p => ({ ...p, [k]: e.target.value }));
+
+  const openRoster = (ev) => {
+    /* Always start blank — the event can have many teams, each with its own
+       captain, so pre-filling from whoever last submitted would just be
+       confusing (and get silently overwritten as soon as they retype it). */
+    setRosterModal(ev);
+    setRosterForm({
+      teamName: '',
+      captainName: '',
+      captainEmail: user?.email || '',
+      captainPhone: '',
+      teamMatesText: '',
+    });
+    setRosterErr('');
+    setRosterDone(false);
+  };
+  const closeRoster = () => setRosterModal(null);
+
+  const rf = (k) => (e) => setRosterForm(p => ({ ...p, [k]: e.target.value }));
+
+  /* One button does both jobs: it submits the team (one-shot — captains can't
+     resubmit once a team exists; edits after that go through the coordinator)
+     and, if the event has a payment link, immediately redirects there so
+     paying is the very next step. No payment link → just shows the saved
+     confirmation instead of redirecting anywhere. */
+  const submitRoster = async (e) => {
+    e.preventDefault();
+    if (rosterLoading || !rosterModal) return;
+    const { teamName, captainName, captainEmail, captainPhone, teamMatesText } = rosterForm;
+    if (!teamName.trim())     { setRosterErr('Team name is required.'); return; }
+    if (!captainName.trim())  { setRosterErr("Captain's name is required."); return; }
+    if (!captainEmail.trim()) { setRosterErr("Captain's email is required."); return; }
+    if (!captainPhone.trim()) { setRosterErr("Captain's phone number is required."); return; }
+    const cleaned = teamMatesText.split(/[\n,]+/).map(m => m.trim()).filter(Boolean);
+    if (!cleaned.length) { setRosterErr('Add at least one team member.'); return; }
+    const cap = Number(rosterModal.teamSize) || 0;
+    if (cap && cleaned.length > cap) { setRosterErr(`This team can have at most ${cap} member(s).`); return; }
+    setRosterErr('');
+    setRosterLoading(true);
+    try {
+      await api.post(`/events/${rosterModal.id}/team-roster`, {
+        teamName: teamName.trim(),
+        captainName: captainName.trim(), captainEmail: captainEmail.trim(), captainPhone: captainPhone.trim(),
+        teamMembers: cleaned,
+      });
+      setEvents(prev => prev.map(e => e.id === rosterModal.id
+        ? { ...e, captainName: captainName.trim(), captainEmail: captainEmail.trim(), captainPhone: captainPhone.trim(), teamMembers: cleaned }
+        : e));
+      if (rosterModal.paymentLink) {
+        window.location.href = rosterModal.paymentLink; // same-tab redirect straight to payment
+      } else {
+        setRosterDone(true);
+      }
+    } catch (err) {
+      setRosterErr(err.message || 'Failed to save team roster.');
+    } finally {
+      setRosterLoading(false);
+    }
+  };
 
   const validateReg = () => {
     const e = {};
@@ -644,7 +723,9 @@ const Events = () => {
                       {featured.tags.map(t => <span key={t} className={styles.tag}>{t}</span>)}
                     </div>
                     <div className={styles.featBtnRow}>
-                      {registeredIds.has(String(featured.id)) && featured.category === 'sports' ? (
+                      {featured.eventFormat === 'sports_fiesta' ? (
+                        <button className={styles.regBtn} onClick={() => openReg(featured)}>Register Now →</button>
+                      ) : registeredIds.has(String(featured.id)) && featured.category === 'sports' ? (
                         <button className={styles.fixturesBtn} onClick={() => openFixtures(featured)}>Teams &amp; Fixtures</button>
                       ) : (
                         <button className={styles.regBtn} onClick={() => openReg(featured)}>Register Now →</button>
@@ -674,7 +755,9 @@ const Events = () => {
                           <span><strong className={styles.upCardMetaLabel}>Venue:</strong> {ev.venue}</span>
                         </div>
                         <div className={styles.upCardFooter}>
-                          {registeredIds.has(String(ev.id)) && ev.category === 'sports' ? (
+                          {ev.eventFormat === 'sports_fiesta' ? (
+                            <button className={styles.upRegBtn} onClick={() => openReg(ev)}>Register Now →</button>
+                          ) : registeredIds.has(String(ev.id)) && ev.category === 'sports' ? (
                             <button className={styles.fixturesBtn} onClick={() => openFixtures(ev)}>Teams &amp; Fixtures</button>
                           ) : (
                             <button className={styles.upRegBtn} onClick={() => openReg(ev)}>Register Now →</button>
@@ -1025,6 +1108,80 @@ const Events = () => {
 
                   <button type="submit" className={styles.regSubmitBtn} disabled={regLoading}>
                     {regLoading ? 'Submitting…' : 'Confirm Registration →'}
+                  </button>
+                </form>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════
+          SPORTS FIESTA TEAM ROSTER MODAL
+      ══════════════════════════════════════════ */}
+      {rosterModal && (
+        <div className={styles.modalOv} onClick={closeRoster}>
+          <div className={styles.modalBox} onClick={e => e.stopPropagation()}>
+            <button className={styles.modalClose} onClick={closeRoster}>✕</button>
+
+            {rosterDone ? (
+              <div className={styles.regSuccess}>
+                <div className={styles.regSuccessIcon}>✓</div>
+                <h3>Team Submitted!</h3>
+                <p>Your team for <strong>{rosterModal.title}</strong> has been submitted to the event coordinator.</p>
+                <button className={styles.regSubmitBtn} onClick={closeRoster}>Close</button>
+              </div>
+            ) : (
+              <>
+                <div className={styles.modalHead}>
+                  <div className={styles.modalPill}>Sports Fiesta · Register your Team</div>
+                  <h2 className={styles.modalTitle}>{rosterModal.title}</h2>
+                  <p className={styles.modalSub}>
+                  This form should be filled by the team captain only. Each team should have a maximum of {rosterModal.teamSize} members.
+                  Submit your registration by completing the payment of the required fees.
+                  </p>
+                </div>
+
+                <form className={styles.regForm} onSubmit={submitRoster} noValidate>
+                  <div className={styles.regField}>
+                    <label htmlFor="roster-team-name">Team Name <span className={styles.req}>*</span></label>
+                    <input id="roster-team-name" type="text" placeholder="e.g. rku warriors" value={rosterForm.teamName} onChange={rf('teamName')} />
+                  </div>
+
+                  <div className={styles.regRow}>
+                    <div className={styles.regField}>
+                      <label htmlFor="roster-captain-name">Name <span className={styles.req}>*</span></label>
+                      <input id="roster-captain-name" type="text" placeholder="Captain's Name" value={rosterForm.captainName} onChange={rf('captainName')} />
+                    </div>
+                    <div className={styles.regField}>
+                      <label htmlFor="roster-captain-phone">Phone <span className={styles.req}>*</span></label>
+                      <input id="roster-captain-phone" type="tel" placeholder="e.g. 9876543210" value={rosterForm.captainPhone} onChange={rf('captainPhone')} />
+                    </div>
+                  </div>
+                  <div className={styles.regField}>
+                    <label htmlFor="roster-captain-email">Email <span className={styles.req}>*</span></label>
+                    <input id="roster-captain-email" type="email" placeholder="captain@rku.ac.in" value={rosterForm.captainEmail} onChange={rf('captainEmail')} />
+                  </div>
+
+                  <div className={styles.regField}>
+                    <label htmlFor="roster-teammates">
+                      Team Members <span className={styles.req}>*</span>
+                      <span style={{ fontWeight: 400 }}> (one per line, up to {rosterModal.teamSize})</span>
+                    </label>
+                    <textarea
+                      id="roster-teammates" rows={Math.min(8, Math.max(3, Number(rosterModal.teamSize) || 3))}
+                      placeholder={''}
+                      value={rosterForm.teamMatesText} onChange={rf('teamMatesText')}
+                      style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
+                    />
+                  </div>
+
+                  {rosterErr && <div className={styles.regApiErr}>{rosterErr}</div>}
+
+                  <button type="submit" className={styles.regSubmitBtn} disabled={rosterLoading}>
+                    {rosterLoading
+                      ? (rosterModal.paymentLink ? 'Submitting & redirecting…' : 'Submitting…')
+                      : (rosterModal.paymentLink ? 'Complete Payment →' : 'Submit Team →')}
                   </button>
                 </form>
               </>
