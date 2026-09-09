@@ -917,4 +917,40 @@ const updateRegistration = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, getLiveScores, getPastScores, getOne, create, update, remove, register, submitTeamRoster, listRegistrations, updateRegistration };
+/* DELETE /api/events/:id/registrations/:regId  (admin only)
+   Works the same for every event format — an individual Other Events
+   sign-up or one person (captain or teammate) out of a Sports Fiesta team.
+   event_team_members.registration_id has no DB-level cascade, so if this
+   registrant was already placed on a team, their membership row is removed
+   in the same transaction — otherwise it'd be left pointing at nothing. */
+const deleteRegistration = async (req, res, next) => {
+  const pgClient = await pgPool.connect();
+  try {
+    const { rows: existing } = await pgClient.query(
+      `SELECT id FROM event_registrations WHERE id = $1 AND event_id = $2`,
+      [req.params.regId, req.params.id]
+    );
+    if (!existing.length) return res.status(404).json({ message: 'Registration not found.' });
+
+    await pgClient.query('BEGIN');
+    await pgClient.query(`DELETE FROM event_team_members WHERE registration_id = $1`, [req.params.regId]);
+    await pgClient.query(`DELETE FROM event_registrations WHERE id = $1 AND event_id = $2`, [req.params.regId, req.params.id]);
+    await pgClient.query('COMMIT');
+
+    await cache.del(`events:${req.params.id}`);
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('registration:deleted', { eventId: String(req.params.id), registrationId: String(req.params.regId) });
+    }
+    autoRefreshReportIfExists(req.params.id).catch(() => {});
+
+    res.json({ message: 'Registration deleted.' });
+  } catch (err) {
+    await pgClient.query('ROLLBACK').catch(() => {});
+    next(err);
+  } finally {
+    pgClient.release();
+  }
+};
+
+module.exports = { getAll, getLiveScores, getPastScores, getOne, create, update, remove, register, submitTeamRoster, listRegistrations, updateRegistration, deleteRegistration };

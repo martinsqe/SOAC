@@ -28,7 +28,8 @@ router.delete('/:id',  verifyToken, requireAdmin, ctrl.remove);
 router.post('/:id/register',     ctrl.register);                                         /* public            */
 router.post('/:id/team-roster',  ctrl.submitTeamRoster);                                  /* public — Sports Fiesta captain */
 router.get('/:id/registrations', verifyToken, requireCoordOrAdmin, ctrl.listRegistrations); /* admin + coord */
-router.patch('/:id/registrations/:regId', verifyToken, requireAdmin, ctrl.updateRegistration); /* admin only */
+router.patch ('/:id/registrations/:regId', verifyToken, requireAdmin, ctrl.updateRegistration); /* admin only */
+router.delete('/:id/registrations/:regId', verifyToken, requireAdmin, ctrl.deleteRegistration); /* admin only */
 
 /* Student status route */
 router.get   ('/:id/my-status',                          verifyToken, teamCtrl.getMyStatus);

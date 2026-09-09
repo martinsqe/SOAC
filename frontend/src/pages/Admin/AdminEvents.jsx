@@ -552,6 +552,28 @@ export default function AdminEvents() {
     }
   };
 
+  /* ── Delete a single registration — works the same for any event format;
+     for a Sports Fiesta team member this also removes them from their team
+     (handled server-side), same as when a coordinator removes them via the
+     Teams tab. ── */
+  const [deleteRegId, setDeleteRegId] = useState(null);
+  const [regDeleting,  setRegDeleting] = useState(false);
+
+  const handleDeleteReg = async () => {
+    if (!deleteRegId) return;
+    setRegDeleting(true);
+    try {
+      await api.delete(`/events/${regEvent._id}/registrations/${deleteRegId}`);
+      setRegs(prev => prev.filter(r => r.id !== deleteRegId));
+      setDeleteRegId(null);
+      showToast('Registration deleted.');
+    } catch (err) {
+      showToast(err.message || 'Failed to delete registration.');
+    } finally {
+      setRegDeleting(false);
+    }
+  };
+
   const upcoming = events.filter(ev => ev.status === 'upcoming');
   const past     = events.filter(ev => ev.status === 'past');
 
@@ -1301,7 +1323,10 @@ export default function AdminEvents() {
                                 <button className={s.closeBtn} disabled={regSaving} onClick={cancelEditReg}>✕</button>
                               </div>
                             ) : (
-                              <button className={s.csvBtn} onClick={() => startEditReg(r)}>Edit</button>
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <button className={s.csvBtn} onClick={() => startEditReg(r)}>Edit</button>
+                                <button className={s.delBtn} onClick={() => setDeleteRegId(r.id)}>Delete</button>
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -1324,6 +1349,22 @@ export default function AdminEvents() {
             <div className={s.confirmBtns}>
               <button className={s.cancelBtn} onClick={() => setDeleteId(null)}>Cancel</button>
               <button className={s.delConfirmBtn} onClick={handleDelete}>Yes, Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ Delete registration confirm ══ */}
+      {deleteRegId && (
+        <div className={s.overlay} onClick={() => setDeleteRegId(null)} style={{ zIndex: 10001 }}>
+          <div className={s.confirmBox} onClick={e => e.stopPropagation()}>
+            <h3>Delete this registration?</h3>
+            <p>If they're on a team for this event, they'll be removed from it too. This can't be undone.</p>
+            <div className={s.confirmBtns}>
+              <button className={s.cancelBtn} disabled={regDeleting} onClick={() => setDeleteRegId(null)}>Cancel</button>
+              <button className={s.delConfirmBtn} disabled={regDeleting} onClick={handleDeleteReg}>
+                {regDeleting ? 'Deleting…' : 'Yes, Delete'}
+              </button>
             </div>
           </div>
         </div>
