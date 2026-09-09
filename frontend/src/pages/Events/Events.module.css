@@ -203,12 +203,16 @@
 .featImg {
   position: relative;
   overflow: hidden;
-  /* Grid items default to min-height:auto, which lets an oversized/portrait
-     banner's intrinsic size grow the whole grid row to match it — the img's
-     height:100% then has nothing sane to resolve against and falls back to
-     rendering at full natural size. min-height:0 removes that content-based
-     floor so align-items:stretch (the grid default) can actually clip the
-     image to the row's real height instead. */
+  /* Grid items default to BOTH min-width:auto and min-height:auto, which let
+     an oversized banner's intrinsic size grow the whole grid track (row or
+     column) to match it instead of being clipped — the img's width/height:
+     100% then has nothing sane to resolve against. Some images hit this on
+     the height axis (a tall/portrait banner blows out the row), others hit
+     it on the width axis (the column collapses to 0 instead — seen with a
+     large square banner); zeroing out both floors lets align-items/
+     justify-items: stretch (the grid defaults) actually clip every banner
+     to the card's real dimensions, whichever axis it would otherwise blow out. */
+  min-width: 0;
   min-height: 0;
 }
 
@@ -231,6 +235,14 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
+  /* A grid item's min-width defaults to auto — its content's min-content
+     size, which for one long unbroken string (no spaces to break on: a
+     run-on description, a bare URL, etc.) is that string's FULL rendered
+     width. That inflates this column's track past the card's actual width,
+     starving the image column next to it down to 0 (however small its own
+     min-width is set). min-width:0 stops content from dictating the track
+     size at all — the column just takes whatever the fr ratio gives it. */
+  min-width: 0;
 }
 
 .featMeta {
@@ -258,6 +270,8 @@
   letter-spacing: -0.8px;
   margin: 0 0 6px;
   line-height: 1.15;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .featClub {
@@ -265,6 +279,8 @@
   color: var(--muted);
   margin: 0 0 10px;
   font-weight: 600;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .featDesc {
@@ -272,6 +288,8 @@
   color: var(--mid);
   line-height: 1.65;
   margin: 0 0 16px;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .featInfo {
