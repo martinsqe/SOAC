@@ -414,18 +414,14 @@ const Events = () => {
   const rf = (k) => (e) => setRosterForm(p => ({ ...p, [k]: e.target.value }));
 
   /* Live team-size check, recomputed every render off the current textarea
-     value — drives both the running "N players so far" hint under the
-     field and the submit button's disabled state, so a captain can't even
-     attempt to submit while under the minimum or over the maximum. The
-     same bounds are re-checked in submitRoster (and again server-side) as
-     the actual gate — this is purely the earlier, friendlier UI feedback. */
-  const rosterCount = rosterForm.teamMatesText.split(/[\n,]+/).map(m => m.trim()).filter(Boolean).length;
-  const rosterTotal = rosterCount + 1; // + captain
+     value — disables the submit button while the roster is under the
+     minimum or over the maximum, so a captain can't even attempt to submit
+     out of range. The same bounds are re-checked in submitRoster (and
+     again server-side) as the actual gate. */
+  const rosterTotal = rosterForm.teamMatesText.split(/[\n,]+/).map(m => m.trim()).filter(Boolean).length + 1; // + captain
   const rosterMin = Number(rosterModal?.minTeamSize) || 0;
   const rosterMax = Number(rosterModal?.teamSize) || 0;
-  const rosterUnder = rosterMin > 0 && rosterTotal < rosterMin;
-  const rosterOver  = rosterMax > 0 && rosterTotal > rosterMax;
-  const rosterOutOfRange = rosterUnder || rosterOver;
+  const rosterOutOfRange = (rosterMin > 0 && rosterTotal < rosterMin) || (rosterMax > 0 && rosterTotal > rosterMax);
 
   /* One button does both jobs: it submits the team (one-shot — captains can't
      resubmit once a team exists; edits after that go through the coordinator)
@@ -439,7 +435,13 @@ const Events = () => {
     if (!teamName.trim())     { setRosterErr('Team name is required.'); return; }
     if (!captainName.trim())  { setRosterErr("Captain's name is required."); return; }
     if (!captainEmail.trim()) { setRosterErr("Captain's email is required."); return; }
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(captainEmail.trim())) { setRosterErr('Enter a valid email.'); return; }
+    else if (!captainEmail.trim().toLowerCase().endsWith('@rku.ac.in')) { setRosterErr('Only @rku.ac.in emails are allowed.'); return; }
     if (!captainPhone.trim()) { setRosterErr("Captain's phone number is required."); return; }
+    else {
+      const digits = captainPhone.replace(/[\s\-+]/g, '').replace(/^91/, '');
+      if (!/^\d{10}$/.test(digits)) { setRosterErr('Enter a valid 10-digit mobile number.'); return; }
+    }
     const cleaned = teamMatesText.split(/[\n,]+/).map(m => m.trim()).filter(Boolean);
     if (!cleaned.length) { setRosterErr('Add at least one team member.'); return; }
     /* min/max count the whole team, captain included. */
@@ -1155,7 +1157,7 @@ const Events = () => {
                   <div className={styles.modalPill}>Sports Fiesta · Register your Team</div>
                   <h2 className={styles.modalTitle}>{rosterModal.title}</h2>
                   <p className={styles.modalSub}>
-                  This form should be filled by the team captain only. Each team must have between {rosterModal.minTeamSize} and {rosterModal.teamSize} players in total, including the captain.
+                  This form should be filled by the team captain only. Each team must have {rosterModal.minTeamSize} minimum, {rosterModal.teamSize} maximum players in total, including the captain.
                   Submit your registration by completing the payment of the required fees.
                   </p>
                 </div>
@@ -1185,8 +1187,7 @@ const Events = () => {
                     <label htmlFor="roster-teammates">
                       Team Members <span className={styles.req}>*</span>
                       <span style={{ fontWeight: 400 }}>
-                        {' '}(one per line — add {Math.max(0, (rosterModal.minTeamSize || 1) - 1)}–{Math.max(0, (rosterModal.teamSize || 1) - 1)} teammates,
-                        so the team totals {rosterModal.minTeamSize}–{rosterModal.teamSize} players including you)
+                        {' '}(one per line — {rosterModal.minTeamSize} minimum, {rosterModal.teamSize} maximum)
                       </span>
                     </label>
                     <textarea
@@ -1195,11 +1196,6 @@ const Events = () => {
                       value={rosterForm.teamMatesText} onChange={rf('teamMatesText')}
                       style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
                     />
-                    <p style={{ fontSize:'.78rem', margin:'6px 0 0', color: rosterOutOfRange ? '#dc2626' : '#6b7280' }}>
-                      {rosterTotal} player{rosterTotal === 1 ? '' : 's'} so far (including you)
-                      {rosterUnder && ` — need at least ${rosterMin - rosterTotal} more`}
-                      {rosterOver  && ` — remove ${rosterTotal - rosterMax} to fit the ${rosterMax}-player limit`}
-                    </p>
                   </div>
 
                   {rosterErr && <div className={styles.regApiErr}>{rosterErr}</div>}
@@ -1208,7 +1204,7 @@ const Events = () => {
                     {rosterLoading
                       ? (rosterModal.paymentLink ? 'Submitting & redirecting…' : 'Submitting…')
                       : rosterOutOfRange
-                      ? `Need ${rosterModal.minTeamSize}–${rosterModal.teamSize} players`
+                      ? `Need ${rosterModal.minTeamSize} minimum, ${rosterModal.teamSize} maximum`
                       : (rosterModal.paymentLink ? 'Complete Payment →' : 'Submit Team →')}
                   </button>
                 </form>

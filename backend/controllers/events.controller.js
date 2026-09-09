@@ -708,7 +708,13 @@ const submitTeamRoster = async (req, res, next) => {
     if (!rawTeamName?.trim())  return res.status(400).json({ message: 'Team name is required.' });
     if (!captainName?.trim())  return res.status(400).json({ message: "Captain's name is required." });
     if (!captainEmail?.trim()) return res.status(400).json({ message: "Captain's email is required." });
+    if (!captainEmail.toLowerCase().endsWith(RKU_DOMAIN)) {
+      return res.status(400).json({ message: 'Only RKU institutional emails (@rku.ac.in) are allowed.' });
+    }
     if (!captainPhone?.trim()) return res.status(400).json({ message: "Captain's phone number is required." });
+    if (!isValidMobile(captainPhone)) {
+      return res.status(400).json({ message: 'Enter a valid 10-digit mobile number.' });
+    }
     if (!Array.isArray(teamMembers)) return res.status(400).json({ message: 'Team members list is required.' });
     const cleaned = teamMembers.map(m => String(m || '').trim()).filter(Boolean);
     if (!cleaned.length) return res.status(400).json({ message: 'Add at least one team member.' });
