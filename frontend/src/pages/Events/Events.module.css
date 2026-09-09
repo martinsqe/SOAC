@@ -203,6 +203,13 @@
 .featImg {
   position: relative;
   overflow: hidden;
+  /* Grid items default to min-height:auto, which lets an oversized/portrait
+     banner's intrinsic size grow the whole grid row to match it — the img's
+     height:100% then has nothing sane to resolve against and falls back to
+     rendering at full natural size. min-height:0 removes that content-based
+     floor so align-items:stretch (the grid default) can actually clip the
+     image to the row's real height instead. */
+  min-height: 0;
 }
 
 .featImg img {
@@ -240,15 +247,6 @@
   letter-spacing: 0.4px;
   text-transform: uppercase;
   padding: 4px 12px;
-  border-radius: 10px;
-}
-
-.featSeats {
-  font-size: 12px;
-  font-weight: 700;
-  color: #059669;
-  background: #ecfdf5;
-  padding: 4px 10px;
   border-radius: 10px;
 }
 

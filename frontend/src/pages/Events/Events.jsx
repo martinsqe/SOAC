@@ -691,7 +691,6 @@ const Events = () => {
                       <span className={styles.featCat} style={{ color: CAT_COLOR[featured.cat] || '#635BFF', background: (CAT_COLOR[featured.cat] || '#635BFF') + '14' }}>
                         {FILTERS.find(f => f.key === featured.cat)?.label}
                       </span>
-                      <span className={styles.featSeats}>🎟️ {featured.seats}</span>
                     </div>
                     <h3 className={styles.featTitle}>{featured.title}</h3>
                     <p className={styles.featClub}>{featured.club}</p>
