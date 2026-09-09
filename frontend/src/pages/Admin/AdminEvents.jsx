@@ -42,7 +42,7 @@ const EMPTY_SF = {
   date: '', startDate: '', time: '', venue: '',
   description: '', seats: '', highlight: '', registrationUrl: '',
   isFree: true, feeAmount: '',
-  teamSize: '', paymentLink: '',
+  minTeamSize: '', teamSize: '', paymentLink: '',
 };
 
 const REQ_STATUS_META = {
@@ -403,7 +403,7 @@ export default function AdminEvents() {
       time: ev.time || '', venue: ev.venue || '', description: ev.description || '',
       seats: ev.seats || '', highlight: ev.highlight || '', registrationUrl: ev.registrationUrl || '',
       isFree: ev.isFree !== false, feeAmount: ev.feeAmount || '',
-      teamSize: ev.teamSize || '', paymentLink: ev.paymentLink || '',
+      minTeamSize: ev.minTeamSize || '', teamSize: ev.teamSize || '', paymentLink: ev.paymentLink || '',
     });
     setSfEditing(ev._id);
     setSfImgPrev(ev.imageUrl || (ev.image ? `/images/${ev.image}` : ''));
@@ -427,7 +427,9 @@ export default function AdminEvents() {
   const handleSaveSF = async (e) => {
     e.preventDefault();
     if (!sfForm.title.trim())        return setSfError('Event title is required.');
-    if (!sfForm.teamSize || Number(sfForm.teamSize) < 1) return setSfError('Number of team members is required.');
+    if (!sfForm.minTeamSize || Number(sfForm.minTeamSize) < 1) return setSfError('Minimum number of players is required.');
+    if (!sfForm.teamSize || Number(sfForm.teamSize) < 1)       return setSfError('Maximum number of players is required.');
+    if (Number(sfForm.minTeamSize) > Number(sfForm.teamSize))  return setSfError('Minimum cannot be greater than the maximum.');
     setSfSaving(true); setSfError('');
     try {
       const fd = new FormData();
@@ -1147,13 +1149,20 @@ export default function AdminEvents() {
                 <div style={{ fontSize:'.78rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.04em' }}>
                   Team
                 </div>
-                <div className={s.field} style={{ marginBottom: 0 }}>
-                  <label>Number of Team Members <span className={s.req}>*</span></label>
-                  <input type="number" min="1" step="1" value={sfForm.teamSize} onChange={sfSet('teamSize')}
-                    placeholder="e.g. 5" required />
+                <div className={s.row2} style={{ marginBottom: 0 }}>
+                  <div className={s.field} style={{ marginBottom: 0 }}>
+                    <label>Min Players <span className={s.req}>*</span></label>
+                    <input type="number" min="1" step="1" value={sfForm.minTeamSize} onChange={sfSet('minTeamSize')}
+                      placeholder="e.g. 3" required />
+                  </div>
+                  <div className={s.field} style={{ marginBottom: 0 }}>
+                    <label>Max Players <span className={s.req}>*</span></label>
+                    <input type="number" min="1" step="1" value={sfForm.teamSize} onChange={sfSet('teamSize')}
+                      placeholder="e.g. 5" required />
+                  </div>
                 </div>
                 <p style={{ fontSize:'.76rem', color:'#9ca3af', margin:0 }}>
-                  The captain fills in their own contact details and team member names on the public event page — this just sets how many teammates they're allowed to add.
+                  The captain fills in their own contact details and team member names on the public event page — this just sets how many players (including themselves) each team must have.
                 </p>
                 <div className={s.field} style={{ marginBottom: 0 }}>
                   <label>Payment Link</label>

@@ -881,6 +881,7 @@ const asEvent = (row) => ({
   teamMembers: row.team_members || [],
   paymentLink: row.payment_link || '',
   teamSize: Number(row.team_size || 0),
+  minTeamSize: Number(row.min_team_size || 0),
 });
 
 /**

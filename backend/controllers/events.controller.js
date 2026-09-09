@@ -15,7 +15,7 @@ const EVENT_COLS = [
   'is_active', 'created_at', 'updated_at', 'fixtures_declared',
   'certificates_finalized_at',
   'event_format', 'captain_name', 'captain_email', 'captain_phone',
-  'team_members', 'payment_link', 'team_size',
+  'team_members', 'payment_link', 'team_size', 'min_team_size',
 ].join(', ');
 
 /* team_members is a jsonb column, so its INSERT/UPDATE param must be a valid
@@ -58,10 +58,12 @@ function normalizePaymentLink(raw) {
     await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS captain_phone VARCHAR(20) NOT NULL DEFAULT ''`);
     await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS team_members JSONB NOT NULL DEFAULT '[]'`);
     await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS payment_link VARCHAR(500) NOT NULL DEFAULT ''`);
-    /* team_size is the cap the admin sets at creation time — the guest-facing
-       team-roster form (captain fills in member names) enforces it client- and
-       server-side. team_members starts empty and is filled in later from there. */
+    /* team_size (max) and min_team_size (min) are the roster-size bounds the
+       admin sets at creation time — the guest-facing team-roster form
+       (captain fills in member names) enforces both client- and server-side.
+       team_members starts empty and is filled in later from there. */
     await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS team_size INTEGER NOT NULL DEFAULT 0`);
+    await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS min_team_size INTEGER NOT NULL DEFAULT 0`);
     console.log('[events] migrations ready');
   } catch (err) {
     console.error('[events] migration failed:', err.message);
@@ -319,18 +321,23 @@ const create = async (req, res, next) => {
       title, clubId, category, status, date, startDate, time, venue,
       description, tags, seats, highlight, registrationUrl,
       isFree, feeAmount,
-      eventFormat, teamSize, paymentLink,
+      eventFormat, teamSize, minTeamSize, paymentLink,
     } = req.body;
 
     const format = ['sports_fiesta', 'galore'].includes(eventFormat) ? eventFormat : 'other';
 
-    /* Sports Fiesta events are created with just a roster-size cap (the
+    /* Sports Fiesta events are created with just a roster-size range (the
        admin's call) and a payment link — the captain fills in their own
        contact details plus the team member names later, via the public
        event page's team-roster form, so captain_* and team_members always
        start blank/empty here regardless of what's posted. */
+    let minSize = 0, maxSize = 0;
     if (format === 'sports_fiesta') {
-      if (!teamSize || Number(teamSize) < 1) return res.status(400).json({ message: 'Number of team members is required.' });
+      maxSize = Number(teamSize);
+      minSize = Number(minTeamSize);
+      if (!maxSize || maxSize < 1) return res.status(400).json({ message: 'Maximum number of players is required.' });
+      if (!minSize || minSize < 1) return res.status(400).json({ message: 'Minimum number of players is required.' });
+      if (minSize > maxSize) return res.status(400).json({ message: 'Minimum number of players cannot be greater than the maximum.' });
     }
 
     // Resolve club name from clubId (if provided); SOAC if blank
@@ -354,8 +361,8 @@ const create = async (req, res, next) => {
       `INSERT INTO events
        (title, club, club_id, category, status, date, start_date, time, venue,
         description, image, tags, seats, highlight, registration_url, is_free, fee_amount,
-        event_format, captain_name, captain_email, captain_phone, team_members, payment_link, team_size)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+        event_format, captain_name, captain_email, captain_phone, team_members, payment_link, team_size, min_team_size)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
        RETURNING ${EVENT_COLS}`,
       [
         title, clubName, resolvedClubId, resolvedCategory, status || 'upcoming', date || '',
@@ -364,9 +371,9 @@ const create = async (req, res, next) => {
         is_free, is_free ? 0 : Number(feeAmount) || 0,
         /* captain_* and team_members always start blank/empty — the captain
            fills all of it in later via the public event page's team-roster
-           form (see submitTeamRoster below), capped at the admin's teamSize. */
+           form (see submitTeamRoster below), bounded by the admin's min/max. */
         format, '', '', '',
-        '[]', normalizePaymentLink(paymentLink), format === 'sports_fiesta' ? Number(teamSize) || 0 : 0,
+        '[]', normalizePaymentLink(paymentLink), maxSize, minSize,
       ]
     );
     const event = asEvent(rows[0]);
@@ -471,8 +478,9 @@ const update = async (req, res, next) => {
            team_members     = COALESCE($22, team_members),
            payment_link     = COALESCE($23, payment_link),
            team_size        = COALESCE($24, team_size),
+           min_team_size    = COALESCE($25, min_team_size),
            updated_at       = NOW()
-       WHERE id = $25
+       WHERE id = $26
        RETURNING ${EVENT_COLS}`,
       [
         req.body.title        ?? null,   // $1
@@ -499,7 +507,8 @@ const update = async (req, res, next) => {
         req.body.teamMembers ? toTeamMembersJson(req.body.teamMembers) : null,  // $22
         req.body.paymentLink !== undefined ? normalizePaymentLink(req.body.paymentLink) : null,   // $23
         req.body.teamSize !== undefined ? Number(req.body.teamSize) || 0 : null,  // $24
-        req.params.id,                   // $25
+        req.body.minTeamSize !== undefined ? Number(req.body.minTeamSize) || 0 : null,  // $25
+        req.params.id,                   // $26
       ]
     );
     const event = asEvent(rows[0]);
@@ -671,21 +680,22 @@ const register = async (req, res, next) => {
 
 /* POST /api/events/:id/team-roster  (public — no auth)
    A Sports Fiesta captain's link to submit their own contact details and
-   their team's member names, up to the cap the admin set (team_size) at
-   creation. Unlike Other Events (individual public self-registration, teams
-   built by the coordinator afterward), a single submission here creates the
-   whole team directly — a real event_teams row plus one event_registrations
-   + event_team_members pair per person (captain included) — so it plugs
-   straight into the same Teams/Groups/Fixtures/Scoreboard pipeline Other
-   Events use, and the coordinator only has to build fixtures, not assemble
-   teams by hand. The event accepts as many teams as different captains
-   submit — one submission per captain email; a captain email that's already
-   registered a team for this event is rejected, so they know to contact
-   their coordinator instead of double-submitting. */
+   their team's member names, within the min/max player range the admin set
+   at creation. Unlike Other Events (individual public self-registration,
+   teams built by the coordinator afterward), a single submission here
+   creates the whole team directly — a real event_teams row plus one
+   event_registrations + event_team_members pair per person (captain
+   included) — so it plugs straight into the same Teams/Groups/Fixtures/
+   Scoreboard pipeline Other Events use, and the coordinator only has to
+   build fixtures, not assemble teams by hand. The event accepts as many
+   teams as different captains submit — one submission per captain email; a
+   captain email that's already registered a team for this event is
+   rejected, so they know to contact their coordinator instead of
+   double-submitting. */
 const submitTeamRoster = async (req, res, next) => {
   try {
     const { rows } = await pgPool.query(
-      `SELECT id, title, event_format, team_size FROM events WHERE id = $1 AND is_active = true`,
+      `SELECT id, title, event_format, team_size, min_team_size FROM events WHERE id = $1 AND is_active = true`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Event not found.' });
@@ -702,8 +712,14 @@ const submitTeamRoster = async (req, res, next) => {
     if (!Array.isArray(teamMembers)) return res.status(400).json({ message: 'Team members list is required.' });
     const cleaned = teamMembers.map(m => String(m || '').trim()).filter(Boolean);
     if (!cleaned.length) return res.status(400).json({ message: 'Add at least one team member.' });
-    if (event.team_size && cleaned.length > event.team_size) {
-      return res.status(400).json({ message: `This team can have at most ${event.team_size} member(s).` });
+    /* min/max count the whole team — captain included — matching how
+       event_teams.max_size is set below (cleaned.length + 1). */
+    const totalPlayers = cleaned.length + 1;
+    if (event.min_team_size && totalPlayers < event.min_team_size) {
+      return res.status(400).json({ message: `This team needs at least ${event.min_team_size} player(s) in total, including you as captain.` });
+    }
+    if (event.team_size && totalPlayers > event.team_size) {
+      return res.status(400).json({ message: `This team can have at most ${event.team_size} player(s) in total, including you as captain.` });
     }
     const emailNorm = captainEmail.trim().toLowerCase();
 
