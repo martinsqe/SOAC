@@ -368,11 +368,12 @@ const Events = () => {
   };
 
   /* ── Sports Fiesta team-roster modal state — the captain's own link to fill
-     in their own contact details plus their team's member names (one field,
-     one name per line), up to the admin-set cap (teamSize). A distinct flow
-     from the individual student registration above: one submission per
-     event, covering the whole team at once. ── */
-  const EMPTY_ROSTER_FORM = { teamName: '', captainName: '', captainEmail: '', captainPhone: '', teamMatesText: '' };
+     in their own contact details plus their team's member names, up to the
+     admin-set cap (teamSize) — one numbered, independently-tappable box per
+     slot rather than a shared block of text. A distinct flow from the
+     individual student registration above: one submission per event,
+     covering the whole team at once. ── */
+  const EMPTY_ROSTER_FORM = { teamName: '', captainName: '', captainEmail: '', captainPhone: '', teamMates: [] };
   const [rosterModal,   setRosterModal]   = useState(null); // null | the normalised SF event
   const [rosterForm,    setRosterForm]    = useState(EMPTY_ROSTER_FORM);
   const [rosterErr,     setRosterErr]     = useState('');
@@ -397,14 +398,17 @@ const Events = () => {
   const openRoster = (ev) => {
     /* Always start blank — the event can have many teams, each with its own
        captain, so pre-filling from whoever last submitted would just be
-       confusing (and get silently overwritten as soon as they retype it). */
+       confusing (and get silently overwritten as soon as they retype it).
+       One box per admin-set max, so the whole roster's capacity — and every
+       slot's own tappable field — is there from the start. */
+    const slots = Math.max(1, Number(ev.teamSize) || 1);
     setRosterModal(ev);
     setRosterForm({
       teamName: '',
       captainName: '',
       captainEmail: user?.email || '',
       captainPhone: '',
-      teamMatesText: '',
+      teamMates: Array(slots).fill(''),
     });
     setRosterErr('');
     setRosterDone(false);
@@ -412,13 +416,17 @@ const Events = () => {
   const closeRoster = () => setRosterModal(null);
 
   const rf = (k) => (e) => setRosterForm(p => ({ ...p, [k]: e.target.value }));
+  const setTeamMate = (i, val) => setRosterForm(p => {
+    const teamMates = [...p.teamMates]; teamMates[i] = val;
+    return { ...p, teamMates };
+  });
 
-  /* Live team-size check, recomputed every render off the current textarea
-     value — disables the submit button while the roster is under the
+  /* Live team-size check, recomputed every render off the current slot
+     values — disables the submit button while the roster is under the
      minimum or over the maximum, so a captain can't even attempt to submit
      out of range. The same bounds are re-checked in submitRoster (and
      again server-side) as the actual gate. */
-  const rosterTotal = rosterForm.teamMatesText.split(/[\n,]+/).map(m => m.trim()).filter(Boolean).length + 1; // + captain
+  const rosterTotal = rosterForm.teamMates.filter(m => m.trim()).length + 1; // + captain
   const rosterMin = Number(rosterModal?.minTeamSize) || 0;
   const rosterMax = Number(rosterModal?.teamSize) || 0;
   const rosterOutOfRange = (rosterMin > 0 && rosterTotal < rosterMin) || (rosterMax > 0 && rosterTotal > rosterMax);
@@ -431,7 +439,7 @@ const Events = () => {
   const submitRoster = async (e) => {
     e.preventDefault();
     if (rosterLoading || !rosterModal) return;
-    const { teamName, captainName, captainEmail, captainPhone, teamMatesText } = rosterForm;
+    const { teamName, captainName, captainEmail, captainPhone, teamMates } = rosterForm;
     if (!teamName.trim())     { setRosterErr('Team name is required.'); return; }
     if (!captainName.trim())  { setRosterErr("Captain's name is required."); return; }
     if (!captainEmail.trim()) { setRosterErr("Captain's email is required."); return; }
@@ -442,7 +450,7 @@ const Events = () => {
       const digits = captainPhone.replace(/[\s\-+]/g, '').replace(/^91/, '');
       if (!/^\d{10}$/.test(digits)) { setRosterErr('Enter a valid 10-digit mobile number.'); return; }
     }
-    const cleaned = teamMatesText.split(/[\n,]+/).map(m => m.trim()).filter(Boolean);
+    const cleaned = teamMates.map(m => m.trim()).filter(Boolean);
     if (!cleaned.length) { setRosterErr('Add at least one team member.'); return; }
     /* min/max count the whole team, captain included. */
     const totalPlayers = cleaned.length + 1;
@@ -1184,35 +1192,47 @@ const Events = () => {
                   </div>
 
                   <div className={styles.regField}>
-                    <label htmlFor="roster-teammates">
+                    <label>
                       Team Members <span className={styles.req}>*</span>
                       <span style={{ fontWeight: 400 }}>
                         {' '}({rosterModal.minTeamSize} minimum, {rosterModal.teamSize} maximum)
                       </span>
                     </label>
-                    {/* A line-number gutter, 1..max, sized so every slot is
-                        visible without scrolling and lined up against the
-                        textarea's own rows (same line-height/padding on both,
-                        wrap="off" so a long name never wraps into a second
-                        visual line and throws the numbers out of sync) — so
-                        each number sits right where that player's name goes. */}
+                    {/* One independently-tappable box per numbered slot,
+                        1..max, split top-to-bottom into two columns — e.g.
+                        max 16 puts 1–8 in column 1 and 9–16 in column 2 — so
+                        a captain can jump straight to any slot and type a
+                        name against that exact number. */}
                     {(() => {
-                      const slots = Math.min(30, Math.max(1, Number(rosterModal.teamSize) || 1));
-                      const lineStyle = { lineHeight: '1.6', fontSize: '.85rem', fontFamily: 'inherit' };
+                      const slots = rosterForm.teamMates.length;
+                      const split = Math.ceil(slots / 2);
+                      const columns = [
+                        Array.from({ length: split }, (_, i) => i),
+                        Array.from({ length: slots - split }, (_, i) => i + split),
+                      ];
                       return (
-                        <div style={{ display: 'flex', border: '1.5px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
-                          <div style={{
-                            ...lineStyle, flexShrink: 0, background: '#f9fafb', borderRight: '1px solid #e5e7eb',
-                            padding: '8px 8px', color: '#9ca3af', fontWeight: 600, textAlign: 'right', userSelect: 'none',
-                          }}>
-                            {Array.from({ length: slots }, (_, i) => <div key={i}>{i + 1}.</div>)}
-                          </div>
-                          <textarea
-                            id="roster-teammates" rows={slots} wrap="off"
-                            placeholder={''}
-                            value={rosterForm.teamMatesText} onChange={rf('teamMatesText')}
-                            style={{ ...lineStyle, flex: 1, resize: 'vertical', border: 'none', outline: 'none', padding: '8px 10px' }}
-                          />
+                        <div style={{ display: 'flex', gap: 20 }}>
+                          {columns.map((col, ci) => (
+                            col.length > 0 && (
+                              <div key={ci} style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {col.map(i => (
+                                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <span style={{
+                                      flexShrink: 0, width: 24, textAlign: 'right',
+                                      fontSize: '.8rem', fontWeight: 600, color: '#9ca3af',
+                                    }}>
+                                      {i + 1}.
+                                    </span>
+                                    <input
+                                      type="text" placeholder="Full name" aria-label={`Team member ${i + 1}`}
+                                      value={rosterForm.teamMates[i]} onChange={e => setTeamMate(i, e.target.value)}
+                                      style={{ flex: 1 }}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            )
+                          ))}
                         </div>
                       );
                     })()}
