@@ -379,6 +379,7 @@ const Events = () => {
   const [rosterErr,     setRosterErr]     = useState('');
   const [rosterDone,    setRosterDone]    = useState(false);
   const [rosterLoading, setRosterLoading] = useState(false);
+  const teamMateRefs = useRef([]); // input elements, indexed by slot — lets Enter jump to the next one
 
   const openReg = (ev) => {
     if (ev.eventFormat === 'sports_fiesta') { openRoster(ev); return; }
@@ -402,6 +403,7 @@ const Events = () => {
        One box per admin-set max, so the whole roster's capacity — and every
        slot's own tappable field — is there from the start. */
     const slots = Math.max(1, Number(ev.teamSize) || 1);
+    teamMateRefs.current = [];
     setRosterModal(ev);
     setRosterForm({
       teamName: '',
@@ -1199,43 +1201,52 @@ const Events = () => {
                       </span>
                     </label>
                     {/* One independently-tappable box per numbered slot,
-                        1..max, split top-to-bottom into two columns — e.g.
-                        max 16 puts 1–8 in column 1 and 9–16 in column 2 — so
-                        a captain can jump straight to any slot and type a
-                        name against that exact number. */}
-                    {(() => {
-                      const slots = rosterForm.teamMates.length;
-                      const split = Math.ceil(slots / 2);
-                      const columns = [
-                        Array.from({ length: split }, (_, i) => i),
-                        Array.from({ length: slots - split }, (_, i) => i + split),
-                      ];
-                      return (
-                        <div style={{ display: 'flex', gap: 20 }}>
-                          {columns.map((col, ci) => (
-                            col.length > 0 && (
-                              <div key={ci} style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                {col.map(i => (
-                                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <span style={{
-                                      flexShrink: 0, width: 24, textAlign: 'right',
-                                      fontSize: '.8rem', fontWeight: 600, color: '#9ca3af',
-                                    }}>
-                                      {i + 1}.
-                                    </span>
-                                    <input
-                                      type="text" placeholder="Full name" aria-label={`Team member ${i + 1}`}
-                                      value={rosterForm.teamMates[i]} onChange={e => setTeamMate(i, e.target.value)}
-                                      style={{ flex: 1 }}
-                                    />
-                                  </div>
-                                ))}
-                              </div>
-                            )
-                          ))}
+                        1..max, stacked in a single column inside one
+                        scrollable field — so a long roster doesn't blow out
+                        the modal, and a captain can still tap/click straight
+                        into any slot directly. Enter (or the mobile
+                        keyboard's "Next"/"Go" action, which fires the same
+                        keydown) jumps to the next box without needing to
+                        reach for it. */}
+                    <div style={{
+                      display: 'flex', flexDirection: 'column', gap: 4,
+                      maxHeight: 260, overflowY: 'auto',
+                      border: '1.5px solid #e5e7eb', borderRadius: 8, padding: 10,
+                    }}>
+                      {rosterForm.teamMates.map((val, i) => (
+                        <div key={i} style={{
+                          display: 'flex', alignItems: 'center', gap: 8,
+                          borderBottom: i < rosterForm.teamMates.length - 1 ? '1px solid #f0f0f5' : 'none',
+                          paddingBottom: 4,
+                        }}>
+                          <span style={{
+                            flexShrink: 0, width: 24, textAlign: 'right',
+                            fontSize: '.8rem', fontWeight: 600, color: '#9ca3af',
+                          }}>
+                            {i + 1}.
+                          </span>
+                          <input
+                            ref={el => { teamMateRefs.current[i] = el; }}
+                            type="text" placeholder="Full name" aria-label={`Team member ${i + 1}`}
+                            enterKeyHint={i === rosterForm.teamMates.length - 1 ? 'done' : 'next'}
+                            value={val} onChange={e => setTeamMate(i, e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key !== 'Enter') return;
+                              e.preventDefault(); // don't submit the form
+                              teamMateRefs.current[i + 1]?.focus();
+                            }}
+                            /* .regField input:focus (the shared field style) adds a
+                               box-shadow ring + white background on focus — override
+                               both here too, not just border/outline, or tapping a
+                               line still shows a faint ring/box around it. */
+                            style={{
+                              flex: 1, border: 'none', outline: 'none', boxShadow: 'none',
+                              background: 'transparent', padding: 0, height: 'auto',
+                            }}
+                          />
                         </div>
-                      );
-                    })()}
+                      ))}
+                    </div>
                   </div>
 
                   {rosterErr && <div className={styles.regApiErr}>{rosterErr}</div>}
