@@ -119,7 +119,12 @@ async function notifyTeamAssignments(eventId, division) {
             url:    `/student/events/${eventId}`,
           }).catch(() => {});
         }
-        if (!m.email) continue;
+        /* Sports Fiesta teammates (unlike the captain) never supply a real
+           email on the roster form — each got a synthetic @roster.internal
+           placeholder just to satisfy event_registrations' unique-email
+           constraint (see submitTeamRoster in events.controller.js). Never
+           attempt to actually deliver mail there — it's not a real address. */
+        if (!m.email || m.email.toLowerCase().endsWith('@roster.internal')) continue;
         summary.attempted++;
         sendJobs.push(
           sendTeamAssignment({
