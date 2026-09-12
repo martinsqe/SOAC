@@ -1187,15 +1187,35 @@ const Events = () => {
                     <label htmlFor="roster-teammates">
                       Team Members <span className={styles.req}>*</span>
                       <span style={{ fontWeight: 400 }}>
-                        {' '}(one per line — {rosterModal.minTeamSize} minimum, {rosterModal.teamSize} maximum)
+                        {' '}({rosterModal.minTeamSize} minimum, {rosterModal.teamSize} maximum)
                       </span>
                     </label>
-                    <textarea
-                      id="roster-teammates" rows={Math.min(8, Math.max(3, Number(rosterModal.teamSize) || 3))}
-                      placeholder={''}
-                      value={rosterForm.teamMatesText} onChange={rf('teamMatesText')}
-                      style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
-                    />
+                    {/* A line-number gutter, 1..max, sized so every slot is
+                        visible without scrolling and lined up against the
+                        textarea's own rows (same line-height/padding on both,
+                        wrap="off" so a long name never wraps into a second
+                        visual line and throws the numbers out of sync) — so
+                        each number sits right where that player's name goes. */}
+                    {(() => {
+                      const slots = Math.min(30, Math.max(1, Number(rosterModal.teamSize) || 1));
+                      const lineStyle = { lineHeight: '1.6', fontSize: '.85rem', fontFamily: 'inherit' };
+                      return (
+                        <div style={{ display: 'flex', border: '1.5px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+                          <div style={{
+                            ...lineStyle, flexShrink: 0, background: '#f9fafb', borderRight: '1px solid #e5e7eb',
+                            padding: '8px 8px', color: '#9ca3af', fontWeight: 600, textAlign: 'right', userSelect: 'none',
+                          }}>
+                            {Array.from({ length: slots }, (_, i) => <div key={i}>{i + 1}.</div>)}
+                          </div>
+                          <textarea
+                            id="roster-teammates" rows={slots} wrap="off"
+                            placeholder={''}
+                            value={rosterForm.teamMatesText} onChange={rf('teamMatesText')}
+                            style={{ ...lineStyle, flex: 1, resize: 'vertical', border: 'none', outline: 'none', padding: '8px 10px' }}
+                          />
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {rosterErr && <div className={styles.regApiErr}>{rosterErr}</div>}
