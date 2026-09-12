@@ -1227,7 +1227,7 @@ const Events = () => {
                           </span>
                           <input
                             ref={el => { teamMateRefs.current[i] = el; }}
-                            type="text" placeholder="Full name" aria-label={`Team member ${i + 1}`}
+                            type="text" aria-label={`Team member ${i + 1}`}
                             enterKeyHint={i === rosterForm.teamMates.length - 1 ? 'done' : 'next'}
                             value={val} onChange={e => setTeamMate(i, e.target.value)}
                             onKeyDown={e => {
