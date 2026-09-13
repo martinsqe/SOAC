@@ -40,7 +40,7 @@ function EventRow({ ev, open, onToggle }) {
             <div style={{ marginBottom: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <span style={{ fontSize: '.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.05em' }}>Attendance</span>
-                <span style={{ fontSize: '.8rem', fontWeight: 700, color: '#635bff' }}>
+                <span style={{ fontSize: '.8rem', fontWeight: 700, color: '#D32F2F' }}>
                   {ev.attendance.percentage}% <span style={{ fontWeight: 400, color: '#9ca3af' }}>({ev.attendance.presentSessions}/{ev.attendance.totalSessions} days)</span>
                 </span>
               </div>
