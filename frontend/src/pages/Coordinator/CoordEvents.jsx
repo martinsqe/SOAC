@@ -277,6 +277,22 @@ export default function CoordEvents() {
     }
   };
 
+  /* A request can only be cleared from the list once admin has reviewed it —
+     nothing to delete while it's still pending. */
+  const [deletingReqId, setDeletingReqId] = useState(null);
+  const handleDeleteRequest = async (reqId) => {
+    setDeletingReqId(reqId);
+    try {
+      await api.delete(`/event-requests/${reqId}`);
+      setReqs(p => p.filter(r => r.id !== reqId));
+      showToast('Request deleted.');
+    } catch (err) {
+      showToast(err?.message || 'Failed to delete request.', 'err');
+    } finally {
+      setDeletingReqId(null);
+    }
+  };
+
   /* Fetch + reshape fixtures for an event — reused on initial load and whenever the
      bracket auto-advances (a new later-round fixture appears) via socket. */
   const loadFixtures = (eventId) => {
@@ -1245,6 +1261,14 @@ export default function CoordEvents() {
                     {req.status === 'pending' && (
                       <span className={es.pendingHint}>Admin will review this request shortly.</span>
                     )}
+                    {(req.status === 'approved' || req.status === 'rejected') && (
+                      <button
+                        className={es.reqDeleteBtn}
+                        onClick={() => handleDeleteRequest(req.id)}
+                        disabled={deletingReqId === req.id}>
+                        {deletingReqId === req.id ? 'Deleting…' : 'Delete'}
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -1304,7 +1328,10 @@ export default function CoordEvents() {
                     <button className={es.regsBtn} onClick={() => viewRegs(ev)}>
                       View Registrations
                     </button>
-                    <button className={es.editBtn} onClick={() => openEdit(ev)}>Edit</button>
+                    {ev.status === 'past'
+                      ? <span className={es.pastLockedHint} title="This event is past — its details can no longer be edited.">🔒 Past — locked</span>
+                      : <button className={es.editBtn} onClick={() => openEdit(ev)}>Edit</button>
+                    }
                   </div>
                 </div>
               ))}

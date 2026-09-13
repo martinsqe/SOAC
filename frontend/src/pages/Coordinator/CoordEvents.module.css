@@ -119,6 +119,20 @@
   font-style: italic;
 }
 
+.reqDeleteBtn {
+  background: none;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  border-radius: 8px;
+  padding: 5px 12px;
+  font-size: .72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s;
+}
+.reqDeleteBtn:hover { background: #fef2f2; }
+.reqDeleteBtn:disabled { opacity: .55; cursor: not-allowed; }
+
 /* ── Fee badges ── */
 .freeBadge {
   display: inline-block;
@@ -180,6 +194,14 @@
   transition: border-color .14s, color .14s;
 }
 .editBtn:hover { border-color: #635bff; color: #635bff; }
+
+.pastLockedHint {
+  padding: 7px 12px;
+  font-size: .75rem;
+  font-weight: 600;
+  color: #9ca3af;
+  white-space: nowrap;
+}
 
 /* ══ MODAL ══ */
 .modal {

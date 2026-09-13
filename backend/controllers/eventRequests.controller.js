@@ -298,6 +298,28 @@ const rejectRequest = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+/* ── DELETE /api/event-requests/:id  (coordinator — their own, once reviewed) ──
+   A pending request is still awaiting admin action, so it stays undeletable —
+   only once admin has approved or rejected it (nothing left to review) can the
+   coordinator clear it from their list. Admins may delete any reviewed request. */
+const deleteRequest = async (req, res, next) => {
+  try {
+    const { rows } = await pgPool.query(`SELECT * FROM event_requests WHERE id = $1`, [req.params.id]);
+    if (!rows.length) return res.status(404).json({ message: 'Request not found.' });
+    const r = rows[0];
+
+    if (req.user.role !== 'admin' && r.coordinator_id !== req.user.id) {
+      return res.status(403).json({ message: 'You do not own this request.' });
+    }
+    if (r.status === 'pending') {
+      return res.status(409).json({ message: 'This request is still pending review and cannot be deleted yet.' });
+    }
+
+    await pgPool.query(`DELETE FROM event_requests WHERE id = $1`, [req.params.id]);
+    res.json({ message: 'Request deleted.' });
+  } catch (err) { next(err); }
+};
+
 /* ── Row mapper ── */
 const asRequest = (r) => ({
   id:               String(r.id),
@@ -326,4 +348,4 @@ const asRequest = (r) => ({
   updatedAt:        r.updated_at,
 });
 
-module.exports = { createRequest, getRequests, getMyRequests, approveRequest, rejectRequest };
+module.exports = { createRequest, getRequests, getMyRequests, approveRequest, rejectRequest, deleteRequest };

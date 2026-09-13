@@ -6,6 +6,7 @@ const { requireAdmin } = require('../middleware/requireAdmin');
 /* Coordinator routes */
 router.post('/',      verifyToken, ctrl.createRequest);
 router.get('/mine',   verifyToken, ctrl.getMyRequests);
+router.delete('/:id', verifyToken, ctrl.deleteRequest); /* coordinator (own, reviewed) or admin */
 
 /* Admin routes */
 router.get('/',                   verifyToken, requireAdmin, ctrl.getRequests);

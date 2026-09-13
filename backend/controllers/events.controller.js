@@ -113,6 +113,40 @@ const withImageUrl = (event) => {
   return obj;
 };
 
+/* Lazily flips any event whose date has fully elapsed from upcoming/ongoing to
+   past. `status` is otherwise a plain stored column (see schema.sql) that only
+   ever changes when someone explicitly sets it — an admin picking it in a
+   form, or approveRequest defaulting a newly-created event to 'upcoming' —
+   there's no cron job, so without this an event would just sit at 'upcoming'
+   forever. Called at the top of every event read; the UPDATE is a cheap,
+   indexed, mostly-no-op no-op once everything's in sync. On the rare tick
+   where it does flip rows, it busts the cache for exactly those so the
+   change is visible immediately rather than waiting out the normal TTL.
+   "Elapsed" means past the start of the day AFTER start_date, so an event
+   still reads as upcoming/ongoing for the entirety of its own event day —
+   coordinators need that day (and every day after, via the *separate*
+   past-status gate on Edit/registration only — Teams/Groups/Fixtures/
+   Attendance/Report/Certifications stay open regardless of status) to
+   actually run and wrap up the event. */
+const syncPastEvents = async () => {
+  try {
+    const { rows } = await pgPool.query(
+      `UPDATE events
+       SET status = 'past', updated_at = NOW()
+       WHERE status IN ('upcoming', 'ongoing')
+         AND start_date IS NOT NULL
+         AND start_date < date_trunc('day', NOW())
+       RETURNING id`
+    );
+    if (rows.length) {
+      await Promise.all([
+        cache.delPattern('events:*'),
+        ...rows.map(r => cache.del(`events:${r.id}`)),
+      ]);
+    }
+  } catch (_) { /* best-effort — a missed sweep just gets caught on the next read */ }
+};
+
 /* GET /api/events  (public)
    Supports ?page=&limit=&status=&category=&club=&clubId=
    ?clubId= (preferred) filters by club ID via a join — exact, no name-matching issues.
@@ -122,6 +156,7 @@ const withImageUrl = (event) => {
 const getAll = async (req, res, next) => {
   try {
     await ensureSoacTables();
+    await syncPastEvents();
     const { status, category, club, clubId } = req.query;
     const { page, limit, offset }            = parsePage(req.query);
 
@@ -297,6 +332,7 @@ const getPastScores = async (req, res, next) => {
    Cache-aside: events:<id> → 120 s */
 const getOne = async (req, res, next) => {
   try {
+    await syncPastEvents();
     const cacheKey = `events:${req.params.id}`;
     const cached   = await cache.get(cacheKey);
     if (cached) return res.json(cached);
@@ -429,6 +465,16 @@ const update = async (req, res, next) => {
       [req.params.id]
     );
     if (!cur.length) return res.status(404).json({ message: 'Event not found.' });
+    /* A past event's own details (title/date/venue/fee/...) are locked once
+       it's over — coordinators can't touch it at all; admin keeps a narrow
+       escape hatch for genuine corrections (a typo noticed after the fact,
+       or manually reopening one). This is separate from — and doesn't
+       affect — Teams/Groups/Fixtures/Attendance/Report/Certifications,
+       which stay open regardless of status since that's exactly the
+       post-event work coordinators still need to do. */
+    if (cur[0].status === 'past' && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'This event is past and its details can no longer be edited.' });
+    }
     if (req.file) await destroyImage(cur[0].image);
 
     // Resolve club assignment: use clubId FK if provided, else fall back to club text field
@@ -695,11 +741,12 @@ const register = async (req, res, next) => {
 const submitTeamRoster = async (req, res, next) => {
   try {
     const { rows } = await pgPool.query(
-      `SELECT id, title, event_format, team_size, min_team_size FROM events WHERE id = $1 AND is_active = true`,
+      `SELECT id, title, status, event_format, team_size, min_team_size FROM events WHERE id = $1 AND is_active = true`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Event not found.' });
     const event = rows[0];
+    if (event.status === 'past') return res.status(400).json({ message: 'Registrations for this event are closed.' });
     if (event.event_format !== 'sports_fiesta') {
       return res.status(400).json({ message: 'This event does not accept a team roster submission.' });
     }
