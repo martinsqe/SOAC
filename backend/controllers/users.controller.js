@@ -673,15 +673,22 @@ const activityByEmail = async (req, res, next) => {
          FROM event_certificates_issued WHERE registration_id = ANY($1::int[])`,
         [regIds]
       ),
+      /* Matches a mark left against either identity a coordinator could have recorded
+         it under (see eventAttendance.controller.js's getAttendance/recordAttendance):
+         user_id when this email has a matching account, or registration_id directly
+         (registration_id is globally unique and already scoped to one event via its
+         own FK, so matching it here needs no extra event_id check) when it doesn't —
+         so attendance shows up here even for a registrant with no account at all. */
       pgPool.query(
         `SELECT s.event_id,
                 COUNT(DISTINCT s.id) AS total_sessions,
                 COUNT(DISTINCT CASE WHEN r.status = 'present' THEN s.id END) AS present_sessions
          FROM event_attendance_sessions s
-         LEFT JOIN event_attendance_records r ON r.session_id = s.id AND r.user_id = $2
+         LEFT JOIN event_attendance_records r ON r.session_id = s.id
+           AND (r.user_id = $2 OR r.registration_id = ANY($3::bigint[]))
          WHERE s.event_id = ANY($1::int[])
          GROUP BY s.event_id`,
-        [eventIds, userId]
+        [eventIds, userId, regIds]
       ),
       /* Same coin sources myActivity uses (event_registration / event_clearance /
          player_score / match_performance) — all no-op via COALESCE when userId

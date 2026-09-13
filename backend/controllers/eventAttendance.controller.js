@@ -22,16 +22,24 @@ const { getCoordClubIds } = require('../services/coordAuth');
       CREATE TABLE IF NOT EXISTS event_attendance_records (
         id          BIGSERIAL     PRIMARY KEY,
         session_id  BIGINT        NOT NULL REFERENCES event_attendance_sessions(id) ON DELETE CASCADE,
-        user_id     INTEGER       NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_id     INTEGER       REFERENCES users(id) ON DELETE CASCADE,
         user_name   VARCHAR(255)  NOT NULL DEFAULT '',
         status      VARCHAR(20)   NOT NULL DEFAULT 'present',
         updated_at  TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
         UNIQUE (session_id, user_id)
       )
     `);
+    /* Registrants without a users account (public event/team-roster registration never
+       required one) still need to be attendance-markable, so user_id was relaxed to
+       nullable above and every record can instead anchor to the event_registrations row
+       — one or the other is always set, enforced in the controller, not the schema. */
+    await pgPool.query(`ALTER TABLE event_attendance_records ALTER COLUMN user_id DROP NOT NULL`);
+    await pgPool.query(`ALTER TABLE event_attendance_records ADD COLUMN IF NOT EXISTS registration_id BIGINT REFERENCES event_registrations(id) ON DELETE CASCADE`);
+    await pgPool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ev_attend_rec_session_reg ON event_attendance_records(session_id, registration_id)`);
     await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_ev_attend_sess_event   ON event_attendance_sessions(event_id)`);
     await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_ev_attend_rec_session ON event_attendance_records(session_id)`);
     await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_ev_attend_rec_user    ON event_attendance_records(user_id)`);
+    await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_ev_attend_rec_reg     ON event_attendance_records(registration_id)`);
     console.log('[eventAttendance] migrations ready');
   } catch (err) {
     console.error('[eventAttendance] migration failed:', err.message);
@@ -59,18 +67,22 @@ const checkAccess = async (req, res) => {
 };
 
 /* GET /api/events/:id/attendance
-   Returns the roster to record against — every active club member PLUS every
-   registrant for this event who has a matching (real, non-placeholder) users
-   account, even if they're not a club member — every attendance day declared
-   for this event so far, and the recorded status for each (member, day) pair.
-   The frontend renders this as a grid. Non-club-member registrants need to be
-   included here so their attendance gets recorded against their account and
-   later shows up when they check it on the public "My Activity" page (see
-   activityByEmail in users.controller.js, which surfaces attendance only for
-   registrants it can match to a users account). Attendance records still
-   require a real users.id (event_attendance_records.user_id is a NOT NULL
-   FK), so a registrant with no account at all can't be marked — only that
-   registered-but-accountless case is out of scope here. */
+   Returns the full roster to record against — every active club member PLUS
+   EVERY registrant for this event (Sports Fiesta captain + teammates included),
+   whether or not they belong to the club or even have a users account — every
+   attendance day declared for this event so far, and the recorded status for
+   each (member, day) pair. The frontend renders this as a grid.
+
+   Each roster row carries `id` (a real users.id, when the registrant's email
+   matches an account) and/or `registrationId` (the event_registrations row).
+   A registrant with a matching account is keyed by `id` — same as before, and
+   what makes their attendance show up on the public "My Activity" page (see
+   activityByEmail in users.controller.js). A registrant with no account (most
+   Sports Fiesta teammates, or anyone who registered without ever signing up)
+   is keyed by `registrationId` alone — still fully markable, just not
+   attributable to an account, so it won't surface on that student's own
+   "My Activity" lookup since there's no account/email of theirs to match it
+   against. */
 const getAttendance = async (req, res, next) => {
   try {
     if (!await checkAccess(req, res)) return;
@@ -81,24 +93,20 @@ const getAttendance = async (req, res, next) => {
     if (!evRows.length) return res.status(404).json({ message: 'Event not found.' });
     const clubId = evRows[0].club_id;
 
-    const [{ rows: members }, { rows: sessions }, { rows: records }] = await Promise.all([
+    const [{ rows: clubMembers }, { rows: regs }, { rows: sessions }, { rows: records }] = await Promise.all([
+      clubId
+        ? pgPool.query(
+            `SELECT u.id, u.name, u.email
+             FROM student_clubs sc
+             JOIN users u ON u.id = sc.user_id AND u.is_active = true
+             WHERE sc.club_id = $1 AND sc.is_active = true
+             ORDER BY u.name`,
+            [clubId]
+          )
+        : Promise.resolve({ rows: [] }),
       pgPool.query(
-        `SELECT DISTINCT u.id, u.name, u.email
-         FROM users u
-         WHERE u.is_active = true
-           AND (
-             ($1::bigint IS NOT NULL AND EXISTS (
-               SELECT 1 FROM student_clubs sc
-               WHERE sc.club_id = $1 AND sc.user_id = u.id AND sc.is_active = true
-             ))
-             OR EXISTS (
-               SELECT 1 FROM event_registrations er
-               WHERE er.event_id = $2 AND LOWER(er.email) = LOWER(u.email)
-                 AND er.email NOT ILIKE '%@roster.internal'
-             )
-           )
-         ORDER BY u.name`,
-        [clubId, req.params.id]
+        `SELECT id, name, email FROM event_registrations WHERE event_id = $1 ORDER BY registered_at ASC`,
+        [req.params.id]
       ),
       pgPool.query(
         `SELECT id, session_date, session_label, created_at
@@ -108,13 +116,43 @@ const getAttendance = async (req, res, next) => {
         [req.params.id]
       ),
       pgPool.query(
-        `SELECT r.session_id, r.user_id, r.status
+        `SELECT r.session_id, r.user_id, r.registration_id, r.status
          FROM event_attendance_records r
          JOIN event_attendance_sessions s ON s.id = r.session_id
          WHERE s.event_id = $1`,
         [req.params.id]
       ),
     ]);
+
+    const regEmails = [...new Set(
+      regs.map(r => r.email.toLowerCase()).filter(e => !e.endsWith('@roster.internal'))
+    )];
+    const { rows: matchedUsers } = regEmails.length
+      ? await pgPool.query(
+          `SELECT id, LOWER(email) AS email FROM users WHERE is_active = true AND LOWER(email) = ANY($1::text[])`,
+          [regEmails]
+        )
+      : { rows: [] };
+    const userIdByEmail = new Map(matchedUsers.map(u => [u.email, u.id]));
+
+    const roster = new Map(); // `u:<id>` or `r:<registrationId>` -> row
+    for (const m of clubMembers) {
+      roster.set(`u:${m.id}`, { id: m.id, registrationId: null, name: m.name, email: m.email });
+    }
+    for (const r of regs) {
+      const emailLower = r.email.toLowerCase();
+      const isPlaceholder = emailLower.endsWith('@roster.internal');
+      const matchedUserId = isPlaceholder ? null : userIdByEmail.get(emailLower);
+      if (matchedUserId) {
+        const key = `u:${matchedUserId}`;
+        const existing = roster.get(key);
+        if (existing) existing.registrationId = existing.registrationId ?? r.id;
+        else roster.set(key, { id: matchedUserId, registrationId: r.id, name: r.name, email: r.email });
+      } else {
+        roster.set(`r:${r.id}`, { id: null, registrationId: r.id, name: r.name, email: isPlaceholder ? null : r.email });
+      }
+    }
+    const members = [...roster.values()].sort((a, b) => a.name.localeCompare(b.name));
 
     res.json({ members, sessions, records });
   } catch (err) { next(err); }
@@ -153,13 +191,15 @@ const deleteSession = async (req, res, next) => {
 };
 
 /* PATCH /api/events/:id/attendance/sessions/:sessionId
-   body: { records: [{ userId, userName, status: 'present'|'absent' }] }
-   Bulk-upserts every listed member's status for this day in one statement. */
+   body: { records: [{ userId?, registrationId?, userName, status: 'present'|'absent' }] }
+   Bulk-upserts every listed roster row's status for this day in one statement
+   per identity type — a row is keyed by userId when the registrant has a
+   matching account, else by registrationId (see getAttendance above). */
 const recordAttendance = async (req, res, next) => {
   try {
     if (!await checkAccess(req, res)) return;
     const { records = [] } = req.body;
-    const clean = records.filter(r => r.userId && ['present', 'absent'].includes(r.status));
+    const clean = records.filter(r => (r.userId || r.registrationId) && ['present', 'absent'].includes(r.status));
     if (!clean.length) return res.status(400).json({ message: 'records array is required.' });
 
     const { rows: sessRows } = await pgPool.query(
@@ -168,18 +208,27 @@ const recordAttendance = async (req, res, next) => {
     );
     if (!sessRows.length) return res.status(404).json({ message: 'Attendance day not found.' });
 
-    await pgPool.query(
-      `INSERT INTO event_attendance_records (session_id, user_id, user_name, status)
-       SELECT $1, unnest($2::int[]), unnest($3::text[]), unnest($4::text[])
-       ON CONFLICT (session_id, user_id) DO UPDATE
-         SET status = EXCLUDED.status, user_name = EXCLUDED.user_name, updated_at = NOW()`,
-      [
-        req.params.sessionId,
-        clean.map(r => r.userId),
-        clean.map(r => r.userName || ''),
-        clean.map(r => r.status),
-      ]
-    );
+    const withUser = clean.filter(r => r.userId);
+    const withReg  = clean.filter(r => !r.userId && r.registrationId);
+
+    if (withUser.length) {
+      await pgPool.query(
+        `INSERT INTO event_attendance_records (session_id, user_id, user_name, status)
+         SELECT $1, unnest($2::int[]), unnest($3::text[]), unnest($4::text[])
+         ON CONFLICT (session_id, user_id) DO UPDATE
+           SET status = EXCLUDED.status, user_name = EXCLUDED.user_name, updated_at = NOW()`,
+        [req.params.sessionId, withUser.map(r => r.userId), withUser.map(r => r.userName || ''), withUser.map(r => r.status)]
+      );
+    }
+    if (withReg.length) {
+      await pgPool.query(
+        `INSERT INTO event_attendance_records (session_id, registration_id, user_name, status)
+         SELECT $1, unnest($2::bigint[]), unnest($3::text[]), unnest($4::text[])
+         ON CONFLICT (session_id, registration_id) DO UPDATE
+           SET status = EXCLUDED.status, user_name = EXCLUDED.user_name, updated_at = NOW()`,
+        [req.params.sessionId, withReg.map(r => r.registrationId), withReg.map(r => r.userName || ''), withReg.map(r => r.status)]
+      );
+    }
     res.json({ message: 'Attendance saved.' });
   } catch (err) { next(err); }
 };

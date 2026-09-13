@@ -415,7 +415,13 @@ export default function CoordEvents() {
     }
   };
 
-  /* ── Attendance ── */
+  /* ── Attendance ──
+     Each roster row is keyed by `u:<userId>` when the registrant has a matching
+     users account, else `r:<registrationId>` — mirrors the `id`/`registrationId`
+     shape the backend returns (see eventAttendance.controller.js's getAttendance),
+     so every registrant for the event is markable, account or not. */
+  const rosterKey = (m) => m.id ? `u:${m.id}` : `r:${m.registrationId}`;
+
   const loadAttendance = async (eventId) => {
     setAttendLoading(true);
     try {
@@ -423,7 +429,10 @@ export default function CoordEvents() {
       setAttendMembers(d.members || []);
       setAttendSessions(d.sessions || []);
       const marks = {};
-      (d.records || []).forEach(r => { marks[`${r.session_id}:${r.user_id}`] = r.status; });
+      (d.records || []).forEach(r => {
+        const key = r.user_id ? `u:${r.user_id}` : `r:${r.registration_id}`;
+        marks[`${r.session_id}:${key}`] = r.status;
+      });
       setAttendMarks(marks);
       setAttendDirty(new Set());
     } catch (err) {
@@ -467,11 +476,11 @@ export default function CoordEvents() {
     }
   };
 
-  const toggleMark = (sessionId, userId) => {
-    const key = `${sessionId}:${userId}`;
+  const toggleMark = (sessionId, key) => {
+    const markKey = `${sessionId}:${key}`;
     setAttendMarks(prev => ({
       ...prev,
-      [key]: prev[key] === 'present' ? 'absent' : 'present',
+      [markKey]: prev[markKey] === 'present' ? 'absent' : 'present',
     }));
     setAttendDirty(prev => new Set(prev).add(sessionId));
   };
@@ -481,9 +490,10 @@ export default function CoordEvents() {
     setAttendSaving(sessionId);
     try {
       const records = attendMembers.map(m => ({
-        userId: m.id,
+        userId: m.id || undefined,
+        registrationId: m.id ? undefined : m.registrationId,
         userName: m.name,
-        status: attendMarks[`${sessionId}:${m.id}`] === 'present' ? 'present' : 'absent',
+        status: attendMarks[`${sessionId}:${rosterKey(m)}`] === 'present' ? 'present' : 'absent',
       }));
       await api.patch(`/events/${regEvent._id}/attendance/sessions/${sessionId}`, { records });
       setAttendDirty(prev => { const next = new Set(prev); next.delete(sessionId); return next; });
@@ -2781,15 +2791,16 @@ export default function CoordEvents() {
                 {attendLoading ? (
                   <div className={es.reportPlaceholder}>Loading attendance…</div>
                 ) : attendMembers.length === 0 ? (
-                  <div className={es.reportPlaceholder}>This club has no active members yet.</div>
+                  <div className={es.reportPlaceholder}>No club members or event registrants yet.</div>
                 ) : attendSessions.length === 0 ? (
                   <div className={es.reportPlaceholder}>No attendance days added yet — add one above to start recording.</div>
                 ) : (
                   <div className={es.regsTableWrap} style={{ overflowX: 'auto' }}>
-                    <table className={es.regsTable} style={{ minWidth: 480 + attendSessions.length * 150 }}>
+                    <table className={es.regsTable} style={{ minWidth: 520 + attendSessions.length * 150 }}>
                       <thead>
                         <tr>
-                          <th style={{ position: 'sticky', left: 0, background: '#fafafa' }}>Member</th>
+                          <th style={{ position: 'sticky', left: 0, background: '#fafafa', width: 40 }}>#</th>
+                          <th style={{ position: 'sticky', left: 40, background: '#fafafa' }}>Member</th>
                           {attendSessions.map(s => (
                             <th key={s.id} style={{ textAlign: 'center', minWidth: 140 }}>
                               <div>{s.session_label || new Date(s.session_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</div>
@@ -2819,17 +2830,18 @@ export default function CoordEvents() {
                         </tr>
                       </thead>
                       <tbody>
-                        {attendMembers.map(m => (
-                          <tr key={m.id}>
-                            <td className={es.regsName} style={{ position: 'sticky', left: 0, background: '#fff' }}>{m.name}</td>
+                        {attendMembers.map((m, i) => (
+                          <tr key={rosterKey(m)}>
+                            <td className={es.regsNum} style={{ position: 'sticky', left: 0, background: '#fff' }}>{i + 1}</td>
+                            <td className={es.regsName} style={{ position: 'sticky', left: 40, background: '#fff' }}>{m.name}</td>
                             {attendSessions.map(s => {
-                              const status = attendMarks[`${s.id}:${m.id}`] === 'present' ? 'present' : 'absent';
+                              const status = attendMarks[`${s.id}:${rosterKey(m)}`] === 'present' ? 'present' : 'absent';
                               const present = status === 'present';
                               return (
                                 <td key={s.id} style={{ textAlign: 'center' }}>
                                   <button
                                     type="button"
-                                    onClick={() => toggleMark(s.id, m.id)}
+                                    onClick={() => toggleMark(s.id, rosterKey(m))}
                                     style={{
                                       padding: '5px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
                                       fontSize: '.75rem', fontWeight: 700,
