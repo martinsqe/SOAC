@@ -112,14 +112,14 @@
   padding: 10px 18px;
   font-size: .85rem;
   font-weight: 700;
-  color: #6b7280;
+  color: #000;
   cursor: pointer;
   white-space: nowrap;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
 }
 .tabBtnOn {
-  color: #D32F2F;
+  color: #000;
   border-bottom-color: #D32F2F;
 }
 .tabCount {
@@ -209,13 +209,9 @@
 .actAccCoinRow { display: flex; align-items: center; justify-content: space-between; font-size: .8rem; color: #374151; }
 .actCoinBadge {
   display: inline-block;
-  font-size: .72rem;
+  font-size: .8rem;
   font-weight: 700;
-  color: #059669;
-  background: #ecfdf5;
-  border: 1px solid #6ee7b7;
-  border-radius: 20px;
-  padding: 2px 10px;
+  color: #000;
   white-space: nowrap;
 }
 .actCoinPending { font-size: .72rem; color: #9ca3af; font-style: italic; }
