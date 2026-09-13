@@ -50,16 +50,6 @@ function EventRow({ ev, open, onToggle }) {
             </div>
           )}
 
-          {ev.achievements?.length > 0 && (
-            <div style={{ marginBottom: 10 }}>
-              {ev.achievements.map((a, i) => (
-                a.fileUrl
-                  ? <a key={i} className={s.achBadge} href={a.fileUrl} target="_blank" rel="noreferrer">🏅 {a.category || 'Certificate'}</a>
-                  : <span key={i} className={s.achBadge}>🏅 {a.category || 'Certificate'} (pending)</span>
-              ))}
-            </div>
-          )}
-
           <div className={s.actAccCoins}>
             {ev.contributionCoins > 0 ? (
               <div className={s.actAccCoinRow}>

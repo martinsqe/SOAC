@@ -133,19 +133,6 @@
 }
 .tabBtnOn .tabCount { background: #FEE2E2; color: #D32F2F; }
 
-.achBadge {
-  display: inline-block;
-  font-size: .68rem;
-  font-weight: 700;
-  color: #D32F2F;
-  background: #FEF2F2;
-  border: 1px solid #FECACA;
-  border-radius: 20px;
-  padding: 2px 10px;
-  margin-right: 6px;
-  white-space: nowrap;
-}
-
 .actSectionTitle {
   font-size: .68rem;
   font-weight: 700;
