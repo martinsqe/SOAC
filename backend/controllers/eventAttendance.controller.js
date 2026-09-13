@@ -59,9 +59,18 @@ const checkAccess = async (req, res) => {
 };
 
 /* GET /api/events/:id/attendance
-   Returns every active club member (the roster to record against), every
-   attendance day declared for this event so far, and the recorded status
-   for each (member, day) pair — the frontend renders this as a grid. */
+   Returns the roster to record against — every active club member PLUS every
+   registrant for this event who has a matching (real, non-placeholder) users
+   account, even if they're not a club member — every attendance day declared
+   for this event so far, and the recorded status for each (member, day) pair.
+   The frontend renders this as a grid. Non-club-member registrants need to be
+   included here so their attendance gets recorded against their account and
+   later shows up when they check it on the public "My Activity" page (see
+   activityByEmail in users.controller.js, which surfaces attendance only for
+   registrants it can match to a users account). Attendance records still
+   require a real users.id (event_attendance_records.user_id is a NOT NULL
+   FK), so a registrant with no account at all can't be marked — only that
+   registered-but-accountless case is out of scope here. */
 const getAttendance = async (req, res, next) => {
   try {
     if (!await checkAccess(req, res)) return;
@@ -71,16 +80,25 @@ const getAttendance = async (req, res, next) => {
     );
     if (!evRows.length) return res.status(404).json({ message: 'Event not found.' });
     const clubId = evRows[0].club_id;
-    if (!clubId) return res.json({ members: [], sessions: [], records: [] });
 
     const [{ rows: members }, { rows: sessions }, { rows: records }] = await Promise.all([
       pgPool.query(
-        `SELECT u.id, u.name, u.email
-         FROM student_clubs sc
-         JOIN users u ON u.id = sc.user_id AND u.is_active = true
-         WHERE sc.club_id = $1 AND sc.is_active = true
+        `SELECT DISTINCT u.id, u.name, u.email
+         FROM users u
+         WHERE u.is_active = true
+           AND (
+             ($1::bigint IS NOT NULL AND EXISTS (
+               SELECT 1 FROM student_clubs sc
+               WHERE sc.club_id = $1 AND sc.user_id = u.id AND sc.is_active = true
+             ))
+             OR EXISTS (
+               SELECT 1 FROM event_registrations er
+               WHERE er.event_id = $2 AND LOWER(er.email) = LOWER(u.email)
+                 AND er.email NOT ILIKE '%@roster.internal'
+             )
+           )
          ORDER BY u.name`,
-        [clubId]
+        [clubId, req.params.id]
       ),
       pgPool.query(
         `SELECT id, session_date, session_label, created_at
