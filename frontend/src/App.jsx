@@ -15,6 +15,7 @@ import Clubs   from './pages/Clubs/Clubs';
 import Events     from './pages/Events/Events';
 import LiveGames  from './pages/LiveGames/LiveGames';
 import Explore    from './pages/Explore/Explore';
+import MyActivity from './pages/MyActivity/MyActivity';
 import Login   from './pages/Login/Login';
 import ResetPassword from './pages/ResetPassword/ResetPassword';
 
@@ -140,6 +141,7 @@ function AppInner() {
         <Route path="/events/live" element={<GuestLayout><LiveGames /></GuestLayout>} />
         <Route path="/events/:id"  element={<GuestLayout><Events    /></GuestLayout>} />
         <Route path="/explore"     element={<GuestLayout><Explore   /></GuestLayout>} />
+        <Route path="/my-activity" element={<GuestLayout><MyActivity /></GuestLayout>} />
         <Route path="/gallery" element={<GuestLayout><Gallery /></GuestLayout>} />
         <Route path="/contact" element={<GuestLayout><Contact /></GuestLayout>} />
         <Route path="/login"   element={<NavOnlyLayout><Login /></NavOnlyLayout>} />

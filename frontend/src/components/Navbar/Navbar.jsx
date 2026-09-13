@@ -22,6 +22,7 @@ const Navbar = () => {
     { to: '/clubs',   label: 'Clubs'   },
     { to: '/events',  label: 'Events'  },
     { to: '/explore', label: 'Gallery' },
+    { to: '/my-activity', label: 'My Activity' },
   ].map(l => ({ ...l, end: true }));
 
   return (
