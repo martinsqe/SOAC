@@ -76,7 +76,10 @@ export default function CoordDashboard() {
       setMembers(mRes.members || []);
       setRequests(rRes.requests || []);
       setRequestsTotal(rRes.pagination?.total ?? (rRes.requests || []).length);
-      setEvents((eRes.events || []).filter(e => e.status === 'upcoming').slice(0, 4));
+      /* Full filtered list (not sliced) — the stat card's count reads events.length
+         directly, so truncating here would under-report it; the card below slices
+         to 4 only for its own preview display. */
+      setEvents((eRes.events || []).filter(e => e.status === 'upcoming'));
     }).catch(() => {
       setMembers([]);
       setRequests([]);
@@ -187,7 +190,12 @@ export default function CoordDashboard() {
             </div>
           </div>
           <div className={`${s.sc} ${s.fu} ${s.d3}`} onClick={() => navigate('/coordinator/events')} style={{cursor:'pointer'}}>
-            <div className={s.scVal} style={{ color:'#00C896' }}>{loading ? '—' : (club?.eventCount ?? events.length)}</div>
+            {/* club.eventCount is a lifetime total (every event the club has ever run,
+                past included) — using it here under an "Upcoming" label could show a
+                stale-looking number once an event's date passes and its status flips
+                to 'past'. events.length is the live upcoming-only count computed
+                above, so it always agrees with the "Next: ..." hint right below it. */}
+            <div className={s.scVal} style={{ color:'#00C896' }}>{loading ? '—' : events.length}</div>
             <div className={s.scName}>Upcoming Events</div>
             <div className={s.scBadge} style={{ background:'#00c89614', color:'#007a5e' }}>
               {nextDateStr ? `Next: ${nextDateStr}` : 'None scheduled'}
@@ -287,7 +295,7 @@ export default function CoordDashboard() {
               <div className={s.emptyState}>No upcoming events</div>
             ) : (
               <div className={s.eventList}>
-                {events.map((ev, i) => (
+                {events.slice(0, 4).map((ev, i) => (
                   <div key={ev._id || i} className={s.eventRow}>
                     <div className={s.eventDate}>{ev.date || new Date(ev.startDate).toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</div>
                     <div className={s.eventInfo}>

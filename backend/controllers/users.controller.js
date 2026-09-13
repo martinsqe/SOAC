@@ -8,6 +8,7 @@ const { ensureSoacTables } = require('../services/soacData');
 const { sendCredentials } = require('../config/email');
 const { notifyUser } = require('../services/notify');
 const cache = require('../services/cache');
+const { syncPastEvents } = require('../services/eventStatus');
 
 const AVATAR_ALLOWED = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
 
@@ -170,6 +171,7 @@ const remove = async (req, res, next) => {
 const stats = async (req, res, next) => {
   try {
     await ensureSoacTables();
+    await syncPastEvents();
 
     const cached = await cache.get('stats:admin');
     if (cached) return res.json(cached);
