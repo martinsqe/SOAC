@@ -882,6 +882,7 @@ const asEvent = (row) => ({
   paymentLink: row.payment_link || '',
   teamSize: Number(row.team_size || 0),
   minTeamSize: Number(row.min_team_size || 0),
+  parentEventId: row.parent_event_id ? String(row.parent_event_id) : null,
 });
 
 /**

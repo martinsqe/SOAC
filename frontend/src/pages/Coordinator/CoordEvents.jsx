@@ -113,9 +113,14 @@ export default function CoordEvents() {
   const [narrativeSaving, setNarrativeSaving] = useState(false);
 
   /* ── Divisions — Boys/Girls run as two entirely independent sections everywhere
-     below: their own groups, fixtures, stage schedule, and Match Control. ── */
-  const DIVISIONS = ['boys', 'girls'];
-  const DIVISION_LABEL = { boys: 'Boys', girls: 'Girls' };
+     below: their own groups, fixtures, stage schedule, and Match Control. Only
+     sports events are gender-split this way; a Galore cultural/academic activity
+     (or any non-sports event) runs as one combined "Open" division instead —
+     Groups/Fixtures/Scoreboard stay sports-only regardless (gated separately,
+     unaffected here), so this only changes what the always-visible Teams tab
+     shows. ── */
+  const DIVISIONS = regEvent?.category === 'sports' ? ['boys', 'girls'] : ['open'];
+  const DIVISION_LABEL = { boys: 'Boys', girls: 'Girls', open: 'Open' };
 
   /* ── Groups state (single fetch, both divisions tagged — filtered per-section at render) ── */
   const [groups,       setGroups]      = useState([]);
@@ -154,9 +159,9 @@ export default function CoordEvents() {
   const [teams,          setTeams]         = useState([]);
   const [teamsLoading,   setTeamsLoading]  = useState(false);
   const [expandedTeams,  setExpandedTeams] = useState(new Set());
-  const [newTeamName,    setNewTeamName]   = useState({ boys: '', girls: '' });
-  const [newTeamSize,    setNewTeamSize]   = useState({ boys: '', girls: '' });
-  const [creatingTeam,   setCreatingTeam]  = useState({ boys: false, girls: false });
+  const [newTeamName,    setNewTeamName]   = useState({ boys: '', girls: '', open: '' });
+  const [newTeamSize,    setNewTeamSize]   = useState({ boys: '', girls: '', open: '' });
+  const [creatingTeam,   setCreatingTeam]  = useState({ boys: false, girls: false, open: false });
   const [teamEdits,      setTeamEdits]     = useState({}); // { teamId: {name, maxSize} }
   const showToast = (msg, type = 'ok') => {
     setToast({ msg, type });
@@ -358,8 +363,8 @@ export default function CoordEvents() {
     setReportPhotoFiles([]);
     setHighlightPhotoFiles([]);
     setExpandedTeams(new Set());
-    setNewTeamName({ boys: '', girls: '' });
-    setNewTeamSize({ boys: '', girls: '' });
+    setNewTeamName({ boys: '', girls: '', open: '' });
+    setNewTeamSize({ boys: '', girls: '', open: '' });
     setEventLiveScores([]);
     setMatchMvpData({});
     setMvpPickScoreId(null);
@@ -1021,8 +1026,9 @@ export default function CoordEvents() {
   /* Teams not yet assigned to any group, per division */
   const assignedTeamIds = new Set(groups.flatMap(g => g.teams.map(t => t.id)));
   const teamsByDiv = {
-    boys:  teams.filter(t => t.division !== 'girls'),
+    boys:  teams.filter(t => t.division !== 'girls' && t.division !== 'open'),
     girls: teams.filter(t => t.division === 'girls'),
+    open:  teams.filter(t => t.division === 'open'),
   };
   const groupsByDiv = {
     boys:  groups.filter(g => g.division !== 'girls'),

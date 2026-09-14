@@ -45,6 +45,26 @@ const EMPTY_SF = {
   minTeamSize: '', teamSize: '', paymentLink: '',
 };
 
+/* ── Galore: one umbrella event (Galore 2027) holding many child "activities"
+   (Football, Chess, Public Speaking, ...), each a normal event underneath it
+   (parentEventId) — see events.controller.js. The umbrella just needs the same
+   top-level details as any other event; category/clubId don't apply to it. ── */
+const EMPTY_GALORE = {
+  title: '', status: 'upcoming', date: '', startDate: '', time: '', venue: '',
+  description: '', seats: '', highlight: '', isFree: true, feeAmount: '',
+};
+const GALORE_CATEGORIES = ['sports', 'cultural', 'academic'];
+const GALORE_CATEGORY_LABEL = { sports: 'Sports', cultural: 'Cultural', academic: 'Academic' };
+/* Every activity is either team-based (reuses the Sports Fiesta captain/roster
+   flow — event_format 'sports_fiesta') or individual (reuses the plain public
+   register() flow — event_format 'other'). Only sports activities are gender
+   (boys/girls) split; cultural/academic run as one open division. */
+const EMPTY_ACTIVITY = {
+  title: '', category: 'sports', participationType: 'team', clubId: '',
+  date: '', startDate: '', time: '', venue: '',
+  isFree: true, feeAmount: '', minTeamSize: '', teamSize: '',
+};
+
 const REQ_STATUS_META = {
   pending:  { label: 'Pending',  color: '#d97706', bg: '#fffbeb' },
   approved: { label: 'Approved', color: '#059669', bg: '#ecfdf5' },
@@ -228,6 +248,26 @@ export default function AdminEvents() {
   const [sfError,   setSfError]   = useState('');
   const sfFileRef = useRef();
 
+  /* ── Galore: umbrella create/edit modal, the "activities" panel for a
+     selected umbrella, and the add-activity modal. ── */
+  const [galoreModal,   setGaloreModal]   = useState(false); // false | 'add' | 'edit'
+  const [galoreForm,    setGaloreForm]    = useState(EMPTY_GALORE);
+  const [galoreEditing, setGaloreEditing] = useState(null);
+  const [galoreImgFile, setGaloreImgFile] = useState(null);
+  const [galoreImgPrev, setGaloreImgPrev] = useState('');
+  const [galoreSaving,  setGaloreSaving]  = useState(false);
+  const [galoreError,   setGaloreError]   = useState('');
+  const galoreFileRef = useRef();
+
+  const [selectedGalore,    setSelectedGalore]    = useState(null); // umbrella event, when drilled into its activities
+  const [activities,        setActivities]        = useState([]);
+  const [activitiesLoading, setActivitiesLoading] = useState(false);
+
+  const [actModal,  setActModal]  = useState(false); // false | 'add'
+  const [actForm,   setActForm]   = useState(EMPTY_ACTIVITY);
+  const [actSaving, setActSaving] = useState(false);
+  const [actError,  setActError]  = useState('');
+
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
 
   const load = useCallback(() => {
@@ -386,6 +426,9 @@ export default function AdminEvents() {
     try {
       await api.delete(`/events/${deleteId}`);
       setDeleteId(null); load();
+      /* Deleting an activity while its Galore umbrella's panel is open needs the
+         activities list refreshed too — a no-op fetch when deleting anything else. */
+      if (selectedGalore) loadActivities(selectedGalore._id);
     } catch (err) { setError(err.message); }
   };
 
@@ -453,6 +496,110 @@ export default function AdminEvents() {
       setSfError(err.message || 'Failed to save.');
     } finally {
       setSfSaving(false);
+    }
+  };
+
+  /* ── Galore handlers ── */
+  const openAddGalore = () => {
+    setGaloreForm(EMPTY_GALORE); setGaloreEditing(null);
+    setGaloreImgFile(null); setGaloreImgPrev(''); setGaloreError('');
+    setGaloreModal('add');
+  };
+  const closeGaloreModal = () => {
+    setGaloreModal(false); setGaloreImgFile(null); setGaloreImgPrev(''); setGaloreError('');
+  };
+  const handleGaloreFile = (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    setGaloreImgFile(f);
+    setGaloreImgPrev(URL.createObjectURL(f));
+  };
+  const galoreSet = (k) => (e) => setGaloreForm(p => ({ ...p, [k]: e.target.value }));
+
+  const handleSaveGalore = async (e) => {
+    e.preventDefault();
+    if (!galoreForm.title.trim()) return setGaloreError('Event title is required.');
+    setGaloreSaving(true); setGaloreError('');
+    try {
+      const fd = new FormData();
+      const { isFree, feeAmount, ...rest } = galoreForm;
+      Object.entries(rest).forEach(([k, v]) => fd.append(k, v));
+      fd.append('eventFormat', 'galore');
+      fd.append('category', 'general');
+      fd.append('isFree', isFree);
+      fd.append('feeAmount', isFree ? 0 : Number(feeAmount) || 0);
+      fd.append('tags', '[]');
+      if (galoreImgFile) fd.append('image', galoreImgFile);
+
+      const { event } = await api.postForm('/events', fd);
+      load();
+      closeGaloreModal();
+      showToast('Galore event created! Add its activities below.');
+      openGaloreActivities(event);
+    } catch (err) {
+      setGaloreError(err.message || 'Failed to save.');
+    } finally {
+      setGaloreSaving(false);
+    }
+  };
+
+  const loadActivities = useCallback((eventId) => {
+    setActivitiesLoading(true);
+    api.get(`/events/${eventId}/activities`)
+      .then(d => setActivities(d.activities || []))
+      .catch(() => setActivities([]))
+      .finally(() => setActivitiesLoading(false));
+  }, []);
+
+  const openGaloreActivities = (ev) => {
+    setSelectedGalore(ev);
+    loadActivities(ev._id);
+  };
+  const closeGaloreActivities = () => { setSelectedGalore(null); setActivities([]); };
+
+  const openAddActivity = () => {
+    setActForm(EMPTY_ACTIVITY); setActError(''); setActModal('add');
+  };
+  const closeActivityModal = () => { setActModal(false); setActError(''); };
+  const actSet = (k) => (e) => setActForm(p => ({ ...p, [k]: e.target.value }));
+
+  const handleSaveActivity = async (e) => {
+    e.preventDefault();
+    if (!actForm.title.trim()) return setActError('Activity title is required.');
+    const isTeam = actForm.participationType === 'team';
+    if (isTeam) {
+      if (!actForm.minTeamSize || Number(actForm.minTeamSize) < 1) return setActError('Minimum number of players is required.');
+      if (!actForm.teamSize || Number(actForm.teamSize) < 1)       return setActError('Maximum number of players is required.');
+      if (Number(actForm.minTeamSize) > Number(actForm.teamSize))  return setActError('Minimum cannot be greater than the maximum.');
+    }
+    setActSaving(true); setActError('');
+    try {
+      const fd = new FormData();
+      fd.append('title', actForm.title.trim());
+      fd.append('category', actForm.category);
+      fd.append('clubId', actForm.clubId);
+      fd.append('date', actForm.date);
+      fd.append('startDate', actForm.startDate);
+      fd.append('time', actForm.time);
+      fd.append('venue', actForm.venue);
+      fd.append('status', 'upcoming');
+      fd.append('eventFormat', isTeam ? 'sports_fiesta' : 'other');
+      fd.append('isFree', actForm.isFree);
+      fd.append('feeAmount', actForm.isFree ? 0 : Number(actForm.feeAmount) || 0);
+      fd.append('tags', '[]');
+      fd.append('parentEventId', selectedGalore._id);
+      if (isTeam) {
+        fd.append('minTeamSize', actForm.minTeamSize);
+        fd.append('teamSize', actForm.teamSize);
+      }
+      await api.postForm('/events', fd);
+      closeActivityModal();
+      loadActivities(selectedGalore._id);
+      showToast('Activity added!');
+    } catch (err) {
+      setActError(err.message || 'Failed to save.');
+    } finally {
+      setActSaving(false);
     }
   };
 
@@ -589,6 +736,9 @@ export default function AdminEvents() {
      'other', which keeps them exactly where they already were. */
   const otherEvents        = filtered.filter(ev => (ev.eventFormat || 'other') === 'other');
   const sportsFiestaEvents = filtered.filter(ev => ev.eventFormat === 'sports_fiesta');
+  /* Only top-level Galore umbrellas here — their child activities (parentEventId
+     set) live entirely inside the activities panel, never in this list. */
+  const galoreEvents = filtered.filter(ev => ev.eventFormat === 'galore' && !ev.parentEventId);
 
   const pendingCount = requests.filter(r => r.status === 'pending').length;
   const displayReqs  = reqFilter === 'all' ? requests : requests.filter(r => r.status === reqFilter);
@@ -620,6 +770,12 @@ export default function AdminEvents() {
         )}
         {pageTab === 'events' && formatTab === 'sports_fiesta' && (
           <button className={s.addBtn} onClick={openAddSF}>+ Add Sports Fiesta Event</button>
+        )}
+        {pageTab === 'events' && formatTab === 'galore' && !selectedGalore && (
+          <button className={s.addBtn} onClick={openAddGalore}>+ Add Galore Event</button>
+        )}
+        {pageTab === 'events' && formatTab === 'galore' && selectedGalore && (
+          <button className={s.addBtn} onClick={openAddActivity}>+ Add Activity</button>
         )}
       </div>
 
@@ -736,10 +892,81 @@ export default function AdminEvents() {
         </>)}
 
         {formatTab === 'galore' && (
-          <div className={s.empty}>
-            <p>Galore is coming soon</p>
-            <span>This event format is being worked on next.</span>
-          </div>
+          selectedGalore ? (
+            <div>
+              <button className={s.regsBtn} onClick={closeGaloreActivities} style={{ marginBottom: 16 }}>
+                ← Back to Galore Events
+              </button>
+              <h2 style={{ margin: '0 0 4px' }}>{selectedGalore.title}</h2>
+              <p style={{ color: '#6b7280', marginBottom: 20 }}>
+                Activities are the individual competitions (Football, Chess, Public Speaking, …) students register
+                for under this Galore event. Each reuses the same Registrations/Teams/Fixtures/Certificates tools
+                as any other event, managed by whichever club's coordinator you assign it to.
+              </p>
+
+              {actError && !actModal && <div className={s.errorBar}>{actError}</div>}
+
+              {activitiesLoading ? (
+                <div className={s.grid}>{Array.from({ length: 3 }).map((_, i) => <div key={i} className={s.skeleton} />)}</div>
+              ) : activities.length === 0 ? (
+                <div className={s.empty}>
+                  <p>No activities yet</p>
+                  <span>Add the first one — <button onClick={openAddActivity}>e.g. Football</button></span>
+                </div>
+              ) : (
+                <div className={s.grid}>
+                  {activities.map(act => (
+                    <div key={act.id} className={s.card}>
+                      <div className={s.cardBody}>
+                        <div className={s.cardTitle}>{act.title}</div>
+                        <div className={s.cardClub}>
+                          {GALORE_CATEGORY_LABEL[act.category] || act.category} · {act.participationType === 'team' ? 'Team' : 'Individual'}
+                        </div>
+                        <div className={s.cardMeta}>
+                          <span>{act.registrationCount} registered</span>
+                          {act.participationType === 'team' && <span>{act.teamCount} teams</span>}
+                        </div>
+                      </div>
+                      <div className={s.cardActions}>
+                        <button className={s.regsBtn} onClick={() => viewRegs(act)}>Registrations</button>
+                        <button className={s.delBtn} onClick={() => setDeleteId(act.id)}>Delete</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className={s.grid}>
+              {loading ? (
+                Array.from({ length: 3 }).map((_, i) => <div key={i} className={s.skeleton} />)
+              ) : galoreEvents.length === 0 ? (
+                <div className={s.empty}>
+                  <p>No Galore events yet</p>
+                  <span>Try a different search or <button onClick={openAddGalore}>add a new Galore event</button></span>
+                </div>
+              ) : (
+                galoreEvents.map(ev => (
+                  <div key={ev._id} className={s.card}>
+                    <div className={s.cardImg}>
+                      {ev.imageUrl ? <img src={ev.imageUrl} alt={ev.title} loading="lazy" /> : <div className={s.cardImgFallback}>Banner</div>}
+                    </div>
+                    <div className={s.cardBody}>
+                      <div className={s.cardTitle}>{ev.title}</div>
+                      <div className={s.cardMeta}>
+                        {ev.date && <span>Date: {ev.date}</span>}
+                        {ev.venue && <span>Venue: {ev.venue}</span>}
+                      </div>
+                    </div>
+                    <div className={s.cardActions}>
+                      <button className={s.regsBtn} onClick={() => openGaloreActivities(ev)}>Manage Activities</button>
+                      <button className={s.delBtn} onClick={() => setDeleteId(ev._id)}>Delete</button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )
         )}
       </>)}
 
@@ -1201,6 +1428,265 @@ export default function AdminEvents() {
                 <button type="button" className={s.cancelBtn} onClick={closeSFModal}>Cancel</button>
                 <button type="submit" className={s.saveBtn} disabled={sfSaving}>
                   {sfSaving ? 'Saving…' : sfModal === 'add' ? 'Create Event' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ══ Galore Umbrella Add Modal ══ */}
+      {galoreModal && (
+        <div className={s.overlay} onClick={closeGaloreModal}>
+          <div className={s.modal} onClick={e => e.stopPropagation()}>
+            <div className={s.modalHeader}>
+              <div>
+                <div className={s.modalTag}>New Galore Event</div>
+                <h2 className={s.modalTitle}>Add Galore Event</h2>
+              </div>
+              <button className={s.closeBtn} onClick={closeGaloreModal}>✕</button>
+            </div>
+
+            <form onSubmit={handleSaveGalore} className={s.form}>
+              <div className={s.imgSection}>
+                <div className={s.imgBox} onClick={() => galoreFileRef.current.click()}>
+                  {galoreImgPrev
+                    ? <img src={galoreImgPrev} alt="preview" className={s.imgPreview} />
+                    : <div className={s.imgPlaceholder}><span>Click to upload banner</span></div>
+                  }
+                </div>
+                <input ref={galoreFileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleGaloreFile} />
+                <div className={s.imgHint}>JPG, PNG, WEBP · max 10 MB · Recommended: 16:9</div>
+              </div>
+
+              <div className={s.field}>
+                <label>Event Title <span className={s.req}>*</span></label>
+                <input value={galoreForm.title} onChange={galoreSet('title')} placeholder="e.g. Galore 2027 — Annual Mega Fest" required />
+              </div>
+
+              <div className={s.row2}>
+                <div className={s.field}>
+                  <label>Status</label>
+                  <select value={galoreForm.status} onChange={galoreSet('status')}>
+                    {STATUS.map(st => <option key={st} value={st}>{st.charAt(0).toUpperCase() + st.slice(1)}</option>)}
+                  </select>
+                </div>
+                <div className={s.field}>
+                  <label>Start Date</label>
+                  <input type="date" value={galoreForm.startDate} onChange={galoreSet('startDate')} />
+                </div>
+              </div>
+
+              <div className={s.row2}>
+                <div className={s.field}>
+                  <label>Display Date</label>
+                  <input value={galoreForm.date} onChange={galoreSet('date')} placeholder="e.g. Feb 2–8, 2027" />
+                </div>
+                <div className={s.field}>
+                  <label>Time</label>
+                  <input value={galoreForm.time} onChange={galoreSet('time')} placeholder="e.g. 9:00 AM onwards" />
+                </div>
+              </div>
+
+              <div className={s.row2}>
+                <div className={s.field}>
+                  <label>Venue</label>
+                  <input value={galoreForm.venue} onChange={galoreSet('venue')} placeholder="e.g. RKU Main Campus" />
+                </div>
+                <div className={s.field}>
+                  <label>Seats / Availability</label>
+                  <input value={galoreForm.seats} onChange={galoreSet('seats')} placeholder="e.g. Open Registration" />
+                </div>
+              </div>
+
+              <div className={s.field}>
+                <label>Description</label>
+                <textarea rows={3} value={galoreForm.description} onChange={galoreSet('description')} placeholder="Event description…" />
+              </div>
+
+              <div style={{ background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:10, padding:'14px 16px' }}>
+                <div style={{ fontSize:'.78rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:10 }}>
+                  Registration Fee
+                </div>
+                <div style={{ display:'flex', gap:8, marginBottom: galoreForm.isFree ? 0 : 12 }}>
+                  {[{ val:true, label:'🎟 Free Entry', active:'#ecfdf5', border:'#059669', text:'#059669' },
+                    { val:false, label:'💳 Paid Event', active:'#fffbeb', border:'#d97706', text:'#d97706' }].map(opt => (
+                    <button key={String(opt.val)} type="button"
+                      onClick={() => setGaloreForm(p => ({ ...p, isFree: opt.val, feeAmount: opt.val ? '' : p.feeAmount }))}
+                      style={{
+                        flex:1, padding:'8px 12px', border:'1.5px solid',
+                        borderColor: galoreForm.isFree === opt.val ? opt.border : '#e5e7eb',
+                        borderRadius:8, background: galoreForm.isFree === opt.val ? opt.active : '#fff',
+                        color: galoreForm.isFree === opt.val ? opt.text : '#6b7280',
+                        fontSize:'.83rem', fontWeight:600, cursor:'pointer', transition:'all .14s',
+                      }}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                {!galoreForm.isFree && (
+                  <div className={s.field}>
+                    <label>Fee Amount <span className={s.req}>*</span></label>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <span style={{ fontWeight:700, fontSize:'1rem', color:'#374151' }}>₹</span>
+                      <input type="number" min="1" step="1" style={{ flex:1, maxWidth:160 }}
+                        value={galoreForm.feeAmount}
+                        onChange={e => setGaloreForm(p => ({ ...p, feeAmount: e.target.value }))}
+                        placeholder="e.g. 100" required={!galoreForm.isFree} />
+                      <span style={{ fontSize:'.78rem', color:'#9ca3af', whiteSpace:'nowrap' }}>INR per student</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className={s.field}>
+                <label>Highlight <span className={s.hint}>(past events)</span></label>
+                <input value={galoreForm.highlight} onChange={galoreSet('highlight')} placeholder="e.g. Best Edition Yet — 1,200+ Students" />
+              </div>
+
+              {galoreError && <div className={s.formError}>{galoreError}</div>}
+
+              <div className={s.modalFooter}>
+                <button type="button" className={s.cancelBtn} onClick={closeGaloreModal}>Cancel</button>
+                <button type="submit" className={s.saveBtn} disabled={galoreSaving}>
+                  {galoreSaving ? 'Saving…' : 'Create Event'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ══ Galore Add Activity Modal ══ */}
+      {actModal && selectedGalore && (
+        <div className={s.overlay} onClick={closeActivityModal}>
+          <div className={s.modal} onClick={e => e.stopPropagation()}>
+            <div className={s.modalHeader}>
+              <div>
+                <div className={s.modalTag}>New Activity · {selectedGalore.title}</div>
+                <h2 className={s.modalTitle}>Add Activity</h2>
+              </div>
+              <button className={s.closeBtn} onClick={closeActivityModal}>✕</button>
+            </div>
+
+            <form onSubmit={handleSaveActivity} className={s.form}>
+              <div className={s.field}>
+                <label>Activity Title <span className={s.req}>*</span></label>
+                <input value={actForm.title} onChange={actSet('title')} placeholder="e.g. Football, Chess, Public Speaking" required />
+              </div>
+
+              <div className={s.row2}>
+                <div className={s.field}>
+                  <label>Category</label>
+                  <select value={actForm.category} onChange={actSet('category')}>
+                    {GALORE_CATEGORIES.map(c => <option key={c} value={c}>{GALORE_CATEGORY_LABEL[c]}</option>)}
+                  </select>
+                </div>
+                <div className={s.field}>
+                  <label>Participation</label>
+                  <select value={actForm.participationType} onChange={actSet('participationType')}>
+                    <option value="team">Team</option>
+                    <option value="individual">Individual</option>
+                  </select>
+                </div>
+              </div>
+              <p style={{ fontSize:'.76rem', color:'#9ca3af', margin:'-8px 0 4px' }}>
+                {actForm.category === 'sports'
+                  ? 'Sports activities run separate Boys and Girls divisions.'
+                  : 'Cultural/Academic activities run a single open division (no Boys/Girls split).'}
+              </p>
+
+              <div className={s.field}>
+                <label>Club / Coordinator <span className={s.hint}>(who manages this activity)</span></label>
+                <select value={actForm.clubId} onChange={actSet('clubId')}>
+                  <option value="">SOAC · RK University (no club assigned)</option>
+                  {clubs.map(cl => (
+                    <option key={cl._id || cl.id} value={cl._id || cl.id}>{cl.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className={s.row2}>
+                <div className={s.field}>
+                  <label>Start Date</label>
+                  <input type="date" value={actForm.startDate} onChange={actSet('startDate')} />
+                </div>
+                <div className={s.field}>
+                  <label>Time</label>
+                  <input value={actForm.time} onChange={actSet('time')} placeholder="e.g. 9:00 AM onwards" />
+                </div>
+              </div>
+
+              <div className={s.field}>
+                <label>Venue</label>
+                <input value={actForm.venue} onChange={actSet('venue')} placeholder="e.g. RKU Main Ground" />
+              </div>
+
+              <div style={{ background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:10, padding:'14px 16px' }}>
+                <div style={{ fontSize:'.78rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:10 }}>
+                  Registration Fee
+                </div>
+                <div style={{ display:'flex', gap:8, marginBottom: actForm.isFree ? 0 : 12 }}>
+                  {[{ val:true, label:'🎟 Free Entry', active:'#ecfdf5', border:'#059669', text:'#059669' },
+                    { val:false, label:'💳 Paid Event', active:'#fffbeb', border:'#d97706', text:'#d97706' }].map(opt => (
+                    <button key={String(opt.val)} type="button"
+                      onClick={() => setActForm(p => ({ ...p, isFree: opt.val, feeAmount: opt.val ? '' : p.feeAmount }))}
+                      style={{
+                        flex:1, padding:'8px 12px', border:'1.5px solid',
+                        borderColor: actForm.isFree === opt.val ? opt.border : '#e5e7eb',
+                        borderRadius:8, background: actForm.isFree === opt.val ? opt.active : '#fff',
+                        color: actForm.isFree === opt.val ? opt.text : '#6b7280',
+                        fontSize:'.83rem', fontWeight:600, cursor:'pointer', transition:'all .14s',
+                      }}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                {!actForm.isFree && (
+                  <div className={s.field}>
+                    <label>Fee Amount <span className={s.req}>*</span></label>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <span style={{ fontWeight:700, fontSize:'1rem', color:'#374151' }}>₹</span>
+                      <input type="number" min="1" step="1" style={{ flex:1, maxWidth:160 }}
+                        value={actForm.feeAmount}
+                        onChange={e => setActForm(p => ({ ...p, feeAmount: e.target.value }))}
+                        placeholder="e.g. 100" required={!actForm.isFree} />
+                      <span style={{ fontSize:'.78rem', color:'#9ca3af', whiteSpace:'nowrap' }}>INR per student</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {actForm.participationType === 'team' && (
+                <div style={{ background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:10, padding:'14px 16px', display:'flex', flexDirection:'column', gap:12 }}>
+                  <div style={{ fontSize:'.78rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.04em' }}>
+                    Team
+                  </div>
+                  <div className={s.row2} style={{ marginBottom: 0 }}>
+                    <div className={s.field} style={{ marginBottom: 0 }}>
+                      <label>Min Players <span className={s.req}>*</span></label>
+                      <input type="number" min="1" step="1" value={actForm.minTeamSize} onChange={actSet('minTeamSize')}
+                        placeholder="e.g. 3" required />
+                    </div>
+                    <div className={s.field} style={{ marginBottom: 0 }}>
+                      <label>Max Players <span className={s.req}>*</span></label>
+                      <input type="number" min="1" step="1" value={actForm.teamSize} onChange={actSet('teamSize')}
+                        placeholder="e.g. 5" required />
+                    </div>
+                  </div>
+                  <p style={{ fontSize:'.76rem', color:'#9ca3af', margin:0 }}>
+                    Each department's captain fills in their own contact details, chosen department, and team
+                    member names on the public event page — this just sets the roster-size cap.
+                  </p>
+                </div>
+              )}
+
+              {actError && <div className={s.formError}>{actError}</div>}
+
+              <div className={s.modalFooter}>
+                <button type="button" className={s.cancelBtn} onClick={closeActivityModal}>Cancel</button>
+                <button type="submit" className={s.saveBtn} disabled={actSaving}>
+                  {actSaving ? 'Saving…' : 'Add Activity'}
                 </button>
               </div>
             </form>

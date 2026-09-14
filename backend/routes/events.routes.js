@@ -16,10 +16,12 @@ const requireCoordOrAdmin = (req, res, next) => {
   next();
 };
 
-router.get('/',             ctrl.getAll);
-router.get('/live-scores',  ctrl.getLiveScores);
-router.get('/past-scores',  ctrl.getPastScores);
-router.get('/:id',          ctrl.getOne);
+router.get('/',                  ctrl.getAll);
+router.get('/live-scores',       ctrl.getLiveScores);
+router.get('/past-scores',       ctrl.getPastScores);
+router.get('/galore/departments', ctrl.getGaloreDepartments); /* public */
+router.get('/:id',               ctrl.getOne);
+router.get('/:id/activities',    ctrl.getActivities); /* public — Galore umbrella's child activities */
 router.post('/',       verifyToken, requireCoordOrAdmin, uploadEvent.single('image'), ctrl.create);
 router.put('/:id',     verifyToken, requireCoordOrAdmin, uploadEvent.single('image'), ctrl.update);
 router.delete('/:id',  verifyToken, requireAdmin, ctrl.remove);

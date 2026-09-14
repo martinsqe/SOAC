@@ -294,6 +294,7 @@ const normaliseEvent = (e) => ({
   teamSize: e.teamSize || 0,
   minTeamSize: e.minTeamSize || 0,
   paymentLink: e.paymentLink || '',
+  parentEventId: e.parentEventId || null, // set → this is a Galore activity (department + division apply)
 });
 
 const DEPTS = ['ACH', 'AI/ML', 'FOT', 'SOE', 'SOM', 'SOP', 'SPT', 'SDS', 'SOS'];
@@ -373,7 +374,7 @@ const Events = () => {
      slot rather than a shared block of text. A distinct flow from the
      individual student registration above: one submission per event,
      covering the whole team at once. ── */
-  const EMPTY_ROSTER_FORM = { teamName: '', captainName: '', captainEmail: '', captainPhone: '', teamMates: [] };
+  const EMPTY_ROSTER_FORM = { teamName: '', captainName: '', captainEmail: '', captainPhone: '', teamMates: [], dept: '', division: 'boys' };
   const [rosterModal,   setRosterModal]   = useState(null); // null | the normalised SF event
   const [rosterForm,    setRosterForm]    = useState(EMPTY_ROSTER_FORM);
   const [rosterErr,     setRosterErr]     = useState('');
@@ -411,6 +412,8 @@ const Events = () => {
       captainEmail: user?.email || '',
       captainPhone: '',
       teamMates: Array(slots).fill(''),
+      dept: '',
+      division: 'boys',
     });
     setRosterErr('');
     setRosterDone(false);
@@ -441,7 +444,7 @@ const Events = () => {
   const submitRoster = async (e) => {
     e.preventDefault();
     if (rosterLoading || !rosterModal) return;
-    const { teamName, captainName, captainEmail, captainPhone, teamMates } = rosterForm;
+    const { teamName, captainName, captainEmail, captainPhone, teamMates, dept, division } = rosterForm;
     if (!teamName.trim())     { setRosterErr('Team name is required.'); return; }
     if (!captainName.trim())  { setRosterErr("Captain's name is required."); return; }
     if (!captainEmail.trim()) { setRosterErr("Captain's email is required."); return; }
@@ -452,6 +455,7 @@ const Events = () => {
       const digits = captainPhone.replace(/[\s\-+]/g, '').replace(/^91/, '');
       if (!/^\d{10}$/.test(digits)) { setRosterErr('Enter a valid 10-digit mobile number.'); return; }
     }
+    if (rosterModal.parentEventId && !dept) { setRosterErr('Department is required.'); return; }
     const cleaned = teamMates.map(m => m.trim()).filter(Boolean);
     if (!cleaned.length) { setRosterErr('Add at least one team member.'); return; }
     /* min/max count the whole team, captain included. */
@@ -467,6 +471,7 @@ const Events = () => {
         teamName: teamName.trim(),
         captainName: captainName.trim(), captainEmail: captainEmail.trim(), captainPhone: captainPhone.trim(),
         teamMembers: cleaned,
+        dept, division,
       });
       setEvents(prev => prev.map(e => e.id === rosterModal.id
         ? { ...e, captainName: captainName.trim(), captainEmail: captainEmail.trim(), captainPhone: captainPhone.trim(), teamMembers: cleaned }
@@ -1192,6 +1197,30 @@ const Events = () => {
                     <label htmlFor="roster-captain-email">Email <span className={styles.req}>*</span></label>
                     <input id="roster-captain-email" type="email" placeholder="captain@rku.ac.in" value={rosterForm.captainEmail} onChange={rf('captainEmail')} />
                   </div>
+
+                  {/* Galore activity (has a parent event) — team represents a department,
+                      and (sports only) competes in a Boys or Girls division. Plain Sports
+                      Fiesta events (no parentEventId) skip both, unchanged. */}
+                  {rosterModal.parentEventId && (
+                    <div className={styles.regRow}>
+                      <div className={styles.regField}>
+                        <label htmlFor="roster-dept">Department <span className={styles.req}>*</span></label>
+                        <select id="roster-dept" value={rosterForm.dept} onChange={rf('dept')}>
+                          <option value="">Select department</option>
+                          {DEPTS.map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                      </div>
+                      {rosterModal.cat === 'sports' && (
+                        <div className={styles.regField}>
+                          <label htmlFor="roster-division">Division <span className={styles.req}>*</span></label>
+                          <select id="roster-division" value={rosterForm.division} onChange={rf('division')}>
+                            <option value="boys">Boys</option>
+                            <option value="girls">Girls</option>
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className={styles.regField}>
                     <label>

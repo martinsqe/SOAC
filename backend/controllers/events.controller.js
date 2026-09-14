@@ -17,7 +17,20 @@ const EVENT_COLS = [
   'certificates_finalized_at',
   'event_format', 'captain_name', 'captain_email', 'captain_phone',
   'team_members', 'payment_link', 'team_size', 'min_team_size',
+  'parent_event_id',
 ].join(', ');
+
+/* Galore: every department competing this year. Matches the DEPTS list already
+   duplicated in frontend/src/pages/Events/Events.jsx, StudentEvents.jsx, and
+   JoinModal.jsx (the app's existing, real department taxonomy — individual
+   registration already offers this exact list as a dropdown) rather than a
+   separate/narrower one, so Galore validation never rejects a real department.
+   A fixed, hand-maintained list (not a DB table) — no admin CRUD need for it
+   yet, and adding one later is a small, isolated change if that ever changes.
+   Only enforced (see assertGaloreCategoryCap / dept validation below) for
+   events that hang off a Galore umbrella via parent_event_id — every
+   pre-existing event keeps accepting free-text dept exactly as before. */
+const GALORE_DEPARTMENTS = ['ACH', 'AI/ML', 'FOT', 'SDS', 'SOE', 'SPT', 'SOP', 'SOM', 'SOS'];
 
 /* team_members is a jsonb column, so its INSERT/UPDATE param must be a valid
    JSON *string* — re-stringifying (rather than passing the parsed array) keeps
@@ -65,6 +78,16 @@ function normalizePaymentLink(raw) {
        team_members starts empty and is filled in later from there. */
     await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS team_size INTEGER NOT NULL DEFAULT 0`);
     await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS min_team_size INTEGER NOT NULL DEFAULT 0`);
+    /* Galore: a child activity event (Football, Chess, Public Speaking, ...) points
+       back at its umbrella Galore event via parent_event_id. NULL for every normal
+       event — Sports Fiesta/Other Events/Galore umbrellas themselves are all still
+       top-level (no parent). Deleting the umbrella cascades to its activities. */
+    await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS parent_event_id BIGINT REFERENCES events(id) ON DELETE CASCADE`);
+    await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_events_parent ON events(parent_event_id)`);
+    /* The department a team represents — only meaningful for teams registered
+       under a Galore child activity (see submitTeamRoster). Free text elsewhere,
+       same as event_registrations.dept always has been. */
+    await pgPool.query(`ALTER TABLE event_teams ADD COLUMN IF NOT EXISTS dept VARCHAR(10) NOT NULL DEFAULT ''`);
     console.log('[events] migrations ready');
   } catch (err) {
     console.error('[events] migration failed:', err.message);
@@ -316,6 +339,40 @@ const getOne = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+/* GET /api/events/:id/activities  (public — Galore umbrella's child activities)
+   Powers the admin "manage activities" panel and the public Galore event page:
+   every activity event underneath this umbrella, with a quick registration/team
+   count so the list is useful without opening each one. */
+const getActivities = async (req, res, next) => {
+  try {
+    const { rows } = await pgPool.query(
+      `SELECT e.id, e.title, e.category, e.event_format,
+              e.team_size, e.min_team_size, e.status,
+              (SELECT COUNT(*)::int FROM event_registrations er WHERE er.event_id = e.id) AS registration_count,
+              (SELECT COUNT(*)::int FROM event_teams et WHERE et.event_id = e.id) AS team_count
+       FROM events e
+       WHERE e.parent_event_id = $1 AND e.is_active = true
+       ORDER BY e.category, e.title`,
+      [req.params.id]
+    );
+    res.json({
+      activities: rows.map(r => ({
+        id:                String(r.id),
+        _id:               String(r.id), // matches the shape every other event object has (see asEvent)
+        title:             r.title,
+        category:          r.category,
+        eventFormat:       r.event_format,
+        participationType: r.event_format === 'sports_fiesta' ? 'team' : 'individual',
+        teamSize:          Number(r.team_size || 0),
+        minTeamSize:       Number(r.min_team_size || 0),
+        status:            r.status,
+        registrationCount: r.registration_count,
+        teamCount:         r.team_count,
+      })),
+    });
+  } catch (err) { next(err); }
+};
+
 /* POST /api/events  (admin/coordinator) */
 const create = async (req, res, next) => {
   try {
@@ -324,10 +381,22 @@ const create = async (req, res, next) => {
       title, clubId, category, status, date, startDate, time, venue,
       description, tags, seats, highlight, registrationUrl,
       isFree, feeAmount,
-      eventFormat, teamSize, minTeamSize, paymentLink,
+      eventFormat, teamSize, minTeamSize, paymentLink, parentEventId,
     } = req.body;
 
     const format = ['sports_fiesta', 'galore'].includes(eventFormat) ? eventFormat : 'other';
+
+    /* A Galore activity (parentEventId set) must point at a real Galore umbrella —
+       checked up front so a bad id fails clearly instead of silently orphaning. */
+    let resolvedParentEventId = null;
+    if (parentEventId) {
+      const { rows: parentRows } = await pgPool.query(
+        `SELECT id FROM events WHERE id = $1 AND is_active = true AND event_format = 'galore'`,
+        [parentEventId]
+      );
+      if (!parentRows.length) return res.status(400).json({ message: 'Galore event not found.' });
+      resolvedParentEventId = parentRows[0].id;
+    }
 
     /* Sports Fiesta events are created with just a roster-size range (the
        admin's call) and a payment link — the captain fills in their own
@@ -364,8 +433,9 @@ const create = async (req, res, next) => {
       `INSERT INTO events
        (title, club, club_id, category, status, date, start_date, time, venue,
         description, image, tags, seats, highlight, registration_url, is_free, fee_amount,
-        event_format, captain_name, captain_email, captain_phone, team_members, payment_link, team_size, min_team_size)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+        event_format, captain_name, captain_email, captain_phone, team_members, payment_link, team_size, min_team_size,
+        parent_event_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
        RETURNING ${EVENT_COLS}`,
       [
         title, clubName, resolvedClubId, resolvedCategory, status || 'upcoming', date || '',
@@ -377,6 +447,7 @@ const create = async (req, res, next) => {
            form (see submitTeamRoster below), bounded by the admin's min/max. */
         format, '', '', '',
         '[]', normalizePaymentLink(paymentLink), maxSize, minSize,
+        resolvedParentEventId,
       ]
     );
     const event = asEvent(rows[0]);
@@ -637,11 +708,36 @@ async function notifyRegistrationConfirmed(event, email) {
 }
 
 /* POST /api/events/:id/register  (public) */
+/* Galore: caps how many activities of the SAME category (sports/cultural/academic)
+   a student can register for under one Galore umbrella — counted across the event
+   being registered for right now plus every sibling activity event under the same
+   parent_event_id. A no-op (returns null = fine) for any event that isn't part of
+   a Galore umbrella, so every pre-existing event/registration flow is unaffected. */
+const assertGaloreCategoryCap = async (email, event) => {
+  if (!event.parent_event_id) return null;
+  const { rows: siblingRows } = await pgPool.query(
+    `SELECT id FROM events WHERE parent_event_id = $1 AND category = $2`,
+    [event.parent_event_id, event.category]
+  );
+  const siblingIds = siblingRows.map(r => r.id);
+  if (!siblingIds.length) return null;
+  const { rows: regRows } = await pgPool.query(
+    `SELECT DISTINCT event_id FROM event_registrations WHERE event_id = ANY($1::bigint[]) AND LOWER(email) = $2`,
+    [siblingIds, email.toLowerCase()]
+  );
+  const alreadyIn = new Set(regRows.map(r => String(r.event_id)));
+  if (alreadyIn.has(String(event.id))) return null; // re-submitting the same one — let the normal duplicate check handle it
+  if (alreadyIn.size >= 2) {
+    return `You've already registered for 2 ${event.category} events in Galore — that's the limit per category.`;
+  }
+  return null;
+};
+
 const register = async (req, res, next) => {
   try {
-    /* Only fetch what we need: id, title, status */
+    /* Only fetch what we need: id, title, status, category + parent_event_id for the Galore cap */
     const { rows: eventRows } = await pgPool.query(
-      `SELECT id, title, status FROM events WHERE id = $1 AND is_active = true`,
+      `SELECT id, title, status, category, parent_event_id FROM events WHERE id = $1 AND is_active = true`,
       [req.params.id]
     );
     if (!eventRows.length) return res.status(404).json({ message: 'Event not found.' });
@@ -655,6 +751,9 @@ const register = async (req, res, next) => {
       return res.status(400).json({ message: 'Only RKU institutional emails (@rku.ac.in) are allowed to register.' });
     }
     if (!dept?.trim())   return res.status(400).json({ message: 'Department is required.' });
+    if (event.parent_event_id && !GALORE_DEPARTMENTS.includes(dept.trim().toUpperCase())) {
+      return res.status(400).json({ message: `Department must be one of: ${GALORE_DEPARTMENTS.join(', ')}.` });
+    }
     if (!course?.trim()) return res.status(400).json({ message: 'Course is required.' });
     if (!phone?.trim())  return res.status(400).json({ message: 'Mobile number is required.' });
     if (!isValidMobile(phone)) {
@@ -663,6 +762,8 @@ const register = async (req, res, next) => {
     if (!gender || !['M', 'F'].includes(gender.toUpperCase())) {
       return res.status(400).json({ message: 'Gender is required. Please select M or F.' });
     }
+    const capError = await assertGaloreCategoryCap(email.trim(), event);
+    if (capError) return res.status(400).json({ message: capError });
 
     const { rows } = await pgPool.query(
       `INSERT INTO event_registrations
@@ -672,7 +773,7 @@ const register = async (req, res, next) => {
       [
         event.id, event.title, name.trim(),
         enrollmentNo ? enrollmentNo.trim().toUpperCase() : '',
-        dept.trim(), course.trim(),
+        event.parent_event_id ? dept.trim().toUpperCase() : dept.trim(), course.trim(),
         phone ? phone.trim() : '',
         email.trim().toLowerCase(),
         gender.toUpperCase(),
@@ -708,7 +809,8 @@ const register = async (req, res, next) => {
 const submitTeamRoster = async (req, res, next) => {
   try {
     const { rows } = await pgPool.query(
-      `SELECT id, title, status, event_format, team_size, min_team_size FROM events WHERE id = $1 AND is_active = true`,
+      `SELECT id, title, status, event_format, team_size, min_team_size, category, parent_event_id
+       FROM events WHERE id = $1 AND is_active = true`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Event not found.' });
@@ -718,7 +820,7 @@ const submitTeamRoster = async (req, res, next) => {
       return res.status(400).json({ message: 'This event does not accept a team roster submission.' });
     }
 
-    const { teamName: rawTeamName, captainName, captainEmail, captainPhone, teamMembers } = req.body;
+    const { teamName: rawTeamName, captainName, captainEmail, captainPhone, teamMembers, division: rawDivision, dept } = req.body;
     if (!rawTeamName?.trim())  return res.status(400).json({ message: 'Team name is required.' });
     if (!captainName?.trim())  return res.status(400).json({ message: "Captain's name is required." });
     if (!captainEmail?.trim()) return res.status(400).json({ message: "Captain's email is required." });
@@ -728,6 +830,19 @@ const submitTeamRoster = async (req, res, next) => {
     if (!captainPhone?.trim()) return res.status(400).json({ message: "Captain's phone number is required." });
     if (!isValidMobile(captainPhone)) {
       return res.status(400).json({ message: 'Enter a valid 10-digit mobile number.' });
+    }
+    /* Only sports activities are gender-split (see CoordEvents.jsx's per-category
+       DIVISIONS) — a Galore cultural/academic team always lands in the single
+       'open' division regardless of what's posted; only a sports team gets to
+       pick 'boys' or 'girls'. Non-Galore Sports Fiesta events (no parent_event_id)
+       keep defaulting to 'boys', exactly as before this feature existed. */
+    const division = event.category === 'sports'
+      ? (['boys', 'girls'].includes(rawDivision) ? rawDivision : 'boys')
+      : 'open';
+    if (event.parent_event_id) {
+      if (!dept?.trim() || !GALORE_DEPARTMENTS.includes(dept.trim().toUpperCase())) {
+        return res.status(400).json({ message: `Department must be one of: ${GALORE_DEPARTMENTS.join(', ')}.` });
+      }
     }
     if (!Array.isArray(teamMembers)) return res.status(400).json({ message: 'Team members list is required.' });
     const cleaned = teamMembers.map(m => String(m || '').trim()).filter(Boolean);
@@ -754,11 +869,14 @@ const submitTeamRoster = async (req, res, next) => {
       return res.status(409).json({ message: 'This email has already registered a team for this event.' });
     }
 
+    const capError = await assertGaloreCategoryCap(emailNorm, event);
+    if (capError) return res.status(400).json({ message: capError });
+
     /* Team names must be unique per (event, division) — the captain picks the
        name, but if it collides with an existing team we disambiguate rather
        than reject, so a common name (e.g. "Titans") doesn't block signup. */
     const { rows: existingTeamNames } = await pgPool.query(
-      `SELECT name FROM event_teams WHERE event_id = $1 AND division = 'boys'`, [event.id]
+      `SELECT name FROM event_teams WHERE event_id = $1 AND division = $2`, [event.id, division]
     );
     const takenNames = new Set(existingTeamNames.map(r => r.name));
     let teamName = rawTeamName.trim();
@@ -777,10 +895,11 @@ const submitTeamRoster = async (req, res, next) => {
         [event.id, event.title, captainName.trim(), emailNorm, captainPhone.trim()]
       );
 
-      /* One team, named after the captain — max_size covers the captain + roster cap. */
+      /* One team, named after the captain — max_size covers the captain + roster cap.
+         dept is only ever non-empty for a Galore activity (validated above). */
       const { rows: teamRows } = await pgClient.query(
-        `INSERT INTO event_teams (event_id, name, max_size, division) VALUES ($1, $2, $3, 'boys') RETURNING id`,
-        [event.id, teamName, cleaned.length + 1]
+        `INSERT INTO event_teams (event_id, name, max_size, division, dept) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [event.id, teamName, cleaned.length + 1, division, event.parent_event_id ? dept.trim().toUpperCase() : '']
       );
       const teamId = teamRows[0].id;
 
@@ -967,4 +1086,8 @@ const deleteRegistration = async (req, res, next) => {
   }
 };
 
-module.exports = { getAll, getLiveScores, getPastScores, getOne, create, update, remove, register, submitTeamRoster, listRegistrations, updateRegistration, deleteRegistration };
+/* GET /api/events/galore/departments  (public) — the fixed department list, so the
+   frontend never hand-duplicates it and can't drift from server-side validation. */
+const getGaloreDepartments = (req, res) => res.json({ departments: GALORE_DEPARTMENTS });
+
+module.exports = { getAll, getLiveScores, getPastScores, getOne, getActivities, getGaloreDepartments, create, update, remove, register, submitTeamRoster, listRegistrations, updateRegistration, deleteRegistration };
