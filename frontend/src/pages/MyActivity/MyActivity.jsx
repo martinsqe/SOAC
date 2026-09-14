@@ -104,7 +104,6 @@ export default function MyActivity() {
       <video className={s.bgVideo} autoPlay loop muted playsInline>
         <source src="/video.mp4" type="video/mp4" />
       </video>
-      <div className={s.bgOverlay} />
 
       <div className={`wrap ${s.content}`}>
       <div className={s.hero}>
