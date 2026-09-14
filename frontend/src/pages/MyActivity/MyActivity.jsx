@@ -100,7 +100,13 @@ export default function MyActivity() {
   const activeCategory = result?.categories?.find(c => c.key === activeTab);
 
   return (
-    <div className="wrap">
+    <div className={s.page}>
+      <video className={s.bgVideo} autoPlay loop muted playsInline>
+        <source src="/video.mp4" type="video/mp4" />
+      </video>
+      <div className={s.bgOverlay} />
+
+      <div className={`wrap ${s.content}`}>
       <div className={s.hero}>
         <h1 className={s.heroTitle}>My Activity</h1>
         <p className={s.heroSub}>
@@ -168,6 +174,7 @@ export default function MyActivity() {
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }
