@@ -12,7 +12,21 @@ const TABS = [
 
 const fmt = (d) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 
+/* Mirrors event_certificates_issued.category (see certificates.controller.js) —
+   'winner' | 'runner_up' | 'participation'. A registrant only ever has one of
+   these per event (the result they actually got), but sort by rank anyway in
+   case more than one certificate row exists. */
+const POSITION_LABEL = { winner: 'Winner', runner_up: 'Runner-up', participation: 'Participant' };
+const POSITION_RANK  = { winner: 0, runner_up: 1, participation: 2 };
+const topPosition = (achievements) => {
+  if (!achievements?.length) return null;
+  const best = [...achievements].sort((a, b) => (POSITION_RANK[a.category] ?? 9) - (POSITION_RANK[b.category] ?? 9))[0];
+  return POSITION_LABEL[best.category] || null;
+};
+const positionModifier = (position) => position === 'Winner' ? s.actPositionWinner : position === 'Runner-up' ? s.actPositionRunnerUp : '';
+
 function EventRow({ ev, open, onToggle }) {
+  const position = topPosition(ev.achievements);
   return (
     <div className={s.actAccItem}>
       <button className={s.actAccHeader} onClick={onToggle}>
@@ -21,9 +35,9 @@ function EventRow({ ev, open, onToggle }) {
           <span className={s.actAccSub}>{ev.clubName}{ev.category ? ` · ${ev.category}` : ''}</span>
         </div>
         <div className={s.actAccRight}>
-          {ev.contributionCoins > 0
-            ? <span className={s.actCoinBadge}>+{ev.contributionCoins} coins</span>
-            : <span className={s.actCoinPending}>registered</span>}
+          {position && <span className={`${s.actPositionBadge} ${positionModifier(position)}`}>{position}</span>}
+          {ev.attendance && <span className={s.actAttendanceText}>{ev.attendance.percentage}% attendance</span>}
+          {!position && !ev.attendance && <span className={s.actStatusPending}>registered</span>}
           <span className={s.actAccChevron}>{open ? '▲' : '▼'}</span>
         </div>
       </button>
@@ -34,10 +48,11 @@ function EventRow({ ev, open, onToggle }) {
             {ev.venue && <div className={s.actAccField}><span className={s.actAccLabel}>Venue</span><span>{ev.venue}</span></div>}
             {ev.eventDate && <div className={s.actAccField}><span className={s.actAccLabel}>Event Date</span><span>{fmt(ev.eventDate)}</span></div>}
             <div className={s.actAccField}><span className={s.actAccLabel}>Registered</span><span>{fmt(ev.registeredAt)}</span></div>
+            {position && <div className={s.actAccField}><span className={s.actAccLabel}>Position</span><span>{position}</span></div>}
           </div>
 
-          {ev.attendance && (
-            <div style={{ marginBottom: 10 }}>
+          {ev.attendance ? (
+            <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <span style={{ fontSize: '.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.05em' }}>Attendance</span>
                 <span style={{ fontSize: '.8rem', fontWeight: 700, color: '#D32F2F' }}>
@@ -48,20 +63,9 @@ function EventRow({ ev, open, onToggle }) {
                 <div className={s.weeklyProgressFill} style={{ width: `${ev.attendance.percentage}%` }} />
               </div>
             </div>
+          ) : (
+            <p className={s.actNoResult}>No attendance recorded for this event yet.</p>
           )}
-
-          <div className={s.actAccCoins}>
-            {ev.contributionCoins > 0 ? (
-              <div className={s.actAccCoinRow}>
-                <span>Total contribution</span>
-                <span className={s.actCoinBadge}>+{ev.contributionCoins} coins</span>
-              </div>
-            ) : (
-              <div className={s.actAccCoinRow}>
-                <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>No coins recorded for this event yet</span>
-              </div>
-            )}
-          </div>
         </div>
       )}
     </div>

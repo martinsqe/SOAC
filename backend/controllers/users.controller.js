@@ -646,8 +646,13 @@ const activityByEmail = async (req, res, next) => {
     }
 
     const { rows: regRows } = await pgPool.query(
+      /* start_date (a proper TIMESTAMPTZ, set once at event creation/approval and
+         never hand-typed) is used for the displayed event date rather than the
+         `date` column — that one's a free-text label an admin can type anything
+         into ("Feb 2-8, 2027", or nothing at all), so it can't be parsed or
+         trusted to render correctly here. */
       `SELECT er.id AS registration_id, er.event_id, er.event_title, er.registered_at,
-              e.date AS event_date, e.venue, e.category,
+              e.start_date AS event_date, e.venue, e.category,
               c.name AS club_name
        FROM event_registrations er
        LEFT JOIN events e ON e.id = er.event_id
