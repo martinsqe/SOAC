@@ -402,8 +402,11 @@ const Events = () => {
        captain, so pre-filling from whoever last submitted would just be
        confusing (and get silently overwritten as soon as they retype it).
        One box per admin-set max, so the whole roster's capacity — and every
-       slot's own tappable field — is there from the start. */
-    const slots = Math.max(1, Number(ev.teamSize) || 1);
+       slot's own tappable field — is there from the start. teamSize is the
+       TOTAL headcount including the captain, so only teamSize - 1 boxes are
+       for team mates — otherwise a fully-filled form (captain + teamSize
+       mates) is one over the max and the submit button locks back up. */
+    const slots = Math.max(1, (Number(ev.teamSize) || 1) - 1);
     teamMateRefs.current = [];
     setRosterModal(ev);
     setRosterForm({
