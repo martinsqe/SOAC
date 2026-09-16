@@ -1229,7 +1229,7 @@ const Events = () => {
                     <label>
                       Team Members <span className={styles.req}>*</span>
                       <span style={{ fontWeight: 400 }}>
-                        {' '}({rosterModal.minTeamSize} minimum, {rosterModal.teamSize} maximum)
+                        {' '}(Don't repeat captain's name here, {rosterModal.minTeamSize} minimum, {rosterModal.teamSize} maximum)
                       </span>
                     </label>
                     {/* One independently-tappable box per numbered slot,

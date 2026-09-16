@@ -87,6 +87,10 @@ export default function MyActivity() {
       setError('Please enter a valid email address.');
       return;
     }
+    if (!trimmed.toLowerCase().endsWith('@rku.ac.in')) {
+      setError('Only @rku.ac.in emails are allowed.');
+      return;
+    }
     setError('');
     setLoading(true);
     api.get(`/users/activity-by-email?email=${encodeURIComponent(trimmed)}`)
@@ -138,7 +142,6 @@ export default function MyActivity() {
 
           {!result.participated ? (
             <div className={s.emptyCard}>
-              <div className={s.emptyIcon}>🙌</div>
               <p className={s.emptyMsg}>You have not participated in any events. Join a club of your interest to participate.</p>
               <Link className={s.emptyCta} to="/clubs">Explore Clubs</Link>
             </div>
