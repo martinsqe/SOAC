@@ -239,4 +239,43 @@ async function getClubCoordinatorIds(clubId) {
   return result;
 }
 
-module.exports = { getCoordClubIds, assertCoordOwnsClub, getClubCoordinatorIds };
+/**
+ * Galore: a coordinator can be assigned directly to one activity event
+ * (e.g. "the Football coordinator") independent of any club — see
+ * event_coordinators, created in events.controller.js's migration IIFE.
+ * This is a second, parallel authorization path alongside the club-based
+ * one above; assertCoordOwnsEvent below checks both.
+ */
+async function getCoordEventIds(userId) {
+  const { rows } = await pgPool.query(
+    `SELECT event_id FROM event_coordinators WHERE user_id = $1`,
+    [userId]
+  );
+  return rows.map(r => String(r.event_id));
+}
+
+/**
+ * True if this coordinator can manage the given event — either directly
+ * assigned to it (event_coordinators) or via owning the club it belongs to.
+ * The single check every per-event controller's checkAccess should use
+ * instead of hand-rolling its own club_id lookup.
+ *
+ * @param {number} userId
+ * @param {string|number} eventId
+ * @returns {Promise<boolean>}
+ */
+async function assertCoordOwnsEvent(userId, eventId) {
+  const { rows: direct } = await pgPool.query(
+    `SELECT id FROM event_coordinators WHERE user_id = $1 AND event_id = $2`,
+    [userId, eventId]
+  );
+  if (direct.length) return true;
+
+  const { rows: evRows } = await pgPool.query(
+    `SELECT club_id FROM events WHERE id = $1 AND is_active = true`, [eventId]
+  );
+  if (!evRows.length || !evRows[0].club_id) return false;
+  return assertCoordOwnsClub(userId, evRows[0].club_id);
+}
+
+module.exports = { getCoordClubIds, assertCoordOwnsClub, getClubCoordinatorIds, getCoordEventIds, assertCoordOwnsEvent };

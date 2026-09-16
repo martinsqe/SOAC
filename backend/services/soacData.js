@@ -546,6 +546,15 @@ const ensureSoacTables = async () => {
   await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS club_id BIGINT REFERENCES clubs(id) ON DELETE SET NULL`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_events_club_id ON events(club_id)`);
 
+  /* ── Add proposal/planning-detail columns to events, carried over from the
+     coordinator's original event_requests row on approval (idempotent) ── */
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS objective TEXT NOT NULL DEFAULT ''`);
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS expected_outcome TEXT NOT NULL DEFAULT ''`);
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS is_special_day BOOLEAN NOT NULL DEFAULT false`);
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS special_day_name VARCHAR(255) NOT NULL DEFAULT ''`);
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS target_audience VARCHAR(255) NOT NULL DEFAULT ''`);
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS university_expectations TEXT NOT NULL DEFAULT ''`);
+
   /* ── Event requests (coordinator → admin approval flow) ─────────────────── */
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS event_requests (
@@ -579,6 +588,15 @@ const ensureSoacTables = async () => {
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_req_coord   ON event_requests(coordinator_id)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_req_status  ON event_requests(status)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_req_club    ON event_requests(club_id)`);
+
+  /* ── Add proposal/planning-detail columns to event_requests (idempotent) ── */
+  await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS objective TEXT NOT NULL DEFAULT ''`);
+  await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS expected_outcome TEXT NOT NULL DEFAULT ''`);
+  await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS is_special_day BOOLEAN NOT NULL DEFAULT false`);
+  await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS special_day_name VARCHAR(255) NOT NULL DEFAULT ''`);
+  await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS target_audience VARCHAR(255) NOT NULL DEFAULT ''`);
+  await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS university_expectations TEXT NOT NULL DEFAULT ''`);
+  await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS image VARCHAR(255) NOT NULL DEFAULT ''`);
 
   /* ── Event teams (coordinator groups registered participants into teams) ── */
   await pgPool.query(`
@@ -883,6 +901,12 @@ const asEvent = (row) => ({
   teamSize: Number(row.team_size || 0),
   minTeamSize: Number(row.min_team_size || 0),
   parentEventId: row.parent_event_id ? String(row.parent_event_id) : null,
+  objective: row.objective || '',
+  expectedOutcome: row.expected_outcome || '',
+  isSpecialDay: !!row.is_special_day,
+  specialDayName: row.special_day_name || '',
+  targetAudience: row.target_audience || '',
+  universityExpectations: row.university_expectations || '',
 });
 
 /**

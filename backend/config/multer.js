@@ -78,9 +78,43 @@ const uploadLeadership = multer({ storage: makeStorage('leadership'), fileFilter
    inside a proper try/catch — avoids the "socket hang up" crash from unhandled
    stream errors that multer-storage-cloudinary can emit. */
 const uploadAvatar   = multer({ storage: multer.memoryStorage(), fileFilter: imageFilter, limits: { fileSize: 5 * 1024 * 1024 } });
+
+/* Same memoryStorage escape hatch as uploadAvatar, for routes that build several
+   DB rows in one request (e.g. createGaloreEvent, which creates the umbrella +
+   12 activities in one transaction) — a flaky/slow Cloudinary upload must never
+   crash the whole request via an unhandled stream rejection. Pair with
+   uploadImageBuffer() below, inside a try/catch, in the controller. */
+const uploadEventMemory = multer({ storage: multer.memoryStorage(), fileFilter: imageFilter, limits: { fileSize: 10 * 1024 * 1024 } });
+
+/* Upload a memoryStorage file buffer to Cloudinary (or disk, if Cloudinary isn't
+   configured), returning the stored value for the DB — same shape as getFileValue().
+   Bounded by a timeout so a hung Cloudinary connection rejects instead of hanging
+   the request indefinitely. Throws on failure — callers decide whether that should
+   block the whole request or just mean "create it without an image". */
+const uploadImageBuffer = async (file, folder, timeoutMs = 12000) => {
+  if (useCloudinary && cloudinaryInstance) {
+    const result = await Promise.race([
+      new Promise((resolve, reject) => {
+        const stream = cloudinaryInstance.uploader.upload_stream(
+          { folder, resource_type: 'image', allowed_formats: ALLOWED },
+          (err, r) => (err ? reject(err) : resolve(r))
+        );
+        stream.end(file.buffer);
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Image upload timed out')), timeoutMs)),
+    ]);
+    return result.secure_url;
+  }
+  // Disk fallback
+  const dir = path.join(__dirname, '..', 'uploads', folder);
+  fs.mkdirSync(dir, { recursive: true });
+  const fname = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  fs.writeFileSync(path.join(dir, fname), file.buffer);
+  return `/uploads/${folder}/${fname}`;
+};
 const uploadMvpPhoto    = multer({ storage: makeStorage('mvp'),           fileFilter: imageFilter, limits: { fileSize: 5  * 1024 * 1024 } });
 const uploadReportPhoto = multer({ storage: makeStorage('report-photos'), fileFilter: imageFilter, limits: { fileSize: 10 * 1024 * 1024 } });
 const uploadExplore     = multer({ storage: makeStorage('explore'),       fileFilter: imageFilter, limits: { fileSize: 10 * 1024 * 1024 } });
 const uploadCertTemplate = multer({ storage: makeStorage('cert-templates'), fileFilter: certImageFilter, limits: { fileSize: 10 * 1024 * 1024 } });
 
-module.exports = { uploadLogo, uploadEvent, uploadAvatar, uploadFame, uploadLeadership, uploadMvpPhoto, uploadReportPhoto, uploadExplore, uploadCertTemplate, getFileValue, cloudinaryInstance, useCloudinary };
+module.exports = { uploadLogo, uploadEvent, uploadEventMemory, uploadAvatar, uploadFame, uploadLeadership, uploadMvpPhoto, uploadReportPhoto, uploadExplore, uploadCertTemplate, getFileValue, uploadImageBuffer, cloudinaryInstance, useCloudinary };

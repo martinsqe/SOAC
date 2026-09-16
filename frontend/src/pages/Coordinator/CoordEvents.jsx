@@ -9,12 +9,23 @@ import TournamentBracket from '../../components/TournamentBracket/TournamentBrac
 
 /* ── Status helpers ── */
 const REQ_STATUS = {
-  pending:  { label: 'Pending Review', color: '#d97706', bg: '#fffbeb', icon: '⏳' },
-  approved: { label: 'Approved',       color: '#059669', bg: '#ecfdf5', icon: '✅' },
-  rejected: { label: 'Rejected',       color: '#dc2626', bg: '#fef2f2', icon: '❌' },
+  pending:  { label: 'Pending Review', color: '#d97706', bg: '#fffbeb' },
+  approved: { label: 'Approved',       color: '#059669', bg: '#ecfdf5' },
+  rejected: { label: 'Rejected',       color: '#dc2626', bg: '#fef2f2' },
 };
 const EV_STATUS = { upcoming:'#635bff', ongoing:'#00C896', past:'#9ca3af', draft:'#f59e0b' };
 const EV_STATUS_BG = { upcoming:'#635bff14', ongoing:'#00c89614', past:'#9ca3af14', draft:'#f59e0b14' };
+
+/* An event's own eventFormat can't tell a Galore activity apart from a genuine
+   Other Event — every Galore activity is stored as eventFormat:'other' (see
+   createGaloreEvent), distinguished only by having a parentEventId. Check that
+   first. */
+const formatBadge = (ev) => {
+  if (ev.parentEventId) return { label: 'Galore', color: '#7c3aed', bg: '#7c3aed14' };
+  if (ev.eventFormat === 'sports_fiesta') return { label: 'Sports Fiesta', color: '#ea580c', bg: '#ea580c14' };
+  if (ev.eventFormat === 'galore') return { label: 'Galore', color: '#7c3aed', bg: '#7c3aed14' };
+  return { label: 'Other Event', color: '#0891b2', bg: '#0891b214' };
+};
 
 const CATS = ['tech','sports','cultural','annual-fest','health','leadership','community','general'];
 const CAT_LABEL = {
@@ -26,6 +37,8 @@ const BLANK_FORM = {
   title:'', description:'', category:'general', date:'', start_date:'',
   time:'', venue:'', seats:'', tags:'', highlight:'', registration_url:'',
   is_free: true, fee_amount:'',
+  objective:'', expected_outcome:'', is_special_day:false, special_day_name:'',
+  target_audience:'', university_expectations:'',
 };
 
 function validate(form) {
@@ -41,6 +54,12 @@ function validate(form) {
     else if (Number(form.fee_amount) <= 0) errs.fee_amount = 'Fee must be greater than ₹0.';
   }
   if (form.seats && isNaN(Number(form.seats))) errs.seats = 'Seats must be a number.';
+  if (!form.objective.trim())                errs.objective = 'Objective of the event is required.';
+  if (!form.expected_outcome.trim())         errs.expected_outcome = 'Expected outcome of the event is required.';
+  if (!form.target_audience.trim())          errs.target_audience = 'Please specify who can participate.';
+  if (!form.university_expectations.trim())  errs.university_expectations = 'Please mention your expectations from the university (enter "None" if not applicable).';
+  if (form.is_special_day && !form.special_day_name.trim())
+    errs.special_day_name = 'Please mention which special day this event relates to.';
   return errs;
 }
 
@@ -66,11 +85,14 @@ export default function CoordEvents() {
   const [tab,        setTab]      = useState('requests');
   const [filter,     setFilter]   = useState('all');
   const [open,       setOpen]     = useState(false);
-  const [editEv,     setEditEv]   = useState(null);
   const [form,       setForm]     = useState(BLANK_FORM);
   const [errs,       setErrs]     = useState({});
+  const [editingReqId, setEditingReqId] = useState(null);
   const [saving,     setSaving]   = useState(false);
   const [toast,      setToast]    = useState({ msg:'', type:'ok' });
+  const [imgFile,    setImgFile]  = useState(null);
+  const [imgPrev,    setImgPrev]  = useState('');
+  const imgInputRef = useRef();
 
   /* ── Registrations panel ── */
   const [regEvent,    setRegEvent]    = useState(null);
@@ -175,14 +197,19 @@ export default function CoordEvents() {
   };
 
   const loadData = useCallback(() => {
-    if (!club) return;
     setLoading(true);
     Promise.all([
       api.get('/event-requests/mine').catch(() => ({ requests: [] })),
-      api.get(`/events?clubId=${club.id}`).catch(() => ({ events: [] })),
-    ]).then(([rRes, eRes]) => {
+      club ? api.get(`/events?clubId=${club.id}`).catch(() => ({ events: [] })) : Promise.resolve({ events: [] }),
+      /* Galore activities assigned directly to this coordinator (event_coordinators)
+         — independent of club, so they show up here even for a coordinator with no
+         club at all, or one whose Galore activity sits outside their own club. */
+      api.get('/events/my-assignments').catch(() => ({ events: [] })),
+    ]).then(([rRes, eRes, assignedRes]) => {
       setReqs(rRes.requests || []);
-      const loadedEvents = eRes.events || [];
+      const byId = new Map();
+      [...(eRes.events || []), ...(assignedRes.events || [])].forEach(ev => byId.set(ev._id, ev));
+      const loadedEvents = [...byId.values()];
       setEvents(loadedEvents);
       /* Auto-resume the last-viewed event so bracket reflects latest results after navigation */
       const savedId = sessionStorage.getItem('coord_last_event_id');
@@ -197,84 +224,100 @@ export default function CoordEvents() {
 
   /* ── Open "Submit Request" form ── */
   const openRequest = () => {
-    setEditEv(null);
     setForm({ ...BLANK_FORM, category: club?.category || 'general' });
     setErrs({});
+    setEditingReqId(null);
+    setImgFile(null);
+    setImgPrev('');
     setOpen(true);
   };
 
-  /* ── Open edit for an existing (approved) event ── */
-  const openEdit = (ev) => {
-    setEditEv(ev);
+  /* ── Open "Edit Request" form — only while the request is still pending review ── */
+  const openEditRequest = (req) => {
     setForm({
-      title:            ev.title || '',
-      description:      ev.description || '',
-      category:         ev.category || 'general',
-      date:             ev.date || '',
-      start_date:       ev.startDate ? ev.startDate.slice(0, 10) : '',
-      time:             ev.time || '',
-      venue:            ev.venue || '',
-      seats:            ev.seats ?? '',
-      tags:             (ev.tags || []).join(', '),
-      highlight:        ev.highlight || '',
-      registration_url: ev.registrationUrl || '',
-      is_free:          ev.isFree !== false,
-      fee_amount:       ev.feeAmount || '',
+      title:            req.title || '',
+      description:      req.description || '',
+      category:         req.category || 'general',
+      date:             req.date || '',
+      start_date:       req.startDate ? String(req.startDate).slice(0, 10) : '',
+      time:             req.time || '',
+      venue:            req.venue || '',
+      seats:            req.seats || '',
+      tags:             (req.tags || []).join(', '),
+      highlight:        req.highlight || '',
+      registration_url: req.registrationUrl || '',
+      is_free:          req.isFree !== false,
+      fee_amount:       req.feeAmount || '',
+      objective:               req.objective || '',
+      expected_outcome:        req.expectedOutcome || '',
+      is_special_day:          !!req.isSpecialDay,
+      special_day_name:        req.specialDayName || '',
+      target_audience:         req.targetAudience || '',
+      university_expectations: req.universityExpectations || '',
     });
     setErrs({});
+    setEditingReqId(req.id);
+    setImgFile(null);
+    setImgPrev(req.imageUrl || '');
     setOpen(true);
   };
 
-  /* ── Submit ── */
+  const closeReqModal = () => { setOpen(false); setEditingReqId(null); setImgFile(null); setImgPrev(''); };
+
+  const handleImgPick = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImgFile(file);
+    setImgPrev(URL.createObjectURL(file));
+  };
+
+  /* ── Submit ──
+     Coordinators can no longer edit a published event directly — only admin can
+     (event details are admin-only from here on). This form submits a new request,
+     or — while a request is still pending review — edits it in place; changes to
+     an already-approved/rejected request or a live event go through admin. */
   const handleSubmit = async () => {
     const errors = validate(form);
     if (Object.keys(errors).length) { setErrs(errors); return; }
     setSaving(true);
     try {
-      if (editEv) {
-        /* Edit an existing event via FormData */
-        const fd = new FormData();
-        fd.append('title',           form.title.trim());
-        fd.append('club',            club?.name || '');
-        fd.append('category',        form.category);
-        fd.append('date',            form.date);
-        fd.append('time',            form.time);
-        fd.append('venue',           form.venue.trim());
-        fd.append('description',     form.description.trim());
-        fd.append('seats',           form.seats);
-        fd.append('registrationUrl', form.registration_url);
-        fd.append('highlight',       form.highlight);
-        fd.append('tags',            JSON.stringify(form.tags.split(',').map(t => t.trim()).filter(Boolean)));
-        fd.append('isFree',          form.is_free);
-        fd.append('feeAmount',       form.is_free ? 0 : Number(form.fee_amount));
-        if (form.start_date) fd.append('startDate', form.start_date);
-        const { event } = await api.putForm(`/events/${editEv._id}`, fd);
-        setEvents(p => p.map(e => e._id === event._id ? event : e));
-        showToast('Event updated successfully.');
+      const fd = new FormData();
+      fd.append('clubId',           club?._id || String(club?.id || ''));
+      fd.append('title',            form.title.trim());
+      fd.append('description',      form.description.trim());
+      fd.append('category',         form.category);
+      fd.append('date',             form.date);
+      fd.append('start_date',       form.start_date);
+      fd.append('time',             form.time);
+      fd.append('venue',            form.venue.trim());
+      fd.append('seats',            form.seats);
+      fd.append('tags',             form.tags); // raw comma-separated string; backend splits it
+      fd.append('highlight',        form.highlight);
+      fd.append('registration_url', form.registration_url);
+      fd.append('is_free',          form.is_free);
+      fd.append('fee_amount',       form.is_free ? 0 : Number(form.fee_amount));
+      fd.append('objective',               form.objective.trim());
+      fd.append('expected_outcome',        form.expected_outcome.trim());
+      fd.append('is_special_day',          form.is_special_day);
+      fd.append('special_day_name',        form.is_special_day ? form.special_day_name.trim() : '');
+      fd.append('target_audience',         form.target_audience.trim());
+      fd.append('university_expectations', form.university_expectations.trim());
+      if (imgFile) fd.append('image', imgFile);
+
+      if (editingReqId) {
+        const { request } = await api.putForm(`/event-requests/${editingReqId}`, fd);
+        setReqs(p => p.map(r => r.id === editingReqId ? request : r));
+        showToast('Event request updated!');
       } else {
-        /* New request */
-        const payload = {
-          clubId:           club?._id || String(club?.id || ''),
-          title:            form.title.trim(),
-          description:      form.description.trim(),
-          category:         form.category,
-          date:             form.date,
-          start_date:       form.start_date,
-          time:             form.time,
-          venue:            form.venue.trim(),
-          seats:            form.seats,
-          tags:             form.tags.split(',').map(t => t.trim()).filter(Boolean),
-          highlight:        form.highlight,
-          registration_url: form.registration_url,
-          is_free:          form.is_free,
-          fee_amount:       form.is_free ? 0 : Number(form.fee_amount),
-        };
-        const { request } = await api.post('/event-requests', payload);
+        const { request } = await api.postForm('/event-requests', fd);
         setReqs(p => [request, ...p]);
         showToast('Event request submitted! Awaiting admin approval.');
-        setTab('requests');
       }
+      setTab('requests');
       setOpen(false);
+      setEditingReqId(null);
+      setImgFile(null);
+      setImgPrev('');
     } catch (err) {
       showToast(err?.message || 'Failed to save.', 'err');
     } finally {
@@ -1237,19 +1280,23 @@ export default function CoordEvents() {
             {requests.map(req => {
               const st = REQ_STATUS[req.status] || REQ_STATUS.pending;
               return (
-                <div key={req.id} className={es.reqCard} style={{ borderLeftColor: st.color }}>
+                <div key={req.id} className={es.reqCard}>
+                  {req.imageUrl && (
+                    <img src={req.imageUrl} alt="" style={{ width:'100%', height:140, objectFit:'cover',
+                      borderRadius:10, marginBottom:12 }} />
+                  )}
                   <div className={es.reqHead}>
                     <div className={es.reqTitle}>{req.title}</div>
                     <span className={es.reqBadge} style={{ background: st.bg, color: st.color }}>
-                      {st.icon} {st.label}
+                      {st.label}
                     </span>
                   </div>
                   <p className={es.reqDesc}>{req.description.slice(0, 140)}{req.description.length > 140 ? '…' : ''}</p>
                   <div className={es.reqMeta}>
-                    {req.startDate && <span>📅 {fmtDate(req.startDate)}</span>}
-                    {req.time      && <span>🕐 {req.time}</span>}
-                    {req.venue     && <span>📍 {req.venue}</span>}
-                    {req.seats     && <span>💺 {req.seats} seats</span>}
+                    {req.startDate && <span>Date: {fmtDate(req.startDate)}</span>}
+                    {req.time      && <span>Time: {req.time}</span>}
+                    {req.venue     && <span>Venue: {req.venue}</span>}
+                    {req.seats     && <span>Seats: {req.seats}</span>}
                     <span className={es.reqFee}>
                       {req.isFree
                         ? <span className={es.freeBadge}>FREE</span>
@@ -1257,6 +1304,27 @@ export default function CoordEvents() {
                       }
                     </span>
                   </div>
+
+                  {/* Proposal details — everything you submitted with this request */}
+                  <div style={{ marginTop:2, marginBottom:10, background:'#f9fafb', border:'1px solid #e5e7eb',
+                    borderRadius:8, padding:'10px 12px', display:'flex', flexDirection:'column', gap:6 }}>
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Objective:</strong> {req.objective || '—'}
+                    </div>
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Expected outcome:</strong> {req.expectedOutcome || '—'}
+                    </div>
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Related to a special day:</strong> {req.isSpecialDay ? (req.specialDayName || 'Yes') : 'No'}
+                    </div>
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Who can participate:</strong> {req.targetAudience || '—'}
+                    </div>
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Expectations from university:</strong> {req.universityExpectations || '—'}
+                    </div>
+                  </div>
+
                   {req.status === 'rejected' && req.adminNote && (
                     <div className={es.rejectNote}>
                       <strong>Admin note:</strong> {req.adminNote}
@@ -1265,7 +1333,10 @@ export default function CoordEvents() {
                   <div className={es.reqFoot}>
                     <span className={es.reqDate}>Submitted {new Date(req.createdAt).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' })}</span>
                     {req.status === 'pending' && (
-                      <span className={es.pendingHint}>Admin will review this request shortly.</span>
+                      <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                        <span className={es.pendingHint}>Admin will review this request shortly.</span>
+                        <button className={es.reqEditBtn} onClick={() => openEditRequest(req)}>Edit</button>
+                      </div>
                     )}
                     {(req.status === 'approved' || req.status === 'rejected') && (
                       <button
@@ -1307,11 +1378,20 @@ export default function CoordEvents() {
             </div>
           ) : (
             <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-              {displayedEvents.map(ev => (
+              {displayedEvents.map(ev => {
+                const fmt = formatBadge(ev);
+                return (
                 <div key={ev._id} className={s.card}>
+                  {ev.imageUrl && (
+                    <img src={ev.imageUrl} alt="" style={{ width:'100%', height:140, objectFit:'cover',
+                      borderRadius:10, marginBottom:12 }} />
+                  )}
                   <div className={s.cardHead}>
                     <h3 className={s.cardTitle}>{ev.title}</h3>
                     <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                      <span className={s.tag} style={{ background: fmt.bg, color: fmt.color, fontWeight: 700 }}>
+                        {fmt.label}{ev.parentEventId && ev.category ? ` · ${ev.category.charAt(0).toUpperCase() + ev.category.slice(1)}` : ''}
+                      </span>
                       {ev.isFree === false
                         ? <span className={es.paidBadge}>₹{ev.feeAmount} fee</span>
                         : <span className={es.freeBadge}>FREE</span>
@@ -1334,13 +1414,10 @@ export default function CoordEvents() {
                     <button className={es.regsBtn} onClick={() => viewRegs(ev)}>
                       View Registrations
                     </button>
-                    {ev.status === 'past'
-                      ? <span className={es.pastLockedHint} title="This event is past — its details can no longer be edited.">🔒 Past — locked</span>
-                      : <button className={es.editBtn} onClick={() => openEdit(ev)}>Edit</button>
-                    }
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </>
@@ -3054,25 +3131,21 @@ export default function CoordEvents() {
 
       {/* ── MODAL ── */}
       {open && (
-        <div className={s.overlay} onClick={() => setOpen(false)}>
+        <div className={s.overlay} onClick={closeReqModal}>
           <div className={es.modal} onClick={e => e.stopPropagation()}>
 
             {/* Header */}
             <div className={es.modalHead}>
               <div>
-                <div className={es.modalTag}>
-                  {editEv ? 'Edit Published Event' : 'Submit Event Request'}
-                </div>
-                <h2 className={es.modalTitle}>
-                  {editEv ? (form.title || 'Edit Event') : 'Request Admin Approval'}
-                </h2>
-                {!editEv && (
-                  <p className={es.modalSub}>
-                    Fill in the details below. Admin will review and broadcast the event.
-                  </p>
-                )}
+                <div className={es.modalTag}>{editingReqId ? 'Edit Event Request' : 'Submit Event Request'}</div>
+                <h2 className={es.modalTitle}>{editingReqId ? 'Update Your Request' : 'Request Admin Approval'}</h2>
+                <p className={es.modalSub}>
+                  {editingReqId
+                    ? 'Update the details below. This request is still pending admin review.'
+                    : 'Fill in the details below. Admin will review and broadcast the event.'}
+                </p>
               </div>
-              <button className={es.closeBtn} onClick={() => setOpen(false)}>✕</button>
+              <button className={es.closeBtn} onClick={closeReqModal}>✕</button>
             </div>
 
             <div className={es.modalBody}>
@@ -3085,12 +3158,81 @@ export default function CoordEvents() {
                   placeholder="e.g. Annual Coding Hackathon" />
               </Field>
 
+              {/* Banner image */}
+              <Field label="Event Banner" hint="(optional)">
+                <div className={es.imgSection}>
+                  <div className={es.imgBox} onClick={() => imgInputRef.current.click()}>
+                    {imgPrev
+                      ? <img src={imgPrev} alt="preview" className={es.imgPreview} />
+                      : <div className={es.imgPlaceholder}>Click to upload a banner image</div>
+                    }
+                  </div>
+                  <input ref={imgInputRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleImgPick} />
+                  <div className={es.imgHint}>JPG, PNG, WEBP · max 10 MB · Recommended: 16:9</div>
+                </div>
+              </Field>
+
               {/* Description */}
               <Field label="Description" required hint="(min 20 chars)" error={errs.description}>
                 <textarea className={errs.description ? es.inputErr : es.input}
                   rows={4} value={form.description}
                   onChange={f('description')}
                   placeholder="Describe the event, what attendees can expect, agenda…" />
+              </Field>
+
+              {/* Objective */}
+              <Field label="Objective of the Event" required error={errs.objective}>
+                <textarea className={errs.objective ? es.inputErr : es.input}
+                  rows={2} value={form.objective}
+                  onChange={f('objective')}
+                  placeholder="What is the main goal of this event?" />
+              </Field>
+
+              {/* Expected outcome */}
+              <Field label="Expected Outcome" required error={errs.expected_outcome}>
+                <textarea className={errs.expected_outcome ? es.inputErr : es.input}
+                  rows={2} value={form.expected_outcome}
+                  onChange={f('expected_outcome')}
+                  placeholder="What do you expect attendees to gain or achieve?" />
+              </Field>
+
+              {/* Special day */}
+              <div className={es.feeSection}>
+                <div className={es.feeSectionTitle}>Related to a Special Day?</div>
+                <div className={es.feeToggleRow}>
+                  <button type="button"
+                    className={`${es.feeBtn} ${!form.is_special_day ? es.feeBtnActive : ''}`}
+                    onClick={() => { setForm(p => ({ ...p, is_special_day: false, special_day_name: '' })); setErrs(p => ({ ...p, special_day_name: undefined })); }}>
+                    No
+                  </button>
+                  <button type="button"
+                    className={`${es.feeBtn} ${form.is_special_day ? es.feeBtnPaid : ''}`}
+                    onClick={() => setForm(p => ({ ...p, is_special_day: true }))}>
+                    Yes
+                  </button>
+                </div>
+                {form.is_special_day && (
+                  <Field label="Which Special Day?" required error={errs.special_day_name}>
+                    <input className={errs.special_day_name ? es.inputErr : es.input}
+                      value={form.special_day_name} onChange={f('special_day_name')}
+                      placeholder="e.g. World Environment Day" />
+                  </Field>
+                )}
+              </div>
+
+              {/* Target audience */}
+              <Field label="Who Can Participate" required hint="(expected audience)" error={errs.target_audience}>
+                <input className={errs.target_audience ? es.inputErr : es.input}
+                  value={form.target_audience} onChange={f('target_audience')}
+                  placeholder="e.g. All UG/PG students, open to all departments" />
+              </Field>
+
+              {/* University expectations */}
+              <Field label="Expectations from University" required hint="(support / resources / approvals needed)" error={errs.university_expectations}>
+                <textarea className={errs.university_expectations ? es.inputErr : es.input}
+                  rows={2} value={form.university_expectations}
+                  onChange={f('university_expectations')}
+                  placeholder="What support do you need from the university side? (Enter 'None' if not applicable)" />
               </Field>
 
               {/* Date + Time */}
@@ -3175,12 +3317,12 @@ export default function CoordEvents() {
 
               {/* Footer */}
               <div className={es.modalFoot}>
-                <button className={es.cancelBtn} onClick={() => setOpen(false)}>Cancel</button>
+                <button className={es.cancelBtn} onClick={closeReqModal}>Cancel</button>
                 <button className={es.submitBtn} onClick={handleSubmit}
                   disabled={saving}>
                   {saving
-                    ? 'Submitting…'
-                    : editEv ? 'Save Changes' : '📨 Submit for Approval'}
+                    ? (editingReqId ? 'Saving…' : 'Submitting…')
+                    : (editingReqId ? '📨 Save Changes' : '📨 Submit for Approval')}
                 </button>
               </div>
             </div>

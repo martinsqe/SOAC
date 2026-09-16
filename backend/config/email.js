@@ -300,6 +300,29 @@ const sendTeamAssignment = async ({ toEmail, toName, eventTitle, division, group
   });
 };
 
+/* Sent to a coordinator the moment an admin assigns them to run a specific
+   Galore activity (at event-creation time — every activity always has a
+   coordinator assigned before the event can be created, so this fires once
+   per activity, right after the whole event is committed). */
+const sendGaloreActivityAssignment = async ({ toEmail, toName, activityTitle, category, umbrellaTitle }) => {
+  const categoryLabel = category ? category.charAt(0).toUpperCase() + category.slice(1) : '';
+  await send({
+    to:      toEmail,
+    subject: `You've been assigned to coordinate ${activityTitle} — ${umbrellaTitle}`,
+    html: wrap(`
+      ${header('#4c44e0,#a78bfa')}
+      <h2 style="color:#1a1040;margin-bottom:8px">Hello, ${toName}!</h2>
+      <p style="color:#555;line-height:1.6">You have been assigned as <strong style="color:#4c44e0">Coordinator</strong> for <strong style="color:#4c44e0">${activityTitle}</strong>${categoryLabel ? ` (${categoryLabel})` : ''}, part of <strong>${umbrellaTitle}</strong>.</p>
+      <div style="background:#f0fff8;border:1.5px solid #86efac;border-radius:12px;padding:20px 24px;margin:24px 0;text-align:center">
+        <p style="margin:0;font-size:16px;font-weight:800;color:#15803d">Coordinator of ${activityTitle}</p>
+        <p style="margin:6px 0 0;font-size:13px;color:#555">Log in to your SOAC Coordinator Portal to view registrations for this activity and build boys'/girls' teams once students sign up.</p>
+      </div>
+      <p style="color:#888;font-size:13px;line-height:1.6">Your existing credentials are unchanged. Visit <strong>${APP_LOGIN}</strong> to access your portal.</p>
+      ${footer()}
+    `),
+  });
+};
+
 /* ── Diagnostic: send a test email, return { ok, via, error } ─────────────── */
 const sendTestEmail = async (toEmail) => {
   const chain = PROVIDER_CHAIN.map(p => p.name).join(' → ');
@@ -322,5 +345,6 @@ module.exports = {
   sendCoordinatorAssignment,
   sendPasswordReset,
   sendTeamAssignment,
+  sendGaloreActivityAssignment,
   sendTestEmail,
 };

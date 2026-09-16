@@ -352,6 +352,89 @@ const Events = () => {
   const [regDone, setRegDone] = useState(false);  // success screen
   const [regLoading, setRegLoading] = useState(false);
 
+  /* ── Galore registration modal — one unified form for a whole umbrella event:
+     a student's details once, plus a checklist of every activity (any mix,
+     up to 2 per category) they want to join. No self-service team/captain
+     flow — coordinators build teams from the registrant pool afterward. ── */
+  const EMPTY_GALORE_REG_FORM = { name: '', enrollmentNo: '', dept: '', course: '', phone: '', email: '', gender: '', activityIds: [] };
+  const [galoreRegModal,       setGaloreRegModal]       = useState(null); // null | { id, title }
+  const [galoreRegForm,        setGaloreRegForm]        = useState(EMPTY_GALORE_REG_FORM);
+  const [galoreRegErr,         setGaloreRegErr]         = useState({});
+  const [galoreRegApi,         setGaloreRegApi]         = useState('');
+  const [galoreRegDone,        setGaloreRegDone]        = useState(null); // null | { created, skipped }
+  const [galoreRegLoading,     setGaloreRegLoading]     = useState(false);
+  const [galoreActivities,     setGaloreActivities]     = useState([]);
+  const [galoreActivitiesLoading, setGaloreActivitiesLoading] = useState(false);
+
+  const openGaloreReg = (ev) => {
+    setGaloreRegModal({ id: ev.id, title: ev.title });
+    setGaloreRegForm(user
+      ? { ...EMPTY_GALORE_REG_FORM, name: user.name || '', email: user.email || '' }
+      : EMPTY_GALORE_REG_FORM
+    );
+    setGaloreRegErr({});
+    setGaloreRegApi('');
+    setGaloreRegDone(null);
+    setGaloreActivities([]);
+    setGaloreActivitiesLoading(true);
+    api.get(`/events/${ev.id}/activities`)
+      .then(d => setGaloreActivities(d.activities || []))
+      .catch(() => setGaloreActivities([]))
+      .finally(() => setGaloreActivitiesLoading(false));
+  };
+  const closeGaloreReg = () => setGaloreRegModal(null);
+  const gf = (k) => (e) => setGaloreRegForm(p => ({ ...p, [k]: e.target.value }));
+
+  const galoreActivityCatCount = (cat, excludeId) =>
+    galoreRegForm.activityIds.filter(id => {
+      if (id === excludeId) return false;
+      const act = galoreActivities.find(a => a.id === id);
+      return act?.category === cat;
+    }).length;
+
+  const toggleGaloreActivity = (act) => {
+    setGaloreRegForm(p => {
+      const already = p.activityIds.includes(act.id);
+      if (already) return { ...p, activityIds: p.activityIds.filter(id => id !== act.id) };
+      if (galoreActivityCatCount(act.category, act.id) >= 2) return p; // at the 2-per-category cap
+      return { ...p, activityIds: [...p.activityIds, act.id] };
+    });
+  };
+
+  const validateGaloreReg = () => {
+    const e = {};
+    if (!galoreRegForm.name.trim()) e.name = 'Name is required.';
+    if (!galoreRegForm.enrollmentNo.trim()) e.enrollmentNo = 'Enrollment number is required.';
+    if (!galoreRegForm.dept) e.dept = 'Department is required.';
+    if (!galoreRegForm.course.trim()) e.course = 'Course is required.';
+    if (!galoreRegForm.phone.trim()) e.phone = 'Mobile number is required.';
+    else { const digits = galoreRegForm.phone.replace(/[\s\-+]/g, '').replace(/^91/, ''); if (!/^\d{10}$/.test(digits)) e.phone = 'Enter a valid 10-digit mobile number.'; }
+    if (!galoreRegForm.email.trim()) e.email = 'Email is required.';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(galoreRegForm.email)) e.email = 'Enter a valid email.';
+    else if (!galoreRegForm.email.trim().toLowerCase().endsWith('@rku.ac.in')) e.email = 'Only @rku.ac.in emails are allowed.';
+    if (!galoreRegForm.gender) e.gender = 'Gender is required.';
+    if (!galoreRegForm.activityIds.length) e.activities = 'Select at least one activity.';
+    setGaloreRegErr(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const submitGaloreReg = async (e) => {
+    e.preventDefault();
+    if (galoreRegLoading) return;
+    setGaloreRegApi('');
+    if (!validateGaloreReg()) return;
+    setGaloreRegLoading(true);
+    try {
+      const d = await api.post(`/events/${galoreRegModal.id}/register`, galoreRegForm);
+      markRegistered(galoreRegModal.id);
+      setGaloreRegDone({ created: d.created || [], skipped: d.skipped || [] });
+    } catch (err) {
+      setGaloreRegApi(err.message || 'Something went wrong. Please try again.');
+    } finally {
+      setGaloreRegLoading(false);
+    }
+  };
+
   /* ── Teams & Fixtures modal ── */
   const [fixtureModal,   setFixtureModal]   = useState(null);
   const [fixtureData,    setFixtureData]    = useState(null);
@@ -383,6 +466,7 @@ const Events = () => {
   const teamMateRefs = useRef([]); // input elements, indexed by slot — lets Enter jump to the next one
 
   const openReg = (ev) => {
+    if (ev.eventFormat === 'galore' && !ev.parentEventId) { openGaloreReg(ev); return; }
     if (ev.eventFormat === 'sports_fiesta') { openRoster(ev); return; }
     setRegModal({ id: ev.id, title: ev.title });
     setRegForm(user
@@ -1146,6 +1230,180 @@ const Events = () => {
 
                   <button type="submit" className={styles.regSubmitBtn} disabled={regLoading}>
                     {regLoading ? 'Submitting…' : 'Confirm Registration →'}
+                  </button>
+                </form>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════
+          GALORE REGISTRATION MODAL — one form covering every activity the
+          student wants to join (any mix of categories, up to 2 each), not
+          a separate form per activity.
+      ══════════════════════════════════════════ */}
+      {galoreRegModal && (
+        <div className={styles.modalOv} onClick={closeGaloreReg}>
+          <div className={styles.modalBox} onClick={e => e.stopPropagation()}>
+            <button className={styles.modalClose} onClick={closeGaloreReg}>✕</button>
+
+            {galoreRegDone ? (
+              <div className={styles.regSuccess}>
+                <div className={styles.regSuccessIcon}>✓</div>
+                <h3>You're Registered!</h3>
+                {galoreRegDone.created.length > 0 && (
+                  <p>Registered for: <strong>{galoreRegDone.created.join(', ')}</strong>.</p>
+                )}
+                {galoreRegDone.skipped.length > 0 && (
+                  <p className={styles.regSuccessSub}>Already registered for: {galoreRegDone.skipped.join(', ')}.</p>
+                )}
+                <button className={styles.regSubmitBtn} onClick={closeGaloreReg}>Close</button>
+              </div>
+            ) : (
+              <>
+                <div className={styles.modalHead}>
+                  <div className={styles.modalPill}>Galore Registration</div>
+                  <h2 className={styles.modalTitle}>{galoreRegModal.title}</h2>
+                  {user ? (
+                    <div className={styles.regLoggedIn}>
+                      <span className={styles.regLoggedInDot} />
+                      Registering as <strong>{user.name}</strong> · {user.email}
+                    </div>
+                  ) : (
+                    <p className={styles.modalSub}>Fill in your details once, then pick every activity you want to join.</p>
+                  )}
+                </div>
+
+                <form className={styles.regForm} onSubmit={submitGaloreReg} noValidate>
+                  <div className={styles.regRow}>
+                    <div className={styles.regField}>
+                      <label htmlFor="galore-reg-name">
+                        Full Name <span className={styles.req}>*</span>
+                        {user && <span className={styles.regLockedTag}>auto-filled</span>}
+                      </label>
+                      <input
+                        id="galore-reg-name" type="text" placeholder="e.g. Arjun Sharma"
+                        value={galoreRegForm.name} onChange={gf('name')}
+                        className={`${galoreRegErr.name ? styles.regInputErr : ''} ${user ? styles.regInputLocked : ''}`}
+                        readOnly={!!user}
+                      />
+                      {galoreRegErr.name && <span className={styles.regErrMsg}>{galoreRegErr.name}</span>}
+                    </div>
+                    <div className={styles.regField}>
+                      <label htmlFor="galore-reg-enroll">Enrollment No. <span className={styles.req}>*</span></label>
+                      <input id="galore-reg-enroll" type="text" placeholder="e.g. 22BCE001" value={galoreRegForm.enrollmentNo} onChange={gf('enrollmentNo')} className={galoreRegErr.enrollmentNo ? styles.regInputErr : ''} />
+                      {galoreRegErr.enrollmentNo && <span className={styles.regErrMsg}>{galoreRegErr.enrollmentNo}</span>}
+                    </div>
+                  </div>
+
+                  <div className={styles.regRow}>
+                    <div className={styles.regField}>
+                      <label htmlFor="galore-reg-dept">Department <span className={styles.req}>*</span></label>
+                      <select id="galore-reg-dept" value={galoreRegForm.dept} onChange={gf('dept')} className={galoreRegErr.dept ? styles.regInputErr : ''}>
+                        <option value="">Select department</option>
+                        {DEPTS.map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                      {galoreRegErr.dept && <span className={styles.regErrMsg}>{galoreRegErr.dept}</span>}
+                      <span style={{ fontSize: '.72rem', color: '#9ca3af' }}>Your registration is recorded under this department only.</span>
+                    </div>
+                    <div className={styles.regField}>
+                      <label htmlFor="galore-reg-course">Course <span className={styles.req}>*</span></label>
+                      <input id="galore-reg-course" type="text" placeholder="e.g. B.Tech CSE" value={galoreRegForm.course} onChange={gf('course')} className={galoreRegErr.course ? styles.regInputErr : ''} />
+                      {galoreRegErr.course && <span className={styles.regErrMsg}>{galoreRegErr.course}</span>}
+                    </div>
+                  </div>
+
+                  <div className={styles.regRow}>
+                    <div className={styles.regField}>
+                      <label htmlFor="galore-reg-phone">Mobile Number <span className={styles.req}>*</span></label>
+                      <input id="galore-reg-phone" type="tel" placeholder="e.g. 9876543210" value={galoreRegForm.phone} onChange={gf('phone')} className={galoreRegErr.phone ? styles.regInputErr : ''} />
+                      {galoreRegErr.phone && <span className={styles.regErrMsg}>{galoreRegErr.phone}</span>}
+                    </div>
+                    <div className={styles.regField}>
+                      <label htmlFor="galore-reg-email">
+                        Email Address <span className={styles.req}>*</span>
+                        {user && <span className={styles.regLockedTag}>auto-filled</span>}
+                      </label>
+                      <input
+                        id="galore-reg-email" type="email" placeholder="you@rku.ac.in"
+                        value={galoreRegForm.email} onChange={gf('email')}
+                        className={`${galoreRegErr.email ? styles.regInputErr : ''} ${user ? styles.regInputLocked : ''}`}
+                        readOnly={!!user}
+                      />
+                      {galoreRegErr.email && <span className={styles.regErrMsg}>{galoreRegErr.email}</span>}
+                    </div>
+                  </div>
+
+                  <div className={styles.regRow}>
+                    <div className={styles.regField}>
+                      <label htmlFor="galore-reg-gender">Gender <span className={styles.req}>*</span></label>
+                      <select id="galore-reg-gender" value={galoreRegForm.gender} onChange={gf('gender')} className={galoreRegErr.gender ? styles.regInputErr : ''}>
+                        <option value="">Select gender</option>
+                        <option value="M">M</option>
+                        <option value="F">F</option>
+                      </select>
+                      {galoreRegErr.gender && <span className={styles.regErrMsg}>{galoreRegErr.gender}</span>}
+                    </div>
+                  </div>
+
+                  {/* ── Activity checklist, grouped by category — up to 2 per category ── */}
+                  <div className={styles.regField}>
+                    <label>Activities <span className={styles.req}>*</span></label>
+                    {galoreRegErr.activities && <span className={styles.regErrMsg}>{galoreRegErr.activities}</span>}
+                    {galoreActivitiesLoading ? (
+                      <div style={{ fontSize: '.85rem', color: '#9ca3af', padding: '8px 0' }}>Loading activities…</div>
+                    ) : (
+                      ['sports', 'cultural', 'academic'].map(cat => {
+                        const inCat = galoreActivities.filter(a => a.category === cat);
+                        if (!inCat.length) return null;
+                        const catCount = galoreActivityCatCount(cat, null);
+                        return (
+                          <div key={cat} style={{ marginBottom: 16 }}>
+                            <div style={{
+                              fontSize: '.72rem', fontWeight: 700, color: '#635BFF', textTransform: 'uppercase',
+                              letterSpacing: '.04em', marginBottom: 8,
+                            }}>
+                              {cat} <span style={{ color: '#9ca3af', fontWeight: 500, textTransform: 'none' }}>({catCount}/2 selected)</span>
+                            </div>
+                            <div style={{
+                              display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8,
+                            }}>
+                              {inCat.map(act => {
+                                const selected = galoreRegForm.activityIds.includes(act.id);
+                                const disabled = !selected && catCount >= 2;
+                                return (
+                                  <label key={act.id} style={{
+                                    display: 'flex', alignItems: 'center', gap: 8,
+                                    border: `1.5px solid ${selected ? '#635BFF' : '#e5e7eb'}`,
+                                    background: selected ? '#f5f4ff' : '#fff',
+                                    borderRadius: 8, padding: '9px 12px', fontSize: '.83rem', fontWeight: 600,
+                                    lineHeight: 1.25, minHeight: 40,
+                                    cursor: disabled ? 'not-allowed' : 'pointer',
+                                    opacity: disabled ? 0.5 : 1,
+                                    color: selected ? '#4c3fd9' : '#374151',
+                                    transition: 'border-color .12s, background .12s',
+                                  }}>
+                                    <input
+                                      type="checkbox" checked={selected} disabled={disabled}
+                                      onChange={() => toggleGaloreActivity(act)}
+                                      style={{ margin: 0, width: 16, height: 16, flex: '0 0 16px', accentColor: '#635BFF' }}
+                                    />
+                                    <span>{act.title}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {galoreRegApi && <div className={styles.regApiErr}>{galoreRegApi}</div>}
+
+                  <button type="submit" className={styles.regSubmitBtn} disabled={galoreRegLoading}>
+                    {galoreRegLoading ? 'Submitting…' : 'Confirm Registration →'}
                   </button>
                 </form>
               </>

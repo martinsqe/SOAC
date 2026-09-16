@@ -1,5 +1,5 @@
 const { pgPool }         = require('../config/db');
-const { getCoordClubIds } = require('../services/coordAuth');
+const { assertCoordOwnsEvent } = require('../services/coordAuth');
 
 /* ── Migrations (sequential — event_group_teams FKs event_groups) ── */
 (async () => {
@@ -32,13 +32,8 @@ const { getCoordClubIds } = require('../services/coordAuth');
 
 const checkAccess = async (req, res) => {
   if (req.user.role === 'admin') return true;
-  const coordClubIds = await getCoordClubIds(req.user.id);
-  if (!coordClubIds.length) { res.status(403).json({ message: 'No club assigned.' }); return false; }
-  const { rows } = await pgPool.query(
-    `SELECT id FROM events WHERE id = $1 AND is_active = true AND club_id = ANY($2::bigint[])`,
-    [req.params.id, coordClubIds]
-  );
-  if (!rows.length) { res.status(403).json({ message: 'No access to this event.' }); return false; }
+  const ok = await assertCoordOwnsEvent(req.user.id, req.params.id);
+  if (!ok) { res.status(403).json({ message: 'No access to this event.' }); return false; }
   return true;
 };
 

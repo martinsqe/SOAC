@@ -2,6 +2,22 @@ const { pgPool } = require('../config/db');
 const { ensureSoacTables } = require('../services/soacData');
 const { getCoordClubIds, assertCoordOwnsClub } = require('../services/coordAuth');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
+const { getFileValue } = require('../config/multer');
+const { destroyImage } = require('../config/cloudinary');
+
+/* Same shape as events.controller.js's imageUrl() — Cloudinary URLs and disk-mode
+   `/uploads/...` paths (as returned by getFileValue) pass through unchanged;
+   anything else is a bare seeded/static asset served from the frontend's /images. */
+const imageUrl = (filename) => {
+  if (!filename) return '';
+  if (filename.startsWith('http') || filename.startsWith('/')) return filename;
+  return `/images/${filename}`;
+};
+
+/* Request bodies arrive as multipart/form-data (multer), where every non-file
+   field is a string — so booleans must be parsed, never compared with === true/false. */
+const parseBoolDefaultTrue  = (v) => v !== false && v !== 'false';
+const parseBoolDefaultFalse = (v) => v === true || v === 'true';
 
 /* ── POST /api/event-requests  (coordinator submits proposal) ── */
 const createRequest = async (req, res, next) => {
@@ -11,14 +27,27 @@ const createRequest = async (req, res, next) => {
       title, description, category, date, start_date,
       time, venue, seats, tags, highlight, registration_url,
       is_free, fee_amount,
+      objective, expected_outcome, is_special_day, special_day_name,
+      target_audience, university_expectations,
     } = req.body;
+
+    const isFree = parseBoolDefaultTrue(is_free);
 
     if (!title?.trim())       return res.status(400).json({ message: 'Event title is required.' });
     if (!description?.trim()) return res.status(400).json({ message: 'Description is required.' });
     if (!venue?.trim())       return res.status(400).json({ message: 'Venue is required.' });
     if (!start_date)          return res.status(400).json({ message: 'Event date is required.' });
-    if (is_free === false && (!fee_amount || Number(fee_amount) <= 0))
+    if (!isFree && (!fee_amount || Number(fee_amount) <= 0))
       return res.status(400).json({ message: 'Fee amount must be greater than 0 for paid events.' });
+    if (!objective?.trim())               return res.status(400).json({ message: 'Objective of the event is required.' });
+    if (!expected_outcome?.trim())        return res.status(400).json({ message: 'Expected outcome of the event is required.' });
+    if (!target_audience?.trim())         return res.status(400).json({ message: 'Expected audience (who can participate) is required.' });
+    if (!university_expectations?.trim()) return res.status(400).json({ message: 'Please mention your expectations from the university side.' });
+    const specialDay = parseBoolDefaultFalse(is_special_day);
+    if (specialDay && !special_day_name?.trim())
+      return res.status(400).json({ message: 'Please mention which special day this event relates to.' });
+
+    const image = getFileValue(req.file) || '';
 
     // Get coordinator's club — accept clubId from body or fall back to first assignment
     const requestedClubId = req.body.clubId || null;
@@ -53,8 +82,10 @@ const createRequest = async (req, res, next) => {
       `INSERT INTO event_requests
          (club_id, club_name, coordinator_id, coordinator_name,
           title, description, category, date, start_date, time, venue,
-          seats, tags, highlight, registration_url, is_free, fee_amount)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+          seats, tags, highlight, registration_url, is_free, fee_amount,
+          objective, expected_outcome, is_special_day, special_day_name,
+          target_audience, university_expectations, image)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
        RETURNING *`,
       [
         club.id, club.name, req.user.id, req.user.name || '',
@@ -68,8 +99,15 @@ const createRequest = async (req, res, next) => {
         parsedTags,
         highlight || '',
         registration_url || '',
-        is_free !== false,
-        is_free !== false ? 0 : Number(fee_amount) || 0,
+        isFree,
+        isFree ? 0 : Number(fee_amount) || 0,
+        objective.trim(),
+        expected_outcome.trim(),
+        specialDay,
+        specialDay ? special_day_name.trim() : '',
+        target_audience.trim(),
+        university_expectations.trim(),
+        image,
       ]
     );
     res.status(201).json({ request: asRequest(rows[0]) });
@@ -87,6 +125,94 @@ const createRequest = async (req, res, next) => {
           url:     '/admin/events',
         });
       }).catch(() => {});
+  } catch (err) { next(err); }
+};
+
+/* ── PUT /api/event-requests/:id  (coordinator — edit their own pending request) ──
+   Only the coordinator who submitted it can edit it, and only while it's still
+   pending review — once admin has approved or rejected it, changes go through
+   admin instead. */
+const updateRequest = async (req, res, next) => {
+  try {
+    await ensureSoacTables();
+    const { rows: existingRows } = await pgPool.query(
+      `SELECT * FROM event_requests WHERE id = $1`, [req.params.id]
+    );
+    if (!existingRows.length) return res.status(404).json({ message: 'Request not found.' });
+    const existing = existingRows[0];
+    if (existing.coordinator_id !== req.user.id)
+      return res.status(403).json({ message: 'You do not own this request.' });
+    if (existing.status !== 'pending')
+      return res.status(409).json({ message: 'Only a request that is still pending review can be edited.' });
+
+    const {
+      title, description, category, date, start_date,
+      time, venue, seats, tags, highlight, registration_url,
+      is_free, fee_amount,
+      objective, expected_outcome, is_special_day, special_day_name,
+      target_audience, university_expectations,
+    } = req.body;
+
+    const isFree = parseBoolDefaultTrue(is_free);
+
+    if (!title?.trim())       return res.status(400).json({ message: 'Event title is required.' });
+    if (!description?.trim()) return res.status(400).json({ message: 'Description is required.' });
+    if (!venue?.trim())       return res.status(400).json({ message: 'Venue is required.' });
+    if (!start_date)          return res.status(400).json({ message: 'Event date is required.' });
+    if (!isFree && (!fee_amount || Number(fee_amount) <= 0))
+      return res.status(400).json({ message: 'Fee amount must be greater than 0 for paid events.' });
+    if (!objective?.trim())               return res.status(400).json({ message: 'Objective of the event is required.' });
+    if (!expected_outcome?.trim())        return res.status(400).json({ message: 'Expected outcome of the event is required.' });
+    if (!target_audience?.trim())         return res.status(400).json({ message: 'Expected audience (who can participate) is required.' });
+    if (!university_expectations?.trim()) return res.status(400).json({ message: 'Please mention your expectations from the university side.' });
+    const specialDay = parseBoolDefaultFalse(is_special_day);
+    if (specialDay && !special_day_name?.trim())
+      return res.status(400).json({ message: 'Please mention which special day this event relates to.' });
+
+    const parsedTags = Array.isArray(tags)
+      ? tags
+      : typeof tags === 'string'
+        ? tags.split(',').map(t => t.trim()).filter(Boolean)
+        : [];
+
+    // A newly uploaded file replaces the existing banner; otherwise keep it as-is.
+    const image = req.file ? getFileValue(req.file) || '' : existing.image;
+    if (req.file && existing.image) destroyImage(existing.image).catch(() => {});
+
+    const { rows } = await pgPool.query(
+      `UPDATE event_requests SET
+         title = $1, description = $2, category = $3, date = $4, start_date = $5,
+         time = $6, venue = $7, seats = $8, tags = $9, highlight = $10,
+         registration_url = $11, is_free = $12, fee_amount = $13,
+         objective = $14, expected_outcome = $15, is_special_day = $16,
+         special_day_name = $17, target_audience = $18, university_expectations = $19,
+         image = $20, updated_at = NOW()
+       WHERE id = $21
+       RETURNING *`,
+      [
+        title.trim(), description.trim(),
+        category || 'general',
+        date || '',
+        start_date || null,
+        time || '',
+        venue.trim(),
+        seats || '',
+        parsedTags,
+        highlight || '',
+        registration_url || '',
+        isFree,
+        isFree ? 0 : Number(fee_amount) || 0,
+        objective.trim(),
+        expected_outcome.trim(),
+        specialDay,
+        specialDay ? special_day_name.trim() : '',
+        target_audience.trim(),
+        university_expectations.trim(),
+        image,
+        req.params.id,
+      ]
+    );
+    res.json({ request: asRequest(rows[0]) });
   } catch (err) { next(err); }
 };
 
@@ -181,13 +307,22 @@ const approveRequest = async (req, res, next) => {
         ? tags.split(',').map(t => t.trim()).filter(Boolean)
         : (r.tags || []);
 
-    // 3. Create the event (including club_id FK)
+    // Admin may attach a new banner while reviewing; otherwise the coordinator's
+    // own submitted image (if any) carries over to the live event.
+    const image = req.file ? (getFileValue(req.file) || '') : (r.image || '');
+
+    // 3. Create the event (including club_id FK). The proposal-detail fields
+    // (objective, expected outcome, special day, audience, university asks)
+    // are the coordinator's own answers and always carry over as-is — admin
+    // review edits the event's operational details, not the coordinator's plan.
     const evRes = await pgPool.query(
       `INSERT INTO events
          (title, club, club_id, category, status, date, start_date, time, venue,
           description, seats, tags, highlight, registration_url,
-          is_free, fee_amount, is_active)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,true)
+          is_free, fee_amount, is_active, image,
+          objective, expected_outcome, is_special_day, special_day_name,
+          target_audience, university_expectations)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,true,$17,$18,$19,$20,$21,$22,$23)
        RETURNING *`,
       [
         title?.trim() || r.title,
@@ -206,6 +341,13 @@ const approveRequest = async (req, res, next) => {
         registration_url || r.registration_url || '',
         is_free !== false && is_free !== 'false',
         Number(fee_amount) || 0,
+        image,
+        r.objective,
+        r.expected_outcome,
+        r.is_special_day,
+        r.special_day_name,
+        r.target_audience,
+        r.university_expectations,
       ]
     );
 
@@ -217,7 +359,10 @@ const approveRequest = async (req, res, next) => {
       [req.user.id, req.params.id]
     );
 
-    res.json({ message: 'Request approved. Event created.', event: evRes.rows[0] });
+    res.json({
+      message: 'Request approved. Event created.',
+      event: { ...evRes.rows[0], _id: String(evRes.rows[0].id), imageUrl: imageUrl(evRes.rows[0].image) },
+    });
 
     notifyUser({
       userId: r.coordinator_id,
@@ -316,6 +461,9 @@ const deleteRequest = async (req, res, next) => {
     }
 
     await pgPool.query(`DELETE FROM event_requests WHERE id = $1`, [req.params.id]);
+    // Only clean up the banner for a rejected request — an approved request's
+    // image may be the very same Cloudinary asset the live event now uses.
+    if (r.status === 'rejected' && r.image) destroyImage(r.image).catch(() => {});
     res.json({ message: 'Request deleted.' });
   } catch (err) { next(err); }
 };
@@ -340,6 +488,14 @@ const asRequest = (r) => ({
   registrationUrl:  r.registration_url,
   isFree:           r.is_free,
   feeAmount:        Number(r.fee_amount || 0),
+  image:            r.image || '',
+  imageUrl:         imageUrl(r.image),
+  objective:        r.objective,
+  expectedOutcome:  r.expected_outcome,
+  isSpecialDay:     r.is_special_day,
+  specialDayName:   r.special_day_name,
+  targetAudience:   r.target_audience,
+  universityExpectations: r.university_expectations,
   status:           r.status,
   adminNote:        r.admin_note,
   reviewedBy:       r.reviewed_by,
@@ -348,4 +504,4 @@ const asRequest = (r) => ({
   updatedAt:        r.updated_at,
 });
 
-module.exports = { createRequest, getRequests, getMyRequests, approveRequest, rejectRequest, deleteRequest };
+module.exports = { createRequest, updateRequest, getRequests, getMyRequests, approveRequest, rejectRequest, deleteRequest };

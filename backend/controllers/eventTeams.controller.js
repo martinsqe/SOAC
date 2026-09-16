@@ -1,7 +1,7 @@
 const { pgPool }          = require('../config/db');
 const cache               = require('../services/cache');
 const { ensureSoacTables } = require('../services/soacData');
-const { getCoordClubIds }  = require('../services/coordAuth');
+const { assertCoordOwnsEvent }  = require('../services/coordAuth');
 const bracketEngine        = require('../services/bracketEngine');
 const { fetchGroups }      = require('./eventGroups.controller');
 const { autoRefreshReportIfExists } = require('./reports.controller');
@@ -205,16 +205,10 @@ pgPool.query(`
 /* Verify this coordinator (or admin) has access to the event */
 const checkAccess = async (req, res) => {
   if (req.user.role === 'admin') return true;
-  const coordClubIds = await getCoordClubIds(req.user.id);
-  if (!coordClubIds.length) {
-    res.status(403).json({ message: 'No club assigned to your account.' });
-    return false;
-  }
-  const { rows } = await pgPool.query(
-    `SELECT id FROM events WHERE id = $1 AND is_active = true AND club_id = ANY($2::bigint[])`,
-    [req.params.id, coordClubIds]
-  );
-  if (!rows.length) {
+  /* Owns via a direct Galore activity assignment (event_coordinators) OR via
+     the club that organizes the event — see coordAuth.js. */
+  const ok = await assertCoordOwnsEvent(req.user.id, req.params.id);
+  if (!ok) {
     res.status(403).json({ message: 'You do not have access to this event.' });
     return false;
   }

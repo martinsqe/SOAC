@@ -10,11 +10,17 @@ export function CoordClubProvider({ children }) {
   const [selectedClub, setSelectedClub] = useState(null);
   const [clubLoading,  setClubLoading]  = useState(true);
   const [clubError,    setClubError]    = useState(null);
+  /* Galore: a coordinator can be assigned straight to an activity with no club
+     at all (see coordAuth.js's assertCoordOwnsEvent) — this lets CoordLayout's
+     club gate let them through even with zero clubs, as long as they have at
+     least one direct assignment. */
+  const [hasEventAssignments, setHasEventAssignments] = useState(false);
 
   const fetchClubs = useCallback(async () => {
     if (!user) return;
     setClubLoading(true);
     setClubError(null);
+    setHasEventAssignments(false);
 
     try {
       // Tier 1: coordinator_club_assignments (fast path) — backend also does tier 2 & 3
@@ -61,9 +67,18 @@ export function CoordClubProvider({ children }) {
         } catch (_) { /* club not found or inactive */ }
       }
 
-      // All paths exhausted
+      // All club paths exhausted — still let them in if directly assigned to
+      // at least one event (e.g. a Galore activity coordinator with no club).
       setClubs([]);
       setSelectedClub(null);
+      try {
+        const { events: assigned } = await api.get('/events/my-assignments');
+        if (assigned?.length) {
+          setHasEventAssignments(true);
+          setClubError(null);
+          return;
+        }
+      } catch (_) { /* fall through to the "no club" gate below */ }
       setClubError('No club assigned. Ask an admin to assign your club from Admin → Clubs.');
     } catch (err) {
       setClubs([]);
@@ -94,7 +109,7 @@ export function CoordClubProvider({ children }) {
     <CoordClubContext.Provider value={{
       clubs, selectedClub, setSelectedClub,
       club, clubLoading, clubError,
-      refetchClub,
+      refetchClub, hasEventAssignments,
     }}>
       {children}
     </CoordClubContext.Provider>

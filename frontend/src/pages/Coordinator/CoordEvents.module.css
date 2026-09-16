@@ -38,7 +38,6 @@
 .reqCard {
   background: #fff;
   border: 1.5px solid #f0f0f5;
-  border-left: 4px solid #d97706;
   border-radius: 12px;
   padding: 16px 18px;
   box-shadow: 0 1px 6px rgba(0,0,0,.04);
@@ -132,6 +131,19 @@
 }
 .reqDeleteBtn:hover { background: #fef2f2; }
 .reqDeleteBtn:disabled { opacity: .55; cursor: not-allowed; }
+
+.reqEditBtn {
+  background: none;
+  border: 1px solid #c7d2fe;
+  color: #635bff;
+  border-radius: 8px;
+  padding: 5px 12px;
+  font-size: .72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s;
+}
+.reqEditBtn:hover { background: #f5f4ff; }
 
 /* ── Fee badges ── */
 .freeBadge {
@@ -378,6 +390,47 @@
   background: #fffbeb;
   border-color: #d97706;
   color: #d97706;
+}
+
+/* ── Banner image upload ── */
+.imgSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.imgBox {
+  width: 100%;
+  height: 160px;
+  border: 2px dashed #d1d5db;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: #f9fafb;
+  overflow: hidden;
+  transition: border-color .15s;
+}
+.imgBox:hover { border-color: #635bff; }
+
+.imgPlaceholder {
+  color: #9ca3af;
+  font-size: .85rem;
+  font-weight: 600;
+  text-align: center;
+  padding: 0 12px;
+}
+
+.imgPreview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.imgHint {
+  font-size: .72rem;
+  color: #9ca3af;
 }
 
 /* ── Rupee input ── */

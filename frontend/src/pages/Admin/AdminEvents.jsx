@@ -45,25 +45,17 @@ const EMPTY_SF = {
   minTeamSize: '', teamSize: '', paymentLink: '',
 };
 
-/* ── Galore: one umbrella event (Galore 2027) holding many child "activities"
-   (Football, Chess, Public Speaking, ...), each a normal event underneath it
-   (parentEventId) — see events.controller.js. The umbrella just needs the same
-   top-level details as any other event; category/clubId don't apply to it. ── */
+/* ── Galore: one umbrella event (Galore 2027) holding every pre-programmed
+   activity underneath it (parentEventId) — see events.controller.js's
+   GALORE_ACTIVITIES_CATALOG. Never a paid event: no fee fields at all, here
+   or on any activity. Admin's only real decision per activity is who
+   coordinates it — the event can't be created until every single one has a
+   coordinator assigned (enforced both here and server-side). ── */
 const EMPTY_GALORE = {
   title: '', status: 'upcoming', date: '', startDate: '', time: '', venue: '',
-  description: '', seats: '', highlight: '', isFree: true, feeAmount: '',
+  description: '', seats: '', highlight: '',
 };
-const GALORE_CATEGORIES = ['sports', 'cultural', 'academic'];
 const GALORE_CATEGORY_LABEL = { sports: 'Sports', cultural: 'Cultural', academic: 'Academic' };
-/* Every activity is either team-based (reuses the Sports Fiesta captain/roster
-   flow — event_format 'sports_fiesta') or individual (reuses the plain public
-   register() flow — event_format 'other'). Only sports activities are gender
-   (boys/girls) split; cultural/academic run as one open division. */
-const EMPTY_ACTIVITY = {
-  title: '', category: 'sports', participationType: 'team', clubId: '',
-  date: '', startDate: '', time: '', venue: '',
-  isFree: true, feeAmount: '', minTeamSize: '', teamSize: '',
-};
 
 const REQ_STATUS_META = {
   pending:  { label: 'Pending',  color: '#d97706', bg: '#fffbeb' },
@@ -248,25 +240,30 @@ export default function AdminEvents() {
   const [sfError,   setSfError]   = useState('');
   const sfFileRef = useRef();
 
-  /* ── Galore: umbrella create/edit modal, the "activities" panel for a
-     selected umbrella, and the add-activity modal. ── */
-  const [galoreModal,   setGaloreModal]   = useState(false); // false | 'add' | 'edit'
+  /* ── Galore: umbrella create modal (catalog + one coordinator picker per
+     activity, all created together) and the "activities" panel for a
+     selected umbrella (registrations list + department-wise registrant view). ── */
+  const [galoreModal,   setGaloreModal]   = useState(false); // false | true
+  const [galoreEditing, setGaloreEditing] = useState(null); // null = creating, else the umbrella id being edited
   const [galoreForm,    setGaloreForm]    = useState(EMPTY_GALORE);
-  const [galoreEditing, setGaloreEditing] = useState(null);
   const [galoreImgFile, setGaloreImgFile] = useState(null);
   const [galoreImgPrev, setGaloreImgPrev] = useState('');
   const [galoreSaving,  setGaloreSaving]  = useState(false);
   const [galoreError,   setGaloreError]   = useState('');
   const galoreFileRef = useRef();
 
+  const [galoreCatalog,      setGaloreCatalog]      = useState([]);
+  const [galoreCoordinators, setGaloreCoordinators] = useState([]);
+  const [galoreAssignments,  setGaloreAssignments]  = useState({}); // { [activityKey]: coordinatorUserId }
+
   const [selectedGalore,    setSelectedGalore]    = useState(null); // umbrella event, when drilled into its activities
   const [activities,        setActivities]        = useState([]);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
 
-  const [actModal,  setActModal]  = useState(false); // false | 'add'
-  const [actForm,   setActForm]   = useState(EMPTY_ACTIVITY);
-  const [actSaving, setActSaving] = useState(false);
-  const [actError,  setActError]  = useState('');
+  const [galoreSubTab, setGaloreSubTab] = useState('activities'); // 'activities' | 'departments'
+  const [deptRegs,        setDeptRegs]        = useState([]);
+  const [deptRegsLoading, setDeptRegsLoading] = useState(false);
+  const [activeDeptTab,   setActiveDeptTab]   = useState('');
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
 
@@ -289,7 +286,10 @@ export default function AdminEvents() {
       .catch(() => {})
       .finally(() => setReqLoading(false));
   }, []);
-  useEffect(() => { if (pageTab === 'requests') loadRequests(); }, [pageTab, loadRequests]);
+  /* Loaded eagerly (not gated on pageTab === 'requests') so the pending-count
+     badge on the "Event Requests" tab is correct on first paint, not just
+     after the admin has already clicked into that tab once. */
+  useEffect(loadRequests, [loadRequests]);
 
   const openAdd = () => {
     setForm(EMPTY); setEditing(null); setApprovingId(null);
@@ -348,7 +348,7 @@ export default function AdminEvents() {
     setTagsStr((req.tags || []).join(', '));
     setEditing(null);
     setApprovingId(req.id);
-    setImgFile(null); setImgPrev(''); setError('');
+    setImgFile(null); setImgPrev(req.imageUrl || ''); setError('');
     setModal('approve');
   };
 
@@ -378,25 +378,28 @@ export default function AdminEvents() {
       if (imgFile) fd.append('image', imgFile);
 
       if (modal === 'approve') {
-        /* Approve the coordinator's request — creates event + marks approved */
-        const payload = {
-          title:            form.title.trim(),
-          clubId:           form.clubId || null,
-          category:         form.category,
-          status:           form.status,
-          date:             form.date,
-          start_date:       form.startDate,
-          time:             form.time,
-          venue:            form.venue,
-          description:      form.description,
-          seats:            form.seats,
-          tags:             tagsStr.split(',').map(t => t.trim()).filter(Boolean),
-          highlight:        form.highlight,
-          registration_url: form.registrationUrl,
-          is_free:          isFree,
-          fee_amount:       isFree ? 0 : Number(feeAmount) || 0,
-        };
-        const { event: rawEvent } = await api.put(`/event-requests/${approvingId}/approve`, payload);
+        /* Approve the coordinator's request — creates event + marks approved.
+           Sent as FormData (not JSON) so a banner image picked here actually
+           attaches to the created event instead of being silently dropped. */
+        const approveFd = new FormData();
+        approveFd.append('title',            form.title.trim());
+        approveFd.append('clubId',           form.clubId || '');
+        approveFd.append('category',         form.category);
+        approveFd.append('status',           form.status);
+        approveFd.append('date',             form.date);
+        approveFd.append('start_date',       form.startDate);
+        approveFd.append('time',             form.time);
+        approveFd.append('venue',            form.venue);
+        approveFd.append('description',      form.description);
+        approveFd.append('seats',            form.seats);
+        approveFd.append('tags',             tagsStr); // raw comma-separated string; backend splits it
+        approveFd.append('highlight',        form.highlight);
+        approveFd.append('registration_url', form.registrationUrl);
+        approveFd.append('is_free',          isFree);
+        approveFd.append('fee_amount',       isFree ? 0 : Number(feeAmount) || 0);
+        if (imgFile) approveFd.append('image', imgFile);
+
+        const { event: rawEvent } = await api.putForm(`/event-requests/${approvingId}/approve`, approveFd);
         setRequests(p => p.map(r => r.id === approvingId ? { ...r, status: 'approved' } : r));
         showToast('Request approved — event created successfully!');
         load(); // refresh events list
@@ -428,7 +431,7 @@ export default function AdminEvents() {
       setDeleteId(null); load();
       /* Deleting an activity while its Galore umbrella's panel is open needs the
          activities list refreshed too — a no-op fetch when deleting anything else. */
-      if (selectedGalore) loadActivities(selectedGalore._id);
+      if (selectedGalore) { loadActivities(selectedGalore._id); loadDeptRegs(selectedGalore._id); }
     } catch (err) { setError(err.message); }
   };
 
@@ -501,12 +504,40 @@ export default function AdminEvents() {
 
   /* ── Galore handlers ── */
   const openAddGalore = () => {
-    setGaloreForm(EMPTY_GALORE); setGaloreEditing(null);
+    setGaloreEditing(null);
+    setGaloreForm(EMPTY_GALORE);
     setGaloreImgFile(null); setGaloreImgPrev(''); setGaloreError('');
-    setGaloreModal('add');
+    setGaloreAssignments({});
+    if (!galoreCatalog.length) {
+      api.get('/events/galore/catalog').then(d => setGaloreCatalog(d.activities || [])).catch(() => setGaloreCatalog([]));
+    }
+    if (!galoreCoordinators.length) {
+      api.get('/events/galore/coordinators').then(d => setGaloreCoordinators(d.coordinators || [])).catch(() => setGaloreCoordinators([]));
+    }
+    setGaloreModal(true);
+  };
+  /* Edit an existing Galore umbrella's own details (title/venue/date/description/
+     image) — every activity's coordinator assignment was already locked in at
+     creation and isn't touched here; re-assigning coordinators is a separate,
+     later action, not part of editing the umbrella's info. */
+  const openEditGalore = (ev) => {
+    setGaloreEditing(ev._id);
+    setGaloreForm({
+      title:       ev.title || '',
+      status:      ev.status || 'upcoming',
+      date:        ev.date || '',
+      startDate:   ev.startDate ? ev.startDate.slice(0, 10) : '',
+      time:        ev.time || '',
+      venue:       ev.venue || '',
+      description: ev.description || '',
+      seats:       ev.seats ?? '',
+      highlight:   ev.highlight || '',
+    });
+    setGaloreImgFile(null); setGaloreImgPrev(ev.imageUrl || ''); setGaloreError('');
+    setGaloreModal(true);
   };
   const closeGaloreModal = () => {
-    setGaloreModal(false); setGaloreImgFile(null); setGaloreImgPrev(''); setGaloreError('');
+    setGaloreModal(false); setGaloreEditing(null); setGaloreImgFile(null); setGaloreImgPrev(''); setGaloreError('');
   };
   const handleGaloreFile = (e) => {
     const f = e.target.files[0];
@@ -515,26 +546,37 @@ export default function AdminEvents() {
     setGaloreImgPrev(URL.createObjectURL(f));
   };
   const galoreSet = (k) => (e) => setGaloreForm(p => ({ ...p, [k]: e.target.value }));
+  const setActivityCoordinator = (key) => (e) => setGaloreAssignments(p => ({ ...p, [key]: e.target.value }));
+
+  const unassignedActivities = galoreCatalog.filter(a => !galoreAssignments[a.key]);
 
   const handleSaveGalore = async (e) => {
     e.preventDefault();
     if (!galoreForm.title.trim()) return setGaloreError('Event title is required.');
+    if (!galoreEditing && unassignedActivities.length) {
+      return setGaloreError(`Assign a coordinator for every activity first — missing: ${unassignedActivities.map(a => a.title).join(', ')}.`);
+    }
     setGaloreSaving(true); setGaloreError('');
     try {
+      if (galoreEditing) {
+        const fd = new FormData();
+        Object.entries(galoreForm).forEach(([k, v]) => fd.append(k, v));
+        if (galoreImgFile) fd.append('image', galoreImgFile);
+        const { event } = await api.putForm(`/events/${galoreEditing}`, fd);
+        setEvents(p => p.map(e => e._id === event._id ? event : e));
+        closeGaloreModal();
+        showToast('Galore event updated!');
+        return;
+      }
       const fd = new FormData();
-      const { isFree, feeAmount, ...rest } = galoreForm;
-      Object.entries(rest).forEach(([k, v]) => fd.append(k, v));
-      fd.append('eventFormat', 'galore');
-      fd.append('category', 'general');
-      fd.append('isFree', isFree);
-      fd.append('feeAmount', isFree ? 0 : Number(feeAmount) || 0);
-      fd.append('tags', '[]');
+      Object.entries(galoreForm).forEach(([k, v]) => fd.append(k, v));
+      fd.append('activityCoordinators', JSON.stringify(galoreAssignments));
       if (galoreImgFile) fd.append('image', galoreImgFile);
 
-      const { event } = await api.postForm('/events', fd);
+      const { event } = await api.postForm('/events/galore', fd);
       load();
       closeGaloreModal();
-      showToast('Galore event created! Add its activities below.');
+      showToast('Galore event created with every activity staffed!');
       openGaloreActivities(event);
     } catch (err) {
       setGaloreError(err.message || 'Failed to save.');
@@ -551,57 +593,25 @@ export default function AdminEvents() {
       .finally(() => setActivitiesLoading(false));
   }, []);
 
+  const loadDeptRegs = useCallback((eventId) => {
+    setDeptRegsLoading(true);
+    api.get(`/events/${eventId}/department-registrations`)
+      .then(d => {
+        const depts = d.departments || [];
+        setDeptRegs(depts);
+        setActiveDeptTab(prev => (prev && depts.some(x => x.dept === prev)) ? prev : (depts[0]?.dept || ''));
+      })
+      .catch(() => setDeptRegs([]))
+      .finally(() => setDeptRegsLoading(false));
+  }, []);
+
   const openGaloreActivities = (ev) => {
     setSelectedGalore(ev);
+    setGaloreSubTab('activities');
     loadActivities(ev._id);
+    loadDeptRegs(ev._id);
   };
-  const closeGaloreActivities = () => { setSelectedGalore(null); setActivities([]); };
-
-  const openAddActivity = () => {
-    setActForm(EMPTY_ACTIVITY); setActError(''); setActModal('add');
-  };
-  const closeActivityModal = () => { setActModal(false); setActError(''); };
-  const actSet = (k) => (e) => setActForm(p => ({ ...p, [k]: e.target.value }));
-
-  const handleSaveActivity = async (e) => {
-    e.preventDefault();
-    if (!actForm.title.trim()) return setActError('Activity title is required.');
-    const isTeam = actForm.participationType === 'team';
-    if (isTeam) {
-      if (!actForm.minTeamSize || Number(actForm.minTeamSize) < 1) return setActError('Minimum number of players is required.');
-      if (!actForm.teamSize || Number(actForm.teamSize) < 1)       return setActError('Maximum number of players is required.');
-      if (Number(actForm.minTeamSize) > Number(actForm.teamSize))  return setActError('Minimum cannot be greater than the maximum.');
-    }
-    setActSaving(true); setActError('');
-    try {
-      const fd = new FormData();
-      fd.append('title', actForm.title.trim());
-      fd.append('category', actForm.category);
-      fd.append('clubId', actForm.clubId);
-      fd.append('date', actForm.date);
-      fd.append('startDate', actForm.startDate);
-      fd.append('time', actForm.time);
-      fd.append('venue', actForm.venue);
-      fd.append('status', 'upcoming');
-      fd.append('eventFormat', isTeam ? 'sports_fiesta' : 'other');
-      fd.append('isFree', actForm.isFree);
-      fd.append('feeAmount', actForm.isFree ? 0 : Number(actForm.feeAmount) || 0);
-      fd.append('tags', '[]');
-      fd.append('parentEventId', selectedGalore._id);
-      if (isTeam) {
-        fd.append('minTeamSize', actForm.minTeamSize);
-        fd.append('teamSize', actForm.teamSize);
-      }
-      await api.postForm('/events', fd);
-      closeActivityModal();
-      loadActivities(selectedGalore._id);
-      showToast('Activity added!');
-    } catch (err) {
-      setActError(err.message || 'Failed to save.');
-    } finally {
-      setActSaving(false);
-    }
-  };
+  const closeGaloreActivities = () => { setSelectedGalore(null); setActivities([]); setDeptRegs([]); };
 
   /* Reject a coordinator request */
   const handleReject = async () => {
@@ -670,26 +680,38 @@ export default function AdminEvents() {
   /* ── Edit a single registration's details — corrections propagate to any team
      roster this registrant is already part of, so coordinators/students see the
      fix wherever that name/enrollment number is displayed. Email is intentionally
-     not editable — it anchors the registrant's identity across the platform. */
+     not editable — it anchors the registrant's identity across the platform.
+     Shared by both the classic per-event Registrations panel (regs, raw DB field
+     names) and the Galore "By Department" view (deptRegs, camelCase field names)
+     — takes an explicit eventId since a department table can span many activities
+     at once, unlike the single-event panel. */
   const [editingRegId, setEditingRegId] = useState(null);
   const [regEditForm,  setRegEditForm]  = useState(null);
   const [regSaving,    setRegSaving]    = useState(false);
 
   const startEditReg = (r) => {
-    setEditingRegId(r.id);
+    setEditingRegId(String(r.id ?? r.registrationId));
     setRegEditForm({
-      name: r.name || '', enrollmentNo: r.enrollment_no || '',
+      name: r.name || '', enrollmentNo: r.enrollment_no ?? r.enrollmentNo ?? '',
       dept: r.dept || '', course: r.course || '',
       phone: r.phone || '', gender: r.gender || '',
     });
   };
   const cancelEditReg = () => { setEditingRegId(null); setRegEditForm(null); };
 
-  const saveEditReg = async (regId) => {
+  const saveEditReg = async (regId, eventId) => {
     setRegSaving(true);
     try {
-      const { registration } = await api.patch(`/events/${regEvent._id}/registrations/${regId}`, regEditForm);
-      setRegs(prev => prev.map(r => r.id === regId ? registration : r));
+      const { registration } = await api.patch(`/events/${eventId}/registrations/${regId}`, regEditForm);
+      setRegs(prev => prev.map(r => String(r.id) === String(regId) ? registration : r));
+      setDeptRegs(prev => prev.map(d => ({
+        ...d,
+        registrants: d.registrants.map(r => r.registrationId === String(regId) ? {
+          ...r,
+          name: registration.name, enrollmentNo: registration.enrollment_no, dept: registration.dept,
+          course: registration.course, phone: registration.phone, gender: registration.gender,
+        } : r),
+      })));
       cancelEditReg();
       showToast('Registration updated.');
     } catch (err) {
@@ -702,17 +724,24 @@ export default function AdminEvents() {
   /* ── Delete a single registration — works the same for any event format;
      for a Sports Fiesta team member this also removes them from their team
      (handled server-side), same as when a coordinator removes them via the
-     Teams tab. ── */
-  const [deleteRegId, setDeleteRegId] = useState(null);
-  const [regDeleting,  setRegDeleting] = useState(false);
+     Teams tab. deleteRegEventId pairs with deleteRegId so a department-view
+     delete (which can target any of several activities) knows which one. */
+  const [deleteRegId,       setDeleteRegId]       = useState(null);
+  const [deleteRegEventId,  setDeleteRegEventId]  = useState(null);
+  const [regDeleting,       setRegDeleting]       = useState(false);
 
   const handleDeleteReg = async () => {
     if (!deleteRegId) return;
+    const eventId = deleteRegEventId || regEvent?._id;
     setRegDeleting(true);
     try {
-      await api.delete(`/events/${regEvent._id}/registrations/${deleteRegId}`);
-      setRegs(prev => prev.filter(r => r.id !== deleteRegId));
-      setDeleteRegId(null);
+      await api.delete(`/events/${eventId}/registrations/${deleteRegId}`);
+      setRegs(prev => prev.filter(r => String(r.id) !== String(deleteRegId)));
+      setDeptRegs(prev => prev.map(d => ({
+        ...d,
+        registrants: d.registrants.filter(r => r.registrationId !== String(deleteRegId)),
+      })));
+      setDeleteRegId(null); setDeleteRegEventId(null);
       showToast('Registration deleted.');
     } catch (err) {
       showToast(err.message || 'Failed to delete registration.');
@@ -773,9 +802,6 @@ export default function AdminEvents() {
         )}
         {pageTab === 'events' && formatTab === 'galore' && !selectedGalore && (
           <button className={s.addBtn} onClick={openAddGalore}>+ Add Galore Event</button>
-        )}
-        {pageTab === 'events' && formatTab === 'galore' && selectedGalore && (
-          <button className={s.addBtn} onClick={openAddActivity}>+ Add Activity</button>
         )}
       </div>
 
@@ -898,42 +924,161 @@ export default function AdminEvents() {
                 ← Back to Galore Events
               </button>
               <h2 style={{ margin: '0 0 4px' }}>{selectedGalore.title}</h2>
-              <p style={{ color: '#6b7280', marginBottom: 20 }}>
-                Activities are the individual competitions (Football, Chess, Public Speaking, …) students register
-                for under this Galore event. Each reuses the same Registrations/Teams/Fixtures/Certificates tools
-                as any other event, managed by whichever club's coordinator you assign it to.
-              </p>
 
-              {actError && !actModal && <div className={s.errorBar}>{actError}</div>}
+              <div className={s.statusTabs} style={{ marginBottom: 20 }}>
+                <button className={`${s.statusTab} ${galoreSubTab === 'activities' ? s.statusTabOn : ''}`}
+                  onClick={() => setGaloreSubTab('activities')}>
+                  Activities {!activitiesLoading && `(${activities.length})`}
+                </button>
+                <button className={`${s.statusTab} ${galoreSubTab === 'departments' ? s.statusTabOn : ''}`}
+                  onClick={() => setGaloreSubTab('departments')}>
+                  By Department
+                </button>
+              </div>
 
-              {activitiesLoading ? (
-                <div className={s.grid}>{Array.from({ length: 3 }).map((_, i) => <div key={i} className={s.skeleton} />)}</div>
-              ) : activities.length === 0 ? (
-                <div className={s.empty}>
-                  <p>No activities yet</p>
-                  <span>Add the first one — <button onClick={openAddActivity}>e.g. Football</button></span>
-                </div>
+              {galoreSubTab === 'activities' ? (
+                activitiesLoading ? (
+                  <div className={s.grid}>{Array.from({ length: 3 }).map((_, i) => <div key={i} className={s.skeleton} />)}</div>
+                ) : activities.length === 0 ? (
+                  <div className={s.empty}><p>No activities found for this event.</p></div>
+                ) : (
+                  <div className={s.grid}>
+                    {activities.map(act => (
+                      <div key={act.id} className={s.card}>
+                        <div className={s.cardBody}>
+                          <div className={s.cardTitle}>{act.title}</div>
+                          <div className={s.cardClub}>
+                            {GALORE_CATEGORY_LABEL[act.category] || act.category} · {act.participationType === 'team' ? 'Team' : 'Individual'}
+                          </div>
+                          <div className={s.cardMeta}>
+                            <span>{act.registrationCount} registered</span>
+                            {act.participationType === 'team' && <span>{act.teamCount} teams</span>}
+                          </div>
+                        </div>
+                        <div className={s.cardActions}>
+                          <button className={s.regsBtn} onClick={() => viewRegs(act)}>Registrations</button>
+                          <button className={s.delBtn} onClick={() => setDeleteId(act.id)}>Delete</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
               ) : (
-                <div className={s.grid}>
-                  {activities.map(act => (
-                    <div key={act.id} className={s.card}>
-                      <div className={s.cardBody}>
-                        <div className={s.cardTitle}>{act.title}</div>
-                        <div className={s.cardClub}>
-                          {GALORE_CATEGORY_LABEL[act.category] || act.category} · {act.participationType === 'team' ? 'Team' : 'Individual'}
-                        </div>
-                        <div className={s.cardMeta}>
-                          <span>{act.registrationCount} registered</span>
-                          {act.participationType === 'team' && <span>{act.teamCount} teams</span>}
-                        </div>
-                      </div>
-                      <div className={s.cardActions}>
-                        <button className={s.regsBtn} onClick={() => viewRegs(act)}>Registrations</button>
-                        <button className={s.delBtn} onClick={() => setDeleteId(act.id)}>Delete</button>
-                      </div>
+                deptRegsLoading ? (
+                  <div className={s.regsEmpty}>Loading…</div>
+                ) : deptRegs.length === 0 ? (
+                  <div className={s.empty}><p>No registrations recorded yet.</p></div>
+                ) : (
+                  <>
+                    <div className={s.statusTabs} style={{ marginBottom: 16, flexWrap: 'wrap' }}>
+                      {deptRegs.map(d => (
+                        <button key={d.dept}
+                          className={`${s.statusTab} ${activeDeptTab === d.dept ? s.statusTabOn : ''}`}
+                          onClick={() => setActiveDeptTab(d.dept)}>
+                          {d.dept} ({d.registrants.length})
+                        </button>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                    {(() => {
+                      const active = deptRegs.find(d => d.dept === activeDeptTab);
+                      const list = active?.registrants || [];
+                      if (list.length === 0) {
+                        return <div className={s.regsEmpty}>No registrations for {activeDeptTab} yet.</div>;
+                      }
+                      /* Group this department's registrants by activity — each
+                         activity renders as its own heading + table, matching
+                         how a coordinator would actually read a roster sheet. */
+                      const byActivity = new Map();
+                      for (const r of list) {
+                        if (!byActivity.has(r.eventTitle)) byActivity.set(r.eventTitle, { category: r.category, rows: [] });
+                        byActivity.get(r.eventTitle).rows.push(r);
+                      }
+                      const CAT_ORDER = { sports: 0, cultural: 1, academic: 2 };
+                      const groups = [...byActivity.entries()].sort(([aTitle, a], [bTitle, b]) => {
+                        const ca = CAT_ORDER[a.category] ?? 9, cb = CAT_ORDER[b.category] ?? 9;
+                        return ca !== cb ? ca - cb : aTitle.localeCompare(bTitle);
+                      });
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+                          {groups.map(([activityTitle, { category, rows }]) => (
+                            <div key={activityTitle}>
+                              <h3 style={{ margin: '0 0 8px', fontSize: '1.05rem' }}>
+                                {activityTitle}
+                                <span style={{ marginLeft: 8, fontSize: '.75rem', fontWeight: 500, color: '#6b7280' }}>
+                                  {GALORE_CATEGORY_LABEL[category] || category} · {rows.length} registered
+                                </span>
+                              </h3>
+                              <div className={s.regsTableWrap}>
+                                <table className={s.regsTable}>
+                                  <thead>
+                                    <tr>
+                                      <th>#</th><th>Name</th><th>Enrollment No.</th><th>Gender</th><th>Course</th>
+                                      <th>Mobile</th><th>Email</th><th>Actions</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {rows.map((r, i) => {
+                                      const isEditing = editingRegId === String(r.registrationId);
+                                      return (
+                                        <tr key={r.registrationId}>
+                                          <td className={s.regsNum}>{i + 1}</td>
+                                          {isEditing ? (
+                                            <>
+                                              <td><input className={s.regsEditInput} value={regEditForm.name}
+                                                onChange={e => setRegEditForm(f => ({ ...f, name: e.target.value }))} /></td>
+                                              <td><input className={s.regsEditInput} value={regEditForm.enrollmentNo}
+                                                onChange={e => setRegEditForm(f => ({ ...f, enrollmentNo: e.target.value }))} /></td>
+                                              <td>
+                                                <select className={s.regsEditInput} value={regEditForm.gender}
+                                                  onChange={e => setRegEditForm(f => ({ ...f, gender: e.target.value }))}>
+                                                  <option value="">—</option>
+                                                  <option value="M">M</option>
+                                                  <option value="F">F</option>
+                                                </select>
+                                              </td>
+                                              <td><input className={s.regsEditInput} value={regEditForm.course}
+                                                onChange={e => setRegEditForm(f => ({ ...f, course: e.target.value }))} /></td>
+                                              <td><input className={s.regsEditInput} value={regEditForm.phone}
+                                                onChange={e => setRegEditForm(f => ({ ...f, phone: e.target.value }))} /></td>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <td>{r.name || '—'}</td>
+                                              <td>{r.enrollmentNo || '—'}</td>
+                                              <td>{r.gender || '—'}</td>
+                                              <td>{r.course || '—'}</td>
+                                              <td>{r.phone || '—'}</td>
+                                            </>
+                                          )}
+                                          <td>{r.email || '—'}</td>
+                                          <td>
+                                            {isEditing ? (
+                                              <div style={{ display: 'flex', gap: 6 }}>
+                                                <button className={s.csvBtn} disabled={regSaving} onClick={() => saveEditReg(r.registrationId, r.eventId)}>
+                                                  {regSaving ? 'Saving…' : 'Save'}
+                                                </button>
+                                                <button className={s.closeBtn} disabled={regSaving} onClick={cancelEditReg}>✕</button>
+                                              </div>
+                                            ) : (
+                                              <div style={{ display: 'flex', gap: 6 }}>
+                                                <button className={s.csvBtn} onClick={() => startEditReg(r)}>Edit</button>
+                                                <button className={s.delBtn} onClick={() => { setDeleteRegId(String(r.registrationId)); setDeleteRegEventId(r.eventId); }}>Delete</button>
+                                              </div>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </>
+                )
               )}
             </div>
           ) : (
@@ -960,6 +1105,7 @@ export default function AdminEvents() {
                     </div>
                     <div className={s.cardActions}>
                       <button className={s.regsBtn} onClick={() => openGaloreActivities(ev)}>Manage Activities</button>
+                      <button className={s.editBtn} onClick={() => openEditGalore(ev)}>Edit</button>
                       <button className={s.delBtn} onClick={() => setDeleteId(ev._id)}>Delete</button>
                     </div>
                   </div>
@@ -1000,10 +1146,13 @@ export default function AdminEvents() {
               return (
                 <div key={req.id} style={{
                   background:'#fff', border:'1.5px solid #f0f0f5',
-                  borderLeft:`4px solid ${st.color}`,
                   borderRadius:12, padding:'18px 20px',
                   boxShadow:'0 1px 6px rgba(0,0,0,.04)'
                 }}>
+                  {req.imageUrl && (
+                    <img src={req.imageUrl} alt="" style={{ width:'100%', height:160, objectFit:'cover',
+                      borderRadius:10, marginBottom:14 }} />
+                  )}
                   {/* Request head */}
                   <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:10, flexWrap:'wrap' }}>
                     <div style={{ flex:1 }}>
@@ -1028,13 +1177,13 @@ export default function AdminEvents() {
                           padding:'7px 16px', background:'#635bff', color:'#fff',
                           border:'none', borderRadius:8, fontSize:'.82rem', fontWeight:700, cursor:'pointer'
                         }}>
-                          ✅ Review &amp; Approve
+                          Review &amp; Approve
                         </button>
                         <button onClick={() => { setRejectModal({ id: req.id, title: req.title }); setRejectNote(''); }} style={{
                           padding:'7px 14px', background:'#fff', color:'#dc2626',
                           border:'1.5px solid #fca5a5', borderRadius:8, fontSize:'.82rem', fontWeight:600, cursor:'pointer'
                         }}>
-                          ✕ Reject
+                          Reject
                         </button>
                       </div>
                     )}
@@ -1047,12 +1196,32 @@ export default function AdminEvents() {
 
                   {/* Details row */}
                   <div style={{ display:'flex', flexWrap:'wrap', gap:'8px 18px', fontSize:'.78rem', color:'#6b7280' }}>
-                    {req.startDate && <span>📅 {new Date(req.startDate).toLocaleDateString('en-IN',{ day:'numeric', month:'short', year:'numeric' })}</span>}
-                    {req.time      && <span>🕐 {req.time}</span>}
-                    {req.venue     && <span>📍 {req.venue}</span>}
-                    {req.seats     && <span>💺 {req.seats} seats</span>}
-                    {req.category  && <span>🏷 {CAT_LABEL[req.category] || req.category}</span>}
-                    {req.tags?.length > 0 && <span>🔖 {req.tags.join(', ')}</span>}
+                    {req.startDate && <span>Date: {new Date(req.startDate).toLocaleDateString('en-IN',{ day:'numeric', month:'short', year:'numeric' })}</span>}
+                    {req.time      && <span>Time: {req.time}</span>}
+                    {req.venue     && <span>Venue: {req.venue}</span>}
+                    {req.seats     && <span>Seats: {req.seats}</span>}
+                    {req.category  && <span>Category: {CAT_LABEL[req.category] || req.category}</span>}
+                    {req.tags?.length > 0 && <span>Tags: {req.tags.join(', ')}</span>}
+                  </div>
+
+                  {/* Proposal details — everything the coordinator submitted */}
+                  <div style={{ marginTop:10, background:'#f9fafb', border:'1px solid #e5e7eb',
+                    borderRadius:8, padding:'10px 12px', display:'flex', flexDirection:'column', gap:6 }}>
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Objective:</strong> {req.objective || '—'}
+                    </div>
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Expected outcome:</strong> {req.expectedOutcome || '—'}
+                    </div>
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Related to a special day:</strong> {req.isSpecialDay ? (req.specialDayName || 'Yes') : 'No'}
+                    </div>
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Who can participate:</strong> {req.targetAudience || '—'}
+                    </div>
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Expectations from university:</strong> {req.universityExpectations || '—'}
+                    </div>
                   </div>
 
                   {/* Rejection note */}
@@ -1242,7 +1411,7 @@ export default function AdminEvents() {
                 <button type="button" className={s.cancelBtn} onClick={closeModal}>Cancel</button>
                 <button type="submit" className={s.saveBtn} disabled={saving}>
                   {saving ? 'Saving…'
-                    : modal === 'approve' ? '✅ Approve & Publish Event'
+                    : modal === 'approve' ? 'Approve & Publish Event'
                     : modal === 'add'     ? 'Create Event'
                     : 'Save Changes'}
                 </button>
@@ -1441,8 +1610,8 @@ export default function AdminEvents() {
           <div className={s.modal} onClick={e => e.stopPropagation()}>
             <div className={s.modalHeader}>
               <div>
-                <div className={s.modalTag}>New Galore Event</div>
-                <h2 className={s.modalTitle}>Add Galore Event</h2>
+                <div className={s.modalTag}>{galoreEditing ? 'Edit Galore Event' : 'New Galore Event'}</div>
+                <h2 className={s.modalTitle}>{galoreEditing ? 'Edit Event Details' : 'Add Galore Event'}</h2>
               </div>
               <button className={s.closeBtn} onClick={closeGaloreModal}>✕</button>
             </div>
@@ -1504,189 +1673,59 @@ export default function AdminEvents() {
                 <textarea rows={3} value={galoreForm.description} onChange={galoreSet('description')} placeholder="Event description…" />
               </div>
 
-              <div style={{ background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:10, padding:'14px 16px' }}>
-                <div style={{ fontSize:'.78rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:10 }}>
-                  Registration Fee
-                </div>
-                <div style={{ display:'flex', gap:8, marginBottom: galoreForm.isFree ? 0 : 12 }}>
-                  {[{ val:true, label:'🎟 Free Entry', active:'#ecfdf5', border:'#059669', text:'#059669' },
-                    { val:false, label:'💳 Paid Event', active:'#fffbeb', border:'#d97706', text:'#d97706' }].map(opt => (
-                    <button key={String(opt.val)} type="button"
-                      onClick={() => setGaloreForm(p => ({ ...p, isFree: opt.val, feeAmount: opt.val ? '' : p.feeAmount }))}
-                      style={{
-                        flex:1, padding:'8px 12px', border:'1.5px solid',
-                        borderColor: galoreForm.isFree === opt.val ? opt.border : '#e5e7eb',
-                        borderRadius:8, background: galoreForm.isFree === opt.val ? opt.active : '#fff',
-                        color: galoreForm.isFree === opt.val ? opt.text : '#6b7280',
-                        fontSize:'.83rem', fontWeight:600, cursor:'pointer', transition:'all .14s',
-                      }}>
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-                {!galoreForm.isFree && (
-                  <div className={s.field}>
-                    <label>Fee Amount <span className={s.req}>*</span></label>
-                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                      <span style={{ fontWeight:700, fontSize:'1rem', color:'#374151' }}>₹</span>
-                      <input type="number" min="1" step="1" style={{ flex:1, maxWidth:160 }}
-                        value={galoreForm.feeAmount}
-                        onChange={e => setGaloreForm(p => ({ ...p, feeAmount: e.target.value }))}
-                        placeholder="e.g. 100" required={!galoreForm.isFree} />
-                      <span style={{ fontSize:'.78rem', color:'#9ca3af', whiteSpace:'nowrap' }}>INR per student</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
               <div className={s.field}>
                 <label>Highlight <span className={s.hint}>(past events)</span></label>
                 <input value={galoreForm.highlight} onChange={galoreSet('highlight')} placeholder="e.g. Best Edition Yet — 1,200+ Students" />
               </div>
 
+              {/* Galore is never a paid event — no fee fields here or on any activity.
+                  Coordinator assignment only happens once, at creation — editing the
+                  umbrella's own info later doesn't touch who's assigned to what. */}
+              {!galoreEditing && (
+                <div style={{ background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:10, padding:'14px 16px' }}>
+                  <div style={{ fontSize:'.78rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:4 }}>
+                    Assign a Coordinator to Every Activity <span className={s.req}>*</span>
+                  </div>
+                  <p style={{ fontSize:'.76rem', color:'#9ca3af', margin:'0 0 12px' }}>
+                    Every activity is pre-programmed — this event can't be created until each one has a coordinator.
+                  </p>
+                  {galoreCatalog.length === 0 ? (
+                    <div style={{ fontSize:'.82rem', color:'#9ca3af' }}>Loading activities…</div>
+                  ) : (
+                    ['sports', 'cultural', 'academic'].map(cat => (
+                      <div key={cat} style={{ marginBottom: 14 }}>
+                        <div style={{ fontSize:'.72rem', fontWeight:700, color:'#635BFF', marginBottom:6, textTransform:'uppercase', letterSpacing:'.04em' }}>
+                          {GALORE_CATEGORY_LABEL[cat]}
+                        </div>
+                        {galoreCatalog.filter(a => a.category === cat).map(act => (
+                          <div key={act.key} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
+                            <span style={{ flex:'0 0 130px', fontSize:'.85rem', fontWeight:600 }}>{act.title}</span>
+                            <select
+                              style={{ flex:1, padding:'7px 10px', borderRadius:8, fontSize:'.83rem', border: galoreAssignments[act.key] ? '1.5px solid #e5e7eb' : '1.5px solid #fca5a5' }}
+                              value={galoreAssignments[act.key] || ''}
+                              onChange={setActivityCoordinator(act.key)}>
+                              <option value="">Select coordinator…</option>
+                              {galoreCoordinators.map(c => <option key={c.id} value={c.id}>{c.name} ({c.email})</option>)}
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+                    ))
+                  )}
+                  {unassignedActivities.length > 0 && (
+                    <div style={{ fontSize:'.76rem', color:'#dc2626', marginTop:4 }}>
+                      {unassignedActivities.length} activit{unassignedActivities.length === 1 ? 'y' : 'ies'} still need a coordinator.
+                    </div>
+                  )}
+                </div>
+              )}
+
               {galoreError && <div className={s.formError}>{galoreError}</div>}
 
               <div className={s.modalFooter}>
                 <button type="button" className={s.cancelBtn} onClick={closeGaloreModal}>Cancel</button>
-                <button type="submit" className={s.saveBtn} disabled={galoreSaving}>
-                  {galoreSaving ? 'Saving…' : 'Create Event'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ══ Galore Add Activity Modal ══ */}
-      {actModal && selectedGalore && (
-        <div className={s.overlay} onClick={closeActivityModal}>
-          <div className={s.modal} onClick={e => e.stopPropagation()}>
-            <div className={s.modalHeader}>
-              <div>
-                <div className={s.modalTag}>New Activity · {selectedGalore.title}</div>
-                <h2 className={s.modalTitle}>Add Activity</h2>
-              </div>
-              <button className={s.closeBtn} onClick={closeActivityModal}>✕</button>
-            </div>
-
-            <form onSubmit={handleSaveActivity} className={s.form}>
-              <div className={s.field}>
-                <label>Activity Title <span className={s.req}>*</span></label>
-                <input value={actForm.title} onChange={actSet('title')} placeholder="e.g. Football, Chess, Public Speaking" required />
-              </div>
-
-              <div className={s.row2}>
-                <div className={s.field}>
-                  <label>Category</label>
-                  <select value={actForm.category} onChange={actSet('category')}>
-                    {GALORE_CATEGORIES.map(c => <option key={c} value={c}>{GALORE_CATEGORY_LABEL[c]}</option>)}
-                  </select>
-                </div>
-                <div className={s.field}>
-                  <label>Participation</label>
-                  <select value={actForm.participationType} onChange={actSet('participationType')}>
-                    <option value="team">Team</option>
-                    <option value="individual">Individual</option>
-                  </select>
-                </div>
-              </div>
-              <p style={{ fontSize:'.76rem', color:'#9ca3af', margin:'-8px 0 4px' }}>
-                {actForm.category === 'sports'
-                  ? 'Sports activities run separate Boys and Girls divisions.'
-                  : 'Cultural/Academic activities run a single open division (no Boys/Girls split).'}
-              </p>
-
-              <div className={s.field}>
-                <label>Club / Coordinator <span className={s.hint}>(who manages this activity)</span></label>
-                <select value={actForm.clubId} onChange={actSet('clubId')}>
-                  <option value="">SOAC · RK University (no club assigned)</option>
-                  {clubs.map(cl => (
-                    <option key={cl._id || cl.id} value={cl._id || cl.id}>{cl.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className={s.row2}>
-                <div className={s.field}>
-                  <label>Start Date</label>
-                  <input type="date" value={actForm.startDate} onChange={actSet('startDate')} />
-                </div>
-                <div className={s.field}>
-                  <label>Time</label>
-                  <input value={actForm.time} onChange={actSet('time')} placeholder="e.g. 9:00 AM onwards" />
-                </div>
-              </div>
-
-              <div className={s.field}>
-                <label>Venue</label>
-                <input value={actForm.venue} onChange={actSet('venue')} placeholder="e.g. RKU Main Ground" />
-              </div>
-
-              <div style={{ background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:10, padding:'14px 16px' }}>
-                <div style={{ fontSize:'.78rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:10 }}>
-                  Registration Fee
-                </div>
-                <div style={{ display:'flex', gap:8, marginBottom: actForm.isFree ? 0 : 12 }}>
-                  {[{ val:true, label:'🎟 Free Entry', active:'#ecfdf5', border:'#059669', text:'#059669' },
-                    { val:false, label:'💳 Paid Event', active:'#fffbeb', border:'#d97706', text:'#d97706' }].map(opt => (
-                    <button key={String(opt.val)} type="button"
-                      onClick={() => setActForm(p => ({ ...p, isFree: opt.val, feeAmount: opt.val ? '' : p.feeAmount }))}
-                      style={{
-                        flex:1, padding:'8px 12px', border:'1.5px solid',
-                        borderColor: actForm.isFree === opt.val ? opt.border : '#e5e7eb',
-                        borderRadius:8, background: actForm.isFree === opt.val ? opt.active : '#fff',
-                        color: actForm.isFree === opt.val ? opt.text : '#6b7280',
-                        fontSize:'.83rem', fontWeight:600, cursor:'pointer', transition:'all .14s',
-                      }}>
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-                {!actForm.isFree && (
-                  <div className={s.field}>
-                    <label>Fee Amount <span className={s.req}>*</span></label>
-                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                      <span style={{ fontWeight:700, fontSize:'1rem', color:'#374151' }}>₹</span>
-                      <input type="number" min="1" step="1" style={{ flex:1, maxWidth:160 }}
-                        value={actForm.feeAmount}
-                        onChange={e => setActForm(p => ({ ...p, feeAmount: e.target.value }))}
-                        placeholder="e.g. 100" required={!actForm.isFree} />
-                      <span style={{ fontSize:'.78rem', color:'#9ca3af', whiteSpace:'nowrap' }}>INR per student</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {actForm.participationType === 'team' && (
-                <div style={{ background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:10, padding:'14px 16px', display:'flex', flexDirection:'column', gap:12 }}>
-                  <div style={{ fontSize:'.78rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.04em' }}>
-                    Team
-                  </div>
-                  <div className={s.row2} style={{ marginBottom: 0 }}>
-                    <div className={s.field} style={{ marginBottom: 0 }}>
-                      <label>Min Players <span className={s.req}>*</span></label>
-                      <input type="number" min="1" step="1" value={actForm.minTeamSize} onChange={actSet('minTeamSize')}
-                        placeholder="e.g. 3" required />
-                    </div>
-                    <div className={s.field} style={{ marginBottom: 0 }}>
-                      <label>Max Players <span className={s.req}>*</span></label>
-                      <input type="number" min="1" step="1" value={actForm.teamSize} onChange={actSet('teamSize')}
-                        placeholder="e.g. 5" required />
-                    </div>
-                  </div>
-                  <p style={{ fontSize:'.76rem', color:'#9ca3af', margin:0 }}>
-                    Each department's captain fills in their own contact details, chosen department, and team
-                    member names on the public event page — this just sets the roster-size cap.
-                  </p>
-                </div>
-              )}
-
-              {actError && <div className={s.formError}>{actError}</div>}
-
-              <div className={s.modalFooter}>
-                <button type="button" className={s.cancelBtn} onClick={closeActivityModal}>Cancel</button>
-                <button type="submit" className={s.saveBtn} disabled={actSaving}>
-                  {actSaving ? 'Saving…' : 'Add Activity'}
+                <button type="submit" className={s.saveBtn} disabled={galoreSaving || (!galoreEditing && unassignedActivities.length > 0)}>
+                  {galoreSaving ? 'Saving…' : galoreEditing ? 'Save Changes' : 'Create Event'}
                 </button>
               </div>
             </form>
@@ -1759,7 +1798,7 @@ export default function AdminEvents() {
                   </thead>
                   <tbody>
                     {filteredRegs.map((r, i) => {
-                      const isEditing = editingRegId === r.id;
+                      const isEditing = editingRegId === String(r.id);
                       return (
                         <tr key={r.id || i}>
                           <td className={s.regsNum}>{i + 1}</td>
@@ -1803,7 +1842,7 @@ export default function AdminEvents() {
                           <td>
                             {isEditing ? (
                               <div style={{ display: 'flex', gap: 6 }}>
-                                <button className={s.csvBtn} disabled={regSaving} onClick={() => saveEditReg(r.id)}>
+                                <button className={s.csvBtn} disabled={regSaving} onClick={() => saveEditReg(r.id, regEvent._id)}>
                                   {regSaving ? 'Saving…' : 'Save'}
                                 </button>
                                 <button className={s.closeBtn} disabled={regSaving} onClick={cancelEditReg}>✕</button>
@@ -1811,7 +1850,7 @@ export default function AdminEvents() {
                             ) : (
                               <div style={{ display: 'flex', gap: 6 }}>
                                 <button className={s.csvBtn} onClick={() => startEditReg(r)}>Edit</button>
-                                <button className={s.delBtn} onClick={() => setDeleteRegId(r.id)}>Delete</button>
+                                <button className={s.delBtn} onClick={() => { setDeleteRegId(String(r.id)); setDeleteRegEventId(regEvent._id); }}>Delete</button>
                               </div>
                             )}
                           </td>

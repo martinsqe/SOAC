@@ -1,10 +1,11 @@
 const { pgPool }   = require('../config/db');
 const { ensureSoacTables, asEvent } = require('../services/soacData');
-const { getCoordClubIds } = require('../services/coordAuth');
+const { assertCoordOwnsEvent } = require('../services/coordAuth');
 const { destroyImage } = require('../config/cloudinary');
-const { getFileValue } = require('../config/multer');
+const { getFileValue, uploadImageBuffer } = require('../config/multer');
 const { autoRefreshReportIfExists } = require('./reports.controller');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
+const { sendGaloreActivityAssignment } = require('../config/email');
 const cache = require('../services/cache');
 const { syncPastEvents } = require('../services/eventStatus');
 
@@ -31,6 +32,29 @@ const EVENT_COLS = [
    events that hang off a Galore umbrella via parent_event_id — every
    pre-existing event keeps accepting free-text dept exactly as before. */
 const GALORE_DEPARTMENTS = ['ACH', 'AI/ML', 'FOT', 'SDS', 'SOE', 'SPT', 'SOP', 'SOM', 'SOS'];
+
+/* Galore: every activity is pre-programmed — admin's only job per activity is
+   assigning who coordinates it (see createGaloreEvent below), not building it
+   from scratch. A fixed catalog (not a DB table, same reasoning as
+   GALORE_DEPARTMENTS) of every activity this fest runs, one row per activity:
+   its category (drives the boys/girls-vs-open division rule and which of
+   Sports/Cultural/Academic tab it lands under), and whether it's team-based
+   (reuses the Sports Fiesta captain/roster flow) or individual (reuses the
+   plain public register() flow), plus a sane roster-size range for team ones. */
+const GALORE_ACTIVITIES_CATALOG = [
+  { key: 'football',        title: 'Football',        category: 'sports',   participationType: 'team',       minTeamSize: 7,  teamSize: 15 },
+  { key: 'basketball',      title: 'Basketball',      category: 'sports',   participationType: 'team',       minTeamSize: 5,  teamSize: 10 },
+  { key: 'cricket',         title: 'Cricket',         category: 'sports',   participationType: 'team',       minTeamSize: 11, teamSize: 16 },
+  { key: 'volleyball',      title: 'Volleyball',      category: 'sports',   participationType: 'team',       minTeamSize: 6,  teamSize: 12 },
+  { key: 'table_tennis',    title: 'Table Tennis',    category: 'sports',   participationType: 'individual' },
+  { key: 'carrom',          title: 'Carrom',          category: 'sports',   participationType: 'individual' },
+  { key: 'chess',           title: 'Chess',           category: 'sports',   participationType: 'individual' },
+  { key: 'badminton',       title: 'Badminton',       category: 'sports',   participationType: 'individual' },
+  { key: 'group_dancing',   title: 'Group Dancing',   category: 'cultural', participationType: 'team',       minTeamSize: 4,  teamSize: 15 },
+  { key: 'fashion',         title: 'Fashion',         category: 'cultural', participationType: 'team',       minTeamSize: 4,  teamSize: 15 },
+  { key: 'singing',         title: 'Singing',         category: 'cultural', participationType: 'individual' },
+  { key: 'public_speaking', title: 'Public Speaking', category: 'academic', participationType: 'individual' },
+];
 
 /* team_members is a jsonb column, so its INSERT/UPDATE param must be a valid
    JSON *string* — re-stringifying (rather than passing the parsed array) keeps
@@ -88,6 +112,22 @@ function normalizePaymentLink(raw) {
        under a Galore child activity (see submitTeamRoster). Free text elsewhere,
        same as event_registrations.dept always has been. */
     await pgPool.query(`ALTER TABLE event_teams ADD COLUMN IF NOT EXISTS dept VARCHAR(10) NOT NULL DEFAULT ''`);
+    /* Galore: direct coordinator-to-activity assignment ("the Football
+       coordinator") — independent of the club-based model every other event
+       uses. See coordAuth.js's assertCoordOwnsEvent, which checks this table
+       first and falls back to club ownership, so every existing per-event
+       controller's checkAccess gained Galore support with no other change. */
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS event_coordinators (
+        id          BIGSERIAL     PRIMARY KEY,
+        event_id    BIGINT        NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        user_id     INTEGER       NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at  TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        UNIQUE (event_id, user_id)
+      )
+    `);
+    await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_coordinators_event ON event_coordinators(event_id)`);
+    await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_coordinators_user  ON event_coordinators(user_id)`);
     console.log('[events] migrations ready');
   } catch (err) {
     console.error('[events] migration failed:', err.message);
@@ -155,7 +195,12 @@ const getAll = async (req, res, next) => {
     if (cached) return res.json(cached);
 
     const values  = [];
-    const clauses = ['e.is_active = true'];
+    /* A Galore activity (parent_event_id set) is never its own standalone
+       listing — it only ever shows up nested inside its umbrella's own
+       registration form / the admin's "Manage Activities" panel. Without this,
+       every activity would leak into the general events list as its own
+       separately-registerable card, right alongside the umbrella itself. */
+    const clauses = ['e.is_active = true', 'e.parent_event_id IS NULL'];
 
     if (status   && status   !== 'all') { values.push(status);        clauses.push(`e.status   = $${values.length}`); }
     if (category && category !== 'all') { values.push(category);      clauses.push(`e.category = $${values.length}`); }
@@ -362,7 +407,11 @@ const getActivities = async (req, res, next) => {
         title:             r.title,
         category:          r.category,
         eventFormat:       r.event_format,
-        participationType: r.event_format === 'sports_fiesta' ? 'team' : 'individual',
+        /* Every Galore activity registers individually now (event_format is
+           always 'other') — team_size > 0 is what actually marks a team-based
+           activity (the coordinator's later cue to build teams from the
+           registrant pool), not event_format anymore. */
+        participationType: Number(r.team_size || 0) > 0 ? 'team' : 'individual',
         teamSize:          Number(r.team_size || 0),
         minTeamSize:       Number(r.min_team_size || 0),
         status:            r.status,
@@ -733,16 +782,136 @@ const assertGaloreCategoryCap = async (email, event) => {
   return null;
 };
 
+/* POST /api/events/:id/register  where :id is a Galore UMBRELLA event.
+   One unified form: a student gives their details once and picks which
+   activities (any mix, across categories, up to 2 per category) they want
+   to join — no separate per-activity form, and no self-service team/captain
+   flow. Each selected activity gets its own event_registrations row with
+   the same student details; a coordinator later groups each activity's
+   department-wise registrants into teams themselves (Teams tab), for the
+   team-based ones. */
+const registerForGaloreUmbrella = async (umbrella, req, res) => {
+  const { name, email, phone, enrollmentNo, dept, course, gender, activityIds } = req.body;
+  if (!name?.trim())   return res.status(400).json({ message: 'Name is required.' });
+  if (!email?.trim())  return res.status(400).json({ message: 'Email is required.' });
+  if (!email.toLowerCase().endsWith(RKU_DOMAIN)) {
+    return res.status(400).json({ message: 'Only RKU institutional emails (@rku.ac.in) are allowed to register.' });
+  }
+  if (!dept?.trim() || !GALORE_DEPARTMENTS.includes(dept.trim().toUpperCase())) {
+    return res.status(400).json({ message: `Department must be one of: ${GALORE_DEPARTMENTS.join(', ')}.` });
+  }
+  if (!course?.trim()) return res.status(400).json({ message: 'Course is required.' });
+  if (!phone?.trim())  return res.status(400).json({ message: 'Mobile number is required.' });
+  if (!isValidMobile(phone)) return res.status(400).json({ message: 'Enter a valid 10-digit mobile number.' });
+  if (!gender || !['M', 'F'].includes(gender.toUpperCase())) {
+    return res.status(400).json({ message: 'Gender is required. Please select M or F.' });
+  }
+  const ids = Array.isArray(activityIds) ? [...new Set(activityIds.map(String))] : [];
+  if (!ids.length) return res.status(400).json({ message: 'Select at least one activity.' });
+
+  const { rows: actRows } = await pgPool.query(
+    `SELECT id, title, category FROM events WHERE id = ANY($1::bigint[]) AND parent_event_id = $2 AND is_active = true`,
+    [ids, umbrella.id]
+  );
+  if (actRows.length !== ids.length) {
+    return res.status(400).json({ message: 'One or more selected activities are invalid.' });
+  }
+
+  const emailNorm = email.trim().toLowerCase();
+  const { rows: existingRegs } = await pgPool.query(
+    `SELECT e.id AS event_id, e.category FROM event_registrations er
+     JOIN events e ON e.id = er.event_id
+     WHERE e.parent_event_id = $1 AND LOWER(er.email) = $2`,
+    [umbrella.id, emailNorm]
+  );
+  const alreadyRegisteredIds = new Set(existingRegs.map(r => String(r.event_id)));
+  const existingByCat = {};
+  for (const r of existingRegs) existingByCat[r.category] = (existingByCat[r.category] || 0) + 1;
+
+  /* Only activities this email isn't already registered for count as "new" against
+     the cap — resubmitting one already on file (e.g. the form was submitted twice,
+     or this batch mixes a couple of old picks with a new one) is harmless, not an
+     attempt to exceed the limit; it just gets silently skipped down in the insert
+     loop via the (event_id, email) unique constraint. */
+  const newActs = actRows.filter(a => !alreadyRegisteredIds.has(String(a.id)));
+  const newByCat = {};
+  for (const a of newActs) newByCat[a.category] = (newByCat[a.category] || 0) + 1;
+  for (const [cat, n] of Object.entries(newByCat)) {
+    const already = existingByCat[cat] || 0;
+    if (already + n > 2) {
+      const message = already > 0
+        ? `You've already registered for ${already} ${cat} activit${already === 1 ? 'y' : 'ies'} — 2 is the limit per category, so you can pick at most ${2 - already} more.`
+        : `You can select at most 2 ${cat} activities.`;
+      return res.status(400).json({ message });
+    }
+  }
+
+  const deptUpper = dept.trim().toUpperCase();
+  const pgClient = await pgPool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    const created = [];
+    const skipped = [];
+    for (const act of actRows) {
+      /* A per-row SAVEPOINT is required here: once any statement inside a
+         transaction errors, Postgres aborts the whole transaction and every
+         later statement fails with 25P02 ("current transaction is aborted")
+         until a ROLLBACK — so catching just the 23505 and looping to the next
+         activity would silently break every insert after the first duplicate. */
+      await pgClient.query('SAVEPOINT act_reg');
+      try {
+        await pgClient.query(
+          `INSERT INTO event_registrations (event_id, event_title, name, enrollment_no, dept, course, phone, email, gender)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [
+            act.id, act.title, name.trim(),
+            enrollmentNo ? enrollmentNo.trim().toUpperCase() : '',
+            deptUpper, course.trim(), phone.trim(), emailNorm, gender.toUpperCase(),
+          ]
+        );
+        created.push(act.title);
+      } catch (err) {
+        if (err.code === '23505') {
+          await pgClient.query('ROLLBACK TO SAVEPOINT act_reg');
+          skipped.push(act.title); // already registered for this one
+          continue;
+        }
+        throw err;
+      }
+    }
+    await pgClient.query('COMMIT');
+    await cache.delPattern('events:*');
+    const notifyOne = actRows.find(a => created.includes(a.title));
+    if (notifyOne) {
+      awardRegistrationCoins(umbrella.id, umbrella.title, emailNorm).catch(() => {});
+      notifyRegistrationConfirmed({ id: umbrella.id, title: umbrella.title }, emailNorm).catch(() => {});
+    }
+    res.status(201).json({
+      message: skipped.length ? `Registered for ${created.length} activit${created.length === 1 ? 'y' : 'ies'}; already registered for: ${skipped.join(', ')}.` : 'Registered!',
+      created, skipped,
+    });
+  } catch (err) {
+    await pgClient.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    pgClient.release();
+  }
+};
+
 const register = async (req, res, next) => {
   try {
-    /* Only fetch what we need: id, title, status, category + parent_event_id for the Galore cap */
+    /* Only fetch what we need: id, title, status, category, event_format + parent_event_id */
     const { rows: eventRows } = await pgPool.query(
-      `SELECT id, title, status, category, parent_event_id FROM events WHERE id = $1 AND is_active = true`,
+      `SELECT id, title, status, category, event_format, parent_event_id FROM events WHERE id = $1 AND is_active = true`,
       [req.params.id]
     );
     if (!eventRows.length) return res.status(404).json({ message: 'Event not found.' });
     const event = eventRows[0];
     if (event.status === 'past') return res.status(400).json({ message: 'Registrations for this event are closed.' });
+
+    if (event.event_format === 'galore' && !event.parent_event_id) {
+      return await registerForGaloreUmbrella(event, req, res);
+    }
 
     const { name, email, phone, enrollmentNo, dept, course, gender } = req.body;
     if (!name?.trim())   return res.status(400).json({ message: 'Name is required.' });
@@ -883,23 +1052,29 @@ const submitTeamRoster = async (req, res, next) => {
     let suffix = 2;
     while (takenNames.has(teamName)) { teamName = `${rawTeamName.trim()} (${suffix})`; suffix++; }
 
+    /* dept is only ever non-empty for a Galore activity (validated above) — every
+       member of the team, captain and teammates alike, shares this one department,
+       so it's written onto each of their own event_registrations rows too, not
+       just event_teams.dept — that's what powers the department-wise registrant
+       view (getDepartmentRegistrations) and the department cap check. */
+    const resolvedDept = event.parent_event_id ? dept.trim().toUpperCase() : '';
+
     const pgClient = await pgPool.connect();
     try {
       await pgClient.query('BEGIN');
 
       /* The captain's own registration carries their real identity. */
       const { rows: capReg } = await pgClient.query(
-        `INSERT INTO event_registrations (event_id, event_title, name, email, phone)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO event_registrations (event_id, event_title, name, email, phone, dept)
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id, name`,
-        [event.id, event.title, captainName.trim(), emailNorm, captainPhone.trim()]
+        [event.id, event.title, captainName.trim(), emailNorm, captainPhone.trim(), resolvedDept]
       );
 
-      /* One team, named after the captain — max_size covers the captain + roster cap.
-         dept is only ever non-empty for a Galore activity (validated above). */
+      /* One team, named after the captain — max_size covers the captain + roster cap. */
       const { rows: teamRows } = await pgClient.query(
         `INSERT INTO event_teams (event_id, name, max_size, division, dept) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-        [event.id, teamName, cleaned.length + 1, division, event.parent_event_id ? dept.trim().toUpperCase() : '']
+        [event.id, teamName, cleaned.length + 1, division, resolvedDept]
       );
       const teamId = teamRows[0].id;
 
@@ -916,8 +1091,8 @@ const submitTeamRoster = async (req, res, next) => {
         const memberName = cleaned[i];
         const placeholderEmail = `sf-roster-${event.id}-${teamId}-${i}-${Date.now()}@roster.internal`;
         const { rows: memReg } = await pgClient.query(
-          `INSERT INTO event_registrations (event_id, event_title, name, email) VALUES ($1, $2, $3, $4) RETURNING id, name`,
-          [event.id, event.title, memberName, placeholderEmail]
+          `INSERT INTO event_registrations (event_id, event_title, name, email, dept) VALUES ($1, $2, $3, $4, $5) RETURNING id, name`,
+          [event.id, event.title, memberName, placeholderEmail, resolvedDept]
         );
         await pgClient.query(
           `INSERT INTO event_team_members (team_id, registration_id, member_name, enrollment_no) VALUES ($1, $2, $3, '')`,
@@ -957,20 +1132,11 @@ const submitTeamRoster = async (req, res, next) => {
    Supports ?page=&limit= */
 const listRegistrations = async (req, res, next) => {
   try {
-    // Coordinators may only view registrations for events belonging to their assigned clubs
+    // Coordinators may only view registrations for events they own — directly
+    // (a Galore activity assignment) or via their club — see coordAuth.js.
     if (req.user.role === 'coordinator') {
-      // Get all clubs this coordinator manages (with name-based fallback)
-      const coordClubIds = await getCoordClubIds(req.user.id);
-      if (!coordClubIds.length) {
-        return res.status(403).json({ message: 'No club assigned to your coordinator account.' });
-      }
-      // Check if the event belongs to any of the coordinator's clubs via club_id FK
-      const { rows: evRows } = await pgPool.query(
-        `SELECT e.id FROM events e
-         WHERE e.id = $1 AND e.is_active = true AND e.club_id = ANY($2::bigint[])`,
-        [req.params.id, coordClubIds]
-      );
-      if (!evRows.length) return res.status(403).json({ message: 'You can only view registrations for your own club\'s events.' });
+      const ok = await assertCoordOwnsEvent(req.user.id, req.params.id);
+      if (!ok) return res.status(403).json({ message: 'You can only view registrations for your own events.' });
     }
 
     const { page, limit, offset } = parsePage(req.query);
@@ -1090,4 +1256,223 @@ const deleteRegistration = async (req, res, next) => {
    frontend never hand-duplicates it and can't drift from server-side validation. */
 const getGaloreDepartments = (req, res) => res.json({ departments: GALORE_DEPARTMENTS });
 
-module.exports = { getAll, getLiveScores, getPastScores, getOne, getActivities, getGaloreDepartments, create, update, remove, register, submitTeamRoster, listRegistrations, updateRegistration, deleteRegistration };
+/* GET /api/events/galore/activities-catalog  (admin) — every pre-programmed
+   activity, so the "create Galore event" screen can render one coordinator
+   picker per activity without the frontend hand-duplicating this list. */
+const getGaloreCatalog = (req, res) => res.json({ activities: GALORE_ACTIVITIES_CATALOG });
+
+/* GET /api/events/galore/coordinators  (admin) — every active coordinator
+   account, for the per-activity assignment dropdowns. */
+const getGaloreCoordinators = async (req, res, next) => {
+  try {
+    const { rows } = await pgPool.query(
+      `SELECT id, name, email FROM users WHERE role = 'coordinator' AND is_active = true ORDER BY name`
+    );
+    res.json({ coordinators: rows });
+  } catch (err) { next(err); }
+};
+
+/* POST /api/events/galore  (admin only)
+   Creates the whole Galore event in one transaction: the umbrella event plus
+   every catalog activity underneath it (parent_event_id), each with its
+   assigned coordinator already wired up via event_coordinators — nothing is
+   created unless EVERY activity has a valid coordinator, so a Galore event
+   can never exist half-staffed. Never paid — is_free/fee_amount are left at
+   their table defaults (true / 0) on every row created here. */
+const createGaloreEvent = async (req, res, next) => {
+  try {
+    await ensureSoacTables();
+    const { title, venue, startDate, date, time, description, seats, highlight } = req.body;
+    if (!title?.trim()) return res.status(400).json({ message: 'Event title is required.' });
+
+    let activityCoordinators;
+    try { activityCoordinators = JSON.parse(req.body.activityCoordinators || '{}'); }
+    catch { return res.status(400).json({ message: 'Invalid activity coordinator assignments.' }); }
+
+    const missing = GALORE_ACTIVITIES_CATALOG.filter(a => !activityCoordinators[a.key]);
+    if (missing.length) {
+      return res.status(400).json({
+        message: `Assign a coordinator for every activity before creating the event. Missing: ${missing.map(a => a.title).join(', ')}.`,
+      });
+    }
+
+    const coordIds = [...new Set(Object.values(activityCoordinators))];
+    const { rows: coordRows } = await pgPool.query(
+      `SELECT id, name, email FROM users WHERE id = ANY($1::int[]) AND role = 'coordinator' AND is_active = true`,
+      [coordIds]
+    );
+    if (coordRows.length !== coordIds.length) {
+      return res.status(400).json({ message: 'One or more assigned coordinators are invalid.' });
+    }
+    const coordById = new Map(coordRows.map(c => [String(c.id), c]));
+
+    /* uploadEventMemory (memoryStorage) hands us a buffer, not an already-uploaded
+       file — upload it here inside a real try/catch. multer-storage-cloudinary's
+       streaming engine (used everywhere else) can throw an unhandled "socket hang
+       up" promise rejection on a flaky connection, hanging the whole request with
+       no response ever sent; this event/its 12 activities/coordinator assignments
+       are the important part, so a failed image upload is logged and skipped
+       rather than blocking event creation entirely. */
+    let image = '';
+    if (req.file) {
+      try {
+        image = await uploadImageBuffer(req.file, 'events');
+      } catch (err) {
+        console.warn('Galore event image upload failed — creating the event without an image:', err.message);
+      }
+    }
+    const pgClient = await pgPool.connect();
+    try {
+      await pgClient.query('BEGIN');
+
+      const { rows: umbrellaRows } = await pgClient.query(
+        `INSERT INTO events (title, category, status, date, start_date, time, venue, description, image, seats, highlight, event_format)
+         VALUES ($1, 'general', 'upcoming', $2, $3, $4, $5, $6, $7, $8, $9, 'galore')
+         RETURNING ${EVENT_COLS}`,
+        [title.trim(), date || '', startDate ? new Date(startDate) : null, time || '', venue || '', description || '', image, seats || '', highlight || '']
+      );
+      const umbrella = umbrellaRows[0];
+
+      const createdActivities = [];
+      for (const act of GALORE_ACTIVITIES_CATALOG) {
+        const isTeam = act.participationType === 'team';
+        /* Every activity — team or individual — takes plain individual
+           registrations (event_format 'other'): a student just registers
+           interest with their own details, once, via the single unified
+           Galore registration form (see register() below). For team
+           activities, the assigned coordinator later groups each
+           department's registrants into teams themselves via the existing
+           Teams tab — there's no self-service captain/roster submission
+           for Galore. team_size/min_team_size are kept purely as the
+           roster-size hint shown to that coordinator. */
+        const { rows: actRows } = await pgClient.query(
+          `INSERT INTO events (title, category, status, date, start_date, time, venue, event_format, team_size, min_team_size, parent_event_id)
+           VALUES ($1, $2, 'upcoming', $3, $4, $5, $6, 'other', $7, $8, $9)
+           RETURNING id, title, category`,
+          [
+            act.title, act.category, date || '', startDate ? new Date(startDate) : null, time || '', venue || '',
+            isTeam ? act.teamSize : 0, isTeam ? act.minTeamSize : 0, umbrella.id,
+          ]
+        );
+        const activity = actRows[0];
+        await pgClient.query(
+          `INSERT INTO event_coordinators (event_id, user_id) VALUES ($1, $2)`,
+          [activity.id, activityCoordinators[act.key]]
+        );
+        createdActivities.push({ id: String(activity.id), key: act.key, title: activity.title, category: activity.category });
+      }
+
+      await pgClient.query('COMMIT');
+      await Promise.all([cache.delPattern('events:*'), cache.del('stats:admin')]);
+
+      /* Let every assigned coordinator know right away — email + in-app/push,
+         each fire-and-forget so one slow/failed send never blocks the response
+         or takes down another coordinator's notification. */
+      for (const act of createdActivities) {
+        const coordId = activityCoordinators[act.key];
+        const coord = coordById.get(String(coordId));
+        if (!coord) continue;
+        sendGaloreActivityAssignment({
+          toEmail: coord.email, toName: coord.name,
+          activityTitle: act.title, category: act.category, umbrellaTitle: umbrella.title,
+        }).catch(err => console.warn('Galore coordinator assignment email failed:', err.message));
+        notifyUser({
+          userId: coord.id,
+          title: `You're coordinating ${act.title}`,
+          body: `You've been assigned to coordinate ${act.title} for ${umbrella.title}. Registrations will appear in your dashboard as students sign up.`,
+          type: 'galore_coordinator_assignment',
+          url: '/coordinator/events',
+        }).catch(() => {});
+      }
+
+      res.status(201).json({ event: withImageUrl(asEvent(umbrella)), activities: createdActivities });
+    } catch (err) {
+      await pgClient.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      pgClient.release();
+    }
+  } catch (err) { next(err); }
+};
+
+/* GET /api/events/:id/department-registrations  (admin, or any coordinator
+   assigned to one of this Galore umbrella's activities)
+   Every registrant, grouped by department, for every activity the requester
+   can actually see — admin gets the whole umbrella; a coordinator gets ONLY
+   the activity/activities they were personally assigned (e.g. the Football
+   coordinator sees Football registrants across every department, and never
+   Basketball, Chess, or anything they weren't assigned to). */
+const getDepartmentRegistrations = async (req, res, next) => {
+  try {
+    const { rows: umbrellaRows } = await pgPool.query(
+      `SELECT id FROM events WHERE id = $1 AND is_active = true AND event_format = 'galore' AND parent_event_id IS NULL`,
+      [req.params.id]
+    );
+    if (!umbrellaRows.length) return res.status(404).json({ message: 'Galore event not found.' });
+
+    let ownEventIds = null; // null = no restriction (admin sees every activity)
+    if (req.user.role === 'coordinator') {
+      const { rows: owned } = await pgPool.query(
+        `SELECT ec.event_id FROM event_coordinators ec
+         JOIN events e ON e.id = ec.event_id
+         WHERE ec.user_id = $1 AND e.parent_event_id = $2`,
+        [req.user.id, req.params.id]
+      );
+      if (!owned.length) return res.status(403).json({ message: 'You are not assigned to any activity in this Galore event.' });
+      ownEventIds = owned.map(r => r.event_id);
+    }
+
+    const { rows } = await pgPool.query(
+      `SELECT er.id, er.name, er.email, er.enrollment_no, er.dept, er.course, er.phone, er.gender,
+              e.id AS event_id, e.title AS event_title, e.category
+       FROM event_registrations er
+       JOIN events e ON e.id = er.event_id
+       WHERE e.parent_event_id = $1 AND er.email NOT ILIKE '%@roster.internal'
+         AND ($2::bigint[] IS NULL OR e.id = ANY($2::bigint[]))
+       ORDER BY er.dept, e.category, er.name`,
+      [req.params.id, ownEventIds]
+    );
+
+    const byDept = {};
+    for (const dept of GALORE_DEPARTMENTS) byDept[dept] = [];
+    for (const r of rows) {
+      const dept = GALORE_DEPARTMENTS.includes(r.dept) ? r.dept : (r.dept || 'Unspecified');
+      if (!byDept[dept]) byDept[dept] = [];
+      byDept[dept].push({
+        registrationId: String(r.id),
+        name: r.name, email: r.email, enrollmentNo: r.enrollment_no,
+        dept: r.dept, course: r.course, phone: r.phone, gender: r.gender,
+        eventId: String(r.event_id), eventTitle: r.event_title, category: r.category,
+      });
+    }
+    res.json({
+      departments: Object.entries(byDept).map(([dept, registrants]) => ({ dept, registrants })),
+    });
+  } catch (err) { next(err); }
+};
+
+/* GET /api/events/my-assignments  (coordinator)
+   Every event this coordinator is directly assigned to via event_coordinators
+   (a Galore activity, independent of any club) — lets a coordinator with no
+   club membership at all still see and manage what they've been assigned,
+   and lets one with a club ALSO see activities assigned outside it. */
+const getMyAssignments = async (req, res, next) => {
+  try {
+    const { rows } = await pgPool.query(
+      `SELECT ${EVENT_COLS.split(', ').map(c => `e.${c}`).join(', ')}
+       FROM events e
+       JOIN event_coordinators ec ON ec.event_id = e.id
+       WHERE ec.user_id = $1 AND e.is_active = true
+       ORDER BY e.created_at DESC`,
+      [req.user.id]
+    );
+    res.json({ events: rows.map(r => withImageUrl(asEvent(r))) });
+  } catch (err) { next(err); }
+};
+
+module.exports = {
+  getAll, getLiveScores, getPastScores, getOne, getActivities,
+  getGaloreDepartments, getGaloreCatalog, getGaloreCoordinators, createGaloreEvent, getDepartmentRegistrations,
+  getMyAssignments,
+  create, update, remove, register, submitTeamRoster, listRegistrations, updateRegistration, deleteRegistration,
+};

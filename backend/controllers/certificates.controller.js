@@ -1,7 +1,7 @@
 const path = require('path');
 const fs   = require('fs');
 const { pgPool }          = require('../config/db');
-const { getCoordClubIds } = require('../services/coordAuth');
+const { assertCoordOwnsEvent } = require('../services/coordAuth');
 const { getFileValue, useCloudinary, cloudinaryInstance } = require('../config/multer');
 const { destroyImage } = require('../config/cloudinary');
 const { getChampion, detectSport } = require('../services/bracketMath');
@@ -74,16 +74,8 @@ const gameNameFor = (event) => {
 /* Verify this coordinator (or admin) has access to the event — mirrors eventTeams.controller.js */
 const checkAccess = async (req, res) => {
   if (req.user.role === 'admin') return true;
-  const coordClubIds = await getCoordClubIds(req.user.id);
-  if (!coordClubIds.length) {
-    res.status(403).json({ message: 'No club assigned to your account.' });
-    return false;
-  }
-  const { rows } = await pgPool.query(
-    `SELECT id FROM events WHERE id = $1 AND is_active = true AND club_id = ANY($2::bigint[])`,
-    [req.params.id, coordClubIds]
-  );
-  if (!rows.length) {
+  const ok = await assertCoordOwnsEvent(req.user.id, req.params.id);
+  if (!ok) {
     res.status(403).json({ message: 'You do not have access to this event.' });
     return false;
   }

@@ -1,5 +1,5 @@
 const { pgPool } = require('../config/db');
-const { getCoordClubIds } = require('../services/coordAuth');
+const { assertCoordOwnsEvent } = require('../services/coordAuth');
 
 /* Attendance for a specific EVENT (possibly spanning several days), scoped to
    every active member of the club that organized it — distinct from
@@ -50,16 +50,8 @@ const { getCoordClubIds } = require('../services/coordAuth');
    certificates.controller.js / eventTeams.controller.js's checkAccess. */
 const checkAccess = async (req, res) => {
   if (req.user.role === 'admin') return true;
-  const coordClubIds = await getCoordClubIds(req.user.id);
-  if (!coordClubIds.length) {
-    res.status(403).json({ message: 'No club assigned to your account.' });
-    return false;
-  }
-  const { rows } = await pgPool.query(
-    `SELECT id FROM events WHERE id = $1 AND is_active = true AND club_id = ANY($2::bigint[])`,
-    [req.params.id, coordClubIds]
-  );
-  if (!rows.length) {
+  const ok = await assertCoordOwnsEvent(req.user.id, req.params.id);
+  if (!ok) {
     res.status(403).json({ message: 'You do not have access to this event.' });
     return false;
   }

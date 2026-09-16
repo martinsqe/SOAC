@@ -30,7 +30,7 @@ const NAV = [
 
 /* Renders page content or a gate screen if the coordinator has no club assigned */
 function ClubGatedContent() {
-  const { clubs, selectedClub, clubLoading, clubError, refetchClub } = useCoordClub();
+  const { clubs, selectedClub, clubLoading, clubError, refetchClub, hasEventAssignments } = useCoordClub();
   const [retrying, setRetrying] = useState(false);
 
   const handleRetry = async () => {
@@ -47,7 +47,7 @@ function ClubGatedContent() {
     </div>
   );
 
-  if (clubError || (!clubLoading && !selectedClub && clubs.length === 0)) return (
+  if (!hasEventAssignments && (clubError || (!clubLoading && !selectedClub && clubs.length === 0))) return (
     <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:400, gap:16, padding:32, textAlign:'center' }}>
       <div style={{ width:56, height:56, borderRadius:16, background:'#f3f4f6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28 }}>🏛</div>
       <h2 style={{ margin:0, color:'#1a1040', fontSize:'1.35rem', fontWeight:800 }}>No Club Assigned</h2>

@@ -7,7 +7,7 @@ const attendCtrl  = require('../controllers/eventAttendance.controller');
 const cd          = require('../controllers/clubDetail.controller');
 const { verifyToken }  = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/requireAdmin');
-const { uploadEvent, uploadCertTemplate } = require('../config/multer');
+const { uploadEvent, uploadEventMemory, uploadCertTemplate } = require('../config/multer');
 
 const requireCoordOrAdmin = (req, res, next) => {
   if (req.user?.role !== 'coordinator' && req.user?.role !== 'admin') {
@@ -19,11 +19,16 @@ const requireCoordOrAdmin = (req, res, next) => {
 router.get('/',                  ctrl.getAll);
 router.get('/live-scores',       ctrl.getLiveScores);
 router.get('/past-scores',       ctrl.getPastScores);
-router.get('/galore/departments', ctrl.getGaloreDepartments); /* public */
+router.get('/galore/departments',   ctrl.getGaloreDepartments); /* public */
+router.get('/galore/catalog',       verifyToken, requireAdmin, ctrl.getGaloreCatalog);
+router.get('/galore/coordinators',  verifyToken, requireAdmin, ctrl.getGaloreCoordinators);
+router.post('/galore',              verifyToken, requireAdmin, uploadEventMemory.single('image'), ctrl.createGaloreEvent);
+router.get('/my-assignments',       verifyToken, requireCoordOrAdmin, ctrl.getMyAssignments);
 router.get('/:id',               ctrl.getOne);
 router.get('/:id/activities',    ctrl.getActivities); /* public — Galore umbrella's child activities */
+router.get('/:id/department-registrations', verifyToken, requireCoordOrAdmin, ctrl.getDepartmentRegistrations);
 router.post('/',       verifyToken, requireCoordOrAdmin, uploadEvent.single('image'), ctrl.create);
-router.put('/:id',     verifyToken, requireCoordOrAdmin, uploadEvent.single('image'), ctrl.update);
+router.put('/:id',     verifyToken, requireAdmin, uploadEvent.single('image'), ctrl.update);
 router.delete('/:id',  verifyToken, requireAdmin, ctrl.remove);
 
 /* Registration routes */
