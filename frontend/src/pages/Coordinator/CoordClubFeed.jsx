@@ -37,14 +37,20 @@ export default function CoordClubFeed() {
   const [busyId,       setBusyId]      = useState(null);
   const [rejectModal,  setRejectModal] = useState(null); // { id, note }
 
+  /* Scoped to whichever club is currently selected — a coordinator managing
+     several clubs must see each one's feed separately, never merged, exactly
+     like every other coordinator page already scopes to the selected club.
+     Re-runs (and clears stale data first) whenever they switch clubs. */
+  const clubId = club?._id || club?.id || '';
   const loadReview = useCallback(() => {
+    if (!clubId) { setReviewPosts([]); setReviewLoading(false); return; }
     setReviewLoading(true);
-    api.get('/club-feed/review')
+    api.get(`/club-feed/review?clubId=${clubId}`)
       .then(d => setReviewPosts(d.posts || []))
       .catch(() => {})
       .finally(() => setReviewLoading(false));
-  }, []);
-  useEffect(loadReview, [loadReview]);
+  }, [clubId]);
+  useEffect(() => { setReviewPosts([]); loadReview(); }, [clubId, loadReview]);
 
   const displayed = filter === 'all' ? reviewPosts : reviewPosts.filter(p => p.status === filter);
   const pendingCount = reviewPosts.filter(p => p.status === 'pending').length;
@@ -119,7 +125,7 @@ export default function CoordClubFeed() {
     setSubmitting(true);
     try {
       const fd = new FormData();
-      fd.append('clubId',  club?._id || String(club?.id || ''));
+      fd.append('clubId',  String(clubId));
       fd.append('caption', caption.trim());
       fd.append('media',   file);
       await api.postForm('/club-feed', fd);
@@ -193,7 +199,7 @@ export default function CoordClubFeed() {
 
       <div className={s.header}>
         <div>
-          <h1 className={s.title}>Club Feed</h1>
+          <h1 className={s.title}>Club Feed{club?.name ? ` · ${club.name}` : ''}</h1>
           <p className={s.sub}>
             {reviewLoading ? 'Loading…' : `${approvedPosts.length} live · ${pendingCount} pending review`}
           </p>

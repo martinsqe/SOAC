@@ -52,6 +52,35 @@
   box-shadow: 0 1px 4px rgba(0,0,0,.08);
 }
 
+/* ── Club switcher — shown only when a student is in more than one club;
+   switching clubs shows that club's own feed, never a merge. ── */
+.clubSwitcher {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.clubTab {
+  padding: 7px 16px;
+  border: 1.5px solid #e5e7eb;
+  background: #fff;
+  border-radius: 20px;
+  font-size: .82rem;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .15s;
+}
+.clubTab:hover { border-color: #635bff; }
+.clubTabOn {
+  background: #635bff;
+  border-color: #635bff;
+  color: #fff;
+}
+
 /* ── Toast ── */
 .toast {
   position: fixed;

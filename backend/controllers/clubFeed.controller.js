@@ -75,20 +75,43 @@ const createPost = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* ── GET /api/club-feed  (student — approved posts from their own clubs) ── */
+/* ── GET /api/club-feed  (student — approved posts from their own clubs)
+   ?clubId= scopes the feed to just that one club — a student in several
+   clubs must see each club's feed separately when they switch between them,
+   never merged. Without ?clubId=, falls back to every club they're in
+   (kept for any caller that genuinely wants the combined view). ── */
 const getFeed = async (req, res, next) => {
   try {
     await ensureSoacTables();
+    const { clubId } = req.query;
     const limit  = Math.min(Number(req.query.limit) || 30, 60);
     const offset = Number(req.query.offset) || 0;
-    const { rows } = await pgPool.query(
-      `SELECT * FROM club_feed_posts
-       WHERE status = 'approved'
-         AND club_id IN (SELECT club_id FROM student_clubs WHERE user_id = $1 AND is_active = true)
-       ORDER BY created_at DESC
-       LIMIT $2 OFFSET $3`,
-      [req.user.id, limit, offset]
-    );
+
+    let rows;
+    if (clubId) {
+      const { rows: membership } = await pgPool.query(
+        `SELECT 1 FROM student_clubs WHERE user_id = $1 AND club_id = $2 AND is_active = true`,
+        [req.user.id, clubId]
+      );
+      if (!membership.length) return res.status(403).json({ message: 'You are not a member of this club.' });
+
+      ({ rows } = await pgPool.query(
+        `SELECT * FROM club_feed_posts
+         WHERE status = 'approved' AND club_id = $1
+         ORDER BY created_at DESC
+         LIMIT $2 OFFSET $3`,
+        [clubId, limit, offset]
+      ));
+    } else {
+      ({ rows } = await pgPool.query(
+        `SELECT * FROM club_feed_posts
+         WHERE status = 'approved'
+           AND club_id IN (SELECT club_id FROM student_clubs WHERE user_id = $1 AND is_active = true)
+         ORDER BY created_at DESC
+         LIMIT $2 OFFSET $3`,
+        [req.user.id, limit, offset]
+      ));
+    }
     res.json({ posts: rows.map(asPost) });
   } catch (err) { next(err); }
 };
@@ -105,15 +128,29 @@ const getMyPosts = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* ── GET /api/club-feed/review  (coordinator — queue for clubs they manage) ── */
+/* ── GET /api/club-feed/review  (coordinator — queue for clubs they manage)
+   ?clubId= scopes the queue to just that one club — a coordinator managing
+   several clubs must see each club's feed separately, never merged, exactly
+   like every other coordinator page (Events, Members, ...) already scopes to
+   whichever club is currently selected. Without ?clubId=, falls back to every
+   club they manage (kept for callers that genuinely want the union, e.g. the
+   sidebar's pending-count badge). ── */
 const getReviewQueue = async (req, res, next) => {
   try {
     await ensureSoacTables();
-    const coordClubIds = (await getCoordClubIds(req.user.id)).map(Number);
-    if (!coordClubIds.length) return res.json({ posts: [] });
+    const { status, clubId } = req.query;
 
-    const { status } = req.query;
-    const args  = [coordClubIds];
+    let scopedClubIds;
+    if (clubId) {
+      const owns = await assertCoordOwnsClub(req.user.id, clubId);
+      if (!owns) return res.status(403).json({ message: 'You do not manage this club.' });
+      scopedClubIds = [Number(clubId)];
+    } else {
+      scopedClubIds = (await getCoordClubIds(req.user.id)).map(Number);
+    }
+    if (!scopedClubIds.length) return res.json({ posts: [] });
+
+    const args  = [scopedClubIds];
     let   where = 'club_id = ANY($1::bigint[])';
     if (status && ['pending', 'approved', 'rejected'].includes(status)) {
       args.push(status);

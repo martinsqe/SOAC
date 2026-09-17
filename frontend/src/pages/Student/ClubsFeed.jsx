@@ -27,6 +27,8 @@ export default function ClubsFeed() {
   const [posts,     setPosts]     = useState([]);
   const [myPosts,   setMyPosts]   = useState([]);
   const [clubs,     setClubs]     = useState([]);
+  const [clubsLoaded, setClubsLoaded] = useState(false);
+  const [selectedClubId, setSelectedClubId] = useState('');
   const [loading,   setLoading]   = useState(true);
   const [toast,     setToast]     = useState('');
 
@@ -48,19 +50,38 @@ export default function ClubsFeed() {
     api.get('/club-feed/mine').then(d => setMyPosts(d.posts || [])).catch(() => {});
   }, []);
 
+  /* Fetch the student's clubs once, then default to the first one selected. */
   useEffect(() => {
-    setLoading(true);
-    Promise.all([
-      api.get('/club-feed').then(d => setPosts(d.posts || [])).catch(() => {}),
-      api.get('/users/me/clubs').then(d => setClubs(d.clubs || [])).catch(() => {}),
-    ]).finally(() => setLoading(false));
+    api.get('/users/me/clubs')
+      .then(d => {
+        const list = d.clubs || [];
+        setClubs(list);
+        if (list.length) setSelectedClubId(String(list[0].club_id));
+      })
+      .catch(() => {})
+      .finally(() => setClubsLoaded(true));
   }, []);
+
+  /* Feed is scoped to whichever club is currently selected — switching clubs
+     must show that club's own feed, never a merge of everything the student
+     is in. Re-fetches (clearing stale posts first) whenever the selection
+     changes. */
+  useEffect(() => {
+    if (!clubsLoaded) return;
+    if (!selectedClubId) { setPosts([]); setLoading(false); return; }
+    setLoading(true);
+    setPosts([]);
+    api.get(`/club-feed?clubId=${selectedClubId}`)
+      .then(d => setPosts(d.posts || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [selectedClubId, clubsLoaded]);
 
   useEffect(() => { if (tab === 'mine') loadMine(); }, [tab, loadMine]);
 
   /* ── Submit modal ── */
   const openSubmit = () => {
-    setForm({ clubId: clubs.length === 1 ? String(clubs[0].club_id) : '', caption: '' });
+    setForm({ clubId: selectedClubId || (clubs.length === 1 ? String(clubs[0].club_id) : ''), caption: '' });
     setFile(null); setFilePrev(''); setFileKind('');
     setOpen(true);
   };
@@ -172,7 +193,21 @@ export default function ClubsFeed() {
       </div>
 
       {tab === 'feed' ? (
-        loading ? (
+        <>
+        {clubs.length > 1 && (
+          <div className={cf.clubSwitcher}>
+            {clubs.map(c => (
+              <button
+                key={c.club_id}
+                className={`${cf.clubTab} ${String(c.club_id) === selectedClubId ? cf.clubTabOn : ''}`}
+                onClick={() => setSelectedClubId(String(c.club_id))}
+              >
+                {c.club_name}
+              </button>
+            ))}
+          </div>
+        )}
+        {loading ? (
           <div className={cf.grid}>
             {[1,2,3,4,5,6,7,8].map(i => <div key={i} className={`${cf.card} ${cf.shimmer}`} />)}
           </div>
@@ -209,7 +244,8 @@ export default function ClubsFeed() {
               );
             })}
           </div>
-        )
+        )}
+        </>
       ) : (
         <div className={cf.mineList}>
           {myPosts.length === 0 ? (
