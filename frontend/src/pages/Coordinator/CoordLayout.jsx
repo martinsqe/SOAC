@@ -26,6 +26,7 @@ const NAV = [
   { to: '/coordinator/fame',      label: 'Wall of Fame'        },
   { to: '/coordinator/my-club',   label: 'My Club'             },
   { to: '/coordinator/reports',   label: 'Reports'             },
+  { to: '/coordinator/club-feed', label: 'Club Feed'           },
 ];
 
 /* Renders page content or a gate screen if the coordinator has no club assigned */
@@ -103,6 +104,7 @@ function CoordLayoutInner() {
   const [unreadGroup, setUnreadGroup] = useState(0);
   const [unreadDMs,   setUnreadDMs]   = useState(0);
   const [unreadNotifs, setUnreadNotifs] = useState(0);
+  const [pendingClubFeed, setPendingClubFeed] = useState(0);
 
   const unreadMsgs = unreadGroup + unreadDMs;
 
@@ -116,6 +118,19 @@ function CoordLayoutInner() {
     };
     load();
     const t = setInterval(load, 15000);
+    return () => clearInterval(t);
+  }, []);
+
+  /* Poll pending Club Feed submissions — loaded eagerly on mount (not gated
+     behind visiting the tab) so the badge is correct on first paint. */
+  useEffect(() => {
+    const load = () => {
+      api.get('/club-feed/review?status=pending')
+        .then(({ posts }) => setPendingClubFeed((posts || []).length))
+        .catch(() => {});
+    };
+    load();
+    const t = setInterval(load, 30000);
     return () => clearInterval(t);
   }, []);
 
@@ -260,6 +275,9 @@ function CoordLayoutInner() {
             )}
             {to === '/coordinator/notifications' && unreadNotifs > 0 && (
               <span className={s.navBadge}>{unreadNotifs > 99 ? '99+' : unreadNotifs}</span>
+            )}
+            {to === '/coordinator/club-feed' && pendingClubFeed > 0 && (
+              <span className={s.navBadge}>{pendingClubFeed > 99 ? '99+' : pendingClubFeed}</span>
             )}
           </NavLink>
         ))}

@@ -1,405 +1,319 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import api from '../../api/client';
-import { loadYouTubeIframeApi } from '../../utils/youtubeIframeApi';
 import cf from './ClubsFeed.module.css';
 
-/* One slide, driven by YouTube's real IFrame Player API (YT.Player) rather
-   than a raw <iframe> + guessed postMessage commands — the official API
-   gives real play()/pause()/mute() methods with a genuine onReady signal, so
-   commands are never silently dropped the way an unready raw iframe can drop
-   them.
+const STATUS_LABEL = {
+  pending:  { label: 'Pending Review', color: '#d97706', bg: '#fffbeb' },
+  approved: { label: 'Approved',       color: '#059669', bg: '#ecfdf5' },
+  rejected: { label: 'Rejected',       color: '#dc2626', bg: '#fef2f2' },
+};
 
-   mode is one of:
-     'active'          — the one currently in view; plays with the real
-                          session sound preference, shows the mute button +
-                          caption.
-     'preload-near'     — the very next slide. Its player is created AND
-                          started playing muted in the background the moment
-                          it's ready — not just cued — so by the time the
-                          student actually scrolls to it, the video is
-                          already mid-buffer/mid-playback and switching to
-                          active is just an unmute, never a cold start.
-     'preload-far'      — up to PRELOAD_AHEAD slides ahead, beyond the
-                          immediate next one. Created and cued (embed/init
-                          overhead paid up front) but NOT actively playing —
-                          only one video ever silently plays in the
-                          background at a time, so scroll performance on a
-                          real phone doesn't pay for multiple simultaneous
-                          decode streams it doesn't need yet.
-     'preload-behind'   — the slide just scrolled past. Kept mounted and
-                          cued (so scrolling back is instant) but paused,
-                          since replaying it in the background would waste
-                          bandwidth on a video the student already moved on
-                          from.
-     'idle'             — everything else; just a thumbnail, no player
-                          instance at all, so a long feed only ever holds a
-                          handful of players regardless of feed length.
-
-   Sound is a session-wide preference (see ClubsFeed below), not per-slide —
-   tap unmute once and every video for the rest of the session plays with
-   sound, matching how the user actually expects a Reels-style feed to work. */
-function Slide({ video, mode, soundOn, onToggleSound, observerRef }) {
-  const active  = mode === 'active';
-  const mounted = mode !== 'idle';
-
-  /* Stable ref callback for the WHOLE lifetime of this Slide instance — only
-     ever recreated if video.videoId itself changes, which never happens for
-     a mounted instance (the same array item keeps the same object identity).
-     This used to be manufactured fresh in the parent's render on every
-     re-render of ClubsFeed (any re-render, not just scrolling — e.g. an
-     unrelated poll in a layout higher up the tree), which meant React
-     detached and reattached this ref on every single one of those renders.
-     Reattaching churns the IntersectionObserver's observe/unobserve for
-     every slide constantly, and re-observing an element mid-scroll can
-     misfire the observer callback for a slide that's only partially in
-     view — which could flip activeIndex off this slide and back again,
-     destroying and recreating its player (resetting it to muted, from 0). */
-  const slideElRef = useRef(null);
-  const registerSlideEl = useCallback((el) => {
-    if (slideElRef.current && slideElRef.current !== el) {
-      observerRef.current?.unobserve(slideElRef.current);
-    }
-    slideElRef.current = el;
-    if (el) observerRef.current?.observe(el);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [video.videoId]);
-
-  const mountElRef = useRef(null);
-  const playerRef  = useRef(null);
-  const readyRef   = useRef(false);
-  /* Refs mirroring the latest props — read inside the async onReady callback,
-     which closes over whatever `mode`/`soundOn` were at the time the player
-     STARTED loading, not necessarily what they are by the time it's ready. */
-  const modeRef    = useRef(mode);
-  const soundRef   = useRef(soundOn);
-  modeRef.current  = mode;
-  soundRef.current = soundOn;
-
-  /* When this slide became active — cleared once reported, so the same
-     watch window is never double-counted. */
-  const watchStartRef = useRef(null);
-
-  const reportWatch = useCallback(() => {
-    const startedAt = watchStartRef.current;
-    watchStartRef.current = null;
-    if (!startedAt) return;
-    const seconds = (Date.now() - startedAt) / 1000;
-    if (seconds < 2) return; // a quick scroll-past isn't a real engagement signal
-    api.post('/clubs-feed/watch', { topic: video.topic, seconds }).catch(() => {});
-  }, [video.topic]);
-
-  const [posterVisible, setPosterVisible] = useState(true);
-
-  /* Create the player once this slide enters the preload/active window;
-     destroy it once it falls back out — caps how many players ever exist
-     at once regardless of how far the feed is scrolled. */
-  useEffect(() => {
-    if (!mounted) return;
-    let cancelled = false;
-
-    loadYouTubeIframeApi().then((YT) => {
-      if (cancelled || !mountElRef.current) return;
-      playerRef.current = new YT.Player(mountElRef.current, {
-        videoId: video.videoId,
-        playerVars: {
-          autoplay: 0, mute: 1, playsinline: 1, rel: 0, modestbranding: 1,
-        },
-        events: {
-          onReady: (e) => {
-            readyRef.current = true;
-            if (modeRef.current === 'active') {
-              if (soundRef.current) e.target.unMute(); else e.target.mute();
-              e.target.playVideo();
-            } else if (modeRef.current === 'preload-near') {
-              /* Silent warm-up: actually playing (muted), not just cued, so
-                 the video is genuinely progressing/buffered by the time the
-                 student arrives — this is what makes the active transition
-                 feel instant instead of stalling on real buffering time.
-                 Only the immediate-next slide does this — see 'preload-far'. */
-              e.target.mute();
-              e.target.playVideo();
-            }
-            /* 'preload-far' deliberately does nothing here — created and
-               cued (embed/init cost paid early) but left paused, so only one
-               video is ever silently decoding in the background at once. */
-          },
-          /* The poster stays up until real frames are actually rendering —
-             onReady only means the player API will accept commands, not
-             that playback has visibly started, so clearing the poster there
-             left a window where the iframe was blank/buffering underneath
-             an already-faded poster, which read as a stall. Tying it to the
-             genuine PLAYING state instead means the poster masks 100% of any
-             real buffering time. */
-          onStateChange: (e) => {
-            if (e.data === YT.PlayerState.PLAYING) setPosterVisible(false);
-          },
-        },
-      });
-    });
-
-    return () => {
-      cancelled = true;
-      playerRef.current?.destroy?.();
-      playerRef.current = null;
-      readyRef.current = false;
-      setPosterVisible(true);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, video.videoId]);
-
-  /* Drives play/pause/mute across every mode transition. A preload-near
-     slide that's already silently playing just gets unmuted on becoming
-     active (playVideo() on an already-playing video is a no-op, never a
-     restart) — genuinely instant. A cold idle→active jump (fast multi-slide
-     scroll skipping the preload window) still falls back to a normal start.
-     Also starts/stops the watch-time clock used for engagement weighting. */
-  useEffect(() => {
-    if (active) {
-      watchStartRef.current = Date.now();
-    } else {
-      reportWatch();
-    }
-    if (!readyRef.current || !playerRef.current) return;
-    if (active) {
-      if (soundOn) playerRef.current.unMute(); else playerRef.current.mute();
-      playerRef.current.playVideo();
-    } else if (mode === 'preload-near') {
-      playerRef.current.mute();
-      playerRef.current.playVideo();
-    } else {
-      playerRef.current.pauseVideo();
-    }
-  }, [active, mode]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  /* Covers the last-watched video when the whole page unmounts (navigating
-     away) rather than just scrolling to the next slide. */
-  useEffect(() => () => reportWatch(), [reportWatch]);
-
-  /* Live sound-preference relay while remaining the active slide. */
-  useEffect(() => {
-    if (!readyRef.current || !playerRef.current || !active) return;
-    if (soundOn) playerRef.current.unMute(); else playerRef.current.mute();
-  }, [soundOn, active]);
-
-  return (
-    <div className={cf.slide} ref={registerSlideEl} data-video-id={video.videoId}>
-      {/* Poster stays visible underneath until the player has actually
-         signalled ready — a fresh player is blank/white for a moment while
-         YouTube's embed page and chrome load, which otherwise reads as a
-         stall even once the preload window is warming it up in advance. */}
-      {video.image && (
-        <img
-          src={video.image}
-          alt=""
-          className={cf.poster}
-          loading="lazy"
-          style={!posterVisible ? { opacity: 0 } : undefined}
-        />
-      )}
-      {/* YT.Player replaces this inner div with its own fresh <iframe> (which
-         won't inherit a className), so positioning lives on the wrapper
-         instead — the replacement iframe just fills it via CSS. */}
-      {mounted && (
-        <div className={cf.frame}>
-          <div ref={mountElRef} className={cf.playerMount} />
-        </div>
-      )}
-
-      <div className={cf.overlay} />
-
-      {active && (
-        <button className={cf.muteBtn} onClick={onToggleSound} aria-label={soundOn ? 'Mute' : 'Unmute'}>
-          {soundOn ? '🔊' : '🔇'}
-        </button>
-      )}
-
-      <div className={cf.caption}>
-        <div className={cf.title}>{video.title}</div>
-        <div className={cf.meta}>
-          <span className={cf.channel}>{video.channel}</span>
-          <span className={cf.dot}>·</span>
-          <span className={cf.topic}>{video.topic}</span>
-        </div>
-      </div>
-    </div>
-  );
+/* Bento-grid span, in priority order: a fixed "big" every 7th tile for visual
+   variety, otherwise derived from the media's real aspect ratio (falls back to
+   a plain 1x1 tile when no dimensions were reported — e.g. the disk-storage
+   fallback path, which doesn't return Cloudinary's width/height). */
+function spanFor(post, index) {
+  if (index % 7 === 6) return 'big';
+  if (!post.mediaWidth || !post.mediaHeight) return '';
+  const ratio = post.mediaWidth / post.mediaHeight;
+  if (ratio >= 1.5) return 'wide';
+  if (ratio <= 0.67) return 'tall';
+  return '';
 }
 
-/* How many slides ahead of the active one get created and silently
-   pre-played (muted) so they're already buffering/progressing before the
-   student scrolls to them. 2 gives real lead time at natural swipe speed
-   without holding an unbounded number of simultaneous players. */
-const PRELOAD_AHEAD = 2;
-
-/* How close to the end of the currently-loaded feed (in slides) triggers the
-   next "load more" fetch — needs enough head start that the fetch resolves
-   before the student actually scrolls that far. */
-const LOAD_MORE_THRESHOLD = 4;
-
 export default function ClubsFeed() {
-  const [videos,   setVideos]   = useState([]);
-  const [clubs,    setClubs]    = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState('');
-  const [apiKeySet, setApiKeySet] = useState(true);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [hasMore,  setHasMore]  = useState(true);
-  /* Session-wide sound preference — starts muted (autoplay-with-sound is
-     blocked without a prior user gesture), tapping the button once turns it
-     on for every video for the rest of this visit, current and future. */
-  const [soundOn, setSoundOn] = useState(false);
+  const [tab,       setTab]       = useState('feed'); // 'feed' | 'mine'
+  const [posts,     setPosts]     = useState([]);
+  const [myPosts,   setMyPosts]   = useState([]);
+  const [clubs,     setClubs]     = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [toast,     setToast]     = useState('');
 
-  const containerRef = useRef(null);
-  /* Every video ID ever shown this session — sent back as `exclude` so
-     "load more" prefers genuinely new videos over immediate repeats. A ref
-     (not state) since it's read inside the fetch call, never rendered. */
-  const shownIdsRef  = useRef(new Set());
-  const fetchingMoreRef = useRef(false);
-  /* Two consecutive load-more calls that append nothing new means every
-     topic's pool is genuinely exhausted (or the feed API is unconfigured) —
-     stops further auto-fetching so a dead end doesn't retry forever. */
-  const emptyStreakRef = useRef(0);
+  const [open,       setOpen]       = useState(false);
+  const [form,       setForm]       = useState({ clubId: '', caption: '' });
+  const [file,       setFile]       = useState(null);
+  const [filePrev,   setFilePrev]   = useState('');
+  const [fileKind,   setFileKind]   = useState(''); // 'image' | 'video'
+  const [submitting, setSubmitting] = useState(false);
+  const fileRef = useRef();
 
-  /* Fresh fetch on every mount — leaving the page and coming back (or a hard
-     reload) always re-requests, and the backend shuffles fresh on every
-     call, so the feed never looks the same twice in a row. */
+  const [lightboxIndex, setLightboxIndex] = useState(null);
+  const [deletingId,    setDeletingId]    = useState(null);
+  const touchX = useRef(null);
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
+
+  const loadMine = useCallback(() => {
+    api.get('/club-feed/mine').then(d => setMyPosts(d.posts || [])).catch(() => {});
+  }, []);
+
   useEffect(() => {
     setLoading(true);
-    api.get('/clubs-feed')
-      .then((d) => {
-        const list = d.videos || [];
-        list.forEach(v => shownIdsRef.current.add(v.videoId));
-        setVideos(list);
-        setClubs(d.clubs || []);
-        setApiKeySet(d.apiKeySet !== false);
-        setError('');
-      })
-      .catch((err) => setError(err.message || 'Could not load your Clubs Feed.'))
-      .finally(() => setLoading(false));
+    Promise.all([
+      api.get('/club-feed').then(d => setPosts(d.posts || [])).catch(() => {}),
+      api.get('/users/me/clubs').then(d => setClubs(d.clubs || [])).catch(() => {}),
+    ]).finally(() => setLoading(false));
   }, []);
 
-  /* Infinite scroll: once the active slide gets within LOAD_MORE_THRESHOLD
-     of the end of what's loaded, fetch the next batch and append it —
-     scrolling through a Clubs Feed should never hit a hard stop the way a
-     one-shot fixed list would. */
+  useEffect(() => { if (tab === 'mine') loadMine(); }, [tab, loadMine]);
+
+  /* ── Submit modal ── */
+  const openSubmit = () => {
+    setForm({ clubId: clubs.length === 1 ? String(clubs[0].club_id) : '', caption: '' });
+    setFile(null); setFilePrev(''); setFileKind('');
+    setOpen(true);
+  };
+  const closeSubmit = () => { setOpen(false); setFile(null); setFilePrev(''); setFileKind(''); };
+
+  const handleFilePick = (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    setFile(f);
+    setFileKind(f.type.startsWith('video/') ? 'video' : 'image');
+    setFilePrev(URL.createObjectURL(f));
+  };
+
+  const handleSubmit = async () => {
+    if (!form.clubId) return showToast('Please choose a club.');
+    if (!file)        return showToast('Please choose a photo or video.');
+    setSubmitting(true);
+    try {
+      const fd = new FormData();
+      fd.append('clubId',  form.clubId);
+      fd.append('caption', form.caption.trim());
+      fd.append('media',   file);
+      await api.postForm('/club-feed', fd);
+      showToast('Submitted! Your club coordinator will review it shortly.');
+      closeSubmit();
+      if (tab === 'mine') loadMine();
+    } catch (err) {
+      showToast(err?.message || 'Failed to submit.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    setDeletingId(id);
+    try {
+      await api.delete(`/club-feed/${id}`);
+      setMyPosts(p => p.filter(x => x.id !== id));
+      setPosts(p => p.filter(x => x.id !== id));
+      showToast('Post deleted.');
+    } catch (err) {
+      showToast(err?.message || 'Failed to delete.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  /* ── Lightbox ── */
+  const openLightbox = (i) => {
+    setLightboxIndex(i);
+    window.history.pushState({ lightbox: true }, '');
+  };
+  const closeLightbox = useCallback(() => {
+    if (window.history.state?.lightbox) window.history.back();
+    else setLightboxIndex(null);
+  }, []);
+  const goPrev = useCallback(() => {
+    setLightboxIndex(i => i === null ? null : (i - 1 + posts.length) % posts.length);
+  }, [posts.length]);
+  const goNext = useCallback(() => {
+    setLightboxIndex(i => i === null ? null : (i + 1) % posts.length);
+  }, [posts.length]);
+
   useEffect(() => {
-    if (!hasMore || fetchingMoreRef.current) return;
-    if (!videos.length) return;
-    if (activeIndex < videos.length - LOAD_MORE_THRESHOLD) return;
-
-    fetchingMoreRef.current = true;
-    api.post('/clubs-feed/more', { exclude: [...shownIdsRef.current] })
-      .then((d) => {
-        const incoming = (d.videos || []).filter(v => !shownIdsRef.current.has(v.videoId));
-        incoming.forEach(v => shownIdsRef.current.add(v.videoId));
-        if (incoming.length) {
-          emptyStreakRef.current = 0;
-          setVideos(prev => [...prev, ...incoming]);
-        } else {
-          emptyStreakRef.current += 1;
-          if (emptyStreakRef.current >= 2) setHasMore(false);
-        }
-      })
-      .catch(() => { emptyStreakRef.current += 1; if (emptyStreakRef.current >= 2) setHasMore(false); })
-      .finally(() => { fetchingMoreRef.current = false; });
-  }, [activeIndex, videos.length, hasMore]);
-
-  /* Latest videos array, readable from the observer callback below without
-     that callback needing to close over (and the observer needing to be
-     recreated whenever) `videos` itself. */
-  const videosRef = useRef(videos);
-  videosRef.current = videos;
-
-  const observerRef = useRef(null);
-
-  /* Track which slide is most in view — that one becomes active. Created
-     ONCE for the life of the page, not per videos-array change: infinite
-     scroll appends a new array reference on every "load more" batch, and
-     tearing down + recreating the observer on every append (a) is real
-     main-thread work landing mid-scroll and (b) re-observing already-
-     intersecting elements re-fires the callback, which could transiently
-     flip activeIndex away from and back to the slide already playing —
-     unmounting/remounting its player mid-watch, which resets it to muted
-     and restarts it from 0. Each Slide observes/unobserves its own element
-     directly (see registerSlideEl in Slide above) via this ref, rather than
-     the parent re-scanning a list on every videos-array change. */
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter(e => e.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-        if (!visible) return;
-        const idx = videosRef.current.findIndex(v => v.videoId === visible.target.dataset.videoId);
-        if (idx !== -1) setActiveIndex(idx);
-      },
-      { root: containerRef.current, threshold: [0.6] }
-    );
-    observerRef.current = observer;
-    return () => { observer.disconnect(); observerRef.current = null; };
+    const onPopState = () => setLightboxIndex(null);
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  const toggleSound = () => setSoundOn(s => !s);
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') closeLightbox();
+      else if (e.key === 'ArrowLeft') goPrev();
+      else if (e.key === 'ArrowRight') goNext();
+    };
+    window.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [lightboxIndex, closeLightbox, goPrev, goNext]);
 
-  if (loading) {
-    return <div className={cf.state}>Loading your Clubs Feed…</div>;
-  }
+  const onTouchStart = (e) => { touchX.current = e.touches[0].clientX; };
+  const onTouchEnd = (e) => {
+    if (touchX.current === null) return;
+    const dx = e.changedTouches[0].clientX - touchX.current;
+    if (Math.abs(dx) > 40) { dx < 0 ? goNext() : goPrev(); }
+    touchX.current = null;
+  };
 
-  if (error) {
-    return <div className={cf.state}>{error}</div>;
-  }
-
-  if (!clubs.length) {
-    return (
-      <div className={cf.state}>
-        <p className={cf.stateTitle}>Join a club to unlock your Clubs Feed</p>
-        <p className={cf.stateSub}>Videos relevant to your clubs will show up here once you're a member of at least one.</p>
-      </div>
-    );
-  }
-
-  if (!apiKeySet) {
-    return (
-      <div className={cf.state}>
-        <p className={cf.stateTitle}>Clubs Feed isn't configured yet</p>
-        <p className={cf.stateSub}>Ask an admin to add a YouTube API key on the server.</p>
-      </div>
-    );
-  }
-
-  if (!videos.length) {
-    return (
-      <div className={cf.state}>
-        <p className={cf.stateTitle}>No videos found right now</p>
-        <p className={cf.stateSub}>Try again shortly — new content refreshes periodically.</p>
-      </div>
-    );
-  }
+  const lightboxPost = lightboxIndex !== null ? posts[lightboxIndex] : null;
 
   return (
-    <div className={cf.container} ref={containerRef}>
-      {videos.map((v, i) => {
-        const mode = i === activeIndex ? 'active'
-          : (i === activeIndex + 1) ? 'preload-near'
-          : (i > activeIndex + 1 && i <= activeIndex + PRELOAD_AHEAD) ? 'preload-far'
-          : (i === activeIndex - 1) ? 'preload-behind'
-          : 'idle';
-        return (
-          <Slide
-            key={v.videoId}
-            video={v}
-            mode={mode}
-            soundOn={soundOn}
-            onToggleSound={toggleSound}
-            observerRef={observerRef}
-          />
-        );
-      })}
-      {!hasMore && (
-        <div className={`${cf.slide} ${cf.endSlide}`}>
-          <p className={cf.stateTitle}>You're all caught up</p>
-          <p className={cf.stateSub}>New videos for your clubs show up here as they're published.</p>
+    <div className={cf.page}>
+      {toast && <div className={cf.toast}>{toast}</div>}
+
+      <div className={cf.header}>
+        <div>
+          <h1 className={cf.title}>Clubs Feed</h1>
+          <p className={cf.sub}>Photos and videos shared by your clubs.</p>
         </div>
+        <div className={cf.tabs}>
+          <button className={`${cf.tab} ${tab === 'feed' ? cf.tabOn : ''}`} onClick={() => setTab('feed')}>Feed</button>
+          <button className={`${cf.tab} ${tab === 'mine' ? cf.tabOn : ''}`} onClick={() => setTab('mine')}>My Submissions</button>
+        </div>
+      </div>
+
+      {tab === 'feed' ? (
+        loading ? (
+          <div className={cf.grid}>
+            {[1,2,3,4,5,6,7,8].map(i => <div key={i} className={`${cf.card} ${cf.shimmer}`} />)}
+          </div>
+        ) : clubs.length === 0 ? (
+          <div className={cf.empty}>
+            <p>Join a club to see its feed here.</p>
+            <a href="/student/clubs" className={cf.emptyLink}>Browse Clubs</a>
+          </div>
+        ) : posts.length === 0 ? (
+          <div className={cf.empty}>
+            <p>No posts yet — be the first to share something!</p>
+          </div>
+        ) : (
+          <div className={cf.grid}>
+            {posts.map((post, i) => {
+              const span = spanFor(post, i);
+              const isVideo = post.mediaType === 'video';
+              return (
+                <div
+                  key={post.id}
+                  className={`${cf.card} ${span ? cf[span] : ''}`}
+                  onClick={() => openLightbox(i)}
+                >
+                  {isVideo ? (
+                    <video className={cf.img} src={post.mediaUrl} muted autoPlay loop playsInline />
+                  ) : (
+                    <img src={post.mediaUrl} alt={post.caption} className={cf.img} loading="lazy" />
+                  )}
+                  {isVideo && <div className={cf.volumeBadge}>▶</div>}
+                  {(post.caption || post.clubName) && (
+                    <div className={cf.label}>{post.caption || post.clubName}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )
+      ) : (
+        <div className={cf.mineList}>
+          {myPosts.length === 0 ? (
+            <div className={cf.empty}><p>You haven't submitted anything yet.</p></div>
+          ) : myPosts.map(post => {
+            const st = STATUS_LABEL[post.status] || STATUS_LABEL.pending;
+            const poster = post.mediaType === 'video' ? (post.thumbnailUrl || post.mediaUrl) : post.mediaUrl;
+            return (
+              <div key={post.id} className={cf.mineCard}>
+                <img src={poster} alt="" className={cf.mineThumb} />
+                <div className={cf.mineInfo}>
+                  <div className={cf.mineHead}>
+                    <span className={cf.mineClub}>{post.clubName}</span>
+                    <span className={cf.mineStatus} style={{ background: st.bg, color: st.color }}>{st.label}</span>
+                  </div>
+                  {post.caption && <p className={cf.mineCaption}>{post.caption}</p>}
+                  {post.status === 'rejected' && post.adminNote && (
+                    <p className={cf.mineNote}><strong>Note:</strong> {post.adminNote}</p>
+                  )}
+                  <span className={cf.mineDate}>{new Date(post.createdAt).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' })}</span>
+                </div>
+                <button className={cf.mineDeleteBtn} onClick={() => handleDelete(post.id)} disabled={deletingId === post.id}>
+                  {deletingId === post.id ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {clubs.length > 0 && (
+        <button className={cf.fab} onClick={openSubmit} aria-label="Submit to Club Feed">+</button>
+      )}
+
+      {/* ── Submit modal ── */}
+      {open && (
+        <div className={cf.overlay} onClick={closeSubmit}>
+          <div className={cf.modal} onClick={e => e.stopPropagation()}>
+            <div className={cf.modalHead}>
+              <h2 className={cf.modalTitle}>Submit to Club Feed</h2>
+              <button className={cf.closeBtn} onClick={closeSubmit}>✕</button>
+            </div>
+
+            {clubs.length > 1 && (
+              <>
+                <label className={cf.fieldLabel}>Club</label>
+                <select className={cf.select} value={form.clubId} onChange={e => setForm(p => ({ ...p, clubId: e.target.value }))}>
+                  <option value="">Choose a club…</option>
+                  {clubs.map(c => <option key={c.club_id} value={c.club_id}>{c.club_name}</option>)}
+                </select>
+              </>
+            )}
+
+            <label className={cf.fieldLabel}>Photo or Video</label>
+            <div className={cf.fileBox} onClick={() => fileRef.current.click()}>
+              {filePrev ? (
+                fileKind === 'video'
+                  ? <video src={filePrev} className={cf.filePreview} muted loop autoPlay />
+                  : <img src={filePrev} alt="preview" className={cf.filePreview} />
+              ) : (
+                <div className={cf.filePlaceholder}>Click to choose a photo or video</div>
+              )}
+            </div>
+            <input ref={fileRef} type="file" accept="image/*,video/*" style={{ display:'none' }} onChange={handleFilePick} />
+            <div className={cf.fileHint}>Images up to 10 MB · Videos (MP4, MOV, WEBM) up to 50 MB</div>
+
+            <label className={cf.fieldLabel}>Caption <span className={cf.optional}>(optional)</span></label>
+            <textarea
+              className={cf.textarea}
+              rows={3}
+              maxLength={300}
+              value={form.caption}
+              onChange={e => setForm(p => ({ ...p, caption: e.target.value }))}
+              placeholder="Say something about this…" />
+
+            <div className={cf.modalFoot}>
+              <button className={cf.cancelBtn} onClick={closeSubmit}>Cancel</button>
+              <button className={cf.submitBtn} onClick={handleSubmit} disabled={submitting}>
+                {submitting ? 'Submitting…' : 'Submit for Review'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Lightbox ── */}
+      {lightboxPost && createPortal(
+        <div className={cf.lightbox} onClick={closeLightbox}>
+          <button className={cf.lbCloseBtn} onClick={(e) => { e.stopPropagation(); closeLightbox(); }} aria-label="Close">✕</button>
+          <button className={`${cf.navBtn} ${cf.navBtnLeft}`} onClick={(e) => { e.stopPropagation(); goPrev(); }} aria-label="Previous">‹</button>
+          <div className={cf.lightboxContent} onClick={e => e.stopPropagation()} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+            {lightboxPost.mediaType === 'video'
+              /* key={id} forces a full remount on every prev/next — without it React
+                 would just patch the existing <video>'s src in place, which doesn't
+                 reliably stop the outgoing clip's audio or reset the incoming one. */
+              ? <video key={lightboxPost.id} src={lightboxPost.mediaUrl} className={cf.lightboxMedia} controls autoPlay playsInline />
+              : <img key={lightboxPost.id} src={lightboxPost.mediaUrl} alt={lightboxPost.caption} className={cf.lightboxMedia} />
+            }
+            {lightboxPost.caption && <div className={cf.lightboxCaption}>{lightboxPost.caption}</div>}
+            <div className={cf.lightboxMeta}>{lightboxPost.studentName} · {lightboxPost.clubName}</div>
+          </div>
+          <button className={`${cf.navBtn} ${cf.navBtnRight}`} onClick={(e) => { e.stopPropagation(); goNext(); }} aria-label="Next">›</button>
+        </div>,
+        document.body
       )}
     </div>
   );

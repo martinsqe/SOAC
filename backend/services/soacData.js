@@ -598,6 +598,33 @@ const ensureSoacTables = async () => {
   await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS university_expectations TEXT NOT NULL DEFAULT ''`);
   await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS image VARCHAR(255) NOT NULL DEFAULT ''`);
 
+  /* ── Club Feed (club members submit photos/videos; coordinator approves) ── */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS club_feed_posts (
+      id            BIGSERIAL    PRIMARY KEY,
+      club_id       BIGINT       NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+      club_name     VARCHAR(255) NOT NULL DEFAULT '',
+      student_id    INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      student_name  VARCHAR(255) NOT NULL DEFAULT '',
+      media_type    VARCHAR(10)  NOT NULL DEFAULT 'image' CHECK (media_type IN ('image','video')),
+      media_url     VARCHAR(500) NOT NULL,
+      thumbnail_url VARCHAR(500) NOT NULL DEFAULT '',
+      media_width   INTEGER      NOT NULL DEFAULT 0,
+      media_height  INTEGER      NOT NULL DEFAULT 0,
+      caption       VARCHAR(300) NOT NULL DEFAULT '',
+      status        VARCHAR(20)  NOT NULL DEFAULT 'pending'
+                      CHECK (status IN ('pending','approved','rejected')),
+      admin_note    TEXT         NOT NULL DEFAULT '',
+      reviewed_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      reviewed_at   TIMESTAMPTZ,
+      created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_club_feed_status  ON club_feed_posts(status)`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_club_feed_club    ON club_feed_posts(club_id)`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_club_feed_student ON club_feed_posts(student_id)`);
+
   /* ── Event teams (coordinator groups registered participants into teams) ── */
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS event_teams (

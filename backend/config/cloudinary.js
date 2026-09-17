@@ -34,4 +34,19 @@ const destroyImage = async (storedValue) => {
   } catch (_) {}
 };
 
-module.exports = { cloudinary, destroyImage };
+/**
+ * Same as destroyImage(), but for an asset that may be a video — Cloudinary's
+ * destroy() defaults to resource_type 'image', which silently no-ops (asset
+ * "not found") against a video public_id unless resource_type is passed explicitly.
+ */
+const destroyMedia = async (storedValue, mediaType = 'image') => {
+  if (!storedValue || !cloudinary) return;
+  try {
+    if (!storedValue.startsWith('https://res.cloudinary.com')) return;
+    const m = storedValue.match(/\/upload\/(?:v\d+\/)?(.+)\.[^.]+$/);
+    if (!m) return;
+    await cloudinary.uploader.destroy(m[1], { resource_type: mediaType === 'video' ? 'video' : 'image' });
+  } catch (_) {}
+};
+
+module.exports = { cloudinary, destroyImage, destroyMedia };

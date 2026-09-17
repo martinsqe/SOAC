@@ -3,6 +3,7 @@ const path   = require('path');
 const fs     = require('fs');
 
 const ALLOWED = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+const ALLOWED_VIDEO = ['mp4', 'mov', 'webm'];
 
 /* ── Try to load Cloudinary storage; fall back to disk if not installed ── */
 let useCloudinary = false;
@@ -44,6 +45,13 @@ const imageFilter = (req, file, cb) => {
   const ext = file.originalname.split('.').pop().toLowerCase();
   if (ALLOWED.includes(ext)) return cb(null, true);
   cb(new Error('Only image files (jpg, jpeg, png, webp, gif) are allowed.'));
+};
+
+/* Club Feed accepts either an image OR a video in the same field. */
+const mediaFilter = (req, file, cb) => {
+  const ext = file.originalname.split('.').pop().toLowerCase();
+  if (ALLOWED.includes(ext) || ALLOWED_VIDEO.includes(ext)) return cb(null, true);
+  cb(new Error('Only image (jpg, jpeg, png, webp, gif) or video (mp4, mov, webm) files are allowed.'));
 };
 
 /* Certificate templates are later embedded into a PDF via pdf-lib, which only supports
@@ -117,4 +125,47 @@ const uploadReportPhoto = multer({ storage: makeStorage('report-photos'), fileFi
 const uploadExplore     = multer({ storage: makeStorage('explore'),       fileFilter: imageFilter, limits: { fileSize: 10 * 1024 * 1024 } });
 const uploadCertTemplate = multer({ storage: makeStorage('cert-templates'), fileFilter: certImageFilter, limits: { fileSize: 10 * 1024 * 1024 } });
 
-module.exports = { uploadLogo, uploadEvent, uploadEventMemory, uploadAvatar, uploadFame, uploadLeadership, uploadMvpPhoto, uploadReportPhoto, uploadExplore, uploadCertTemplate, getFileValue, uploadImageBuffer, cloudinaryInstance, useCloudinary };
+/* Club Feed submissions can be an image OR a video — the resource_type has to be
+   picked per-file (image vs video), which a static CloudinaryStorage config can't
+   do, so this uses the same memoryStorage + manual-upload escape hatch as
+   uploadEventMemory/uploadImageBuffer, just with a larger cap for video. */
+const uploadClubFeedMedia = multer({ storage: multer.memoryStorage(), fileFilter: mediaFilter, limits: { fileSize: 50 * 1024 * 1024 } });
+
+/* Same shape as uploadImageBuffer(), but picks image vs video resource_type from
+   the file extension and also returns Cloudinary's reported width/height (used to
+   size each tile in the masonry grid) plus a thumbnail for videos (Cloudinary
+   auto-generates a poster frame when the same asset is requested with a .jpg
+   extension — swapping it is all that's needed, no extra transform/upload). */
+const uploadMediaBuffer = async (file, folder, timeoutMs = 20000) => {
+  const ext = file.originalname.split('.').pop().toLowerCase();
+  const isVideo = ALLOWED_VIDEO.includes(ext);
+  const mediaType = isVideo ? 'video' : 'image';
+
+  if (useCloudinary && cloudinaryInstance) {
+    const result = await Promise.race([
+      new Promise((resolve, reject) => {
+        const stream = cloudinaryInstance.uploader.upload_stream(
+          { folder, resource_type: mediaType, allowed_formats: isVideo ? ALLOWED_VIDEO : ALLOWED },
+          (err, r) => (err ? reject(err) : resolve(r))
+        );
+        stream.end(file.buffer);
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Media upload timed out')), timeoutMs)),
+    ]);
+    return {
+      url: result.secure_url,
+      mediaType,
+      width: result.width || 0,
+      height: result.height || 0,
+      thumbnailUrl: isVideo ? result.secure_url.replace(/\.\w+($|\?)/, '.jpg$1') : '',
+    };
+  }
+  // Disk fallback — no dimensions or auto-thumbnail available.
+  const dir = path.join(__dirname, '..', 'uploads', folder);
+  fs.mkdirSync(dir, { recursive: true });
+  const fname = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  fs.writeFileSync(path.join(dir, fname), file.buffer);
+  return { url: `/uploads/${folder}/${fname}`, mediaType, width: 0, height: 0, thumbnailUrl: '' };
+};
+
+module.exports = { uploadLogo, uploadEvent, uploadEventMemory, uploadAvatar, uploadFame, uploadLeadership, uploadMvpPhoto, uploadReportPhoto, uploadExplore, uploadCertTemplate, uploadClubFeedMedia, getFileValue, uploadImageBuffer, uploadMediaBuffer, cloudinaryInstance, useCloudinary };
