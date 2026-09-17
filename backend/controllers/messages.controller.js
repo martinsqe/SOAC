@@ -5,6 +5,35 @@
 const { pgPool } = require('../config/db');
 const { ensureSoacTables } = require('../services/soacData');
 const { notifyUser } = require('../services/notify');
+const { getCoordClubIds, getClubCoordinatorIds } = require('../services/coordAuth');
+
+/* Students may DM admins and the coordinators of clubs they belong to, never
+   another student. Coordinators may DM admins, other coordinators, and
+   students in clubs they manage. Admin is unrestricted on both sides.
+   Checked symmetrically since either party can call sendDM. Uses
+   getClubCoordinatorIds() (not a direct coordinator_club_assignments join)
+   so a coordinator with a stale/missing assignment row — the exact problem
+   coordAuth.js exists to paper over — doesn't become unreachable by their
+   own students. */
+async function isDmAllowed(userA, roleA, userB, roleB) {
+  if (roleA === 'admin' || roleB === 'admin') return true;
+  if (roleA === 'coordinator' && roleB === 'coordinator') return true;
+
+  let studentId, coordinatorId;
+  if (roleA === 'student' && roleB === 'coordinator')      { studentId = userA; coordinatorId = userB; }
+  else if (roleA === 'coordinator' && roleB === 'student') { studentId = userB; coordinatorId = userA; }
+  else return false; // student <-> student, or any other combination
+
+  const { rows: memberships } = await pgPool.query(
+    `SELECT club_id FROM student_clubs WHERE user_id = $1 AND is_active = true`,
+    [studentId]
+  );
+  for (const m of memberships) {
+    const coordIds = await getClubCoordinatorIds(m.club_id);
+    if (coordIds.includes(coordinatorId)) return true;
+  }
+  return false;
+}
 
 /* ── GET /api/messages/conversations ───────────────────────────────────────
    Returns all group chats (clubs student joined) + DM threads, each with
@@ -187,6 +216,11 @@ const sendDM = async (req, res, next) => {
     const { rows: check } = await pgPool.query(`SELECT id, role FROM users WHERE id = $1`, [other]);
     if (!check.length) return res.status(404).json({ message: 'User not found.' });
 
+    const allowed = await isDmAllowed(me, req.user.role, other, check[0].role);
+    if (!allowed) {
+      return res.status(403).json({ message: 'You can only message admins and your club coordinators.' });
+    }
+
     const { rows: ur } = await pgPool.query(`SELECT avatar FROM users WHERE id = $1`, [me]);
 
     const { rows } = await pgPool.query(
@@ -252,19 +286,19 @@ const getClubMembers = async (req, res, next) => {
          ORDER BY u.id, u.name`,
         [uid]
       ));
-    } else {
-      /* Students + coordinators: clubmates OR any coordinator/admin */
+    } else if (req.user.role === 'coordinator') {
+      /* Coordinator: any admin/coordinator, plus only students in clubs THEY
+         manage (not every club's members). */
+      const clubIds = (await getCoordClubIds(uid)).map(Number);
       ({ rows } = await pgPool.query(
         `SELECT DISTINCT ON (u.id)
            u.id, u.name, u.avatar, u.role,
-           CASE WHEN u.role = 'admin' THEN 'SOAC Admin'
-                ELSE COALESCE(sc.club_name, '')
-           END AS club_name,
+           CASE WHEN u.role = 'admin' THEN 'SOAC Admin' ELSE COALESCE(sc.club_name, '') END AS club_name,
            COALESCE(sc.club_id::text, '') AS club_id,
            COALESCE(jr.dept, '') AS dept,
            COALESCE(jr.year, '') AS year
          FROM users u
-         LEFT JOIN student_clubs sc ON sc.user_id = u.id
+         LEFT JOIN student_clubs sc ON sc.user_id = u.id AND sc.is_active = true
          LEFT JOIN LATERAL (
            SELECT dept, year FROM join_requests
            WHERE email = u.email AND status = 'approved'
@@ -274,16 +308,35 @@ const getClubMembers = async (req, res, next) => {
          WHERE u.is_active = true AND u.id != $1
            AND (
              u.role IN ('coordinator', 'admin')
-             OR EXISTS (
-               SELECT 1 FROM student_clubs me
-               JOIN student_clubs other
-                 ON other.club_id = me.club_id AND other.user_id = u.id
-               WHERE me.user_id = $1
-             )
+             OR (u.role = 'student' AND sc.club_id = ANY($2::bigint[]))
            )
          ORDER BY u.id, sc.club_id NULLS LAST`,
-        [uid]
+        [uid, clubIds]
       ));
+    } else {
+      /* Student: admins and the coordinators of clubs they belong to —
+         never a fellow student. */
+      const { rows: memberships } = await pgPool.query(
+        `SELECT club_id, club_name FROM student_clubs WHERE user_id = $1 AND is_active = true`,
+        [uid]
+      );
+      const clubNameByCoord = new Map();
+      for (const m of memberships) {
+        const coordIds = await getClubCoordinatorIds(m.club_id);
+        coordIds.forEach(id => { if (!clubNameByCoord.has(id)) clubNameByCoord.set(id, m.club_name); });
+      }
+      const coordIds = [...clubNameByCoord.keys()];
+      const { rows: userRows } = await pgPool.query(
+        `SELECT id, name, avatar, role FROM users
+         WHERE is_active = true AND id != $1 AND (role = 'admin' OR id = ANY($2::int[]))
+         ORDER BY name`,
+        [uid, coordIds]
+      );
+      rows = userRows.map(u => ({
+        ...u,
+        club_name: u.role === 'admin' ? 'SOAC Admin' : (clubNameByCoord.get(u.id) || ''),
+        club_id: '', dept: '', year: '',
+      }));
     }
 
     res.json({ members: rows });

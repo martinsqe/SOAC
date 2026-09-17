@@ -498,10 +498,11 @@ export default function StudentMessages() {
                       <div className={s.msgCol}>
                         {/* sender name — first bubble in a run, group only, click to DM */}
                         {!grouped && !me && activeConv.type === 'group' && (
-                          <div className={s.senderName} style={{ color: activeConv.color }}
-                            onClick={() => msg.user_id && msg.user_id !== user?.id && startDM({
-                              id: msg.user_id, name: msg.user_name, avatar: msg.user_avatar,
-                            })}>
+                          <div className={s.senderName}
+                            style={{ color: activeConv.color, cursor: msg.user_role === 'student' ? 'default' : 'pointer' }}
+                            onClick={() => msg.user_id && msg.user_id !== user?.id
+                              && msg.user_role !== 'student'
+                              && startDM({ id: msg.user_id, name: msg.user_name, avatar: msg.user_avatar })}>
                             {senderName(msg)}
                             {(msg.user_role === 'coordinator' || msg.user_role === 'admin') && (
                               <span className={s.coordBadge}>
