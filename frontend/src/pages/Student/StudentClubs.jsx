@@ -225,6 +225,15 @@ export default function StudentClubs() {
     if (!validate()) return;
     setSubmitting(true);
     try {
+      /* Same pre-check the public join modal does — the email field is editable, so this
+         runs against whatever is in the form. The server re-checks on the POST below. */
+      const limit = await api.get(
+        `/requests/check-club-limit?email=${encodeURIComponent(form.email.trim().toLowerCase())}&clubId=${encodeURIComponent(joinClub._id)}`
+      ).catch(() => null);
+      if (limit?.alreadyMember) { alert("You're already a member of this club."); return; }
+      if (limit?.alreadyPending) { alert('You already have a pending request for this club.'); return; }
+      if (limit?.atLimit) { alert('You can only send request to 3 clubs.'); return; }
+
       await api.post('/requests', {
         clubId:      joinClub._id,
         clubName:    joinClub.name,

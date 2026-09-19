@@ -20,9 +20,10 @@ export default function JoinModal({ club, onClose }) {
     if (!form.gender) { setErr('Please select your gender.'); return; }
     setSubmitting(true);
     try {
-      /* Pre-check the 3-club cap AND existing membership in this club BEFORE sending the
-         actual join request — if either is true, alert and stop here so no request ever
-         gets submitted. The server re-checks both on the real POST below regardless
+      /* Pre-check the 3-club request cap (active memberships + pending requests), existing
+         membership in this club, and an already-pending request for it BEFORE sending the
+         actual join request — if any is true, alert and stop here so no request ever
+         gets submitted. The server re-checks all three on the real POST below regardless
          (authoritative), since this GET is only a best-effort UX shortcut, not something to
          trust alone. */
       try {
@@ -33,8 +34,13 @@ export default function JoinModal({ club, onClose }) {
           setSubmitting(false);
           return;
         }
+        if (limitRes.ok && limitData.alreadyPending) {
+          alert('You already have a pending request for this club.');
+          setSubmitting(false);
+          return;
+        }
         if (limitRes.ok && limitData.atLimit) {
-          alert('You cannot join more than 3 clubs.');
+          alert('You can only send request to 3 clubs.');
           setSubmitting(false);
           return;
         }

@@ -120,9 +120,8 @@ export default function MyActivity() {
       <div className={s.hero}>
         <h1 className={s.heroTitle}>My Activity</h1>
         <p className={s.heroSub}>
-          Enter the email you used to register for events or request to join a club to check
-          your club status and see everything you've participated in — sports, cultural,
-          social and academic — in one place.
+          Enter email to check your club status and see everything you've participated in —
+          sports, cultural, social and academic.
         </p>
       </div>
 

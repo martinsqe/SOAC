@@ -103,28 +103,57 @@ const getAll = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* Active club-membership count for an email — used both to gate join-request creation and
-   by the public pre-submit check the guest join form calls before it even sends a request. */
-const countActiveClubs = async (email) => {
-  const { rows } = await pgPool.query(
-    `SELECT COUNT(sc.*)::int AS cnt
-     FROM student_clubs sc
-     JOIN users u ON u.id = sc.user_id
-     WHERE u.email = $1 AND sc.is_active = true`,
+const MAX_CLUB_SLOTS = 3;
+const REQUEST_LIMIT_MSG = 'You can only send request to 3 clubs.';
+
+/* Club "slots" an email is currently using: active memberships PLUS pending join
+   requests for clubs they aren't already an active member of. A declined request
+   frees its slot (so does a coordinator deactivating a membership), which is what
+   lets a student send another request once one of their three is declined.
+   Used to gate join-request creation and by the public pre-submit check the guest
+   join form calls before it even sends a request. `db` is a pool or a checked-out
+   client, so create() can run this inside its per-email locked transaction. */
+const countUsedClubSlots = async (email, db = pgPool) => {
+  const { rows } = await db.query(
+    `SELECT (
+       SELECT COUNT(*) FROM student_clubs sc
+       JOIN users u ON u.id = sc.user_id
+       WHERE LOWER(u.email) = $1 AND sc.is_active = true
+     ) + (
+       SELECT COUNT(DISTINCT jr.club_id) FROM join_requests jr
+       WHERE LOWER(jr.email) = $1 AND jr.status = 'pending'
+         AND NOT EXISTS (
+           SELECT 1 FROM student_clubs sc2
+           JOIN users u2 ON u2.id = sc2.user_id
+           WHERE LOWER(u2.email) = $1 AND sc2.club_id = jr.club_id AND sc2.is_active = true
+         )
+     ) AS cnt`,
     [String(email || '').toLowerCase()]
   );
-  return rows[0].cnt;
+  return Number(rows[0].cnt);
 };
 
 /* Is this email already an active member of this specific club? Deactivated memberships
    don't count — a dropped student can send a fresh join request for the same club. */
-const isActiveMemberOfClub = async (email, clubId) => {
+const isActiveMemberOfClub = async (email, clubId, db = pgPool) => {
   if (!clubId) return false;
-  const { rows } = await pgPool.query(
+  const { rows } = await db.query(
     `SELECT 1
      FROM student_clubs sc
      JOIN users u ON u.id = sc.user_id
-     WHERE u.email = $1 AND sc.club_id = $2::bigint AND sc.is_active = true
+     WHERE LOWER(u.email) = $1 AND sc.club_id = $2::bigint AND sc.is_active = true
+     LIMIT 1`,
+    [String(email || '').toLowerCase(), clubId]
+  );
+  return rows.length > 0;
+};
+
+/* Does this email already have a pending request for this specific club? */
+const hasPendingRequestForClub = async (email, clubId, db = pgPool) => {
+  if (!clubId) return false;
+  const { rows } = await db.query(
+    `SELECT 1 FROM join_requests
+     WHERE LOWER(email) = $1 AND club_id = $2::bigint AND status = 'pending'
      LIMIT 1`,
     [String(email || '').toLowerCase(), clubId]
   );
@@ -132,21 +161,23 @@ const isActiveMemberOfClub = async (email, clubId) => {
 };
 
 /* GET /api/requests/check-club-limit?email=X&clubId=Y  (public)
-   Lets the join form ask "is this student already at the 3-club cap, or already a member
-   of THIS club?" BEFORE submitting, so it can block the request client-side with an alert
-   instead of round-tripping a request that the server would reject anyway. Purely a UX
-   pre-check — create() below re-checks both and is the actual enforcement, since this
-   endpoint can't be trusted alone. */
+   Lets the join form ask "is this student already using all 3 club slots (active
+   memberships + pending requests), already a member of THIS club, or already waiting
+   on a request for it?" BEFORE submitting, so it can block the request client-side with
+   an alert instead of round-tripping a request that the server would reject anyway.
+   Purely a UX pre-check — create() below re-checks all three and is the actual
+   enforcement, since this endpoint can't be trusted alone. */
 const checkClubLimit = async (req, res, next) => {
   try {
     const email = String(req.query.email || '').trim();
     if (!email) return res.status(400).json({ message: 'email is required.' });
     const clubId = req.query.clubId ? String(req.query.clubId) : null;
-    const [cnt, alreadyMember] = await Promise.all([
-      countActiveClubs(email),
+    const [cnt, alreadyMember, alreadyPending] = await Promise.all([
+      countUsedClubSlots(email),
       isActiveMemberOfClub(email, clubId),
+      hasPendingRequestForClub(email, clubId),
     ]);
-    res.json({ count: cnt, atLimit: cnt >= 3, alreadyMember });
+    res.json({ count: cnt, atLimit: cnt >= MAX_CLUB_SLOTS, alreadyMember, alreadyPending });
   } catch (err) { next(err); }
 };
 
@@ -164,27 +195,48 @@ const create = async (req, res, next) => {
     }
 
     /* Authoritative enforcement — block at submission time, not just at approval, so a
-       student already active in 3 clubs — or already a member of THIS club — never gets a
-       pending request sitting in front of a coordinator even if the client-side pre-check
-       was bypassed. */
-    if (await isActiveMemberOfClub(email, clubId)) {
-      return res.status(400).json({ message: "You're already a member of this club." });
-    }
-    const activeCount = await countActiveClubs(email);
-    if (activeCount >= 3) {
-      return res.status(400).json({ message: 'You cannot join more than 3 clubs.' });
-    }
+       student who is already a member of THIS club, already waiting on a request for it,
+       or already using all 3 club slots (active memberships + pending requests) never
+       gets another pending request sitting in front of a coordinator, even if the
+       client-side pre-check was bypassed. The check and the insert run in one
+       transaction under a per-email advisory lock, so two simultaneous requests for
+       different clubs can't both read "2 slots used" and both get through. */
+    const emailLc = email.toLowerCase();
+    const client  = await pgPool.connect();
+    let blocked = null;
+    let created = null;
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`join_request:${emailLc}`]);
 
-    const { rows } = await pgPool.query(
-      `INSERT INTO join_requests
-       (club_id, club_name, name, email, phone, enrollment_no, dept, year, gender, message, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')
-       RETURNING ${JR_COLS}`,
-      [clubId, clubName || '', name.trim(), email.toLowerCase(),
-       phone || '', enrollmentNo || '', dept || '', year || '', gender.toUpperCase(), message || '']
-    );
+      if (await isActiveMemberOfClub(emailLc, clubId, client)) {
+        blocked = { status: 400, message: "You're already a member of this club." };
+      } else if (await hasPendingRequestForClub(emailLc, clubId, client)) {
+        blocked = { status: 409, message: 'You already have a pending request for this club.' };
+      } else if (await countUsedClubSlots(emailLc, client) >= MAX_CLUB_SLOTS) {
+        blocked = { status: 400, message: REQUEST_LIMIT_MSG };
+      } else {
+        const { rows: ins } = await client.query(
+          `INSERT INTO join_requests
+           (club_id, club_name, name, email, phone, enrollment_no, dept, year, gender, message, status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')
+           RETURNING ${JR_COLS}`,
+          [clubId, clubName || '', name.trim(), emailLc,
+           phone || '', enrollmentNo || '', dept || '', year || '', gender.toUpperCase(), message || '']
+        );
+        created = ins[0];
+      }
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw txErr;
+    } finally {
+      client.release();
+    }
+    if (blocked) return res.status(blocked.status).json({ message: blocked.message });
+
     await cache.del('stats:admin');
-    res.status(201).json({ request: toJR(rows[0]) });
+    res.status(201).json({ request: toJR(created) });
 
     /* Notify every coordinator assigned to this club — fire-and-forget.
        Uses the same tiered fallback as coordinator auth (not a raw
