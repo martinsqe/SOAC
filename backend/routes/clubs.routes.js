@@ -24,7 +24,6 @@ router.post('/seed',    verifyToken, requireAdmin, ctrl.seed);
 router.get('/mine',        verifyToken, requireCoordOrAdmin, ctrl.mine);
 router.get('/members',     verifyToken, requireAdmin, ctrl.getAllMembers);   // admin: all clubs
 router.get('/leaderboard',    ctrl.getLeaderboard);                            // public: coin leaderboard
-router.get('/coins-overview', verifyToken, requireAdmin, ctrl.coinsOverview); // admin: per-club top-3
 
 router.get('/coordinator-assignments', verifyToken, requireAdmin, ctrl.getCoordinatorAssignments);
 

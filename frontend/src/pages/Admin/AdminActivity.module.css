@@ -1,0 +1,125 @@
+/* Extras for the Activity Monitor — page chrome, tabs, tables, pagination and
+   states come from CoordSubPage.module.css like the other admin pages. */
+
+.statsStrip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.statBox {
+  background: #fff;
+  border: 1.5px solid #f0f0f5;
+  border-radius: 12px;
+  padding: 14px 18px;
+}
+.statNum   { font-size: 1.5rem; font-weight: 800; color: #0f0a2e; line-height: 1.1; }
+.statLabel { font-size: .72rem; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: .05em; margin-top: 4px; }
+
+/* Filters */
+.filterRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.searchInput {
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+  padding: 9px 14px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 9px;
+  font-size: .875rem;
+  outline: none;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+.select {
+  padding: 9px 12px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 9px;
+  font-size: .85rem;
+  background: #fff;
+  color: #374151;
+  outline: none;
+  font-family: inherit;
+  max-width: 220px;
+}
+.searchInput:focus, .select:focus { border-color: #4c44e0; box-shadow: 0 0 0 3px #4c44e018; }
+.clearBtn {
+  padding: 9px 14px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 9px;
+  background: #fff;
+  color: #6b7280;
+  font-size: .82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.clearBtn:hover { border-color: #635bff; color: #635bff; }
+
+/* Tables */
+.wide { min-width: 1120px; }
+.mid  { min-width: 720px; }
+.num  { font-variant-numeric: tabular-nums; }
+/* Words and names sit left; numeric columns (heading and data) are centred.
+   Child combinators keep this off the nested tables inside an expanded member row. */
+.centered > thead > tr > th,
+.centered > tbody > tr > td { text-align: left; vertical-align: middle; }
+.centered > thead > tr > th.num,
+.centered > tbody > tr > td.num { text-align: center; }
+.cellName  { font-size: .875rem; font-weight: 600; color: #0f0a2e; }
+.cellEmail { font-size: .75rem; color: #9ca3af; }
+.muted     { color: #9ca3af; }
+.zero      { color: #d1d5db; }
+.viewBtn {
+  background: none;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 7px;
+  padding: 4px 12px;
+  font-size: .75rem;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.viewBtn:hover { border-color: #635bff; color: #635bff; }
+.rowOpen td { background: #fafafe; }
+.category { text-transform: capitalize; }
+.clubList { font-size: .82rem; color: #374151; line-height: 1.5; }
+
+/* Expanded member detail */
+.detailCell { padding: 0 !important; background: #fafafe; }
+.detail {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 24px;
+  padding: 18px 20px 22px;
+}
+.detailTitle {
+  font-size: .68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: #9ca3af;
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #ececf3;
+}
+.miniTable { width: 100%; border-collapse: collapse; font-size: .8rem; }
+.miniTable th { text-align: left; font-size: .68rem; font-weight: 700; color: #9ca3af; padding: 4px 8px 4px 0; }
+.miniTable td { padding: 6px 8px 6px 0; color: #374151; border-top: 1px solid #f0f0f5; }
+.listItem { padding: 6px 0; border-top: 1px solid #f0f0f5; font-size: .8rem; color: #374151; }
+.listItem:first-child { border-top: none; }
+.listSub { font-size: .72rem; color: #9ca3af; margin-top: 1px; }
+.detailEmpty { font-size: .8rem; color: #9ca3af; font-style: italic; }
+.scroll { max-height: 220px; overflow-y: auto; }
+
+@media (max-width: 900px) {
+  .detail { grid-template-columns: 1fr; gap: 18px; }
+}
+@media (max-width: 560px) {
+  .searchInput, .select { max-width: 100%; width: 100%; }
+}

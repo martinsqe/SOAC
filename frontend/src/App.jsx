@@ -31,7 +31,7 @@ import AdminBroadcast  from './pages/Admin/AdminBroadcast';
 import AdminApprovals      from './pages/Admin/AdminApprovals';
 import AdminFame           from './pages/Admin/AdminFame';
 import AdminMonitorChats   from './pages/Admin/AdminMonitorChats';
-import AdminCoins          from './pages/Admin/AdminCoins';
+import AdminActivity       from './pages/Admin/AdminActivity';
 import AdminReports        from './pages/Admin/AdminReports';
 import GuestGallery   from './pages/Guest/GuestGallery';
 import GuestContact   from './pages/Guest/GuestContact';
@@ -158,7 +158,7 @@ function AppInner() {
           <Route path="approvals"       element={<APPROVALS_PAGE />} />
           <Route path="fame"            element={<AdminFame />} />
           <Route path="broadcast"       element={<BROADCAST_PAGE />} />
-          <Route path="coins"           element={<AdminCoins />} />
+          <Route path="activity"        element={<AdminActivity />} />
           <Route path="suspensions"     element={<SUSPENSIONS_PAGE />} />
           <Route path="chats"           element={<AdminMonitorChats />} />
           <Route path="reports"         element={<AdminReports />} />

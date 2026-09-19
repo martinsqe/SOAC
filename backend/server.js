@@ -146,6 +146,7 @@ app.use('/api/fame',          require('./routes/fame.routes'));
 app.use('/api/calendar',       require('./routes/calendar.routes'));
 app.use('/api/event-requests',  require('./routes/eventRequests.routes'));
 app.use('/api/club-feed',       require('./routes/clubFeed.routes'));
+app.use('/api/activity-monitor', require('./routes/activityMonitor.routes'));
 app.use('/api/club-proposals',  require('./routes/clubProposals.routes'));
 app.use('/api/reports',         require('./routes/reports.routes'));
 app.use('/api/explore',         require('./routes/explore.routes'));

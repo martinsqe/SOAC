@@ -15,7 +15,7 @@ const TITLES = {
   '/admin/approvals':         'Approvals · SOAC Admin',
   '/admin/fame':              'Wall of Fame · SOAC Admin',
   '/admin/broadcast':         'Broadcast · SOAC Admin',
-  '/admin/coins':             'Coins · SOAC Admin',
+  '/admin/activity':          'Activity Monitor · SOAC Admin',
   '/admin/chats':             'Monitor Chats · SOAC Admin',
   '/coordinator':             'Dashboard · Coordinator',
   '/coordinator/members':     'Members · Coordinator',

@@ -27,7 +27,7 @@ const NAV = [
       { to: '/admin/reports',        label: 'Event Reports'  },
       { to: '/admin/fame',           label: 'Wall of Fame'   },
       { to: '/admin/broadcast',      label: 'Broadcast'      },
-      { to: '/admin/coins',          label: 'Coins Monitor'  },
+      { to: '/admin/activity',       label: 'Activity Monitor' },
       { to: '/admin/chats',          label: 'Monitor Chats'  },
     ],
   },
