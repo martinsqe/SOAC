@@ -213,6 +213,19 @@
 .actPositionRunnerUp { background: #e5e7eb; color: #374151; }
 .actStatusPending { font-size: .72rem; color: #9ca3af; font-style: italic; }
 
+/* ── Overall event attendance ── */
+.attSummary {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+.attSummaryTop { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.attSummaryLabel { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: #9ca3af; }
+.attSummaryValue { font-size: 1.6rem; font-weight: 800; color: #D32F2F; line-height: 1; }
+.attSummaryNote { font-size: .78rem; color: #9ca3af; margin: 8px 0 0; }
+
 /* ── Club status ── */
 .clubSection { margin-bottom: 28px; }
 .clubSectionHead { display: flex; justify-content: space-between; padding-right: 17px; }

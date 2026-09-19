@@ -798,6 +798,33 @@ const activityByEmail = async (req, res, next) => {
     ]);
 
     const attendByEvent = new Map(attendRes.rows.map(a => [String(a.event_id), a]));
+
+    /* Overall event attendance = the average of the per-event percentages, across
+       every event (from any club) that actually ran attendance sessions. Includes
+       events they were marked present at without ever registering — a coordinator
+       can mark a member present by account — which the registration list above
+       can't see. Only possible when this email has an account to match marks to. */
+    const attendedOnly = userId ? (await pgPool.query(
+      `SELECT s.event_id,
+              (SELECT COUNT(*) FROM event_attendance_sessions s2 WHERE s2.event_id = s.event_id)::int AS total_sessions,
+              COUNT(DISTINCT s.id)::int AS present_sessions
+       FROM event_attendance_sessions s
+       JOIN event_attendance_records r ON r.session_id = s.id AND r.user_id = $2 AND r.status = 'present'
+       WHERE NOT (s.event_id = ANY($1::bigint[]))
+       GROUP BY s.event_id`,
+      [eventIds, userId]
+    )).rows : [];
+    const eventFractions = [
+      ...attendRes.rows.map(a => [Number(a.present_sessions), Number(a.total_sessions)]),
+      ...attendedOnly.map(a => [a.present_sessions, a.total_sessions]),
+    ].filter(([, total]) => total > 0).map(([present, total]) => present / total);
+    const attendanceSummary = {
+      averagePct: eventFractions.length
+        ? Math.round((eventFractions.reduce((sum, f) => sum + f, 0) / eventFractions.length) * 100)
+        : null,
+      eventsCounted: eventFractions.length,
+    };
+
     const coinsByEvent  = new Map(coinRes.rows.map(c => [String(c.event_id), c]));
     const certsByReg    = new Map();
     for (const c of certRes.rows) {
@@ -835,6 +862,7 @@ const activityByEmail = async (req, res, next) => {
       participated: true,
       hasAccount: !!userId,
       clubs,
+      attendanceSummary,
       categories: Object.entries(categories).map(([key, events]) => ({
         key, label: ACTIVITY_BUCKET_LABEL[key], events,
       })),

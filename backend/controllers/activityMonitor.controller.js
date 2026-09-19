@@ -18,6 +18,60 @@ const BUCKET_SQL = (col) => `
     ELSE 'academic'
   END`;
 
+/* Every event each given member registered for, with how many attendance sessions
+   the event has run. */
+const REGISTERED_EVENTS_SQL = `
+  SELECT u.id AS user_id, er.event_id::text AS event_id, er.event_title,
+         e.start_date, c.name AS club_name, ${BUCKET_SQL('e.category')} AS bucket,
+         (SELECT COUNT(*) FROM event_attendance_sessions s WHERE s.event_id = er.event_id)::int AS total_sessions
+  FROM users u
+  JOIN event_registrations er ON LOWER(er.email) = LOWER(u.email)
+  LEFT JOIN events e ON e.id = er.event_id
+  LEFT JOIN clubs c ON c.id = e.club_id
+  WHERE u.id = ANY($1::int[])`;
+
+/* Event sessions each given member was marked present at, straight from the
+   attendance records. A mark is recorded either against the member's account
+   (user_id) or against one of their registrations (registration_id, for
+   registrants with no account), so match both. Read from the records rather than
+   via registrations because a coordinator can mark a member present at an event
+   they never registered for. */
+const ATTENDED_EVENTS_SQL = `
+  SELECT u.id AS user_id, s.event_id::text AS event_id, e.title AS event_title,
+         e.start_date, c.name AS club_name, ${BUCKET_SQL('e.category')} AS bucket,
+         COUNT(DISTINCT s.id)::int AS present_sessions,
+         (SELECT COUNT(*) FROM event_attendance_sessions s2 WHERE s2.event_id = s.event_id)::int AS total_sessions
+  FROM users u
+  JOIN event_attendance_records r ON r.status = 'present'
+   AND (r.user_id = u.id
+        OR r.registration_id IN (SELECT er.id FROM event_registrations er WHERE LOWER(er.email) = LOWER(u.email)))
+  JOIN event_attendance_sessions s ON s.id = r.session_id
+  LEFT JOIN events e ON e.id = s.event_id
+  LEFT JOIN clubs c ON c.id = e.club_id
+  WHERE u.id = ANY($1::int[])
+  GROUP BY u.id, s.event_id, e.title, e.start_date, c.name, e.category`;
+
+/* Merge registrations and attendance into one entry per (member, event): an event
+   counts as "registered" if they signed up, and as "attended" if they were marked
+   present at any of its sessions — independently, since either can exist alone. */
+const mergeMemberEvents = (registeredRows, attendedRows) => {
+  const byUser = new Map();
+  const entry = (r) => {
+    if (!byUser.has(r.user_id)) byUser.set(r.user_id, new Map());
+    const events = byUser.get(r.user_id);
+    if (!events.has(r.event_id)) {
+      events.set(r.event_id, {
+        eventId: r.event_id, title: r.event_title || '', date: r.start_date, clubName: r.club_name || '',
+        bucket: r.bucket, registered: false, totalSessions: 0, presentSessions: 0,
+      });
+    }
+    return events.get(r.event_id);
+  };
+  registeredRows.forEach(r => { const e = entry(r); e.registered = true; e.totalSessions = r.total_sessions; });
+  attendedRows.forEach(r => { const e = entry(r); e.presentSessions = r.present_sessions; e.totalSessions = r.total_sessions; });
+  return byUser;
+};
+
 const CERT_LABEL = { winner: 'Winner', runner_up: 'Runner-up', participation: 'Participant' };
 
 /* One row per active student with the profile fields that only live on other
@@ -96,7 +150,7 @@ const getSummary = async (req, res, next) => {
 /* Metrics for one page of members, fetched in a handful of batched queries
    keyed by user id rather than per-member round trips. */
 const loadMemberMetrics = async (ids) => {
-  const [clubRes, eventRes, contribRes, certRes, fameRes] = await Promise.all([
+  const [clubRes, registeredRes, attendedRes, contribRes, certRes, fameRes] = await Promise.all([
     pgPool.query(
       `SELECT sc.user_id, sc.club_id::text AS club_id, COALESCE(c.name, sc.club_name) AS club_name
        FROM student_clubs sc LEFT JOIN clubs c ON c.id = sc.club_id
@@ -104,15 +158,8 @@ const loadMemberMetrics = async (ids) => {
        ORDER BY sc.joined_at`,
       [ids]
     ),
-    pgPool.query(
-      `SELECT u.id AS user_id, ${BUCKET_SQL('e.category')} AS bucket, COUNT(DISTINCT er.event_id)::int AS cnt
-       FROM users u
-       JOIN event_registrations er ON LOWER(er.email) = LOWER(u.email)
-       LEFT JOIN events e ON e.id = er.event_id
-       WHERE u.id = ANY($1::int[])
-       GROUP BY u.id, bucket`,
-      [ids]
-    ),
+    pgPool.query(REGISTERED_EVENTS_SQL, [ids]),
+    pgPool.query(ATTENDED_EVENTS_SQL, [ids]),
     pgPool.query(
       `SELECT sc.user_id,
               (SELECT COUNT(*) FROM club_attendance_sessions s WHERE s.club_id = sc.club_id)::int AS total_sessions,
@@ -147,15 +194,26 @@ const loadMemberMetrics = async (ids) => {
 
   const byUser = new Map(ids.map(id => [id, {
     clubs: [],
-    events: { sports: 0, cultural: 0, social: 0, academic: 0, total: 0 },
+    events:   { sports: 0, cultural: 0, social: 0, academic: 0, total: 0 },
+    attended: { sports: 0, cultural: 0, social: 0, academic: 0, total: 0 },
+    eventAttendance: { eventsCounted: 0, pct: null },
     contribution: { sessionsAttended: 0, totalSessions: 0, attendancePct: null, tasksCompleted: 0 },
     achievements: { winner: 0, runnerUp: 0, participation: 0, fame: 0, total: 0 },
   }]));
 
   clubRes.rows.forEach(r => byUser.get(r.user_id)?.clubs.push({ id: r.club_id, name: r.club_name }));
-  eventRes.rows.forEach(r => {
-    const m = byUser.get(r.user_id); if (!m) return;
-    m.events[r.bucket] += r.cnt; m.events.total += r.cnt;
+  const fractionSum = new Map();
+  mergeMemberEvents(registeredRes.rows, attendedRes.rows).forEach((events, userId) => {
+    const m = byUser.get(userId); if (!m) return;
+    events.forEach(ev => {
+      if (ev.registered) { m.events[ev.bucket] += 1; m.events.total += 1; }
+      if (ev.presentSessions > 0) { m.attended[ev.bucket] += 1; m.attended.total += 1; }
+      // Overall rate = average of per-event percentages, over events that ran sessions.
+      if (ev.totalSessions > 0) {
+        m.eventAttendance.eventsCounted += 1;
+        fractionSum.set(userId, (fractionSum.get(userId) || 0) + ev.presentSessions / ev.totalSessions);
+      }
+    });
   });
   contribRes.rows.forEach(r => {
     const c = byUser.get(r.user_id)?.contribution; if (!c) return;
@@ -164,6 +222,10 @@ const loadMemberMetrics = async (ids) => {
   byUser.forEach(m => {
     const c = m.contribution;
     c.attendancePct = c.totalSessions > 0 ? Math.round((c.sessionsAttended / c.totalSessions) * 100) : null;
+  });
+  fractionSum.forEach((sum, userId) => {
+    const ea = byUser.get(userId)?.eventAttendance;
+    if (ea?.eventsCounted) ea.pct = Math.round((sum / ea.eventsCounted) * 100);
   });
   certRes.rows.forEach(r => {
     const a = byUser.get(r.user_id)?.achievements; if (!a) return;
@@ -228,7 +290,7 @@ const getMemberDetail = async (req, res, next) => {
     const userId = parseInt(req.params.userId, 10);
     if (isNaN(userId)) return res.status(400).json({ message: 'Invalid member id.' });
 
-    const [clubRes, eventRes, certRes, fameRes] = await Promise.all([
+    const [clubRes, registeredRes, attendedRes, certRes, fameRes] = await Promise.all([
       pgPool.query(
         `SELECT sc.club_id::text AS club_id, COALESCE(c.name, sc.club_name) AS club_name, sc.joined_at,
                 (SELECT COUNT(*) FROM club_attendance_sessions s WHERE s.club_id = sc.club_id)::int AS total_sessions,
@@ -245,18 +307,8 @@ const getMemberDetail = async (req, res, next) => {
          ORDER BY sc.joined_at`,
         [userId]
       ),
-      pgPool.query(
-        `SELECT er.event_id::text AS event_id, er.event_title, e.start_date, c.name AS club_name,
-                ${BUCKET_SQL('e.category')} AS bucket
-         FROM users u
-         JOIN event_registrations er ON LOWER(er.email) = LOWER(u.email)
-         LEFT JOIN events e ON e.id = er.event_id
-         LEFT JOIN clubs c ON c.id = e.club_id
-         WHERE u.id = $1
-         ORDER BY e.start_date DESC NULLS LAST, er.registered_at DESC
-         LIMIT 200`,
-        [userId]
-      ),
+      pgPool.query(REGISTERED_EVENTS_SQL, [[userId]]),
+      pgPool.query(ATTENDED_EVENTS_SQL, [[userId]]),
       pgPool.query(
         `SELECT ec.category, er.event_title, c.name AS club_name
          FROM users u
@@ -284,10 +336,12 @@ const getMemberDetail = async (req, res, next) => {
         attendancePct: r.total_sessions > 0 ? Math.round((r.attended / r.total_sessions) * 100) : null,
         tasksCompleted: r.tasks_done, role: r.leadership_role || '',
       })),
-      events: eventRes.rows.map(r => ({
-        eventId: r.event_id, title: r.event_title, clubName: r.club_name || '',
-        category: r.bucket, date: r.start_date,
-      })),
+      events: [...(mergeMemberEvents(registeredRes.rows, attendedRes.rows).get(userId)?.values() ?? [])]
+        .sort((a, b) => (new Date(b.date || 0)) - (new Date(a.date || 0)))
+        .map(ev => ({
+          eventId: ev.eventId, title: ev.title, clubName: ev.clubName, category: ev.bucket, date: ev.date,
+          registered: ev.registered, totalSessions: ev.totalSessions, presentSessions: ev.presentSessions,
+        })),
       achievements: [
         ...certRes.rows.map(r => ({
           type: 'Certificate', title: CERT_LABEL[r.category] || 'Participant',

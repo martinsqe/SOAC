@@ -24,7 +24,12 @@ function useDebounced(value, ms) {
   return v;
 }
 
-/* Zero reads as a faint dash-like numeral so real activity stands out. */
+/* Events attended out of events registered — either can exist without the other. */
+const Ratio = ({ attended, registered }) => (
+  <span className={attended || registered ? '' : a.zero}>{attended} / {registered}</span>
+);
+
+/* Zero reads as a faint numeral so real activity stands out. */
 const Num = ({ value }) => <span className={value ? '' : a.zero}>{value}</span>;
 
 function MemberDetail({ memberId, cache, setCache }) {
@@ -79,6 +84,13 @@ function MemberDetail({ memberId, cache, setCache }) {
                 {e.title}
                 <div className={a.listSub}>
                   {cap(e.category)}{e.clubName ? ` · ${e.clubName}` : ''} · {fmtDate(e.date)}
+                </div>
+                <div className={a.listSub}>
+                  {e.registered ? 'Registered' : 'Not registered'} · {
+                    e.totalSessions === 0
+                      ? 'No attendance sessions held'
+                      : `Present at ${e.presentSessions} of ${e.totalSessions} session${e.totalSessions === 1 ? '' : 's'}`
+                  }
                 </div>
               </div>
             ))}
@@ -232,6 +244,13 @@ export default function AdminActivity() {
         {hasFilters && <button className={a.clearBtn} onClick={clearFilters}>Clear filters</button>}
       </div>
 
+      {tab === 'members' && (
+        <p className={a.hint}>
+          Sports, Cultural, Social and Academic show events attended / events registered.
+          Event attendance is the average of a student's attendance percentage across every event, from all clubs, that held attendance sessions.
+        </p>
+      )}
+
       {error && <div className={s.errBox} style={{ marginBottom: 14 }}>{error}</div>}
 
       {loading ? (
@@ -255,6 +274,7 @@ export default function AdminActivity() {
                   <th className={a.num}>Social</th>
                   <th className={a.num}>Academic</th>
                   <th className={a.num}>Achievements</th>
+                  <th className={a.num}>Event attendance</th>
                   <th className={a.num}>Club attendance</th>
                   <th className={a.num}>Tasks done</th>
                   <th></th>
@@ -273,11 +293,14 @@ export default function AdminActivity() {
                         <td>{m.dept || <span className={a.muted}>—</span>}</td>
                         <td>{m.course || <span className={a.muted}>—</span>}</td>
                         <td className={a.num}><Num value={m.clubs.length} /></td>
-                        <td className={a.num}><Num value={m.events.sports} /></td>
-                        <td className={a.num}><Num value={m.events.cultural} /></td>
-                        <td className={a.num}><Num value={m.events.social} /></td>
-                        <td className={a.num}><Num value={m.events.academic} /></td>
+                        <td className={a.num}><Ratio attended={m.attended.sports} registered={m.events.sports} /></td>
+                        <td className={a.num}><Ratio attended={m.attended.cultural} registered={m.events.cultural} /></td>
+                        <td className={a.num}><Ratio attended={m.attended.social} registered={m.events.social} /></td>
+                        <td className={a.num}><Ratio attended={m.attended.academic} registered={m.events.academic} /></td>
                         <td className={a.num}><Num value={m.achievements.total} /></td>
+                        <td className={a.num} title={`Average across ${m.eventAttendance.eventsCounted} event${m.eventAttendance.eventsCounted === 1 ? '' : 's'}`}>
+                          {m.eventAttendance.pct === null ? <span className={a.muted}>—</span> : `${m.eventAttendance.pct}%`}
+                        </td>
                         <td className={a.num} title={`${m.contribution.sessionsAttended} of ${m.contribution.totalSessions} sessions`}>
                           {m.contribution.attendancePct === null ? <span className={a.muted}>—</span> : `${m.contribution.attendancePct}%`}
                         </td>
@@ -290,7 +313,7 @@ export default function AdminActivity() {
                       </tr>
                       {open && (
                         <tr>
-                          <td colSpan={12} className={a.detailCell}>
+                          <td colSpan={13} className={a.detailCell}>
                             <MemberDetail memberId={m.id} cache={detailCache} setCache={setDetailCache} />
                           </td>
                         </tr>

@@ -61,7 +61,8 @@
 .clearBtn:hover { border-color: #635bff; color: #635bff; }
 
 /* Tables */
-.wide { min-width: 1120px; }
+.wide { min-width: 1260px; }
+.hint { font-size: .78rem; color: #9ca3af; margin: -4px 0 14px; }
 .mid  { min-width: 720px; }
 .num  { font-variant-numeric: tabular-nums; }
 /* Words and names sit left; numeric columns (heading and data) are centred.

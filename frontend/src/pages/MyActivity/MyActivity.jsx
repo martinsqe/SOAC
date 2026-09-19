@@ -114,6 +114,7 @@ export default function MyActivity() {
 
   const activeCategory = result?.categories?.find(c => c.key === activeTab);
   const clubs = result?.clubs || [];
+  const attendance = result?.attendanceSummary;
 
   return (
     <div className="wrap">
@@ -184,6 +185,28 @@ export default function MyActivity() {
             </div>
           ) : (
             <>
+              <div className={s.attSummary}>
+                <div className={s.attSummaryTop}>
+                  <span className={s.attSummaryLabel}>Overall event attendance</span>
+                  <span className={s.attSummaryValue}>
+                    {attendance?.averagePct == null ? '—' : `${attendance.averagePct}%`}
+                  </span>
+                </div>
+                {attendance?.averagePct == null ? (
+                  <p className={s.attSummaryNote}>No attendance has been recorded for your events yet.</p>
+                ) : (
+                  <>
+                    <div className={s.weeklyProgressBar}>
+                      <div className={s.weeklyProgressFill} style={{ width: `${attendance.averagePct}%` }} />
+                    </div>
+                    <p className={s.attSummaryNote}>
+                      Average across {attendance.eventsCounted} event{attendance.eventsCounted === 1 ? '' : 's'} with
+                      attendance recorded, from all your clubs.
+                    </p>
+                  </>
+                )}
+              </div>
+
               <div className={s.tabBar}>
                 {TABS.map(t => {
                   const cat = result.categories.find(c => c.key === t.key);
