@@ -12,6 +12,13 @@ const TABS = [
 
 const fmt = (d) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 
+const CLUB_STATUS = {
+  member:   { label: 'Accepted', cls: 'clubStatusMember'   },
+  pending:  { label: 'Pending',  cls: 'clubStatusPending'  },
+  declined: { label: 'Declined', cls: 'clubStatusDeclined' },
+  inactive: { label: 'Inactive', cls: 'clubStatusInactive' },
+};
+
 /* Mirrors event_certificates_issued.category (see certificates.controller.js) —
    'winner' | 'runner_up' | 'participation'. A registrant only ever has one of
    these per event (the result they actually got), but sort by rank anyway in
@@ -106,14 +113,16 @@ export default function MyActivity() {
   const reset = () => { setResult(null); setError(''); };
 
   const activeCategory = result?.categories?.find(c => c.key === activeTab);
+  const clubs = result?.clubs || [];
 
   return (
     <div className="wrap">
       <div className={s.hero}>
         <h1 className={s.heroTitle}>My Activity</h1>
         <p className={s.heroSub}>
-          Not part of a club? Enter the email you used to register for events to see everything
-          you've participated in — sports, cultural, social and academic — in one place.
+          Enter the email you used to register for events or request to join a club to check
+          your club status and see everything you've participated in — sports, cultural,
+          social and academic — in one place.
         </p>
       </div>
 
@@ -140,9 +149,38 @@ export default function MyActivity() {
         <div className={s.resultWrap}>
           <button className={s.changeEmailBtn} onClick={reset}>← Check a different email</button>
 
+          {clubs.length > 0 && (
+            <div className={s.clubSection}>
+              <div className={`${s.actSectionTitle} ${s.clubSectionHead}`}>
+                <span>Clubs</span>
+                <span>Status</span>
+              </div>
+              {clubs.map(c => {
+                const st = CLUB_STATUS[c.status] || CLUB_STATUS.pending;
+                return (
+                  <div key={c.clubId} className={s.clubRow}>
+                    <div className={s.clubInfo}>
+                      <span className={s.clubName}>{c.clubName}</span>
+                      {c.requestedAt && (
+                        <span className={s.clubDate}>
+                          {c.status === 'member' || c.status === 'inactive' ? 'Since' : 'Requested'} {fmt(c.requestedAt)}
+                        </span>
+                      )}
+                    </div>
+                    <span className={`${s.clubStatus} ${s[st.cls]}`}>{st.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {!result.participated ? (
             <div className={s.emptyCard}>
-              <p className={s.emptyMsg}>You have not participated in any events. Join a club of your interest to participate.</p>
+              <p className={s.emptyMsg}>
+                {clubs.length > 0
+                  ? 'You have not participated in any events yet.'
+                  : 'You have not participated in any events. Join a club of your interest to participate.'}
+              </p>
               <Link className={s.emptyCta} to="/clubs">Explore Clubs</Link>
             </div>
           ) : (

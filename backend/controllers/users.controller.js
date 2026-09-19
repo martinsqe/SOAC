@@ -645,6 +645,67 @@ const activityByEmail = async (req, res, next) => {
       return res.status(400).json({ message: 'Please enter a valid email address.' });
     }
 
+    /* Club status for this email — returned whether or not they've registered for
+       any events, since a student can have a pending/approved join request and no
+       event history at all. Latest request per club wins (a declined request can
+       later be re-submitted and approved). An approved request only counts as
+       "member" while the student_clubs row is still active — a coordinator can
+       deactivate a membership without deleting it. Memberships that never went
+       through a join request (e.g. admin-assigned) are included too. */
+    const [{ rows: reqRows }, { rows: memberRows }] = await Promise.all([
+      pgPool.query(
+        `SELECT DISTINCT ON (jr.club_id)
+                jr.club_id, COALESCE(c.name, jr.club_name) AS club_name,
+                jr.status, jr.created_at AS requested_at
+         FROM join_requests jr
+         LEFT JOIN clubs c ON c.id = jr.club_id
+         WHERE LOWER(jr.email) = $1
+         ORDER BY jr.club_id, jr.created_at DESC`,
+        [email]
+      ),
+      pgPool.query(
+        `SELECT sc.club_id, COALESCE(c.name, sc.club_name) AS club_name,
+                sc.is_active, sc.joined_at
+         FROM student_clubs sc
+         JOIN users u ON u.id = sc.user_id
+         LEFT JOIN clubs c ON c.id = sc.club_id
+         WHERE LOWER(u.email) = $1`,
+        [email]
+      ),
+    ]);
+    const memberByClub = new Map(memberRows.map(m => [String(m.club_id), m]));
+    const clubMap = new Map();
+    for (const r of reqRows) {
+      const m = memberByClub.get(String(r.club_id));
+      const status =
+        r.status === 'pending'  ? 'pending' :
+        r.status === 'declined' ? 'declined' :
+        (m && m.is_active === false) ? 'inactive' : 'member';
+      clubMap.set(String(r.club_id), {
+        clubId: String(r.club_id), clubName: r.club_name, status, requestedAt: r.requested_at,
+      });
+    }
+    for (const m of memberRows) {
+      if (!clubMap.has(String(m.club_id))) {
+        clubMap.set(String(m.club_id), {
+          clubId: String(m.club_id), clubName: m.club_name,
+          status: m.is_active === false ? 'inactive' : 'member', requestedAt: m.joined_at,
+        });
+      }
+    }
+    /* Collapse entries that share a club name (stale membership rows can point at
+       old club ids that no longer exist but carry the same stored name) — keep the
+       strongest status so a student never sees the same club listed twice. */
+    const STATUS_RANK = { member: 0, pending: 1, inactive: 2, declined: 3 };
+    const byName = new Map();
+    for (const c of clubMap.values()) {
+      const key = (c.clubName || '').trim().toLowerCase();
+      const existing = byName.get(key);
+      if (!existing || STATUS_RANK[c.status] < STATUS_RANK[existing.status]) byName.set(key, c);
+    }
+    const clubs = [...byName.values()]
+      .sort((a, b) => new Date(b.requestedAt) - new Date(a.requestedAt));
+
     const { rows: regRows } = await pgPool.query(
       /* start_date (a proper TIMESTAMPTZ, set once at event creation/approval and
          never hand-typed) is used for the displayed event date rather than the
@@ -663,7 +724,7 @@ const activityByEmail = async (req, res, next) => {
     );
 
     if (!regRows.length) {
-      return res.json({ participated: false });
+      return res.json({ participated: false, clubs });
     }
 
     const { rows: uRows } = await pgPool.query(
@@ -773,6 +834,7 @@ const activityByEmail = async (req, res, next) => {
     res.json({
       participated: true,
       hasAccount: !!userId,
+      clubs,
       categories: Object.entries(categories).map(([key, events]) => ({
         key, label: ACTIVITY_BUCKET_LABEL[key], events,
       })),
