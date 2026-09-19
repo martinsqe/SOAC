@@ -211,6 +211,8 @@
 }
 .actPositionWinner   { background: #fef3c7; color: #92400e; }
 .actPositionRunnerUp { background: #e5e7eb; color: #374151; }
+.actPositionParticipation { background: #ecfdf5; color: #059669; }
+.actPositionRegistered    { background: #f1f5f9; color: #6b7280; }
 .actStatusPending { font-size: .72rem; color: #9ca3af; font-style: italic; }
 
 /* ── Overall event attendance ── */

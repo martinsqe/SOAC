@@ -142,8 +142,7 @@ export default function Login() {
 
           <ul className={styles.features}>
             {[
-              { icon: '⚡', text: 'Earn XP and level up from Recruit to Legend' },
-              { icon: '🪙', text: 'SOAC Coins — top performers get free re-registration' },
+              { icon: '🎖️', text: 'Certificates for participation, runner-up and winners' },
               { icon: '🏆', text: 'Wall of Fame to showcase your achievements' },
               { icon: '💬', text: 'Club chat, DMs and event coordination' },
               { icon: '📅', text: 'Track tasks, attendance and upcoming events' },

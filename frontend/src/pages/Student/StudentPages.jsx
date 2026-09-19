@@ -205,7 +205,7 @@ export function StudentFame() {
       title="Wall of Fame"
       description="Celebrating the best of SOAC — top students, award winners and clubs that have made an impact at RK University."
       features={[
-        { icon:'🥇', name:'Top Performers', sub:'Students with highest XP, attendance and contributions' },
+        { icon:'🥇', name:'Top Performers', sub:'Students with best attendance and contributions' },
         { icon:'🎖️', name:'Event Champions', sub:'Competition winners and hackathon top teams' },
         { icon:'📸', name:'Milestone Moments', sub:'Memorable photos and highlights from past events' },
       ]}

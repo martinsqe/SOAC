@@ -224,7 +224,7 @@ const About = () => {
                 {[
                   { icon: '🎓', title: 'Beyond the Classroom', desc: 'Interpersonal, organizational and leadership skills in a real environment.' },
                   { icon: '🏛️', title: 'University Recognised', desc: 'Every SOAC club has formal recognition, resources and advisory support.' },
-                  { icon: '🏆', title: 'Rewarded Participation', desc: 'XP, Coins, badges, and free re-registration for top performers each year.' },
+                  { icon: '🏆', title: 'Recognised Participation', desc: 'Certificates for participation, runner-up and winning results in every event.' },
                 ].map((f, i) => (
                   <div key={i} className={styles.featRow}>
                     <div className={styles.featIcon}>{f.icon}</div>
@@ -380,7 +380,7 @@ const About = () => {
                 <div className={`${styles.hcardRole} ${styles.hroleDark}`}>You</div>
                 <p className={styles.hcardDesc}>Attend sessions, participate in events, and grow through the club experience.</p>
                 <div className={styles.hcardTags}>
-                  {['Attend', 'Earn XP', 'Compete', 'Grow'].map(t => (
+                  {['Attend', 'Participate', 'Compete', 'Grow'].map(t => (
                     <span key={t} className={`${styles.htag} ${styles.htagDark}`}>{t}</span>
                   ))}
                 </div>

@@ -23,7 +23,6 @@ router.get('/stats',    verifyToken, requireAdmin, ctrl.stats);
 router.post('/seed',    verifyToken, requireAdmin, ctrl.seed);
 router.get('/mine',        verifyToken, requireCoordOrAdmin, ctrl.mine);
 router.get('/members',     verifyToken, requireAdmin, ctrl.getAllMembers);   // admin: all clubs
-router.get('/leaderboard',    ctrl.getLeaderboard);                            // public: coin leaderboard
 
 router.get('/coordinator-assignments', verifyToken, requireAdmin, ctrl.getCoordinatorAssignments);
 
@@ -63,9 +62,6 @@ router.post('/:id/attendance',                      verifyToken, requireCoordina
 router.patch('/:id/attendance/records/:recordId',   verifyToken, requireCoordinatorOwnership, cd.updateAttendanceRecord);
 router.delete('/:id/attendance/:sessionId',         verifyToken, requireCoordinatorOwnership, cd.deleteAttendanceSession);
 
-/* ── Member progress (XP/level management) ── */
-router.get('/:id/progress',             verifyToken, requireCoordinatorOwnership, cd.getProgress);
-router.put('/:id/progress/:userId',     verifyToken, requireCoordinatorOwnership, cd.upsertProgress);
 
 /* ── Advanced performance tracking ── */
 router.get('/:id/performance/params',                     verifyToken, requireCoordinatorOwnership, perf.getParams);

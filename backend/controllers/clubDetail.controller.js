@@ -8,7 +8,6 @@ const { getFileValue } = require('../config/multer');
 const bracketEngine = require('../services/bracketEngine');
 const { autoRefreshReportIfExists } = require('./reports.controller');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
-const { sendPushToUser } = require('../services/webPush');
 
 /* ── GET /api/clubs/:id/membership  (authenticated) ────────────────────── */
 const getMembership = async (req, res, next) => {
@@ -289,7 +288,7 @@ const deleteTask = async (req, res, next) => {
       [req.params.taskId, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Task not found or already archived.' });
-    res.json({ message: 'Task archived. Completion records and coins have been preserved.' });
+    res.json({ message: 'Task archived. Completion records have been preserved.' });
   } catch (err) { next(err); }
 };
 
@@ -315,7 +314,7 @@ const getTaskCompletions = async (req, res, next) => {
 
     /* Existing completions */
     const { rows: saved } = await pgPool.query(
-      `SELECT user_id, is_completed, coins_awarded FROM task_completion_records WHERE task_id = $1::bigint`,
+      `SELECT user_id, is_completed FROM task_completion_records WHERE task_id = $1::bigint`,
       [taskId]
     );
     const savedMap = Object.fromEntries(saved.map(r => [String(r.user_id), r]));
@@ -326,7 +325,6 @@ const getTaskCompletions = async (req, res, next) => {
         userId:       String(m.user_id),
         userName:     m.user_name,
         isCompleted:  savedMap[String(m.user_id)]?.is_completed  ?? false,
-        coinsAwarded: savedMap[String(m.user_id)]?.coins_awarded ?? 0,
       })),
       alreadySaved: saved.length > 0,
     });
@@ -335,7 +333,6 @@ const getTaskCompletions = async (req, res, next) => {
 
 /* POST /api/clubs/:id/tasks/:taskId/completions
    Body: { completions: [{ userId, userName, isCompleted }] }
-   Awards 100 XP per completed member, adjusts XP diff on re-saves.
    Blocked if task is archived. */
 const saveTaskCompletions = async (req, res, next) => {
   try {
@@ -354,43 +351,26 @@ const saveTaskCompletions = async (req, res, next) => {
     const client = await pgPool.connect();
     try {
       await client.query('BEGIN');
-      let totalCoins = 0;
 
       for (const c of completions) {
         if (!c.userId) continue;
         const isCompleted = !!c.isCompleted;
-        const newCoins    = isCompleted ? 100 : 0;
-
-        /* Get previous state to compute XP diff */
-        const { rows: prev } = await client.query(
-          `SELECT is_completed, coins_awarded FROM task_completion_records
-           WHERE task_id = $1::bigint AND user_id = $2::int`,
-          [taskId, c.userId]
-        );
-        const oldCoins = prev[0]?.coins_awarded ?? 0;
 
         /* Upsert completion record */
         await client.query(
           `INSERT INTO task_completion_records
-             (task_id, club_id, user_id, user_name, task_title, is_completed, coins_awarded, saved_at)
-           VALUES ($1::bigint, $2::bigint, $3::int, $4, $5, $6, $7, NOW())
+             (task_id, club_id, user_id, user_name, task_title, is_completed, saved_at)
+           VALUES ($1::bigint, $2::bigint, $3::int, $4, $5, $6, NOW())
            ON CONFLICT (task_id, user_id) DO UPDATE
-             SET is_completed  = EXCLUDED.is_completed,
-                 coins_awarded = EXCLUDED.coins_awarded,
-                 saved_at      = NOW()`,
-          [taskId, clubId, c.userId, c.userName || '', taskTitle, isCompleted, newCoins]
+             SET is_completed = EXCLUDED.is_completed,
+                 saved_at     = NOW()`,
+          [taskId, clubId, c.userId, c.userName || '', taskTitle, isCompleted]
         );
 
-        /* Apply XP delta only if it changed */
-        const xpDiff = newCoins - oldCoins;
-        if (xpDiff !== 0) {
-          await applyXpDelta(client, clubId, c.userId, c.userName || '', xpDiff, req.user.id);
-        }
-        totalCoins += newCoins;
       }
 
       await client.query('COMMIT');
-      res.json({ message: 'Completions saved.', totalCoinsAwarded: totalCoins });
+      res.json({ message: 'Completions saved.' });
     } catch (e) {
       await client.query('ROLLBACK');
       throw e;
@@ -436,31 +416,6 @@ const updateOverview = async (req, res, next) => {
 /* ══════════════════════════════════════════════════════════════════════════
    ATTENDANCE
 ══════════════════════════════════════════════════════════════════════════ */
-
-/* Coins awarded per attendance status */
-const ATTEND_XP = { present: 100, late: 50, excused: 25, absent: 0 };
-
-/* Motivational messages sent when a member hits 4 present days in a week */
-const CONSISTENCY_MESSAGES = [
-  "Exceptional dedication this week! Attending 4 sessions proves you are serious about your growth — champions are built on exactly this kind of commitment.",
-  "Outstanding consistency! Showing up 4 times in a single week reflects a champion's mindset. Keep pushing — greatness is within your reach.",
-  "Remarkable effort this week! Four sessions of committed training — you are laying the foundation for something truly exceptional. Keep it up!",
-  "Brilliant work! Your 4-session consistency this week is a clear sign you are ready to level up. Leaders lead by showing up, and you are doing exactly that.",
-  "Excellence recognized! Four sessions in one week earns you the Consistency Champion bonus. Your commitment is what sets you apart — never stop.",
-];
-
-/* Upsert XP delta into member_progress (inside an existing client transaction) */
-const applyXpDelta = (client, clubId, userId, userName, xpDelta, updatedBy) =>
-  client.query(
-    `INSERT INTO member_progress (club_id, user_id, user_name, xp, updated_by, updated_at)
-     VALUES ($1::bigint, $2::int, $3, GREATEST(0, $4::int), $5, NOW())
-     ON CONFLICT (club_id, user_id) DO UPDATE
-       SET xp         = GREATEST(0, member_progress.xp + $4::int),
-           user_name  = EXCLUDED.user_name,
-           updated_by = EXCLUDED.updated_by,
-           updated_at = NOW()`,
-    [clubId, userId, userName, xpDelta, updatedBy]
-  );
 
 /* GET /api/clubs/:id/attendance  — list sessions (newest first) */
 const getAttendance = async (req, res, next) => {
@@ -508,11 +463,6 @@ const createAttendanceSession = async (req, res, next) => {
     if (!session_date) return res.status(400).json({ message: 'session_date is required.' });
 
     const client = await pgPool.connect();
-    /* Consistency-bonus pushes collected during the loop below and only sent AFTER
-       COMMIT succeeds — the in-app notification insert stays on `client` (part of the
-       transaction, unchanged), but push must never fire for a bonus that a later
-       record in this same batch causes to roll back. */
-    const pendingPushes = [];
     try {
       await client.query('BEGIN');
       const { rows: [session] } = await client.query(
@@ -536,44 +486,8 @@ const createAttendanceSession = async (req, res, next) => {
                  club_id      = EXCLUDED.club_id`,
           [session.id, r.user_id, r.user_name || '', status, r.notes || '', session_date, clubId]
         );
-        /* Award base attendance XP */
-        const xp = ATTEND_XP[status] ?? 0;
-        if (xp > 0) {
-          await applyXpDelta(client, clubId, r.user_id, r.user_name || '', xp, req.user.id);
-        }
-        /* Consistency bonus: +100 coins when member is present for the 4th time this week */
-        if (status === 'present') {
-          const { rows: [{ cnt }] } = await client.query(
-            `SELECT COUNT(DISTINCT session_date)::int AS cnt
-             FROM club_attendance_records
-             WHERE user_id = $1 AND club_id = $2::bigint AND status = 'present'
-               AND DATE_TRUNC('week', session_date) = DATE_TRUNC('week', $3::date)`,
-            [r.user_id, clubId, session_date]
-          );
-          if (cnt >= 4) {
-            /* Only award once per (club, user, week) */
-            const { rows: bonusGranted } = await client.query(
-              `INSERT INTO attendance_consistency_bonuses (club_id, user_id, week_start)
-               VALUES ($1::bigint, $2::int, DATE_TRUNC('week', $3::date)::date)
-               ON CONFLICT (club_id, user_id, week_start) DO NOTHING RETURNING id`,
-              [clubId, r.user_id, session_date]
-            );
-            if (bonusGranted.length) {
-              await applyXpDelta(client, clubId, r.user_id, r.user_name || '', 100, req.user.id);
-              const msg = CONSISTENCY_MESSAGES[Math.floor(Math.random() * CONSISTENCY_MESSAGES.length)];
-              const title = 'Consistency Champion! +100 bonus coins';
-              await client.query(
-                `INSERT INTO member_notifications (user_id, club_id, title, body, type, url)
-                 VALUES ($1::int, $2::bigint, $3, $4, 'achievement', '/student/profile')`,
-                [r.user_id, clubId, title, msg]
-              );
-              pendingPushes.push({ userId: r.user_id, title, body: msg });
-            }
-          }
-        }
       }
       await client.query('COMMIT');
-      pendingPushes.forEach(p => sendPushToUser(p.userId, { ...p, url: '/student/profile', type: 'achievement' }).catch(() => {}));
       res.status(201).json({ session: { ...session, total: records.length } });
     } catch (e) {
       await client.query('ROLLBACK');
@@ -588,14 +502,13 @@ const createAttendanceSession = async (req, res, next) => {
 const updateAttendanceRecord = async (req, res, next) => {
   try {
     const { status, notes } = req.body;
-    const clubId    = req.params.id;
     const recordId  = req.params.recordId;
 
     const client = await pgPool.connect();
     try {
       await client.query('BEGIN');
 
-      // Fetch current record to get old status and user identity
+      // Fetch current record
       const { rows: existing } = await client.query(
         `SELECT id, user_id, user_name, status AS old_status
          FROM club_attendance_records WHERE id = $1::bigint`,
@@ -605,9 +518,6 @@ const updateAttendanceRecord = async (req, res, next) => {
         await client.query('ROLLBACK');
         return res.status(404).json({ message: 'Record not found.' });
       }
-      const { user_id, user_name, old_status } = existing[0];
-      const newStatus = status || old_status;
-
       // Update the record
       const { rows } = await client.query(
         `UPDATE club_attendance_records
@@ -615,14 +525,6 @@ const updateAttendanceRecord = async (req, res, next) => {
          WHERE id = $3::bigint RETURNING id, user_id, user_name, status, notes`,
         [status || null, notes ?? null, recordId]
       );
-
-      // Adjust XP for the status change
-      if (status && status !== old_status) {
-        const xpDiff = (ATTEND_XP[newStatus] ?? 0) - (ATTEND_XP[old_status] ?? 0);
-        if (xpDiff !== 0) {
-          await applyXpDelta(client, clubId, user_id, user_name, xpDiff, req.user.id);
-        }
-      }
 
       await client.query('COMMIT');
       res.json({ record: rows[0] });
@@ -637,7 +539,7 @@ const updateAttendanceRecord = async (req, res, next) => {
 
 /* DELETE /api/clubs/:id/attendance/:sessionId
    Deletes the session header only — records are preserved (session_id set to NULL via FK)
-   and all coins previously allocated remain intact. */
+   and are not affected. */
 const deleteAttendanceSession = async (req, res, next) => {
   try {
     const { rows } = await pgPool.query(
@@ -645,52 +547,7 @@ const deleteAttendanceSession = async (req, res, next) => {
       [req.params.sessionId, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Session not found.' });
-    res.json({ message: 'Session deleted. Attendance records and allocated coins have been preserved.' });
-  } catch (err) { next(err); }
-};
-
-/* ══════════════════════════════════════════════════════════════════════════
-   MEMBER PROGRESS
-══════════════════════════════════════════════════════════════════════════ */
-
-/* GET /api/clubs/:id/progress */
-const getProgress = async (req, res, next) => {
-  try {
-    await ensureSoacTables();
-    const { rows } = await pgPool.query(
-      `SELECT mp.id, mp.user_id, mp.user_name, mp.level, mp.xp, mp.notes, mp.updated_at,
-              u.avatar
-       FROM   member_progress mp
-       LEFT JOIN users u ON u.id = mp.user_id
-       WHERE  mp.club_id = $1::bigint
-       ORDER  BY mp.xp DESC, mp.user_name`,
-      [req.params.id]
-    );
-    res.json({ progress: rows });
-  } catch (err) { next(err); }
-};
-
-/* PUT /api/clubs/:id/progress/:userId  — upsert member progress */
-const upsertProgress = async (req, res, next) => {
-  try {
-    await ensureSoacTables();
-    const { level, xp, notes, user_name } = req.body;
-    const { rows: userRows } = await pgPool.query(`SELECT name FROM users WHERE id = $1`, [req.params.userId]);
-    const name = user_name || userRows[0]?.name || '';
-    const { rows } = await pgPool.query(
-      `INSERT INTO member_progress (club_id, user_id, user_name, level, xp, notes, updated_by, updated_at)
-       VALUES ($1::bigint, $2::int, $3, $4, $5::int, $6, $7, NOW())
-       ON CONFLICT (club_id, user_id) DO UPDATE SET
-         level      = EXCLUDED.level,
-         xp         = EXCLUDED.xp,
-         notes      = EXCLUDED.notes,
-         user_name  = EXCLUDED.user_name,
-         updated_by = EXCLUDED.updated_by,
-         updated_at = NOW()
-       RETURNING id, user_id, user_name, level, xp, notes, updated_at`,
-      [req.params.id, req.params.userId, name, level || 'Beginner', Number(xp) || 0, notes || '', req.user.id]
-    );
-    res.json({ progress: rows[0] });
+    res.json({ message: 'Session deleted. Attendance records have been preserved.' });
   } catch (err) { next(err); }
 };
 
@@ -837,22 +694,6 @@ const updateLiveScore = async (req, res, next) => {
       return res.status(400).json({ message: 'Invalid sport.' });
     }
 
-    /* Snapshot current player rosters before update so we can diff for coin awards */
-    let prevHome = null, prevAway = null, snapshotClubId = null, snapshotSport = null;
-    const willUpdatePlayers = updates.homePlayers !== undefined || updates.awayPlayers !== undefined;
-    if (willUpdatePlayers) {
-      const { rows: cur } = await pgPool.query(
-        `SELECT home_players, away_players, sport, club_id FROM club_live_scores WHERE id = $1::bigint AND club_id = $2::bigint`,
-        [req.params.scoreId, req.params.id]
-      );
-      if (cur.length) {
-        prevHome       = cur[0].home_players || [];
-        prevAway       = cur[0].away_players || [];
-        snapshotSport  = cur[0].sport;
-        snapshotClubId = cur[0].club_id;
-      }
-    }
-
     const { rows } = await pgPool.query(
       `UPDATE club_live_scores
        SET sport          = COALESCE($1, sport),
@@ -894,30 +735,6 @@ const updateLiveScore = async (req, res, next) => {
     if (!rows.length) return res.status(404).json({ message: 'Scoreboard not found.' });
     const score = mapLiveScore(withTimerComputed(rows[0]));
     emitScoreUpdate(req, req.params.scoreId, { score });
-
-    /* Detect any positive stat change and award 62 coins per stat milestone — fire-and-forget */
-    if (willUpdatePlayers && prevHome !== null) {
-      const cid       = rows[0].club_id || snapshotClubId;
-      const sid       = req.params.scoreId;
-      const checkDiff = (prev, next) => {
-        for (const np of (next || [])) {
-          if (!np.name) continue;
-          const pp       = (prev || []).find(p => p.name === np.name);
-          const oldStats = pp?.stats || {};
-          const newStats = np.stats  || {};
-          for (const stat of Object.keys(newStats)) {
-            if (NON_REWARD_STATS.has(stat)) continue;
-            const oldVal = Number(oldStats[stat] ?? 0);
-            const newVal = Number(newStats[stat] ?? 0);
-            if (newVal > oldVal) {
-              awardPlayerScoreCoins(sid, cid, np.name, stat, newVal).catch(() => {});
-            }
-          }
-        }
-      };
-      checkDiff(prevHome, rows[0].home_players || []);
-      checkDiff(prevAway, rows[0].away_players || []);
-    }
 
     res.json({ score });
   } catch (err) { next(err); }
@@ -1227,12 +1044,6 @@ const resetLiveTimer = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* Basketball game-event types that earn 62 coins via the event log */
-const COIN_EARN_EVENTS = new Set(['shot_made', 'assist', 'block', 'steal', 'rebound_off', 'rebound_def']);
-
-/* Per-player stat button stats that do NOT earn coins (negative / neutral) */
-const NON_REWARD_STATS = new Set(['yellow_cards', 'errors', 'fouls', 'turnovers', 'balls']);
-
 /* Which per-player stat drives the team score for each sport */
 const SPORT_SCORE_STAT = {
   basketball: 'points',
@@ -1286,116 +1097,6 @@ function computeFinalScore(row) {
     }
   }
   return { home: Number(row.team_score || 0), away: Number(row.opponent_score || 0) };
-}
-
-/* Award 62 coins to a player for a scoring action — fire-and-forget */
-async function awardMatchPerformanceCoins(scoreId, gameEventId, playerName, eventType) {
-  if (!COIN_EARN_EVENTS.has(eventType) || !playerName) return;
-  try {
-    /* Get club_id from the live score row */
-    const { rows: scoreRows } = await pgPool.query(
-      `SELECT club_id FROM club_live_scores WHERE id = $1::bigint LIMIT 1`, [scoreId]
-    );
-    if (!scoreRows.length) return;
-    const clubId = scoreRows[0].club_id;
-
-    /* Find the student user by name within this club */
-    const { rows: userRows } = await pgPool.query(
-      `SELECT DISTINCT u.id AS user_id
-       FROM users u
-       JOIN student_clubs sc ON sc.user_id = u.id AND sc.club_id = $1::bigint
-       WHERE u.is_active = true AND u.name ILIKE $2
-       LIMIT 1`,
-      [clubId, playerName.trim()]
-    );
-    if (!userRows.length) return;
-    const userId = userRows[0].user_id;
-    const entityId = String(gameEventId);
-
-    const actionLabel = eventType === 'shot_made' ? 'scoring' : eventType;
-    const ins = await pgPool.query(
-      `INSERT INTO coin_transactions (user_id, amount, reason, entity_type, entity_id, academic_year)
-       SELECT $1, 62, $2, 'match_performance', $3,
-              to_char(NOW(), 'YYYY') || '-' || to_char(NOW() + interval '1 year', 'YY')
-       WHERE NOT EXISTS (
-         SELECT 1 FROM coin_transactions
-         WHERE user_id = $1 AND entity_type = 'match_performance' AND entity_id = $3
-       )
-       RETURNING id`,
-      [userId, `Match performance (${actionLabel})`, entityId]
-    );
-    if (ins.rowCount > 0) {
-      notifyUser({
-        userId, clubId,
-        title: 'Nice play!',
-        body:  `+62 coins for ${actionLabel} in the match.`,
-        type:  'achievement',
-        url:   `/student/clubs/${clubId}`,
-      }).catch(() => {});
-    }
-  } catch (e) {
-    console.error('[coins] awardMatchPerformanceCoins error:', e.message);
-  }
-}
-
-/* Award 62 coins for any positive stat contribution via roster stat buttons.
-   entity_id format: ps|{scoreId}|{statName}|{newValue}
-   This prefix lets myActivity link back to events via club_live_scores.event_id */
-async function awardPlayerScoreCoins(scoreId, clubId, playerName, statName, newValue) {
-  if (!playerName) return;
-  try {
-    /* Try club member first, fall back to any active student with matching name */
-    let { rows: userRows } = await pgPool.query(
-      `SELECT DISTINCT u.id AS user_id
-       FROM users u
-       JOIN student_clubs sc ON sc.user_id = u.id AND sc.club_id = $1::bigint
-       WHERE u.is_active = true AND u.name ILIKE $2
-       LIMIT 1`,
-      [clubId, playerName.trim()]
-    );
-    if (!userRows.length) {
-      ({ rows: userRows } = await pgPool.query(
-        `SELECT id AS user_id FROM users
-         WHERE is_active = true AND name ILIKE $1
-         LIMIT 1`,
-        [playerName.trim()]
-      ));
-    }
-    if (!userRows.length) {
-      console.warn(`[coins] awardPlayerScoreCoins: no user found for player "${playerName}" (score ${scoreId}, stat ${statName})`);
-      return;
-    }
-    const userId   = userRows[0].user_id;
-    const entityId = `ps|${scoreId}|${statName}|${newValue}|${playerName.trim().toLowerCase()}`;
-    const statLabel = statName === 'goals' ? 'scoring a goal'
-                    : statName === 'points' ? 'scoring'
-                    : statName;
-    const ins = await pgPool.query(
-      `INSERT INTO coin_transactions (user_id, amount, reason, entity_type, entity_id, academic_year)
-       SELECT $1::int, 62, $2::text, 'player_score', $3::text,
-              to_char(NOW(), 'YYYY') || '-' || to_char(NOW() + interval '1 year', 'YY')
-       WHERE NOT EXISTS (
-         SELECT 1 FROM coin_transactions
-         WHERE user_id = $1::int AND entity_type = 'player_score' AND entity_id = $3::text
-       )
-       RETURNING id`,
-      [userId, `Match contribution (${statLabel})`, entityId]
-    );
-    if (ins.rowCount > 0) {
-      console.log(`[coins] +62 awarded to user ${userId} (${playerName}) for ${statLabel} — score ${scoreId}`);
-      notifyUser({
-        userId, clubId,
-        title: 'Nice play!',
-        body:  `+62 coins for ${statLabel} in the match.`,
-        type:  'achievement',
-        url:   `/student/clubs/${clubId}`,
-      }).catch(() => {});
-    } else {
-      console.log(`[coins] Duplicate skipped for user ${userId} (${playerName}) ${statLabel} val=${newValue}`);
-    }
-  } catch (e) {
-    console.error('[coins] awardPlayerScoreCoins error:', e.message, e.stack);
-  }
 }
 
 const BASKET_EVENT_TYPES = new Set([
@@ -1561,7 +1262,6 @@ const logBasketballEvent = async (req, res, next) => {
     );
     const score = await persistDerivedBasketballState(req.params.scoreId, req.params.id, req.user.id);
     emitScoreUpdate(req, req.params.scoreId, { score, event: evRows[0] });
-    awardMatchPerformanceCoins(req.params.scoreId, evRows[0].id, playerName, eventType).catch(() => {});
     res.status(201).json({ event: evRows[0], score });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ message: 'Duplicate event ignored.' });
@@ -1679,7 +1379,6 @@ module.exports = {
   getTasks, createTask, updateTask, deleteTask, getTaskCompletions, saveTaskCompletions,
   updateOverview,
   getAttendance, getAttendanceSession, createAttendanceSession, updateAttendanceRecord, deleteAttendanceSession,
-  getProgress, upsertProgress,
   getLiveScores, createLiveScore, updateLiveScore, deleteLiveScore, startLiveScore, endLiveScore, startLiveTimer, stopLiveTimer, resetLiveTimer,
   getBasketballEvents, logBasketballEvent, editBasketballEvent, undoBasketballEvent, redoBasketballEvent,
   getMvp, getEventMvp, uploadMvpPhotoCtrl, setMvpPlayer,

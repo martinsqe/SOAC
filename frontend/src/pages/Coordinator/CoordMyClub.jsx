@@ -35,7 +35,6 @@ function compileDaysToSchedule(days, notes) {
   return [...dayLines, ...(notes.trim() ? [notes.trim()] : [])].join('\n');
 }
 
-const LEVEL_OPTIONS = ['Beginner', 'Intermediate', 'Advanced', 'Expert', 'Alumni'];
 const PRIORITY_COLOR = { high: '#ef4444', medium: '#f59e0b', low: '#6b7280' };
 const STATUS_COLOR   = { todo: '#6b7280', in_progress: '#3b82f6', done: '#10b981' };
 const STATUS_LABEL   = { todo: 'To Do', in_progress: 'In Progress', done: 'Done' };
@@ -201,19 +200,6 @@ const BASKETBALL_EVENT_TYPES = [
   { key: 'substitution', label: 'Substitution' },
   { key: 'timeout', label: 'Timeout' },
 ];
-
-/* ── Coin system ── */
-const LEVEL_MULT = { Beginner: 1, Intermediate: 1.5, Advanced: 2, Expert: 3, Alumni: 2 };
-const computeCoins = (xp, level) => Math.floor((Number(xp) || 0) * (LEVEL_MULT[level] || 1));
-
-const TIERS = [
-  { min: 1000, label: 'Platinum Elite', color: '#a855f7', bg: '#faf5ff', icon: '💎' },
-  { min: 500,  label: 'Gold Member',    color: '#d97706', bg: '#fffbeb', icon: '🥇' },
-  { min: 200,  label: 'Silver Member',  color: '#64748b', bg: '#f8fafc', icon: '🥈' },
-  { min: 50,   label: 'Bronze Member',  color: '#92400e', bg: '#fef3c7', icon: '🥉' },
-  { min: 0,    label: 'Newcomer',       color: '#9ca3af', bg: '#f9fafb', icon: '🌱' },
-];
-const getTier = (coins) => TIERS.find(t => coins >= t.min) || TIERS[TIERS.length - 1];
 
 const GRADS = [
   'linear-gradient(135deg,#3DDC84,#635BFF)',
@@ -791,9 +777,9 @@ function TasksTab({ clubId, user, showToast }) {
     if (!selectedTask || selectedTask.is_deleted) return;
     setCompletionSaving(true);
     try {
-      const result = await api.post(`/clubs/${clubId}/tasks/${selectedTask.id}/completions`, { completions });
+      await api.post(`/clubs/${clubId}/tasks/${selectedTask.id}/completions`, { completions });
       setCompletionSaved(true);
-      showToast(`Saved! ${result.totalCoinsAwarded} coins awarded to members.`);
+      showToast('Task completions saved.');
     } catch (e) { showToast(e.message || 'Save failed.'); }
     finally { setCompletionSaving(false); }
   };
@@ -841,7 +827,7 @@ function TasksTab({ clubId, user, showToast }) {
 
   const del = async (id, e) => {
     e.stopPropagation();
-    if (!window.confirm('Archive this task? Records and coins are preserved. No further edits will be possible.')) return;
+    if (!window.confirm('Archive this task? Records are preserved. No further edits will be possible.')) return;
     try {
       await api.delete(`/clubs/${clubId}/tasks/${id}`);
       setTasks(ts => ts.map(t => t.id === id ? { ...t, is_deleted: true } : t));
@@ -962,10 +948,6 @@ function TasksTab({ clubId, user, showToast }) {
                       <span className={s.completionStatVal}>{completedCount}/{completions.length}</span>
                       <span className={s.completionStatLbl}>Completed</span>
                     </div>
-                    <div className={s.completionStatChip}>
-                      <span className={s.completionStatVal} style={{ color:'#635bff' }}>{completedCount * 100}</span>
-                      <span className={s.completionStatLbl}>Coins to award</span>
-                    </div>
                   </div>
 
                   <div className={s.completionList}>
@@ -976,10 +958,6 @@ function TasksTab({ clubId, user, showToast }) {
                         style={{ cursor: selectedTask.is_deleted ? 'default' : 'pointer' }}>
                         <span className={s.memberNum}>{i + 1}</span>
                         <span className={s.completionMemberName}>{c.userName}</span>
-                        {c.isCompleted
-                          ? <span className={s.completionCoinBadge}>+100</span>
-                          : <span className={s.completionZeroBadge}>+0</span>
-                        }
                         <div className={`${s.completionCheck} ${c.isCompleted ? s.completionCheckOn : ''}`}>
                           {c.isCompleted && '✓'}
                         </div>
@@ -990,14 +968,14 @@ function TasksTab({ clubId, user, showToast }) {
                   {!selectedTask.is_deleted && (
                     <div className={s.completionFooter}>
                       {completionSaved && (
-                        <span className={s.completionSavedMsg}>Coins allocated successfully!</span>
+                        <span className={s.completionSavedMsg}>Completions saved.</span>
                       )}
                       <button
                         className={`${s.btn} ${s.btnPrimary}`}
                         style={{ width:'100%' }}
                         onClick={saveCompletions}
                         disabled={completionSaving}>
-                        {completionSaving ? 'Saving…' : 'Save & Award Coins'}
+                        {completionSaving ? 'Saving…' : 'Save Completions'}
                       </button>
                     </div>
                   )}
@@ -1594,18 +1572,6 @@ function PlayerDetailModal({ player, params, clubId, period, currentDate, onClos
               {/* Summary chips */}
               <div className={s.detailChips}>
                 <div className={s.detailChip}>
-                  <span className={s.detailChipVal}>{player.xp}</span>
-                  <span className={s.detailChipLbl}>XP</span>
-                </div>
-                <div className={s.detailChip}>
-                  <span className={s.detailChipVal}>{player.coins}</span>
-                  <span className={s.detailChipLbl}>Coins</span>
-                </div>
-                <div className={s.detailChip}>
-                  <span className={s.detailChipVal}>{player.level}</span>
-                  <span className={s.detailChipLbl}>Level</span>
-                </div>
-                <div className={s.detailChip}>
                   <span className={s.detailChipVal}>{totalSessions > 0 ? `${attStats.present}/${totalSessions}` : '—'}</span>
                   <span className={s.detailChipLbl}>Present</span>
                 </div>
@@ -1638,8 +1604,7 @@ function PlayerDetailModal({ player, params, clubId, period, currentDate, onClos
                           {t.is_completed ? '✓' : '○'}
                         </span>
                         <span className={s.detailTaskName}>{t.task_title}</span>
-                        {t.is_completed && <span className={s.detailTaskCoins}>+{t.coins_awarded} coins</span>}
-                      </div>
+                                      </div>
                     ))}
                   </div>
                 </div>

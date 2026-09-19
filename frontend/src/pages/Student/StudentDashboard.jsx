@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api/client';
-import { refreshAppBadge } from '../../utils/badge';
+import { eventStatus } from '../MyActivity/activityUtils';
 import s from './StudentDashboard.module.css';
 
 /* ── College calendar type metadata ── */
@@ -52,17 +52,12 @@ export default function StudentDashboard() {
   const [totalClubs, setTotalClubs] = useState(0);
   const [loading,    setLoading]    = useState(true);
 
-  /* ── Coin / leaderboard state ── */
-  const [myCoins,          setMyCoins]          = useState(0);
   /* ── College calendar state ── */
   const [calEvents,    setCalEvents]    = useState([]);
   const [calLoading,   setCalLoading]   = useState(true);
 
-  /* ── Wall of Fame notification ── */
-  const [wofNotif, setWofNotif] = useState(null);
-
-  /* ── SOAC Updates + My Activity preview (replaces the coins/leaderboard cards).
-     Notifications has its own dedicated sidebar page — not duplicated here. ── */
+  /* ── SOAC Updates + My Activity preview.
+     Notifications live only on their own sidebar page — not shown here. ── */
   const [soacUpdates,  setSoacUpdates]  = useState([]);
   const [soacLoading,  setSoacLoading]  = useState(true);
   const [myActivity,   setMyActivity]   = useState([]);
@@ -93,23 +88,6 @@ export default function StudentDashboard() {
     }).finally(() => setLoading(false));
   }, []);
 
-  /* ── Fetch coins (still used by the hero "Coins" stat) ── */
-  useEffect(() => {
-    api.get('/users/me/coins')
-      .then(d => setMyCoins(d.coins || 0))
-      .catch(() => setMyCoins(0));
-  }, []);
-
-  /* ── Fetch Wall of Fame notification ── */
-  useEffect(() => {
-    api.get('/users/me/notifications')
-      .then(d => {
-        const wof = (d.notifications || []).find(n => n.type === 'wall_of_fame');
-        if (wof) setWofNotif(wof);
-      })
-      .catch(() => {});
-  }, []);
-
   /* ── SOAC Updates preview ── */
   useEffect(() => {
     api.get('/announcements/soac')
@@ -118,20 +96,17 @@ export default function StudentDashboard() {
       .finally(() => setSoacLoading(false));
   }, []);
 
-  /* ── My Activity preview (recent event registrations) ── */
+  /* ── My Activity preview — the most recent events, with each one's result ── */
   useEffect(() => {
     api.get('/users/me/activity')
-      .then(d => setMyActivity((d.registrations || []).slice(0, 4)))
+      .then(d => setMyActivity(
+        (d.categories || []).flatMap(c => c.events)
+          .sort((a, b) => new Date(b.registeredAt) - new Date(a.registeredAt))
+          .slice(0, 4)
+      ))
       .catch(() => setMyActivity([]))
       .finally(() => setActivityLoading(false));
   }, []);
-
-  const dismissWofNotif = (id) => {
-    setWofNotif(null);
-    api.patch(`/users/me/notifications/${id}/read`, {})
-      .then(() => refreshAppBadge(api))
-      .catch(() => {});
-  };
 
   /* ── Fetch college calendar (current + next month) ── */
   useEffect(() => {
@@ -151,7 +126,7 @@ export default function StudentDashboard() {
   }, []);
 
   const firstName = user?.name?.split(' ')[0] || 'Student';
-  const slotsLeft = 3 - myClubs.length;
+  const slotsLeft = Math.max(0, 3 - myClubs.length);
 
   return (
     <div className={s.page}>
@@ -178,28 +153,8 @@ export default function StudentDashboard() {
             </div>
             <div className={s.heroStatL}>Joined</div>
           </div>
-          <div className={s.heroStat}>
-            <div className={s.heroStatN}>{myCoins}</div>
-            <div className={s.heroStatL}>Coins</div>
-          </div>
         </div>
       </div>
-
-      {/* Wall of Fame notification — appears right after greeting */}
-      {wofNotif && (
-        <div className={s.wofBanner}>
-          <div className={s.wofBannerStar}>★</div>
-          <div className={s.wofBannerContent}>
-            <div className={s.wofBannerTitle}>Congratulations, {firstName}!</div>
-            <div className={s.wofBannerBody}>{wofNotif.body}</div>
-          </div>
-          <button
-            className={s.wofBannerClose}
-            onClick={() => dismissWofNotif(wofNotif.id)}
-            aria-label="Dismiss"
-          >×</button>
-        </div>
-      )}
 
       {/* My Clubs — only shown if joined any */}
       {!loading && myClubs.length > 0 && (
@@ -233,7 +188,7 @@ export default function StudentDashboard() {
           { label:'My Clubs',        desc:'Clubs you\'ve joined',        onClick:() => navigate('/student/clubs')     },
           { label:'Events',           desc:'Upcoming campus events',      onClick:() => navigate('/student/events')    },
           { label:'Calendar',         desc:'College events & exams',      onClick:() => navigate('/student/calendar')  },
-          { label:'Wall of Fame',     desc:'Top contributors',            onClick:() => navigate('/student/fame')      },
+          { label:'Wall of Fame',     desc:'Student achievements',            onClick:() => navigate('/student/fame')      },
         ].map((a, i) => (
           <button key={i} className={s.actionCard} onClick={a.onClick}>
             <span className={s.actionLabel}>{a.label}</span>
@@ -278,7 +233,7 @@ export default function StudentDashboard() {
           <div className={s.lbHead}>
             <div>
               <div className={s.lbTitle}>My Activity</div>
-              <div className={s.lbSub}>Events you've registered for</div>
+              <div className={s.lbSub}>Your events and results</div>
             </div>
             <button className={s.seeAll} onClick={() => navigate('/student/profile')}>View All</button>
           </div>
@@ -290,18 +245,22 @@ export default function StudentDashboard() {
             <div className={s.empty}>No activity yet.</div>
           ) : (
             <div className={s.updList}>
-              {myActivity.map(r => (
-                <button key={r.eventId} className={s.updRow} onClick={() => navigate('/student/profile')}>
-                  <div className={s.updTitle}>{r.eventTitle}</div>
-                  <div className={s.updBody}>{r.clubName}{r.category ? ` · ${r.category}` : ''}</div>
-                  <div className={s.updMeta}>
-                    {/* eventDate is a free-text display string (e.g. "23 & 24th"), not an
-                       ISO date — shown verbatim, never parsed. registeredAt is a real
-                       timestamp and is the fallback when no eventDate was set. */}
-                    {r.eventDate || (r.registeredAt ? new Date(r.registeredAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—')}
-                  </div>
-                </button>
-              ))}
+              {myActivity.map(r => {
+                const status = eventStatus(r.achievements);
+                return (
+                  <button key={r.eventId} className={s.updRow} onClick={() => navigate('/student/profile')}>
+                    <div className={s.actTop}>
+                      <div className={s.updTitle}>{r.eventTitle}</div>
+                      <span className={`${s.actStatus} ${s['actStatus' + status.replace('-', '')]}`}>{status}</span>
+                    </div>
+                    <div className={s.updBody}>{r.clubName}{r.category ? ` · ${r.category}` : ''}</div>
+                    <div className={s.updMeta}>
+                      {new Date(r.eventDate || r.registeredAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      {r.attendance ? ` · ${r.attendance.percentage}% attendance` : ''}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -402,7 +361,10 @@ export default function StudentDashboard() {
                   <div className={s.clubColor} style={{ background: c.color || '#635BFF', width:12, height:12 }} />
                   <div className={s.clubInfo}>
                     <div className={s.clubName}>{c.name}</div>
-                    <div className={s.clubMeta}>{c.category} · Member</div>
+                    <div className={s.clubMeta}>
+                      {c.category ? `${c.category.charAt(0).toUpperCase()}${c.category.slice(1)} · ` : ''}
+                      Member since {new Date(c.joined_at).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}
+                    </div>
                   </div>
                   <span className={s.clubBadge} style={{ background:'#e8fdf5', color:'#059669' }}>✓ Joined</span>
                 </div>

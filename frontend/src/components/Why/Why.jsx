@@ -14,8 +14,8 @@ const Why = ({ clubCount = 40 }) => {
       icon: '🤝'
     },
     {
-      title: 'Real Rewards',
-      desc: 'Earn XP, SOAC Coins and badges. Top 3 coin holders per club get free annual re-registration.',
+      title: 'Real Recognition',
+      desc: 'Take part in events and earn certificates for participation, runner-up and winning results.',
       icon: '🏆'
     },
     {

@@ -1105,7 +1105,7 @@ const Events = () => {
           <div className={`${styles.evCtaInner} fade`}>
             <div className={styles.evCtaText}>
               <h2>Don't Miss the Next Event</h2>
-              <p>Log in to the SOAC platform to register, track attendance and earn XP for every event you attend.</p>
+              <p>Log in to the SOAC platform to register and track attendance for every event you attend.</p>
             </div>
             <div className={styles.evCtaBtns}>
               <button className="btr" onClick={() => upcoming[0] && openReg(upcoming[0])}>

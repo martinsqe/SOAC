@@ -185,17 +185,15 @@ const getProgressDashboard = async (req, res, next) => {
     const period = req.query.period || 'week';
     const range  = getDateRange(period, req.query.date);
 
-    /* 1. All active members with XP/level */
+    /* 1. All active members */
     const { rows: members } = await pgPool.query(
       `SELECT sc.user_id, u.name AS user_name, u.avatar,
-              COALESCE(mp.level,'Beginner') AS level,
-              COALESCE(mp.xp, 0)::int       AS xp,
               mp.notes AS progress_notes
        FROM student_clubs sc
        JOIN users u ON u.id = sc.user_id AND u.is_active = true
        LEFT JOIN member_progress mp ON mp.user_id = sc.user_id AND mp.club_id = sc.club_id
        WHERE sc.club_id = $1::bigint
-       ORDER BY COALESCE(mp.xp,0) DESC, u.name`,
+       ORDER BY u.name`,
       [clubId]
     );
 
@@ -266,18 +264,15 @@ const getProgressDashboard = async (req, res, next) => {
       perfMap[uid][pid] = { value: r.value, date: r.recorded_date, label, color };
     }
 
-    const MULT = { Expert: 3, Advanced: 2, Alumni: 2, Intermediate: 1.5 };
     const players = members.map(m => {
       const uid  = String(m.user_id);
       const att  = attMap[uid]  || { sessions: 0, present: 0, late: 0, absent: 0, excused: 0 };
       const task = taskMap[uid] || { total: 0, completed: 0 };
       const perf = perfMap[uid] || {};
-      const coins = Math.floor(m.xp * (MULT[m.level] || 1));
       const attRate  = att.sessions  ? Math.round(((att.present + att.late * 0.5) / att.sessions) * 100) : null;
       const taskRate = task.total    ? Math.round((task.completed / task.total) * 100) : null;
       return {
         userId: uid, userName: m.user_name, avatar: m.avatar,
-        level: m.level, xp: m.xp, coins,
         progressNotes: m.progress_notes || '',
         attendance: { ...att, rate: attRate },
         tasks: { ...task, rate: taskRate },
@@ -324,7 +319,7 @@ const getPlayerTimeline = async (req, res, next) => {
         [clubId, userId, range.start, range.end]
       ),
       pgPool.query(
-        `SELECT task_title, is_completed, coins_awarded, saved_at::date AS completed_date
+        `SELECT task_title, is_completed, saved_at::date AS completed_date
          FROM task_completion_records
          WHERE club_id=$1::bigint AND user_id=$2::int
            AND saved_at::date BETWEEN $3::date AND $4::date

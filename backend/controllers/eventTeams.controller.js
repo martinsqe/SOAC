@@ -8,58 +8,6 @@ const { autoRefreshReportIfExists } = require('./reports.controller');
 const { sendTeamAssignment } = require('../config/email');
 const { notifyUser } = require('../services/notify');
 
-/* Award 55 coins to every member of a cleared team — fire-and-forget */
-async function awardEventParticipationCoins(eventId, teamId, teamName) {
-  try {
-    const { rows: evRows } = await pgPool.query(
-      `SELECT title, club_id FROM events WHERE id = $1`, [eventId]
-    );
-    if (!evRows.length) return;
-    const { title: eventTitle, club_id: clubId } = evRows[0];
-
-    /* Members: join team_members → registrations → users via email */
-    const { rows: members } = await pgPool.query(
-      `SELECT DISTINCT u.id AS user_id, u.name AS user_name
-       FROM event_team_members etm
-       JOIN event_registrations er ON er.id = etm.registration_id
-       JOIN users u ON u.email = er.email AND u.is_active = true
-       WHERE etm.team_id = $1`,
-      [teamId]
-    );
-    if (!members.length) return;
-
-    const yr = new Date().getFullYear();
-    const academicYear = `${yr}-${String(yr + 1).slice(-2)}`;
-    const entityId     = String(teamId);
-    const reason       = `Event participation: ${eventTitle}`;
-    const notifTitle   = 'Event Participation Reward';
-    const notifBody    = `You earned 55 coins for participating in "${eventTitle}" (${teamName})!`;
-
-    for (const m of members) {
-      /* Idempotent: only award once per user per team clearance */
-      const ins = await pgPool.query(
-        `INSERT INTO coin_transactions (user_id, amount, reason, entity_type, entity_id, academic_year)
-         SELECT $1, 55, $2, 'event_clearance', $3, $4
-         WHERE NOT EXISTS (
-           SELECT 1 FROM coin_transactions
-           WHERE user_id = $1 AND entity_type = 'event_clearance' AND entity_id = $3
-         )
-         RETURNING id`,
-        [m.user_id, reason, entityId, academicYear]
-      );
-      if (ins.rowCount > 0) {
-        await notifyUser({
-          userId: m.user_id, clubId: clubId || null,
-          title: notifTitle, body: notifBody,
-          type: 'achievement', url: '/student/profile',
-        });
-      }
-    }
-  } catch (e) {
-    console.error('[coins] awardEventParticipationCoins error:', e.message);
-  }
-}
-
 /* Emails every team member (at their registration email) their own group + team +
    teammates once a coordinator declares groups/teams/fixtures for a division — applies to
    any sports-category club. Deliberately per-recipient try/catch so one bad address never
@@ -81,7 +29,7 @@ async function notifyTeamAssignments(eventId, division) {
     const clubId     = evRows[0].club_id || null;
 
     /* user_id resolved (best-effort, same email-match used elsewhere in this
-       file — e.g. awardEventParticipationCoins) so registrants who also have
+       file) so registrants who also have
        a platform account get a push notification, not just the email. A
        registrant with no matching account still gets the email above. */
     const { rows } = await pgPool.query(
@@ -330,9 +278,6 @@ const toggleClear = async (req, res, next) => {
       eventId: String(req.params.id), teamId: String(rows[0].id),
       isCleared: rows[0].is_cleared, teamName: rows[0].name,
     });
-    if (rows[0].is_cleared) {
-      awardEventParticipationCoins(req.params.id, rows[0].id, rows[0].name).catch(() => {});
-    }
     res.json({ isCleared: rows[0].is_cleared });
   } catch (err) { next(err); }
 };

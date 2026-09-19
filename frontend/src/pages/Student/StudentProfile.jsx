@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
-import { refreshAppBadge } from '../../utils/badge';
+import ActivityResults from '../MyActivity/ActivityResults';
 import s from './StudentProfile.module.css';
 
 const AVATAR_BASE = '/uploads/avatars/';
-const CERT_LABEL = { participation: 'Certificate of Participation', runner_up: 'Certificate of Runner-up', winner: 'Certificate of Winner' };
 
 function getAvatarUrl(avatar) {
   if (!avatar) return null;
@@ -87,16 +86,12 @@ export default function StudentProfile() {
   const [pwMsg,       setPwMsg]       = useState('');
   const [pwOk,        setPwOk]        = useState(false);
 
-  /* ── SOAC Coins (fetched from member_progress, not auth context) ── */
-  const [coinsData,    setCoinsData]    = useState(null);
-  const [coinsLoaded,  setCoinsLoaded]  = useState(false);
-
   /* ── Activity history ── */
-  const [activityData,  setActivityData]  = useState(null);
-  const [expandedEvent, setExpandedEvent] = useState(null);
+  const [activityData, setActivityData] = useState(null);
 
   /* ── clubs joined (for profile card) ── */
-  const [myClubs, setMyClubs] = useState([]);
+  const [myClubs,       setMyClubs]       = useState([]);
+  const [clubsLoaded,   setClubsLoaded]   = useState(false);
 
   /* ── Wall of Famer status ── */
   const [isWallOfFamer, setIsWallOfFamer] = useState(false);
@@ -142,8 +137,7 @@ export default function StudentProfile() {
   };
 
   useEffect(() => {
-    api.get('/users/me/clubs').then(r => setMyClubs(r.clubs || [])).catch(() => {});
-    api.get('/users/me/coins').then(r => { setCoinsData(r); setCoinsLoaded(true); }).catch(() => setCoinsLoaded(true));
+    api.get('/users/me/clubs').then(r => setMyClubs(r.clubs || [])).catch(() => {}).finally(() => setClubsLoaded(true));
     api.get('/users/me/activity').then(r => setActivityData(r)).catch(() => {});
     api.get('/users/me/notifications').then(r => { if (r.isWallOfFamer) setIsWallOfFamer(true); }).catch(() => {});
     fetchEval('Week', new Date());
@@ -155,19 +149,6 @@ export default function StudentProfile() {
     const next = evalNavDate(evalPeriod, evalDate, dir);
     setEvalDate(next);
     fetchEval(evalPeriod, next);
-  };
-
-  const totalCoins = coinsData?.coins ?? 0;
-
-  const markNotifRead = async (id) => {
-    try {
-      await api.patch(`/users/me/notifications/${id}/read`, {});
-      setWeeklyData(prev => prev ? {
-        ...prev,
-        notifications: prev.notifications.map(n => n.id === id ? { ...n, isRead: true } : n),
-      } : prev);
-      refreshAppBadge(api);
-    } catch { /* silent */ }
   };
 
   const displayUrl = avatarPreview || getAvatarUrl(user?.avatar);
@@ -251,7 +232,7 @@ export default function StudentProfile() {
       <div className={s.pageHeader}>
         <div>
           <h1 className={s.pageTitle}>Profile & Settings</h1>
-          <p className={s.pageSub}>Manage your account, security and SOAC wallet</p>
+          <p className={s.pageSub}>Manage your account, clubs and security</p>
         </div>
       </div>
 
@@ -294,62 +275,41 @@ export default function StudentProfile() {
               </div>
               <div className={s.idStatDiv} />
               <div className={s.idStat}>
-                <div className={s.idStatN} style={{ color: '#f59e0b' }}>
-                  {coinsLoaded ? totalCoins : '—'}
-                </div>
-                <div className={s.idStatL}>Coins</div>
-              </div>
-              <div className={s.idStatDiv} />
-              <div className={s.idStat}>
-                <div className={s.idStatN}>{3 - myClubs.length}</div>
+                <div className={s.idStatN}>{Math.max(0, 3 - myClubs.length)}</div>
                 <div className={s.idStatL}>Slots left</div>
               </div>
             </div>
           </div>
 
-          {/* SOAC Coins wallet card */}
-          <div className={s.coinsCard}>
-            <div className={s.coinsTop}>
-              <span className={s.coinsIcon}>🪙</span>
-              <div>
-                <div className={s.coinsLabel}>SOAC Coins</div>
-                <div className={s.coinsHint}>Your campus reward wallet</div>
-              </div>
-              <div className={s.coinsTotalBadge}>
-                <span className={s.coinsTotalNum}>{coinsLoaded ? totalCoins : '—'}</span>
-                <span className={s.coinsTotalLbl}>total</span>
-              </div>
+          {/* My Clubs — every club the student is an active member of */}
+          <div className={s.clubsCard}>
+            <div className={s.clubsHead}>
+              <span className={s.clubsTitle}>My Clubs</span>
+              <span className={s.clubsCount}>{myClubs.length} of 3</span>
             </div>
 
-            {/* Per-club breakdown — always shown, all enrolled clubs */}
-            {!coinsLoaded ? (
-              <div className={s.coinsSkelList}>
-                {[1,2,3].map(i => <div key={i} className={s.coinsSkel} style={{height:40,borderRadius:8}} />)}
-              </div>
-            ) : coinsData?.clubs?.length > 0 ? (
-              <div className={s.coinsClubCards}>
-                {coinsData.clubs.map(cl => (
-                  <div key={cl.club_id} className={s.coinsClubCard}>
-                    <div className={s.coinsClubCardLeft}>
-                      <span className={s.coinsClubBar} style={{ background: cl.color || '#635bff' }} />
-                      <span className={s.coinsClubName}>{cl.club_name}</span>
-                    </div>
-                    <div className={s.coinsClubCardRight}>
-                      <span className={s.coinsClubAmount}>{cl.coins}</span>
-                      <span className={s.coinsClubUnit}>coins</span>
-                    </div>
+            {!clubsLoaded ? (
+              <div className={s.clubsEmpty}>Loading your clubs…</div>
+            ) : myClubs.length > 0 ? (
+              <div className={s.clubsList}>
+                {myClubs.map(c => (
+                  <div key={c.club_id} className={s.clubsRow}>
+                    <span className={s.clubsName}>{c.club_name}</span>
+                    <span className={s.clubsSince}>
+                      Joined {new Date(c.joined_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </span>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className={s.coinsNoClubs}>Join a club to start earning coins.</p>
+              <div className={s.clubsEmpty}>You haven't joined any clubs yet.</div>
             )}
 
-
-            <div className={s.coinsTip} style={{marginTop:8}}>
-              <span>🎁</span>
-              <span>Earn coins by attending sessions, completing tasks &amp; joining events</span>
-            </div>
+            {clubsLoaded && myClubs.length < 3 && (
+              <div className={s.clubsNote}>
+                You can join {3 - myClubs.length} more club{3 - myClubs.length === 1 ? '' : 's'}.
+              </div>
+            )}
           </div>
 
 
@@ -359,7 +319,7 @@ export default function StudentProfile() {
         <div className={s.main}>
 
           {/* ── My Progress (Week / Month / Year) ── */}
-          <SectionCard icon="📊" title="My Progress" subtitle="Your attendance, tasks and overall performance — calculated automatically">
+          <SectionCard icon="📊" title="My Progress" subtitle="Your club attendance and tasks, calculated automatically">
 
             {/* Period tabs + date nav */}
             <div className={s.evalHeader}>
@@ -405,9 +365,6 @@ export default function StudentProfile() {
                       <div className={s.weeklyClubHead}>
                         <span className={s.weeklyClubDot} style={{ background: cl.color }} />
                         <span className={s.weeklyClubName}>{cl.clubName}</span>
-                        {att.consistencyBonus && (
-                          <span className={s.weeklyBonusBadge}>Consistency Champion +100 coins</span>
-                        )}
                       </div>
 
                       {!hasAny ? (
@@ -419,9 +376,6 @@ export default function StudentProfile() {
                             <div className={s.evalSectionHead}>
                               <span className={s.evalSectionIcon}>📅</span>
                               <span className={s.evalSectionTitle}>Sessions Attended</span>
-                              {att.coinsEarned > 0 && (
-                                <span className={s.evalSectionCoins}>+{att.coinsEarned} coins</span>
-                              )}
                             </div>
 
                             {/* Single big attended count */}
@@ -439,23 +393,6 @@ export default function StudentProfile() {
                               )}
                             </div>
 
-                            {/* Consistency bonus or progress bar (week only) */}
-                            {att.consistencyBonus ? (
-                              <div className={s.evalBonusEarned}>
-                                Consistency Champion — you attended 4+ days this week! +100 bonus coins
-                              </div>
-                            ) : evalPeriod === 'Week' && att.sessions > 0 && (
-                              <div className={s.weeklyProgress}>
-                                <div className={s.weeklyProgressBar}>
-                                  <div className={s.weeklyProgressFill}
-                                    style={{ width: `${Math.min(100,((att.present||0)/4)*100)}%` }} />
-                                </div>
-                                <span className={s.weeklyProgressLbl}>
-                                  {att.present || 0}/4 sessions for consistency bonus
-                                </span>
-                              </div>
-                            )}
-
                             {/* Present sessions list */}
                             {hasAttended && (
                               <div className={s.evalSessionList}>
@@ -468,7 +405,6 @@ export default function StudentProfile() {
                                     {sess.label && (
                                       <span className={s.evalSessionLabel}>{sess.label}</span>
                                     )}
-                                    <span className={s.evalSessionCoinsTag}>+100 coins</span>
                                   </div>
                                 ))}
                               </div>
@@ -480,9 +416,6 @@ export default function StudentProfile() {
                             <div className={s.evalSectionHead}>
                               <span className={s.evalSectionIcon}>✅</span>
                               <span className={s.evalSectionTitle}>Tasks Completed</span>
-                              {tasks.coinsEarned > 0 && (
-                                <span className={s.evalSectionCoins}>+{tasks.coinsEarned} coins</span>
-                              )}
                             </div>
 
                             {/* Efficiency bar */}
@@ -507,7 +440,6 @@ export default function StudentProfile() {
                                   <div key={i} className={s.evalTaskRow}>
                                     <span className={s.evalTaskCheck}>✓</span>
                                     <span className={s.evalTaskName}>{t.title}</span>
-                                    <span className={s.evalTaskCoins}>+{t.coinsAwarded} coins</span>
                                     {t.date && (
                                       <span className={s.evalTaskDate}>
                                         {new Date(t.date).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}
@@ -542,18 +474,8 @@ export default function StudentProfile() {
                                   Based on {att.present||0} session{att.present!==1?'s':''} attended
                                   {tasks.total > 0 ? ` · ${tasks.completed} task${tasks.completed!==1?'s':''} done` : ''}
                                 </p>
-                                <div className={s.evalTotalCoinsChip}>
-                                  {cl.totalCoins} total coins in this club
-                                </div>
                               </div>
                             </div>
-                            {cl.motivationalMessage && (
-                              <div className={s.evalMotivMsg}>
-                                <span className={s.evalMotivQuote}>"</span>
-                                {cl.motivationalMessage}
-                                <span className={s.evalMotivQuote}>"</span>
-                              </div>
-                            )}
                           </div>
                         </>
                       )}
@@ -565,142 +487,20 @@ export default function StudentProfile() {
 
           </SectionCard>
 
-          {/* ── My Activity — Events, Contributions, Coins ── */}
-          <SectionCard icon="📋" title="My Activity" subtitle="All events you joined, your match contributions, and coins earned">
-
+          {/* ── My Activity — same view as the public My Activity page ── */}
+          <SectionCard icon="📋" title="My Activity" subtitle="Every event you've taken part in, your result and your attendance">
             {!activityData ? (
               <div className={s.weeklyLoading}>Loading activity…</div>
             ) : (
-              <>
-                {/* ── Event Attendance — per club, across every day a coordinator
-                   has recorded for that club's events. Only clubs with at least
-                   one recorded day show up here. ── */}
-                {activityData.attendance?.some(a => a.percentage !== null) && (
-                  <>
-                    <div className={s.actSectionTitle}>Event Attendance</div>
-                    <div style={{ marginBottom: 20 }}>
-                      {activityData.attendance.filter(a => a.percentage !== null).map(a => (
-                        <div key={a.clubId} style={{ marginBottom: 12 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                            <span style={{ fontSize: '.85rem', fontWeight: 600, color: '#374151' }}>{a.clubName}</span>
-                            <span style={{ fontSize: '.8rem', fontWeight: 700, color: '#635bff' }}>
-                              {a.percentage}% <span style={{ fontWeight: 400, color: '#9ca3af' }}>({a.presentSessions}/{a.totalSessions} days)</span>
-                            </span>
-                          </div>
-                          <div className={s.weeklyProgressBar}>
-                            <div className={s.weeklyProgressFill} style={{ width: `${a.percentage}%` }} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-
-                {/* ── Events Participated In ── */}
-                <div className={s.actSectionTitle}>Events Participated In</div>
-                {activityData.registrations?.length > 0 ? activityData.registrations.map((r, i) => {
-                  const open   = expandedEvent === i;
-                  const fmt    = d => d ? new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '—';
-                  const totalC = (r.regCoins || 0) + (r.clearCoins || 0) + (r.matchCoins || 0);
-                  return (
-                    <div key={i} className={s.actAccItem}>
-                      <button className={s.actAccHeader} onClick={() => setExpandedEvent(open ? null : i)}>
-                        <div className={s.actAccLeft}>
-                          <span className={s.actAccName}>{r.eventTitle}</span>
-                          <span className={s.actAccSub}>{r.clubName}{r.category ? ` · ${r.category}` : ''}</span>
-                        </div>
-                        <div className={s.actAccRight}>
-                          {totalC > 0
-                            ? <span className={s.actCoinBadge}>+{totalC} coins</span>
-                            : <span className={s.actCoinPending}>registered</span>
-                          }
-                          <span className={s.actAccChevron}>{open ? '▲' : '▼'}</span>
-                        </div>
-                      </button>
-                      {open && (
-                        <div className={s.actAccBody}>
-                          <div className={s.actAccGrid}>
-                            <div className={s.actAccField}><span className={s.actAccLabel}>Club</span><span>{r.clubName}</span></div>
-                            {r.category  && <div className={s.actAccField}><span className={s.actAccLabel}>Category</span><span>{r.category}</span></div>}
-                            {r.venue     && <div className={s.actAccField}><span className={s.actAccLabel}>Venue</span><span>{r.venue}</span></div>}
-                            {r.eventDate && <div className={s.actAccField}><span className={s.actAccLabel}>Event Date</span><span>{fmt(r.eventDate)}</span></div>}
-                            <div className={s.actAccField}><span className={s.actAccLabel}>Registered</span><span>{fmt(r.registeredAt)}</span></div>
-                            {r.certificateUrl && (
-                              <div className={s.actAccField}>
-                                <span className={s.actAccLabel}>Certificate</span>
-                                <a href={r.certificateUrl} target="_blank" rel="noreferrer">
-                                  Download {CERT_LABEL[r.certificateCategory] || 'Certificate'}
-                                </a>
-                              </div>
-                            )}
-                          </div>
-                          <div className={s.actAccCoins}>
-                            {r.regCoins > 0 && (
-                              <div className={s.actAccCoinRow}>
-                                <span>Registration</span>
-                                <span className={s.actCoinBadge}>+{r.regCoins} coins</span>
-                              </div>
-                            )}
-                            {r.clearCoins > 0 && (
-                              <div className={s.actAccCoinRow}>
-                                <span>Team cleared</span>
-                                <span className={s.actCoinBadge}>+{r.clearCoins} coins</span>
-                              </div>
-                            )}
-                            {r.contributions?.length > 0 && (
-                              <>
-                                <div className={s.actAccCoinRow} style={{borderBottom:'1px solid #f3f4f6',paddingBottom:4,marginBottom:2}}>
-                                  <span style={{fontWeight:600}}>Match contributions</span>
-                                  <span className={s.actCoinBadge}>+{r.matchCoins} coins</span>
-                                </div>
-                                {r.contributions.map((c, ci) => (
-                                  <div key={ci} className={s.actAccCoinRow} style={{paddingLeft:12}}>
-                                    <span style={{color:'#6b7280'}}>{c.label}: {c.value}</span>
-                                    <span className={s.actCoinBadge}>+{c.coins}</span>
-                                  </div>
-                                ))}
-                              </>
-                            )}
-                            {totalC === 0 && (
-                              <div className={s.actAccCoinRow}>
-                                <span style={{color:'#9ca3af',fontStyle:'italic'}}>Coins will appear here once processed</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                }) : <p className={s.actEmpty}>You haven't registered for any events yet.</p>}
-
-                {activityData.registrations?.length === 0 && (
-                  <p className={s.actEmpty}>No activity yet. Register for events and join matches to see your history here.</p>
-                )}
-              </>
+              <ActivityResults
+                result={activityData}
+                showCertificates
+                emptyMessage="You haven't registered for any events yet."
+                emptyTo="/student/events"
+                emptyCta="Browse Events"
+              />
             )}
           </SectionCard>
-
-          {/* ── Notifications (no heading) ── */}
-          {weeklyData?.notifications?.filter(n => n.title !== 'Match Contribution' && n.title !== 'Match Performance Reward').length > 0 && (
-            <div className={s.notifList}>
-              {weeklyData.notifications.filter(n => n.title !== 'Match Contribution' && n.title !== 'Match Performance Reward').map(n => (
-                <div key={n.id} className={`${s.notifCard} ${n.isRead ? s.notifRead : s.notifUnread}`}>
-                  <div className={s.notifCardTop}>
-                    <span className={s.notifTitle}>{n.title}</span>
-                    {!n.isRead && (
-                      <button className={s.notifMarkBtn} onClick={() => markNotifRead(n.id)}>
-                        Mark read
-                      </button>
-                    )}
-                  </div>
-                  <p className={s.notifBody}>{n.body}</p>
-                  <span className={s.notifTime}>
-                    {new Date(n.createdAt).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
 
           {/* ── Profile info ── */}
           <SectionCard icon="👤" title="Personal Information" subtitle="Update your display name and profile photo">

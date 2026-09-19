@@ -233,97 +233,22 @@ const myClubs = async (req, res, next) => {
     const cached   = await cache.get(cacheKey);
     if (cached) return res.json(cached);
 
+    /* Only memberships that are actually live: still active (a coordinator can
+       deactivate one without deleting it, and a deactivated slot no longer counts
+       toward the 3-club cap) and pointing at a club that still exists and is active
+       (stale rows can outlive a re-created or removed club). Everything that shows
+       "your clubs" reads this, so it has to match what really counts. */
     const { rows } = await pgPool.query(
-      `SELECT club_id, club_name, joined_at
-       FROM student_clubs
-       WHERE user_id = $1
-       ORDER BY joined_at`,
+      `SELECT sc.club_id, c.name AS club_name, sc.joined_at
+       FROM student_clubs sc
+       JOIN clubs c ON c.id = sc.club_id AND c.is_active = true
+       WHERE sc.user_id = $1 AND sc.is_active = true
+       ORDER BY sc.joined_at`,
       [req.user.id]
     );
     const result = { clubs: rows };
     await cache.set(cacheKey, result, cache.TTL.STUDENT);
     res.json(result);
-  } catch (err) { next(err); }
-};
-
-/* GET /api/users/me/coins  (any authenticated student)
-   Returns per-club coin breakdown for ALL clubs the student belongs to,
-   even clubs where no attendance has been recorded yet (shows 0 coins).  */
-const myCoins = async (req, res, next) => {
-  try {
-    /* Start from student_clubs so every enrolled club appears, even with 0 XP */
-    const { rows: progRows } = await pgPool.query(
-      `SELECT sc.club_id, c.name AS club_name, c.color,
-              COALESCE(mp.xp, 0)::int                       AS xp,
-              COALESCE(mp.level, 'Beginner')                AS level,
-              FLOOR(COALESCE(mp.xp, 0)::float * CASE COALESCE(mp.level, 'Beginner')
-                WHEN 'Expert'       THEN 3
-                WHEN 'Advanced'     THEN 2
-                WHEN 'Alumni'       THEN 2
-                WHEN 'Intermediate' THEN 1.5
-                ELSE 1
-              END)::int AS coins
-       FROM student_clubs sc
-       JOIN clubs c ON c.id = sc.club_id AND c.is_active = true
-       LEFT JOIN member_progress mp
-              ON mp.user_id = sc.user_id AND mp.club_id = sc.club_id
-       WHERE sc.user_id = $1
-       ORDER BY c.name`,
-      [req.user.id]
-    );
-
-    const xpCoins    = progRows.reduce((s, r) => s + (r.coins || 0), 0);
-
-    /* Event participation coins from coin_transactions */
-    const { rows: ctRows } = await pgPool.query(
-      `SELECT COALESCE(SUM(amount), 0)::int AS event_coins FROM coin_transactions WHERE user_id = $1`,
-      [req.user.id]
-    );
-    const eventCoins = ctRows[0]?.event_coins || 0;
-    const totalCoins = xpCoins + eventCoins;
-
-    /* All coin_transaction rewards list for wallet display */
-    const { rows: eventRewardRows } = await pgPool.query(
-      `SELECT ct.amount, ct.reason, ct.entity_type, ct.created_at,
-              e.title AS event_title
-       FROM coin_transactions ct
-       LEFT JOIN events e ON e.id::text = ct.entity_id
-         AND ct.entity_type IN ('event_clearance', 'event_registration')
-       WHERE ct.user_id = $1
-       ORDER BY ct.created_at DESC LIMIT 30`,
-      [req.user.id]
-    );
-
-    /* Global rank — count students with more coins (includes event coins) */
-    const { rows: rankRows } = await pgPool.query(
-      `SELECT COUNT(*)::int AS ahead
-       FROM (
-         SELECT sc2.user_id,
-                FLOOR(SUM(COALESCE(mp2.xp,0)::float * CASE COALESCE(mp2.level,'Beginner')
-                  WHEN 'Expert' THEN 3 WHEN 'Advanced' THEN 2 WHEN 'Alumni' THEN 2
-                  WHEN 'Intermediate' THEN 1.5 ELSE 1 END))::int +
-                COALESCE((SELECT SUM(ct.amount) FROM coin_transactions ct WHERE ct.user_id = sc2.user_id), 0)::int AS c
-         FROM student_clubs sc2
-         JOIN users u2 ON u2.id = sc2.user_id AND u2.is_active = true AND u2.role = 'student'
-         LEFT JOIN member_progress mp2 ON mp2.user_id = sc2.user_id AND mp2.club_id = sc2.club_id
-         GROUP BY sc2.user_id
-       ) sub WHERE sub.c > $1`,
-      [totalCoins]
-    );
-    const rank = (rankRows[0]?.ahead ?? 0) + 1;
-
-    res.json({
-      coins: totalCoins,
-      rank,
-      clubs: progRows,
-      eventCoins,
-      eventRewards: eventRewardRows.map(r => ({
-        amount:     r.amount,
-        entityType: r.entity_type,
-        reason:     r.event_title || r.reason,
-        createdAt: r.created_at,
-      })),
-    });
   } catch (err) { next(err); }
 };
 
@@ -365,263 +290,6 @@ const myEventRegistrations = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* GET /api/users/me/club-leaderboards  (any authenticated student)
-   Per-club coin ranking, scoped to each club the student actually belongs to —
-   students only ever see who's top in THEIR clubs, never a platform-wide list.
-   Ranked by club XP-based coins only (coordinator-tracked progress); event-
-   participation bonus coins still count toward the student's own total on
-   /users/me/coins, just not this per-club ranking. Top 3 in a club qualify for
-   that club's Free Registration award. */
-const myClubLeaderboards = async (req, res, next) => {
-  try {
-    const limit = Math.min(20, Math.max(1, parseInt(req.query.limit, 10) || 3));
-
-    const { rows: myClubs } = await pgPool.query(
-      `SELECT sc.club_id, c.name AS club_name, c.color
-       FROM student_clubs sc
-       JOIN clubs c ON c.id = sc.club_id AND c.is_active = true
-       WHERE sc.user_id = $1
-       ORDER BY c.name`,
-      [req.user.id]
-    );
-    if (!myClubs.length) return res.json({ clubs: [] });
-
-    const clubIds = myClubs.map(c => c.club_id);
-    const { rows: ranked } = await pgPool.query(
-      `SELECT mp.club_id, mp.user_id, u.name AS user_name, u.avatar,
-              mp.xp::int AS total_xp,
-              FLOOR(mp.xp::float * CASE mp.level
-                WHEN 'Expert'       THEN 3
-                WHEN 'Advanced'     THEN 2
-                WHEN 'Alumni'       THEN 2
-                WHEN 'Intermediate' THEN 1.5
-                ELSE 1
-              END)::int AS coins,
-              ROW_NUMBER() OVER (
-                PARTITION BY mp.club_id
-                ORDER BY FLOOR(mp.xp::float * CASE mp.level
-                  WHEN 'Expert'       THEN 3
-                  WHEN 'Advanced'     THEN 2
-                  WHEN 'Alumni'       THEN 2
-                  WHEN 'Intermediate' THEN 1.5
-                  ELSE 1
-                END) DESC, mp.xp DESC, mp.user_id
-              )::int AS rank
-       FROM member_progress mp
-       JOIN users u ON u.id = mp.user_id AND u.is_active = true AND u.role = 'student'
-       WHERE mp.club_id = ANY($1::bigint[])`,
-      [clubIds]
-    );
-
-    const clubs = myClubs.map(c => {
-      const clubRanked = ranked.filter(r => String(r.club_id) === String(c.club_id));
-      const mine        = clubRanked.find(r => String(r.user_id) === String(req.user.id));
-      return {
-        clubId:       String(c.club_id),
-        clubName:     c.club_name,
-        color:        c.color,
-        leaderboard:  clubRanked.filter(r => r.rank <= limit)
-          .map(r => ({ userId: String(r.user_id), userName: r.user_name, avatar: r.avatar, xp: r.total_xp, coins: r.coins, rank: r.rank })),
-        myRank:       mine ? mine.rank  : null,
-        myCoins:      mine ? mine.coins : 0,
-        totalTracked: clubRanked.length,
-      };
-    });
-
-    res.json({ clubs });
-  } catch (err) { next(err); }
-};
-
-/* GET /api/users/me/activity — full event + contribution + coin history */
-const myActivity = async (req, res, next) => {
-  try {
-    const userId = req.user.id;
-
-    const { rows: uRows } = await pgPool.query(
-      `SELECT LOWER(email) AS email, name FROM users WHERE id = $1 AND is_active = true LIMIT 1`,
-      [userId]
-    );
-    if (!uRows.length) return res.status(404).json({ message: 'Not found.' });
-    const { email, name } = uRows[0];
-
-    const [regRes, psContribRes, bgeContribRes, attendRes] = await Promise.all([
-      /* Events this student registered for — with all coin totals per event */
-      pgPool.query(
-        `SELECT er.id AS registration_id, er.event_id, er.event_title, er.registered_at,
-                e.date AS event_date, e.venue, e.category,
-                c.name AS club_name,
-                eci.category  AS certificate_category,
-                eci.file_url  AS certificate_url,
-                COALESCE(ct_reg.amount, 0)::int AS reg_coins,
-                COALESCE((
-                  SELECT SUM(ct2.amount)::int FROM coin_transactions ct2
-                  WHERE ct2.user_id = $1 AND ct2.entity_type = 'event_clearance'
-                    AND ct2.entity_id IN (
-                      SELECT et.id::text FROM event_teams et
-                      JOIN event_team_members etm ON etm.team_id = et.id
-                      JOIN event_registrations er2 ON er2.id = etm.registration_id
-                      WHERE et.event_id = er.event_id AND LOWER(er2.email) = $2
-                    )
-                ), 0)::int AS clear_coins,
-                COALESCE((
-                  SELECT SUM(ct3.amount)::int FROM coin_transactions ct3
-                  WHERE ct3.user_id = $1 AND ct3.entity_type = 'player_score'
-                    AND ct3.entity_id ~ '^ps\|\d'
-                    AND SPLIT_PART(ct3.entity_id, '|', 2)::bigint IN (
-                      SELECT cls.id FROM club_live_scores cls WHERE cls.event_id = er.event_id
-                    )
-                ), 0)::int AS match_stat_coins,
-                COALESCE((
-                  SELECT SUM(ct4.amount)::int FROM coin_transactions ct4
-                  JOIN basketball_game_events bge ON bge.id::text = ct4.entity_id
-                  JOIN club_live_scores cls2 ON cls2.id = bge.score_id AND cls2.event_id = er.event_id
-                  WHERE ct4.user_id = $1 AND ct4.entity_type = 'match_performance'
-                ), 0)::int AS game_event_coins
-         FROM event_registrations er
-         LEFT JOIN events e ON e.id = er.event_id
-         LEFT JOIN clubs c ON c.id = e.club_id
-         LEFT JOIN event_certificates_issued eci
-           ON eci.registration_id = er.id AND eci.delivery_method = 'dashboard'
-         LEFT JOIN coin_transactions ct_reg
-           ON ct_reg.user_id = $1 AND ct_reg.entity_type = 'event_registration'
-          AND ct_reg.entity_id = er.event_id::text
-         WHERE LOWER(er.email) = $2
-         ORDER BY er.registered_at DESC`,
-        [userId, email]
-      ),
-      /* Stat-button match contributions (player_score) — per event, with stat detail */
-      pgPool.query(
-        `SELECT
-           ct.amount,
-           ct.created_at,
-           SPLIT_PART(ct.entity_id, '|', 3) AS stat_name,
-           SPLIT_PART(ct.entity_id, '|', 4) AS stat_value,
-           cls.event_id
-         FROM coin_transactions ct
-         JOIN club_live_scores cls
-           ON cls.id = SPLIT_PART(ct.entity_id, '|', 2)::bigint
-         WHERE ct.user_id = $1
-           AND ct.entity_type = 'player_score'
-           AND ct.entity_id ~ '^ps\\|\\d'
-         ORDER BY ct.created_at DESC`,
-        [userId]
-      ),
-      /* Game-event contributions (match_performance) — per event, with action detail */
-      pgPool.query(
-        `SELECT
-           ct.amount,
-           ct.created_at,
-           bge.event_type,
-           COALESCE(bge.points, 0)::int AS points,
-           bge.quarter,
-           cls.event_id
-         FROM coin_transactions ct
-         JOIN basketball_game_events bge ON bge.id::text = ct.entity_id
-         JOIN club_live_scores cls ON cls.id = bge.score_id
-         WHERE ct.user_id = $1
-           AND ct.entity_type = 'match_performance'
-         ORDER BY ct.created_at DESC`,
-        [userId]
-      ),
-      /* Event-day attendance percentage per club this student is an active member
-         of — across every attendance day recorded for ANY event that club has
-         organized, not just events this student personally registered for (the
-         roster a coordinator records against is the whole club, per
-         eventAttendance.controller.js). LEFT JOIN so a day with no record yet for
-         this student still counts toward the denominator (as not-yet-marked,
-         same as absent until recorded) rather than being silently excluded. */
-      pgPool.query(
-        `SELECT c.id AS club_id, c.name AS club_name,
-                COUNT(DISTINCT s.id) AS total_sessions,
-                COUNT(DISTINCT CASE WHEN r.status = 'present' THEN s.id END) AS present_sessions
-         FROM student_clubs sc
-         JOIN clubs c ON c.id = sc.club_id AND c.is_active = true
-         JOIN events e ON e.club_id = c.id AND e.is_active = true
-         JOIN event_attendance_sessions s ON s.event_id = e.id
-         LEFT JOIN event_attendance_records r ON r.session_id = s.id AND r.user_id = $1
-         WHERE sc.user_id = $1 AND sc.is_active = true
-         GROUP BY c.id, c.name
-         ORDER BY c.name`,
-        [userId]
-      ),
-    ]);
-
-    /* Build event_id → one aggregated row per stat category (not one row per click) —
-       "player_score" (ps|) rows each store the CUMULATIVE running value after that click
-       (see clubDetail.controller.js's awardPlayerScoreCoins — the entity_id embeds the new
-       total, and a fresh coin award fires every time that total changes), so the category's
-       displayed count is the MOST RECENT value, not a sum — only coins are summed across
-       every click. basketball_game_events rows are discrete per-action events (each shot/
-       assist/etc. is its own occurrence), so both the count and the coins are summed. */
-    const contribMap = new Map(); // eventId -> Map(categoryKey -> {label, value, coins, mode, latestAt})
-    const mergeContrib = (eventId, categoryKey, label, value, coins, mode, createdAt) => {
-      if (!eventId) return;
-      const evKey = String(eventId);
-      if (!contribMap.has(evKey)) contribMap.set(evKey, new Map());
-      const catMap = contribMap.get(evKey);
-      const existing = catMap.get(categoryKey);
-      if (!existing) { catMap.set(categoryKey, { label, value, coins, mode, latestAt: createdAt }); return; }
-      existing.coins += coins;
-      if (mode === 'sum') existing.value += value;
-      else if (new Date(createdAt) > new Date(existing.latestAt)) { existing.value = value; existing.latestAt = createdAt; }
-    };
-
-    const titleCase = (s) => s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ');
-
-    for (const r of psContribRes.rows) {
-      const statName  = r.stat_name || 'contribution';
-      const statValue = Number(r.stat_value) || 0;
-      const isPoints  = statName === 'points' || statName === 'goals';
-      const label     = isPoints ? 'Points' : titleCase(statName);
-      mergeContrib(r.event_id, `ps:${statName}`, label, statValue, r.amount, 'latest', r.created_at);
-    }
-    const BGE_LABELS = { shot_made: 'Points', assist: 'Assists', rebound_off: 'Rebounds', rebound_def: 'Rebounds', steal: 'Steals', block: 'Blocks', foul: 'Fouls', turnover: 'Turnovers' };
-    for (const r of bgeContribRes.rows) {
-      const key   = r.event_type === 'rebound_off' || r.event_type === 'rebound_def' ? 'rebound' : r.event_type;
-      const label = BGE_LABELS[r.event_type] || titleCase(r.event_type || 'contribution');
-      const value = r.event_type === 'shot_made' ? (r.points || 2) : 1;
-      mergeContrib(r.event_id, `bge:${key}`, label, value, r.amount, 'sum', r.created_at);
-    }
-
-    res.json({
-      registrations: regRes.rows.map(r => {
-        const regCoins   = Number(r.reg_coins        || 0);
-        const clearCoins = Number(r.clear_coins       || 0);
-        const matchCoins = Number(r.match_stat_coins  || 0) + Number(r.game_event_coins || 0);
-        return {
-          eventId:             r.event_id,
-          eventTitle:          r.event_title,
-          clubName:            r.club_name || '—',
-          category:            r.category  || '',
-          venue:               r.venue     || '',
-          eventDate:           r.event_date,
-          registeredAt:        r.registered_at,
-          certificateUrl:      r.certificate_url      || null,
-          certificateCategory: r.certificate_category || null,
-          regCoins,
-          clearCoins,
-          matchCoins,
-          totalCoins:    regCoins + clearCoins + matchCoins,
-          contributions: Array.from((contribMap.get(String(r.event_id)) || new Map()).values())
-            .map(c => ({ label: c.label, value: c.value, coins: c.coins }))
-            .sort((a, b) => b.coins - a.coins),
-        };
-      }),
-      attendance: attendRes.rows.map(a => {
-        const total   = Number(a.total_sessions   || 0);
-        const present = Number(a.present_sessions || 0);
-        return {
-          clubId:          a.club_id,
-          clubName:        a.club_name,
-          totalSessions:   total,
-          presentSessions: present,
-          percentage:      total > 0 ? Math.round((present / total) * 100) : null,
-        };
-      }),
-    });
-  } catch (err) { next(err); }
-};
-
 /* The platform's 8 event categories (see AdminEvents.jsx's CAT_LABEL) bucketed into
    the 4 top-level groups the "My Activity" public page shows as tabs. */
 const ACTIVITY_BUCKET = {
@@ -632,302 +300,215 @@ const ACTIVITY_BUCKET = {
 };
 const ACTIVITY_BUCKET_LABEL = { sports: 'Sports', cultural: 'Cultural', social: 'Social', academic: 'Academic' };
 
+/* Everything the "My Activity" views show for one email: club status, the events they
+   registered for (grouped into the four categories) with attendance and any certificate
+   they earned there, and their overall event attendance. Looked up directly against
+   event_registrations rather than requiring a users account, since public event and
+   team-roster registration never required one. Shared by the public lookup and the
+   student's own dashboard so the two can never drift apart. */
+const buildActivity = async (email) => {
+  /* Club status for this email — returned whether or not they've registered for
+     any events, since a student can have a pending/approved join request and no
+     event history at all. Latest request per club wins (a declined request can
+     later be re-submitted and approved). An approved request only counts as
+     "member" while the student_clubs row is still active — a coordinator can
+     deactivate a membership without deleting it. Memberships that never went
+     through a join request (e.g. admin-assigned) are included too. */
+  const [{ rows: reqRows }, { rows: memberRows }] = await Promise.all([
+    pgPool.query(
+      `SELECT DISTINCT ON (jr.club_id)
+              jr.club_id, COALESCE(c.name, jr.club_name) AS club_name,
+              jr.status, jr.created_at AS requested_at
+       FROM join_requests jr
+       LEFT JOIN clubs c ON c.id = jr.club_id
+       WHERE LOWER(jr.email) = $1
+       ORDER BY jr.club_id, jr.created_at DESC`,
+      [email]
+    ),
+    pgPool.query(
+      `SELECT sc.club_id, COALESCE(c.name, sc.club_name) AS club_name,
+              sc.is_active, sc.joined_at
+       FROM student_clubs sc
+       JOIN users u ON u.id = sc.user_id
+       LEFT JOIN clubs c ON c.id = sc.club_id
+       WHERE LOWER(u.email) = $1`,
+      [email]
+    ),
+  ]);
+  const memberByClub = new Map(memberRows.map(m => [String(m.club_id), m]));
+  const clubMap = new Map();
+  for (const r of reqRows) {
+    const m = memberByClub.get(String(r.club_id));
+    const status =
+      r.status === 'pending'  ? 'pending' :
+      r.status === 'declined' ? 'declined' :
+      (m && m.is_active === false) ? 'inactive' : 'member';
+    clubMap.set(String(r.club_id), {
+      clubId: String(r.club_id), clubName: r.club_name, status, requestedAt: r.requested_at,
+    });
+  }
+  for (const m of memberRows) {
+    if (!clubMap.has(String(m.club_id))) {
+      clubMap.set(String(m.club_id), {
+        clubId: String(m.club_id), clubName: m.club_name,
+        status: m.is_active === false ? 'inactive' : 'member', requestedAt: m.joined_at,
+      });
+    }
+  }
+  /* Collapse entries that share a club name (stale membership rows can point at
+     old club ids that no longer exist but carry the same stored name) — keep the
+     strongest status so a student never sees the same club listed twice. */
+  const STATUS_RANK = { member: 0, pending: 1, inactive: 2, declined: 3 };
+  const byName = new Map();
+  for (const c of clubMap.values()) {
+    const key = (c.clubName || '').trim().toLowerCase();
+    const existing = byName.get(key);
+    if (!existing || STATUS_RANK[c.status] < STATUS_RANK[existing.status]) byName.set(key, c);
+  }
+  const clubs = [...byName.values()]
+    .sort((a, b) => new Date(b.requestedAt) - new Date(a.requestedAt));
+
+  const { rows: regRows } = await pgPool.query(
+    /* start_date (a proper TIMESTAMPTZ, set once at event creation/approval and
+       never hand-typed) is used for the displayed event date rather than the
+       `date` column — that one's a free-text label an admin can type anything
+       into ("Feb 2-8, 2027", or nothing at all), so it can't be parsed or
+       trusted to render correctly here. */
+    `SELECT er.id AS registration_id, er.event_id, er.event_title, er.registered_at,
+            e.start_date AS event_date, e.venue, e.category,
+            c.name AS club_name
+     FROM event_registrations er
+     LEFT JOIN events e ON e.id = er.event_id
+     LEFT JOIN clubs c ON c.id = e.club_id
+     WHERE LOWER(er.email) = $1
+     ORDER BY er.registered_at DESC`,
+    [email]
+  );
+
+  if (!regRows.length) {
+    return { participated: false, clubs };
+  }
+
+  const { rows: uRows } = await pgPool.query(
+    `SELECT id, name FROM users WHERE LOWER(email) = $1 AND is_active = true LIMIT 1`,
+    [email]
+  );
+  const userId  = uRows[0]?.id   || null;
+  const regIds  = regRows.map(r => r.registration_id);
+  const eventIds = [...new Set(regRows.map(r => r.event_id))];
+
+  const [certRes, attendRes] = await Promise.all([
+    pgPool.query(
+      `SELECT registration_id, event_id, category, file_url, delivery_method
+       FROM event_certificates_issued WHERE registration_id = ANY($1::int[])`,
+      [regIds]
+    ),
+    /* Matches a mark left against either identity a coordinator could have recorded
+       it under (see eventAttendance.controller.js's getAttendance/recordAttendance):
+       user_id when this email has a matching account, or registration_id directly
+       (registration_id is globally unique and already scoped to one event via its
+       own FK, so matching it here needs no extra event_id check) when it doesn't —
+       so attendance shows up here even for a registrant with no account at all. */
+    pgPool.query(
+      `SELECT s.event_id,
+              COUNT(DISTINCT s.id) AS total_sessions,
+              COUNT(DISTINCT CASE WHEN r.status = 'present' THEN s.id END) AS present_sessions
+       FROM event_attendance_sessions s
+       LEFT JOIN event_attendance_records r ON r.session_id = s.id
+         AND (r.user_id = $2 OR r.registration_id = ANY($3::bigint[]))
+       WHERE s.event_id = ANY($1::int[])
+       GROUP BY s.event_id`,
+      [eventIds, userId, regIds]
+    ),
+  ]);
+
+  const attendByEvent = new Map(attendRes.rows.map(a => [String(a.event_id), a]));
+
+  /* Overall event attendance = the average of the per-event percentages, across
+     every event (from any club) that actually ran attendance sessions. Includes
+     events they were marked present at without ever registering — a coordinator
+     can mark a member present by account — which the registration list above
+     can't see. Only possible when this email has an account to match marks to. */
+  const attendedOnly = userId ? (await pgPool.query(
+    `SELECT s.event_id,
+            (SELECT COUNT(*) FROM event_attendance_sessions s2 WHERE s2.event_id = s.event_id)::int AS total_sessions,
+            COUNT(DISTINCT s.id)::int AS present_sessions
+     FROM event_attendance_sessions s
+     JOIN event_attendance_records r ON r.session_id = s.id AND r.user_id = $2 AND r.status = 'present'
+     WHERE NOT (s.event_id = ANY($1::bigint[]))
+     GROUP BY s.event_id`,
+    [eventIds, userId]
+  )).rows : [];
+  const eventFractions = [
+    ...attendRes.rows.map(a => [Number(a.present_sessions), Number(a.total_sessions)]),
+    ...attendedOnly.map(a => [a.present_sessions, a.total_sessions]),
+  ].filter(([, total]) => total > 0).map(([present, total]) => present / total);
+  const attendanceSummary = {
+    averagePct: eventFractions.length
+      ? Math.round((eventFractions.reduce((sum, f) => sum + f, 0) / eventFractions.length) * 100)
+      : null,
+    eventsCounted: eventFractions.length,
+  };
+
+  const certsByReg    = new Map();
+  for (const c of certRes.rows) {
+    if (!certsByReg.has(c.registration_id)) certsByReg.set(c.registration_id, []);
+    certsByReg.get(c.registration_id).push(c);
+  }
+
+  const categories = { sports: [], cultural: [], social: [], academic: [] };
+  for (const r of regRows) {
+    const bucket = ACTIVITY_BUCKET[r.category] || 'academic';
+    const a = attendByEvent.get(String(r.event_id));
+    const total   = Number(a?.total_sessions   || 0);
+    const present = Number(a?.present_sessions || 0);
+
+    categories[bucket].push({
+      eventId:      r.event_id,
+      eventTitle:   r.event_title,
+      clubName:     r.club_name || '—',
+      category:     r.category || '',
+      venue:        r.venue || '',
+      eventDate:    r.event_date,
+      registeredAt: r.registered_at,
+      attendance: total > 0 ? { totalSessions: total, presentSessions: present, percentage: Math.round((present / total) * 100) } : null,
+      achievements: (certsByReg.get(r.registration_id) || []).map(c2 => ({
+        category: c2.category, fileUrl: c2.file_url, status: c2.delivery_method,
+      })),
+    });
+  }
+
+  return {
+    participated: true,
+    hasAccount: !!userId,
+    clubs,
+    attendanceSummary,
+    categories: Object.entries(categories).map(([key, events]) => ({
+      key, label: ACTIVITY_BUCKET_LABEL[key], events,
+    })),
+  };
+};
+
 /* GET /api/users/activity-by-email — public, no login required. Lets a student who
-   isn't a club member (and so has no dashboard / "My Activity" nav item of their own)
-   look up their participation history across every category by just entering the
-   email they registered events with. Looked up directly against event_registrations
-   rather than requiring a users account, since public event/team-roster registration
-   never required one. */
+   isn't a club member (and so has no dashboard of their own) look up their participation
+   history across every category by just entering the email they registered events with. */
 const activityByEmail = async (req, res, next) => {
   try {
     const email = String(req.query.email || '').trim().toLowerCase();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.endsWith('@roster.internal')) {
       return res.status(400).json({ message: 'Please enter a valid email address.' });
     }
-
-    /* Club status for this email — returned whether or not they've registered for
-       any events, since a student can have a pending/approved join request and no
-       event history at all. Latest request per club wins (a declined request can
-       later be re-submitted and approved). An approved request only counts as
-       "member" while the student_clubs row is still active — a coordinator can
-       deactivate a membership without deleting it. Memberships that never went
-       through a join request (e.g. admin-assigned) are included too. */
-    const [{ rows: reqRows }, { rows: memberRows }] = await Promise.all([
-      pgPool.query(
-        `SELECT DISTINCT ON (jr.club_id)
-                jr.club_id, COALESCE(c.name, jr.club_name) AS club_name,
-                jr.status, jr.created_at AS requested_at
-         FROM join_requests jr
-         LEFT JOIN clubs c ON c.id = jr.club_id
-         WHERE LOWER(jr.email) = $1
-         ORDER BY jr.club_id, jr.created_at DESC`,
-        [email]
-      ),
-      pgPool.query(
-        `SELECT sc.club_id, COALESCE(c.name, sc.club_name) AS club_name,
-                sc.is_active, sc.joined_at
-         FROM student_clubs sc
-         JOIN users u ON u.id = sc.user_id
-         LEFT JOIN clubs c ON c.id = sc.club_id
-         WHERE LOWER(u.email) = $1`,
-        [email]
-      ),
-    ]);
-    const memberByClub = new Map(memberRows.map(m => [String(m.club_id), m]));
-    const clubMap = new Map();
-    for (const r of reqRows) {
-      const m = memberByClub.get(String(r.club_id));
-      const status =
-        r.status === 'pending'  ? 'pending' :
-        r.status === 'declined' ? 'declined' :
-        (m && m.is_active === false) ? 'inactive' : 'member';
-      clubMap.set(String(r.club_id), {
-        clubId: String(r.club_id), clubName: r.club_name, status, requestedAt: r.requested_at,
-      });
-    }
-    for (const m of memberRows) {
-      if (!clubMap.has(String(m.club_id))) {
-        clubMap.set(String(m.club_id), {
-          clubId: String(m.club_id), clubName: m.club_name,
-          status: m.is_active === false ? 'inactive' : 'member', requestedAt: m.joined_at,
-        });
-      }
-    }
-    /* Collapse entries that share a club name (stale membership rows can point at
-       old club ids that no longer exist but carry the same stored name) — keep the
-       strongest status so a student never sees the same club listed twice. */
-    const STATUS_RANK = { member: 0, pending: 1, inactive: 2, declined: 3 };
-    const byName = new Map();
-    for (const c of clubMap.values()) {
-      const key = (c.clubName || '').trim().toLowerCase();
-      const existing = byName.get(key);
-      if (!existing || STATUS_RANK[c.status] < STATUS_RANK[existing.status]) byName.set(key, c);
-    }
-    const clubs = [...byName.values()]
-      .sort((a, b) => new Date(b.requestedAt) - new Date(a.requestedAt));
-
-    const { rows: regRows } = await pgPool.query(
-      /* start_date (a proper TIMESTAMPTZ, set once at event creation/approval and
-         never hand-typed) is used for the displayed event date rather than the
-         `date` column — that one's a free-text label an admin can type anything
-         into ("Feb 2-8, 2027", or nothing at all), so it can't be parsed or
-         trusted to render correctly here. */
-      `SELECT er.id AS registration_id, er.event_id, er.event_title, er.registered_at,
-              e.start_date AS event_date, e.venue, e.category,
-              c.name AS club_name
-       FROM event_registrations er
-       LEFT JOIN events e ON e.id = er.event_id
-       LEFT JOIN clubs c ON c.id = e.club_id
-       WHERE LOWER(er.email) = $1
-       ORDER BY er.registered_at DESC`,
-      [email]
-    );
-
-    if (!regRows.length) {
-      return res.json({ participated: false, clubs });
-    }
-
-    const { rows: uRows } = await pgPool.query(
-      `SELECT id, name FROM users WHERE LOWER(email) = $1 AND is_active = true LIMIT 1`,
-      [email]
-    );
-    const userId  = uRows[0]?.id   || null;
-    const regIds  = regRows.map(r => r.registration_id);
-    const eventIds = [...new Set(regRows.map(r => r.event_id))];
-
-    const [certRes, attendRes, coinRes] = await Promise.all([
-      pgPool.query(
-        `SELECT registration_id, event_id, category, file_url, delivery_method
-         FROM event_certificates_issued WHERE registration_id = ANY($1::int[])`,
-        [regIds]
-      ),
-      /* Matches a mark left against either identity a coordinator could have recorded
-         it under (see eventAttendance.controller.js's getAttendance/recordAttendance):
-         user_id when this email has a matching account, or registration_id directly
-         (registration_id is globally unique and already scoped to one event via its
-         own FK, so matching it here needs no extra event_id check) when it doesn't —
-         so attendance shows up here even for a registrant with no account at all. */
-      pgPool.query(
-        `SELECT s.event_id,
-                COUNT(DISTINCT s.id) AS total_sessions,
-                COUNT(DISTINCT CASE WHEN r.status = 'present' THEN s.id END) AS present_sessions
-         FROM event_attendance_sessions s
-         LEFT JOIN event_attendance_records r ON r.session_id = s.id
-           AND (r.user_id = $2 OR r.registration_id = ANY($3::bigint[]))
-         WHERE s.event_id = ANY($1::int[])
-         GROUP BY s.event_id`,
-        [eventIds, userId, regIds]
-      ),
-      /* Same coin sources myActivity uses (event_registration / event_clearance /
-         player_score / match_performance) — all no-op via COALESCE when userId
-         is null, since a student without an account never earned coin transactions. */
-      pgPool.query(
-        `SELECT er.event_id,
-                COALESCE(ct_reg.amount, 0)::int AS reg_coins,
-                COALESCE((
-                  SELECT SUM(ct2.amount)::int FROM coin_transactions ct2
-                  WHERE ct2.user_id = $2 AND ct2.entity_type = 'event_clearance'
-                    AND ct2.entity_id IN (
-                      SELECT et.id::text FROM event_teams et
-                      JOIN event_team_members etm ON etm.team_id = et.id
-                      JOIN event_registrations er2 ON er2.id = etm.registration_id
-                      WHERE et.event_id = er.event_id AND LOWER(er2.email) = $1
-                    )
-                ), 0)::int AS clear_coins,
-                COALESCE((
-                  SELECT SUM(ct3.amount)::int FROM coin_transactions ct3
-                  WHERE ct3.user_id = $2 AND ct3.entity_type = 'player_score'
-                    AND ct3.entity_id ~ '^ps\|\d'
-                    AND SPLIT_PART(ct3.entity_id, '|', 2)::bigint IN (
-                      SELECT cls.id FROM club_live_scores cls WHERE cls.event_id = er.event_id
-                    )
-                ), 0)::int AS match_stat_coins,
-                COALESCE((
-                  SELECT SUM(ct4.amount)::int FROM coin_transactions ct4
-                  JOIN basketball_game_events bge ON bge.id::text = ct4.entity_id
-                  JOIN club_live_scores cls2 ON cls2.id = bge.score_id AND cls2.event_id = er.event_id
-                  WHERE ct4.user_id = $2 AND ct4.entity_type = 'match_performance'
-                ), 0)::int AS game_event_coins
-         FROM event_registrations er
-         LEFT JOIN coin_transactions ct_reg
-           ON ct_reg.user_id = $2 AND ct_reg.entity_type = 'event_registration'
-          AND ct_reg.entity_id = er.event_id::text
-         WHERE LOWER(er.email) = $1`,
-        [email, userId]
-      ),
-    ]);
-
-    const attendByEvent = new Map(attendRes.rows.map(a => [String(a.event_id), a]));
-
-    /* Overall event attendance = the average of the per-event percentages, across
-       every event (from any club) that actually ran attendance sessions. Includes
-       events they were marked present at without ever registering — a coordinator
-       can mark a member present by account — which the registration list above
-       can't see. Only possible when this email has an account to match marks to. */
-    const attendedOnly = userId ? (await pgPool.query(
-      `SELECT s.event_id,
-              (SELECT COUNT(*) FROM event_attendance_sessions s2 WHERE s2.event_id = s.event_id)::int AS total_sessions,
-              COUNT(DISTINCT s.id)::int AS present_sessions
-       FROM event_attendance_sessions s
-       JOIN event_attendance_records r ON r.session_id = s.id AND r.user_id = $2 AND r.status = 'present'
-       WHERE NOT (s.event_id = ANY($1::bigint[]))
-       GROUP BY s.event_id`,
-      [eventIds, userId]
-    )).rows : [];
-    const eventFractions = [
-      ...attendRes.rows.map(a => [Number(a.present_sessions), Number(a.total_sessions)]),
-      ...attendedOnly.map(a => [a.present_sessions, a.total_sessions]),
-    ].filter(([, total]) => total > 0).map(([present, total]) => present / total);
-    const attendanceSummary = {
-      averagePct: eventFractions.length
-        ? Math.round((eventFractions.reduce((sum, f) => sum + f, 0) / eventFractions.length) * 100)
-        : null,
-      eventsCounted: eventFractions.length,
-    };
-
-    const coinsByEvent  = new Map(coinRes.rows.map(c => [String(c.event_id), c]));
-    const certsByReg    = new Map();
-    for (const c of certRes.rows) {
-      if (!certsByReg.has(c.registration_id)) certsByReg.set(c.registration_id, []);
-      certsByReg.get(c.registration_id).push(c);
-    }
-
-    const categories = { sports: [], cultural: [], social: [], academic: [] };
-    for (const r of regRows) {
-      const bucket = ACTIVITY_BUCKET[r.category] || 'academic';
-      const a = attendByEvent.get(String(r.event_id));
-      const total   = Number(a?.total_sessions   || 0);
-      const present = Number(a?.present_sessions || 0);
-      const c = coinsByEvent.get(String(r.event_id));
-      const totalCoins = Number(c?.reg_coins || 0) + Number(c?.clear_coins || 0)
-        + Number(c?.match_stat_coins || 0) + Number(c?.game_event_coins || 0);
-
-      categories[bucket].push({
-        eventId:      r.event_id,
-        eventTitle:   r.event_title,
-        clubName:     r.club_name || '—',
-        category:     r.category || '',
-        venue:        r.venue || '',
-        eventDate:    r.event_date,
-        registeredAt: r.registered_at,
-        attendance: total > 0 ? { totalSessions: total, presentSessions: present, percentage: Math.round((present / total) * 100) } : null,
-        contributionCoins: totalCoins,
-        achievements: (certsByReg.get(r.registration_id) || []).map(c2 => ({
-          category: c2.category, fileUrl: c2.file_url, status: c2.delivery_method,
-        })),
-      });
-    }
-
-    res.json({
-      participated: true,
-      hasAccount: !!userId,
-      clubs,
-      attendanceSummary,
-      categories: Object.entries(categories).map(([key, events]) => ({
-        key, label: ACTIVITY_BUCKET_LABEL[key], events,
-      })),
-    });
+    res.json(await buildActivity(email));
   } catch (err) { next(err); }
 };
 
-/* ── Motivational message banks ─────────────────────────────────────────── */
-const WEEK_MSGS = [
-  "Outstanding week! Every session brings you closer to greatness. Keep showing up!",
-  "Consistency is your superpower. Another week of dedication in the books!",
-  "Champions are built one practice at a time. You're building something special!",
-  "Your commitment this week sets you apart. Never underestimate the power of showing up!",
-  "Hard work beats talent when talent doesn't work hard. You're proving that every week!",
-  "Every rep, every session, every task — it all adds up. Trust the process!",
-  "This week you were disciplined, dedicated, and driven. That's the recipe for success!",
-  "Progress isn't always visible, but it's always happening. Keep grinding!",
-  "You showed up when it mattered. That's what separates good from great!",
-  "Greatness is earned in the small moments. You're earning it, week by week!",
-  "Your energy this week was contagious. Keep inspiring those around you!",
-  "Every goal starts with showing up. You showed up — now keep going!",
-];
-const MONTH_MSGS = [
-  "A full month of dedication. Your growth speaks for itself — keep rising!",
-  "Month complete! Every session, every task, every effort has built a stronger you.",
-  "What a month! Your consistency is turning potential into performance. Keep it up!",
-  "Four weeks of showing up. You're not just a member — you're a pillar of this club.",
-  "Monthly reflection: you've worked hard, grown stronger, and proven your commitment!",
-  "Another month closer to your best self. The journey is the destination — embrace it!",
-  "This month's stats tell a story of grit and growth. Write an even better one next month!",
-  "Champions are built over months, not days. You're in the building phase — trust it!",
-  "Your monthly performance shows real character. Keep this momentum going!",
-  "Month done. You gave it your all. Rest, reflect, and come back even stronger!",
-  "Consistent effort is the foundation of every great achievement. You're laying it!",
-  "Look back at where you started this month. That growth? That's all you!",
-];
-const YEAR_MSGS = [
-  "A full year of dedication! You've grown tremendously — the best is yet to come!",
-  "365 days of choices, challenges, and growth. You chose to show up. That's everything!",
-  "Year in review: your commitment is shaping who you're becoming. Incredibly proud of you!",
-  "One year stronger. The consistency and discipline you've built will carry you far.",
-  "Your yearly journey tells the story of a true champion. Carry this into the next year!",
-];
-
-function getMotivationalMsg(period, dateRange) {
-  switch (period) {
-    case 'week': {
-      const d = new Date(dateRange.start + 'T12:00:00');
-      const dayNum = d.getUTCDay() || 7;
-      const tmp = new Date(d); tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
-      const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
-      const weekNum = Math.ceil(((tmp - yearStart) / 86400000 + 1) / 7);
-      return WEEK_MSGS[weekNum % WEEK_MSGS.length];
-    }
-    case 'month': {
-      const month = new Date(dateRange.start + 'T12:00:00').getMonth();
-      return MONTH_MSGS[month % MONTH_MSGS.length];
-    }
-    case 'year': {
-      const year = new Date(dateRange.start + 'T12:00:00').getFullYear();
-      return YEAR_MSGS[year % YEAR_MSGS.length];
-    }
-    default: return WEEK_MSGS[0];
-  }
-}
+/* GET /api/users/me/activity — the logged-in student's own activity, same shape as the
+   public lookup but always for their own account email, never one supplied by the caller. */
+const myActivity = async (req, res, next) => {
+  try {
+    res.json(await buildActivity(String(req.user.email).trim().toLowerCase()));
+  } catch (err) { next(err); }
+};
 
 function computeOverallScore(presentSessions, totalSessions, completedTasks, totalTasks) {
   let score = 0, weight = 0;
@@ -983,8 +564,8 @@ function evalGetRange(period, dateStr) {
 }
 
 /* GET /api/users/me/weekly-evaluation?period=week&date=2026-06-28
-   Returns per-club progress summary (attendance + tasks + coins) for the
-   requested period, plus unread motivational notifications.              */
+   Returns the student's per-club progress (attendance + tasks) for the
+   requested period.                                                      */
 const weeklyEvaluation = async (req, res, next) => {
   try {
     const userId = req.user.id;
@@ -1002,7 +583,7 @@ const weeklyEvaluation = async (req, res, next) => {
     );
 
     if (!clubs.length) {
-      return res.json({ period, dateRange: range, clubs: [], notifications: [] });
+      return res.json({ period, dateRange: range, clubs: [] });
     }
 
     const clubIds = clubs.map(c => c.club_id);
@@ -1022,7 +603,7 @@ const weeklyEvaluation = async (req, res, next) => {
 
     /* Task completion records in period */
     const { rows: taskRecs } = await pgPool.query(
-      `SELECT club_id, task_title, is_completed, coins_awarded,
+      `SELECT club_id, task_title, is_completed,
               saved_at::date AS completed_date
        FROM task_completion_records
        WHERE user_id = $1
@@ -1031,46 +612,6 @@ const weeklyEvaluation = async (req, res, next) => {
        ORDER BY saved_at ASC`,
       [userId, clubIds, range.start, range.end]
     );
-
-    /* Consistency bonuses in period (any week whose week_start falls inside range) */
-    const { rows: bonusRows } = await pgPool.query(
-      `SELECT club_id FROM attendance_consistency_bonuses
-       WHERE user_id = $1
-         AND week_start BETWEEN $2::date AND $3::date`,
-      [userId, range.start, range.end]
-    );
-    const bonusClubIds = new Set(bonusRows.map(b => String(b.club_id)));
-
-    /* Coins & level per club from member_progress (total, not period-specific) */
-    const { rows: progRows } = await pgPool.query(
-      `SELECT mp.club_id, COALESCE(mp.level,'Beginner') AS level,
-              FLOOR(COALESCE(mp.xp,0)::float * CASE COALESCE(mp.level,'Beginner')
-                WHEN 'Expert'       THEN 3
-                WHEN 'Advanced'     THEN 2
-                WHEN 'Alumni'       THEN 2
-                WHEN 'Intermediate' THEN 1.5
-                ELSE 1 END)::int AS coins
-       FROM member_progress mp
-       WHERE mp.user_id = $1 AND mp.club_id = ANY($2::bigint[])`,
-      [userId, clubIds]
-    );
-    const progMap = Object.fromEntries(progRows.map(p => [String(p.club_id), p]));
-
-    /* All special coins earned in this period (registrations, clearances, match performance) */
-    const { rows: evCoinRows } = await pgPool.query(
-      `SELECT ct.amount, ct.reason, ct.entity_type, ct.created_at,
-              e.title AS event_title
-       FROM coin_transactions ct
-       LEFT JOIN events e ON e.id::text = ct.entity_id
-         AND ct.entity_type IN ('event_clearance', 'event_registration')
-       WHERE ct.user_id = $1
-         AND ct.created_at::date BETWEEN $2::date AND $3::date
-       ORDER BY ct.created_at ASC`,
-      [userId, range.start, range.end]
-    );
-
-    /* Motivational message for this period */
-    const motMsg = getMotivationalMsg(period, range);
 
     /* Build per-club summary */
     const clubData = clubs.map(cl => {
@@ -1081,12 +622,8 @@ const weeklyEvaluation = async (req, res, next) => {
       const late     = clRecs.filter(r => r.status === 'late').length;
       const absent   = clRecs.filter(r => r.status === 'absent').length;
       const excused  = clRecs.filter(r => r.status === 'excused').length;
-      const hasBonus = bonusClubIds.has(cid);
-      const prog     = progMap[cid] || { coins: 0 };
       const tasksDone  = clTasks.filter(t => t.is_completed).length;
       const tasksTotal = clTasks.length;
-      const attCoins   = present * 100 + late * 50 + excused * 25 + (hasBonus ? 100 : 0);
-      const taskCoins  = clTasks.filter(t => t.is_completed).reduce((s, t) => s + (Number(t.coins_awarded) || 0), 0);
       const efficiency = tasksTotal > 0 ? Math.round((tasksDone / tasksTotal) * 100) : null;
       const score      = computeOverallScore(present, clRecs.length, tasksDone, tasksTotal);
       const sl         = scoreToLabel(score);
@@ -1095,13 +632,9 @@ const weeklyEvaluation = async (req, res, next) => {
         clubId:        cid,
         clubName:      cl.club_name,
         color:         cl.color || '#635bff',
-        totalCoins:    prog.coins,
         attendance: {
           sessions: clRecs.length,
           present, late, absent, excused,
-          coinsEarned:      attCoins,
-          consistencyBonus: hasBonus,
-          daysToBonus:      hasBonus ? 0 : Math.max(0, 4 - present),
           list: clRecs.map(r => ({
             date: r.session_date, label: r.session_label, status: r.status,
           })),
@@ -1110,60 +643,27 @@ const weeklyEvaluation = async (req, res, next) => {
           total:      tasksTotal,
           completed:  tasksDone,
           efficiency,
-          coinsEarned: taskCoins,
           list: clTasks.map(t => ({
             title:        t.task_title,
             completed:    t.is_completed,
-            coinsAwarded: Number(t.coins_awarded) || 0,
             date:         t.completed_date,
           })),
         },
         overallScore:        score,
         scoreLabel:          sl.label,
         scoreColor:          sl.color,
-        motivationalMessage: motMsg,
         /* keep flat fields for backwards compat */
         periodPresent:    present,
         periodTasksDone:  tasksDone,
         periodTotalTasks: tasksTotal,
-        consistencyBonus: hasBonus,
-        daysToBonus:      hasBonus ? 0 : Math.max(0, 4 - present),
         sessions: clRecs.map(r => ({ date: r.session_date, label: r.session_label, status: r.status })),
       };
     });
-
-    /* Recent notifications (unread first, max 20) */
-    const { rows: notifs } = await pgPool.query(
-      `SELECT id, club_id, title, body, type, is_read, created_at
-       FROM member_notifications
-       WHERE user_id = $1
-       ORDER BY is_read ASC, created_at DESC
-       LIMIT 20`,
-      [userId]
-    );
 
     res.json({
       period,
       dateRange: range,
       clubs: clubData,
-      eventRewards: {
-        total: evCoinRows.reduce((s, r) => s + (r.amount || 0), 0),
-        list:  evCoinRows.map(r => ({
-          amount:     r.amount,
-          entityType: r.entity_type,
-          reason:     r.event_title || r.reason,
-          createdAt:  r.created_at,
-        })),
-      },
-      notifications: notifs.map(n => ({
-        id:        String(n.id),
-        clubId:    n.club_id ? String(n.club_id) : null,
-        title:     n.title,
-        body:      n.body,
-        type:      n.type,
-        isRead:    n.is_read,
-        createdAt: n.created_at,
-      })),
     });
   } catch (err) { next(err); }
 };
@@ -1389,4 +889,4 @@ const assignClub = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, create, update, remove, stats, auditLog, myClubs, updateProfile, assignClub, myCoins, myEventRegistrations, myClubLeaderboards, weeklyEvaluation, getNotifications, unreadNotificationCount, markNotificationRead, getAllNotifications, markAllNotificationsRead, myActivity, activityByEmail };
+module.exports = { getAll, create, update, remove, stats, auditLog, myClubs, updateProfile, assignClub, myEventRegistrations, weeklyEvaluation, getNotifications, unreadNotificationCount, markNotificationRead, getAllNotifications, markAllNotificationsRead, myActivity, activityByEmail };

@@ -19,22 +19,22 @@ const FeatureBand = () => {
         </h2>
         <p className={styles.description}>
           Your complete student life hub &mdash; from joining clubs and tracking tasks 
-          to earning XP, coins, and chatting with your team.
+          to attendance records and chatting with your team.
         </p>
 
         <div className={styles.fblist}>
           <div className={styles.fbrow}>
-            <div className={styles.fbic}>⚡</div>
+            <div className={styles.fbic}>✅</div>
             <div className={styles.fbtx}>
-              <h4>XP &amp; Leveling System</h4>
-              <p>Complete Tasks, Compete, witness real Growth.</p>
+              <h4>Tasks &amp; Attendance</h4>
+              <p>Complete tasks, attend sessions, witness real growth.</p>
             </div>
           </div>
           <div className={styles.fbrow}>
-            <div className={styles.fbic}>🪙</div>
+            <div className={styles.fbic}>🏆</div>
             <div className={styles.fbtx}>
-              <h4>SOAC Coins &amp; Free Registration</h4>
-              <p>Top 3 per club earn free annual re-registration.</p>
+              <h4>Events &amp; Achievements</h4>
+              <p>Register for events and collect certificates for your results.</p>
             </div>
           </div>
           <div className={styles.fbrow}>

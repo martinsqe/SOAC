@@ -777,39 +777,4 @@ const assignCoordinator = async (req, res, next) => {
   }
 };
 
-/* ══════════════════════════════════════════════════════════════════════════
-   COIN LEADERBOARD  (public — no auth required)
-   Coins = XP × level multiplier, summed across all clubs per student.
-   Multipliers: Beginner=1 · Intermediate=1.5 · Advanced=2 · Expert=3 · Alumni=2
-   Returns top 10 globally; top 3 qualify for Free Registration award.
-══════════════════════════════════════════════════════════════════════════ */
-const getLeaderboard = async (req, res, next) => {
-  try {
-    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 10));
-    const { rows } = await pgPool.query(
-      `SELECT
-         mp.user_id,
-         u.name        AS user_name,
-         u.avatar,
-         FLOOR(SUM(mp.xp::float * CASE mp.level
-           WHEN 'Expert'       THEN 3
-           WHEN 'Advanced'     THEN 2
-           WHEN 'Alumni'       THEN 2
-           WHEN 'Intermediate' THEN 1.5
-           ELSE 1
-         END))::int    AS coins,
-         SUM(mp.xp)::int AS total_xp,
-         COUNT(DISTINCT mp.club_id)::int AS club_count
-       FROM member_progress mp
-       JOIN users u ON u.id = mp.user_id
-       WHERE u.is_active = true AND u.role = 'student'
-       GROUP BY mp.user_id, u.name, u.avatar
-       ORDER BY coins DESC, total_xp DESC
-       LIMIT $1`,
-      [limit]
-    );
-    res.json({ leaderboard: rows });
-  } catch (err) { next(err); }
-};
-
-module.exports = { getAll, getOne, create, update, remove, stats, publicStats, seed, mine, getMembers, getAllMembers, toggleMemberActive, assignCoordinator, getCoordinatorAssignments, getLeaderboard };
+module.exports = { getAll, getOne, create, update, remove, stats, publicStats, seed, mine, getMembers, getAllMembers, toggleMemberActive, assignCoordinator, getCoordinatorAssignments };

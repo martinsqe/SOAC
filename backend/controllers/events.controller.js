@@ -699,44 +699,8 @@ const remove = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* Award 55 coins when a student registers for any event — fire-and-forget */
-async function awardRegistrationCoins(eventId, eventTitle, email) {
-  try {
-    const { rows: userRows } = await pgPool.query(
-      `SELECT id FROM users WHERE LOWER(email) = $1 AND is_active = true LIMIT 1`, [email]
-    );
-    if (!userRows.length) return;
-    const userId = userRows[0].id;
-    const entityId = String(eventId);
-
-    const ins = await pgPool.query(
-      `INSERT INTO coin_transactions (user_id, amount, reason, entity_type, entity_id, academic_year)
-       SELECT $1, 55, $2, 'event_registration', $3,
-              to_char(NOW(), 'YYYY') || '-' || to_char(NOW() + interval '1 year', 'YY')
-       WHERE NOT EXISTS (
-         SELECT 1 FROM coin_transactions
-         WHERE user_id = $1 AND entity_type = 'event_registration' AND entity_id = $3
-       )
-       RETURNING id`,
-      [userId, `Event registration: ${eventTitle}`, entityId]
-    );
-    if (ins.rowCount > 0) {
-      await notifyUser({
-        userId, clubId: null,
-        title: 'Registration Reward',
-        body:  `You earned 55 coins for registering for "${eventTitle}"!`,
-        type:  'achievement',
-        url:   '/student/profile',
-      });
-    }
-  } catch (e) {
-    console.error('[coins] awardRegistrationCoins error:', e.message);
-  }
-}
-
 /* Sends the actual "you're registered" confirmation — fires on EVERY successful
-   registration (unlike awardRegistrationCoins, which is a one-time coin-earned
-   notice gated by idempotency). Registration doesn't require an account, so this
+   registration. Registration doesn't require an account, so this
    silently no-ops if the email doesn't match an active user. */
 async function notifyRegistrationConfirmed(event, email) {
   try {
@@ -883,7 +847,6 @@ const registerForGaloreUmbrella = async (umbrella, req, res) => {
     await cache.delPattern('events:*');
     const notifyOne = actRows.find(a => created.includes(a.title));
     if (notifyOne) {
-      awardRegistrationCoins(umbrella.id, umbrella.title, emailNorm).catch(() => {});
       notifyRegistrationConfirmed({ id: umbrella.id, title: umbrella.title }, emailNorm).catch(() => {});
     }
     res.status(201).json({
@@ -950,7 +913,6 @@ const register = async (req, res, next) => {
     );
     await cache.del(`events:${req.params.id}`);
     const regEmail = email.trim().toLowerCase();
-    awardRegistrationCoins(event.id, event.title, regEmail).catch(() => {});
     notifyRegistrationConfirmed(event, regEmail).catch(() => {});
     res.status(201).json({ message: 'Registration successful!', registration: rows[0] });
   } catch (err) {
@@ -1159,7 +1121,7 @@ const listRegistrations = async (req, res, next) => {
 
 /* PATCH /api/events/:id/registrations/:regId  (admin only)
    Lets admin correct a student's submitted registration details. Email anchors the
-   registrant's identity across the platform (login, my-status lookups, coin awards)
+   registrant's identity across the platform (login, my-status lookups)
    so it's intentionally NOT editable here — only the details they filled in at
    registration are. If this registration has already been added to a team, the
    same corrected name/enrollment number are pushed into that team's roster
