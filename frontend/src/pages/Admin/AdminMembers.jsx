@@ -7,6 +7,10 @@ import s from './AdminMembers.module.css';
 /* ── constants ── */
 const ROLE_COLOR = { admin: '#635bff', student: '#00c896', coordinator: '#ff9500', faculty_coordinator: '#4c44e0' };
 const ROLE_BG    = { admin: '#635bff18', student: '#00c89618', coordinator: '#ff950018', faculty_coordinator: '#4c44e018' };
+/* Coordinator role names shown as SC/FC everywhere in this table — the role
+   value itself stays 'coordinator'/'faculty_coordinator' in the database. */
+const ROLE_LABEL       = { admin: 'Admin', student: 'Student', coordinator: 'SC', faculty_coordinator: 'FC' };
+const ROLE_LABEL_PLURAL = { admin: 'Admins', student: 'Students', coordinator: 'SCs', faculty_coordinator: 'FCs' };
 const GRADS = [
   'linear-gradient(135deg,#3DDC84,#635BFF)', 'linear-gradient(135deg,#FF6B35,#FFD166)',
   'linear-gradient(135deg,#A259FF,#3DDC84)', 'linear-gradient(135deg,#06D6A0,#00E5FF)',
@@ -214,7 +218,7 @@ function UsersTab({ clubs }) {
               style={roleF === r && r !== 'all' ? { borderBottomColor: ROLE_COLOR[r] || '#636363', color: ROLE_COLOR[r] || '#555' } : {}}
               onClick={() => setRoleF(r)}
             >
-              {r === 'all' ? 'All' : r.charAt(0).toUpperCase() + r.slice(1)}
+              {r === 'all' ? 'All' : (ROLE_LABEL[r] || r.charAt(0).toUpperCase() + r.slice(1))}
               {r !== 'all' && ` (${users.filter(u => u.role === r).length})`}
             </button>
           ))}
@@ -250,7 +254,7 @@ function UsersTab({ clubs }) {
                         background: ROLE_BG[u.role] || '#f9f9fb',
                         borderTop: i > 0 ? '1px solid #eee' : 'none',
                       }}>
-                        {u.role}s ({users.filter(x => x.role === u.role).length})
+                        {ROLE_LABEL_PLURAL[u.role] || `${u.role}s`} ({users.filter(x => x.role === u.role).length})
                       </td>
                     </tr>
                   )}
@@ -260,7 +264,7 @@ function UsersTab({ clubs }) {
                   <td data-label="Phone" className={s.muted}>{u.phone || '—'}</td>
                   <td data-label="Gender" className={s.muted}>{u.gender || '—'}</td>
                   <td data-label="Role">
-                    <span className={s.roleBadge} style={{ borderBottomColor: ROLE_COLOR[u.role] || '#f4f4f8', color: ROLE_COLOR[u.role] || '#555' }}>{u.role}</span>
+                    <span className={s.roleBadge} style={{ borderBottomColor: ROLE_COLOR[u.role] || '#f4f4f8', color: ROLE_COLOR[u.role] || '#555' }}>{ROLE_LABEL[u.role] || u.role}</span>
                   </td>
                   <td data-label="Club">
                     {(u.role === 'coordinator' || u.role === 'faculty_coordinator') ? (
