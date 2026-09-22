@@ -157,14 +157,50 @@ const update = async (req, res, next) => {
    club/event registrations, tasks and announcements they authored, attendance
    and performance records recorded against them, event requests they
    submitted, etc. — is removed by the database along with them, exactly as it
-   would be for any DELETE FROM users. A handful of columns reference a user
-   only to record "who did this" on someone else's data (an audit log entry,
-   an attendance session, a progress note, an account they created) — those
-   are nulled out first so the underlying record survives; only this user's
-   OWN now-defunct data (coin history, the legacy memberships row) is deleted
-   outright alongside them. */
+   would be for any DELETE FROM users. Every OTHER column that references a
+   user (mostly "who did this" on someone else's data — an audit log entry, an
+   attendance session, a progress note, an account they created) is discovered
+   at runtime from the database's own foreign-key metadata, rather than a
+   hand-maintained list here that a future schema change could silently fall
+   out of sync with — a mismatch there is exactly what would abort the
+   transaction and, if left unhandled, poison the pooled connection for
+   whatever unrelated request reuses it next. Each column is detached inside
+   its own SAVEPOINT so one unexpectedly NOT NULL or already-removed column
+   can't take the rest of the deletion down with it. */
+const detachUserReferences = async (client, userId) => {
+  const { rows: fkCols } = await client.query(`
+    SELECT tc.table_name, kcu.column_name
+    FROM information_schema.table_constraints tc
+    JOIN information_schema.key_column_usage kcu
+      ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+    JOIN information_schema.referential_constraints rc
+      ON tc.constraint_name = rc.constraint_name AND tc.table_schema = rc.constraint_schema
+    JOIN information_schema.constraint_column_usage ccu
+      ON rc.unique_constraint_name = ccu.constraint_name AND rc.constraint_schema = ccu.table_schema
+    WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
+      AND ccu.table_name = 'users' AND ccu.column_name = 'id'
+      AND rc.delete_rule NOT IN ('CASCADE', 'SET NULL')
+  `);
+
+  for (const { table_name: table, column_name: column } of fkCols) {
+    await client.query('SAVEPOINT detach_step');
+    try {
+      await client.query(`UPDATE "${table}" SET "${column}" = NULL WHERE "${column}" = $1`, [userId]);
+      await client.query('RELEASE SAVEPOINT detach_step');
+    } catch (e) {
+      /* Column turned out to be NOT NULL (or something else went wrong on this one
+         table) — recover to a clean state, then just remove those rows instead of
+         leaving the deletion blocked on data that's about to lose its owner anyway. */
+      await client.query('ROLLBACK TO SAVEPOINT detach_step');
+      await client.query('RELEASE SAVEPOINT detach_step');
+      await client.query(`DELETE FROM "${table}" WHERE "${column}" = $1`, [userId]);
+    }
+  }
+};
+
 const remove = async (req, res, next) => {
   const client = await pgPool.connect();
+  let dbOk = true; // false once anything on this connection fails in a way ROLLBACK can't clear
   try {
     const userId = Number(req.params.id);
     if (userId === req.user.id) {
@@ -175,15 +211,7 @@ const remove = async (req, res, next) => {
     const target = rows[0];
 
     await client.query('BEGIN');
-    await client.query(`UPDATE audit_log SET user_id = NULL WHERE user_id = $1`, [userId]);
-    await client.query(`UPDATE event_attendance_sessions SET created_by = NULL WHERE created_by = $1`, [userId]);
-    await client.query(`UPDATE member_progress SET updated_by = NULL WHERE updated_by = $1`, [userId]);
-    await client.query(`UPDATE users SET created_by = NULL WHERE created_by = $1`, [userId]);
-    try {
-      await client.query(`UPDATE coordinator_accounts SET created_by = NULL WHERE created_by = $1`, [userId]);
-    } catch (e) { if (e.code !== '42P01') throw e; } // legacy table absent on a fresh install
-    await client.query(`DELETE FROM coin_transactions WHERE user_id = $1`, [userId]);
-    await client.query(`DELETE FROM memberships WHERE user_id = $1`, [userId]);
+    await detachUserReferences(client, userId);
     await client.query(`DELETE FROM users WHERE id = $1`, [userId]);
     await client.query('COMMIT');
 
@@ -201,10 +229,20 @@ const remove = async (req, res, next) => {
     ]);
     res.json({ message: `${target.name} was permanently deleted.` });
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      /* The connection itself is no longer trustworthy — releasing it normally would
+         hand a broken, still-mid-transaction connection to pg-pool, which would then
+         fail every query some later, unrelated request happens to draw it for with
+         this same "current transaction is aborted" error. Force pg-pool to close and
+         discard it instead of returning it to the pool. */
+      dbOk = false;
+      console.error('[users.remove] rollback failed, discarding connection:', rollbackErr.message);
+    }
     next(err);
   } finally {
-    client.release();
+    client.release(!dbOk);
   }
 };
 
