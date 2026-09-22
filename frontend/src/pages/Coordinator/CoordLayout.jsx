@@ -97,7 +97,7 @@ function ClubGatedContent() {
 /* Inner layout — lives inside CoordClubProvider so it can use useCoordClub() */
 function CoordLayoutInner() {
   const { user, logout }                       = useAuth();
-  const { clubs, selectedClub, setSelectedClub } = useCoordClub();
+  const { clubs, selectedClub, setSelectedClub, refetchClub } = useCoordClub();
   const navigate  = useNavigate();
   const location  = useLocation();
   const [mobileOpen,  setMobileOpen]  = useState(false);
@@ -401,7 +401,7 @@ function CoordLayoutInner() {
 
       {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} />}
       {assignScOpen && selectedClub && (
-        <AssignStudentCoordinatorModal club={selectedClub} onClose={() => setAssignScOpen(false)} />
+        <AssignStudentCoordinatorModal club={selectedClub} onClose={() => setAssignScOpen(false)} onAssigned={refetchClub} />
       )}
       <PushOptInModal />
     </div>

@@ -4,6 +4,7 @@ import { useCoordClub } from '../../context/CoordClubContext';
 import api from '../../api/client';
 import s from './CoordMyClub.module.css';
 import { getSocket } from '../../realtime/socket';
+import AssignStudentCoordinatorModal from '../../components/AssignStudentCoordinatorModal/AssignStudentCoordinatorModal';
 
 const BASE_TABS   = ['Overview', 'Attendance', 'Tasks', 'Leadership', 'Progress'];
 const SPORTS_TABS = [...BASE_TABS, 'Live Scoreboard'];
@@ -243,12 +244,14 @@ export default function CoordMyClub() {
   const { clubs, club, clubLoading, refetchClub,
           selectedClub, setSelectedClub }               = useCoordClub();
   const clubId                = club?._id || String(club?.id || '');
+  const isFC                  = user?.role === 'faculty_coordinator';
 
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState('');
   const [tab,     setTab]     = useState('Overview');
   const [toast,   showToast]  = useToast();
+  const [assignScOpen, setAssignScOpen] = useState(false);
 
   // Reset to Overview tab when switching clubs so stale data isn't shown
   const prevClubId = useRef(clubId);
@@ -328,8 +331,30 @@ export default function CoordMyClub() {
           <p className={s.bannerName}>{club.name}</p>
           <p className={s.bannerSub}>{club.category} · {club.realMemberCount ?? club.memberCount ?? 0} members</p>
         </div>
-        <span className={s.bannerBadge} style={{ background: color + '18', color }}>Coordinator</span>
+        <span className={s.bannerBadge} style={{ background: color + '18', color }}>
+          {isFC ? 'Faculty Coordinator' : 'Coordinator'}
+        </span>
       </div>
+
+      {/* ── Faculty Coordinator only — assign this club's own Student Coordinator ── */}
+      {isFC && (
+        <div className={s.banner} style={{ marginTop: -8 }}>
+          <div className={s.bannerInfo}>
+            <p className={s.bannerName} style={{ fontSize: '.95rem' }}>Student Coordinator</p>
+            <p className={s.bannerSub}>{club.coordinator || 'Not yet assigned'}</p>
+          </div>
+          <button
+            onClick={() => setAssignScOpen(true)}
+            style={{
+              padding: '8px 16px', borderRadius: 6, border: 'none',
+              background: '#4c44e0', color: '#fff', fontWeight: 700, fontSize: 13,
+              cursor: 'pointer', flexShrink: 0,
+            }}
+          >
+            {club.coordinator ? 'Change Student Coordinator' : '+ Assign Student Coordinator'}
+          </button>
+        </div>
+      )}
 
       {/* ── Tab bar ── */}
       <div className={s.tabBar}>
@@ -349,6 +374,14 @@ export default function CoordMyClub() {
       {isSportsClub && tab === 'Live Scoreboard' && <LiveScoreboardTab clubId={clubId} club={club} showToast={showToast} />}
 
       {toast && <div className={s.toast}>{toast}</div>}
+
+      {assignScOpen && (
+        <AssignStudentCoordinatorModal
+          club={club}
+          onClose={() => setAssignScOpen(false)}
+          onAssigned={refetchClub}
+        />
+      )}
     </div>
   );
 }

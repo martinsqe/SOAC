@@ -8,7 +8,7 @@ import s from './AssignStudentCoordinatorModal.module.css';
    AdminClubs.jsx (name + RKU email, existing-assignments lookup, credentials
    emailed on save), scoped to the club the Faculty Coordinator already
    manages rather than a club picker. */
-export default function AssignStudentCoordinatorModal({ club, onClose }) {
+export default function AssignStudentCoordinatorModal({ club, onClose, onAssigned }) {
   const [name,   setName]   = useState(club.coordinator || '');
   const [email,  setEmail]  = useState('');
   const [saving, setSaving] = useState(false);
@@ -44,6 +44,7 @@ export default function AssignStudentCoordinatorModal({ club, onClose }) {
         name: name.trim(), email: email.trim(),
       });
       setDone({ message: res.message });
+      onAssigned?.();
     } catch (err) {
       setError(err.message || 'Failed to assign Student Coordinator.');
     } finally {
