@@ -1,12 +1,12 @@
 const { pgPool }          = require('../config/db');
 const cache               = require('../services/cache');
 const { ensureSoacTables } = require('../services/soacData');
-const { assertCoordOwnsEvent }  = require('../services/coordAuth');
+const { assertCoordOwnsEvent, getEventCoordinatorIds }  = require('../services/coordAuth');
 const bracketEngine        = require('../services/bracketEngine');
 const { fetchGroups }      = require('./eventGroups.controller');
 const { autoRefreshReportIfExists } = require('./reports.controller');
 const { sendTeamAssignment } = require('../config/email');
-const { notifyUser } = require('../services/notify');
+const { notifyUser, notifyManyUsers } = require('../services/notify');
 
 /* Emails every team member (at their registration email) their own group + team +
    teammates once a coordinator declares groups/teams/fixtures for a division — applies to
@@ -150,6 +150,30 @@ pgPool.query(`
   END $$;
 `)).catch(() => {});
 
+/* One-time backfill for teams that existed before is_captain was added: for a Sports
+   Fiesta roster, the captain's own event_team_members row was always inserted first
+   (before any teammate, in the same transaction — see submitTeamRoster), so the
+   earliest member id per team is reliably the captain. Only ever touches Sports
+   Fiesta teams — a coordinator-built team for a regular event has no captain
+   concept, so it's left untouched. Runs once at server start, not per-request;
+   the WHERE NOT EXISTS makes it a cheap no-op on every restart after the first. */
+pgPool.query(`
+  UPDATE event_team_members etm
+  SET is_captain = true
+  FROM (
+    SELECT DISTINCT ON (etm2.team_id) etm2.id, etm2.team_id
+    FROM event_team_members etm2
+    JOIN event_teams et ON et.id = etm2.team_id
+    JOIN events e ON e.id = et.event_id
+    WHERE e.event_format = 'sports_fiesta'
+    ORDER BY etm2.team_id, etm2.id ASC
+  ) first_member
+  WHERE etm.id = first_member.id
+    AND NOT EXISTS (
+      SELECT 1 FROM event_team_members x WHERE x.team_id = first_member.team_id AND x.is_captain = true
+    )
+`).catch(() => {}); // is_captain column may not exist yet on a very first boot — ensureSoacTables adds it before any request can reach here
+
 /* Verify this coordinator (or admin) has access to the event */
 const checkAccess = async (req, res) => {
   if (req.user.role === 'admin') return true;
@@ -166,12 +190,13 @@ const checkAccess = async (req, res) => {
 const asDivision = (v) => (v === 'girls' ? 'girls' : v === 'boys' ? 'boys' : null);
 
 const mapTeam = (t, members = []) => ({
-  id:        String(t.id),
-  name:      t.name,
-  maxSize:   t.max_size,
-  isCleared: t.is_cleared,
-  division:  t.division,
-  createdAt: t.created_at,
+  id:          String(t.id),
+  name:        t.name,
+  maxSize:     t.max_size,
+  isCleared:   t.is_cleared,
+  division:    t.division,
+  createdAt:   t.created_at,
+  captainName: members.find(m => m.isCaptain)?.name || '',
   members,
 });
 
@@ -180,7 +205,43 @@ const mapMember = (m) => ({
   registrationId: String(m.registration_id),
   name:           m.member_name,
   enrollmentNo:   m.enrollment_no,
+  isCaptain:      !!m.is_captain,
+  /* Only the captain's contact info is ever real — teammates on a Sports Fiesta
+     roster get a synthetic @roster.internal placeholder (see submitTeamRoster),
+     which is never worth showing here. */
+  email: m.is_captain ? (m.email || '') : '',
+  phone: m.is_captain ? (m.phone || '') : '',
 });
+
+/* Admin ↔ coordinator cross-notification for every team edit — whichever side
+   didn't make the change gets told who changed what. Fire-and-forget; never
+   throws, so a notification failure never affects the change itself. */
+const getEventTitle = async (eventId) => {
+  const { rows } = await pgPool.query(`SELECT title FROM events WHERE id = $1`, [eventId]);
+  return rows[0]?.title || 'an event';
+};
+
+const notifyTeamChange = async (req, eventId, message) => {
+  try {
+    const actorIsAdmin = req.user.role === 'admin';
+    const title = actorIsAdmin ? `Admin ${req.user.name}` : `Coordinator ${req.user.name}`;
+    const eventTitle = await getEventTitle(eventId);
+    const body = `${title} ${message} in "${eventTitle}".`;
+
+    if (actorIsAdmin) {
+      const ids = (await getEventCoordinatorIds(eventId)).filter(id => id !== req.user.id);
+      if (ids.length) {
+        await notifyManyUsers({ userIds: ids, title: 'Team roster updated', body, type: 'team_update', url: '/coordinator/events' });
+      }
+    } else {
+      const { rows } = await pgPool.query(`SELECT id FROM users WHERE role = 'admin' AND is_active = true`);
+      const ids = rows.map(r => r.id).filter(id => id !== req.user.id);
+      if (ids.length) {
+        await notifyManyUsers({ userIds: ids, title: 'Team roster updated', body, type: 'team_update', url: '/admin/events' });
+      }
+    }
+  } catch (e) { console.error('[eventTeams] notifyTeamChange failed:', e.message); }
+};
 
 /* GET /api/events/:id/teams */
 const getTeams = async (req, res, next) => {
@@ -197,8 +258,12 @@ const getTeams = async (req, res, next) => {
     if (teams.length) {
       const teamIds = teams.map(t => t.id);
       const { rows: members } = await pgPool.query(
-        `SELECT id, team_id, registration_id, member_name, enrollment_no
-         FROM event_team_members WHERE team_id = ANY($1::bigint[]) ORDER BY id ASC`,
+        `SELECT etm.id, etm.team_id, etm.registration_id, etm.member_name, etm.enrollment_no, etm.is_captain,
+                er.email, er.phone
+         FROM event_team_members etm
+         LEFT JOIN event_registrations er ON er.id = etm.registration_id
+         WHERE etm.team_id = ANY($1::bigint[])
+         ORDER BY etm.is_captain DESC, etm.id ASC`,
         [teamIds]
       );
       for (const m of members) {
@@ -228,6 +293,7 @@ const createTeam = async (req, res, next) => {
       [req.params.id, name.trim(), Number(maxSize) || 0, division]
     );
     res.status(201).json({ team: mapTeam(rows[0], []) });
+    notifyTeamChange(req, req.params.id, `created team "${rows[0].name}"`).catch(() => {});
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ message: `A ${asDivision(req.body?.division) || 'boys'} team with this name already exists for this event.` });
     next(err);
@@ -239,6 +305,11 @@ const updateTeam = async (req, res, next) => {
   try {
     if (!await checkAccess(req, res)) return;
     const { name, maxSize } = req.body;
+    const { rows: before } = await pgPool.query(
+      `SELECT name, max_size FROM event_teams WHERE id = $1 AND event_id = $2`,
+      [req.params.teamId, req.params.id]
+    );
+    if (!before.length) return res.status(404).json({ message: 'Team not found.' });
     const { rows } = await pgPool.query(
       `UPDATE event_teams
        SET name     = COALESCE($1, name),
@@ -249,6 +320,13 @@ const updateTeam = async (req, res, next) => {
     );
     if (!rows.length) return res.status(404).json({ message: 'Team not found.' });
     res.json({ team: mapTeam(rows[0]) });
+
+    const changes = [];
+    if (name?.trim() && name.trim() !== before[0].name) changes.push(`renamed to "${name.trim()}"`);
+    if (maxSize !== undefined && Number(maxSize) !== before[0].max_size) changes.push(`max size set to ${Number(maxSize) || 0}`);
+    if (changes.length) {
+      notifyTeamChange(req, req.params.id, `updated team "${before[0].name}" (${changes.join(', ')})`).catch(() => {});
+    }
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ message: 'A team with this name already exists.' });
     next(err);
@@ -259,8 +337,12 @@ const updateTeam = async (req, res, next) => {
 const deleteTeam = async (req, res, next) => {
   try {
     if (!await checkAccess(req, res)) return;
-    await pgPool.query(`DELETE FROM event_teams WHERE id = $1 AND event_id = $2`, [req.params.teamId, req.params.id]);
+    const { rows } = await pgPool.query(
+      `DELETE FROM event_teams WHERE id = $1 AND event_id = $2 RETURNING name`,
+      [req.params.teamId, req.params.id]
+    );
     res.json({ message: 'Team deleted.' });
+    if (rows.length) notifyTeamChange(req, req.params.id, `deleted team "${rows[0].name}"`).catch(() => {});
   } catch (err) { next(err); }
 };
 
@@ -279,6 +361,7 @@ const toggleClear = async (req, res, next) => {
       isCleared: rows[0].is_cleared, teamName: rows[0].name,
     });
     res.json({ isCleared: rows[0].is_cleared });
+    notifyTeamChange(req, req.params.id, `marked team "${rows[0].name}" as ${rows[0].is_cleared ? 'cleared' : 'not cleared'}`).catch(() => {});
   } catch (err) { next(err); }
 };
 
@@ -298,7 +381,7 @@ const addMember = async (req, res, next) => {
 
     // Check max_size
     const { rows: teamRows } = await pgPool.query(
-      `SELECT et.max_size, COUNT(etm.id) AS member_count
+      `SELECT et.name, et.max_size, COUNT(etm.id) AS member_count
        FROM event_teams et
        LEFT JOIN event_team_members etm ON etm.team_id = et.id
        WHERE et.id = $1 AND et.event_id = $2
@@ -306,7 +389,7 @@ const addMember = async (req, res, next) => {
       [req.params.teamId, req.params.id]
     );
     if (!teamRows.length) return res.status(404).json({ message: 'Team not found.' });
-    const { max_size, member_count } = teamRows[0];
+    const { name: teamName, max_size, member_count } = teamRows[0];
     if (max_size > 0 && Number(member_count) >= Number(max_size)) {
       return res.status(400).json({ message: `Team is full (max ${max_size} members).` });
     }
@@ -321,6 +404,7 @@ const addMember = async (req, res, next) => {
     const io = req.app.get('io');
     if (io) io.emit('team:member:added', { eventId: String(req.params.id), teamId: String(req.params.teamId) });
     res.status(201).json({ member: mapMember(rows[0]) });
+    notifyTeamChange(req, req.params.id, `added ${reg.name} to team "${teamName}"`).catch(() => {});
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ message: 'This participant is already assigned to a team.' });
     next(err);
@@ -331,6 +415,12 @@ const addMember = async (req, res, next) => {
 const removeMember = async (req, res, next) => {
   try {
     if (!await checkAccess(req, res)) return;
+    const { rows: before } = await pgPool.query(
+      `SELECT etm.member_name, et.name AS team_name
+       FROM event_team_members etm JOIN event_teams et ON et.id = etm.team_id
+       WHERE etm.id = $1 AND etm.team_id = $2`,
+      [req.params.memberId, req.params.teamId]
+    );
     await pgPool.query(
       `DELETE FROM event_team_members WHERE id = $1 AND team_id = $2`,
       [req.params.memberId, req.params.teamId]
@@ -338,6 +428,9 @@ const removeMember = async (req, res, next) => {
     const io = req.app.get('io');
     if (io) io.emit('team:member:removed', { eventId: String(req.params.id), teamId: String(req.params.teamId) });
     res.json({ message: 'Member removed.' });
+    if (before.length) {
+      notifyTeamChange(req, req.params.id, `removed ${before[0].member_name} from team "${before[0].team_name}"`).catch(() => {});
+    }
   } catch (err) { next(err); }
 };
 

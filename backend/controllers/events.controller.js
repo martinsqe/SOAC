@@ -1041,7 +1041,7 @@ const submitTeamRoster = async (req, res, next) => {
       const teamId = teamRows[0].id;
 
       await pgClient.query(
-        `INSERT INTO event_team_members (team_id, registration_id, member_name, enrollment_no) VALUES ($1, $2, $3, '')`,
+        `INSERT INTO event_team_members (team_id, registration_id, member_name, enrollment_no, is_captain) VALUES ($1, $2, $3, '', true)`,
         [teamId, capReg[0].id, capReg[0].name]
       );
 

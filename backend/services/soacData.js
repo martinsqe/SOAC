@@ -660,6 +660,11 @@ const ensureSoacTables = async () => {
     )
   `);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_team_members_team ON event_team_members(team_id)`);
+  /* Set true only for the Sports Fiesta captain who submitted the roster (see
+     submitTeamRoster in events.controller.js) — every other member, whether
+     a teammate on that same roster or added later by a coordinator/admin from
+     the Teams tab, stays false. Lets the Teams tab show who the captain is. */
+  await pgPool.query(`ALTER TABLE event_team_members ADD COLUMN IF NOT EXISTS is_captain BOOLEAN NOT NULL DEFAULT false`).catch(() => {});
 
   /* ── Club proposals (anyone → admin review → club creation) ─────────────── */
   await pgPool.query(`

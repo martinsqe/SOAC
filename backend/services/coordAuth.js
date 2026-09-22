@@ -278,4 +278,27 @@ async function assertCoordOwnsEvent(userId, eventId) {
   return assertCoordOwnsClub(userId, evRows[0].club_id);
 }
 
-module.exports = { getCoordClubIds, assertCoordOwnsClub, getClubCoordinatorIds, getCoordEventIds, assertCoordOwnsEvent };
+/**
+ * Every coordinator who can manage the given event — union of a direct Galore
+ * assignment (event_coordinators) and whoever coordinates the club that owns it.
+ * Used to notify "the coordinator side" whenever an admin edits something on an
+ * event (team rosters, etc.) that a coordinator would otherwise own outright.
+ *
+ * @param {string|number} eventId
+ * @returns {Promise<number[]>} Array of coordinator user IDs (may be empty)
+ */
+async function getEventCoordinatorIds(eventId) {
+  const ids = new Set();
+  const { rows: direct } = await pgPool.query(
+    `SELECT user_id FROM event_coordinators WHERE event_id = $1`, [eventId]
+  );
+  direct.forEach(r => ids.add(r.user_id));
+
+  const { rows: evRows } = await pgPool.query(`SELECT club_id FROM events WHERE id = $1`, [eventId]);
+  if (evRows[0]?.club_id) {
+    (await getClubCoordinatorIds(evRows[0].club_id)).forEach(id => ids.add(id));
+  }
+  return [...ids];
+}
+
+module.exports = { getCoordClubIds, assertCoordOwnsClub, getClubCoordinatorIds, getCoordEventIds, assertCoordOwnsEvent, getEventCoordinatorIds };
