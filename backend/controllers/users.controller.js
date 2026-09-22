@@ -150,19 +150,62 @@ const update = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* DELETE /api/users/:id  (admin — deactivate) */
+/* DELETE /api/users/:id  (admin — permanently delete this account)
+   Distinct from PUT /:id { is_active:false } (Deactivate — reversible, keeps the
+   account and every record it's attached to). This actually removes the row.
+   Everything ON DELETE CASCADE to users(id) — their own auth tokens, messages,
+   club/event registrations, tasks and announcements they authored, attendance
+   and performance records recorded against them, event requests they
+   submitted, etc. — is removed by the database along with them, exactly as it
+   would be for any DELETE FROM users. A handful of columns reference a user
+   only to record "who did this" on someone else's data (an audit log entry,
+   an attendance session, a progress note, an account they created) — those
+   are nulled out first so the underlying record survives; only this user's
+   OWN now-defunct data (coin history, the legacy memberships row) is deleted
+   outright alongside them. */
 const remove = async (req, res, next) => {
+  const client = await pgPool.connect();
   try {
-    if (Number(req.params.id) === req.user.id) {
-      return res.status(400).json({ message: 'You cannot deactivate your own account.' });
+    const userId = Number(req.params.id);
+    if (userId === req.user.id) {
+      return res.status(400).json({ message: 'You cannot delete your own account.' });
     }
-    await pgPool.query(`UPDATE users SET is_active = false WHERE id = $1`, [req.params.id]);
+    const { rows } = await pgPool.query(`SELECT id, name, email, role FROM users WHERE id = $1`, [userId]);
+    if (!rows.length) return res.status(404).json({ message: 'User not found.' });
+    const target = rows[0];
+
+    await client.query('BEGIN');
+    await client.query(`UPDATE audit_log SET user_id = NULL WHERE user_id = $1`, [userId]);
+    await client.query(`UPDATE event_attendance_sessions SET created_by = NULL WHERE created_by = $1`, [userId]);
+    await client.query(`UPDATE member_progress SET updated_by = NULL WHERE updated_by = $1`, [userId]);
+    await client.query(`UPDATE users SET created_by = NULL WHERE created_by = $1`, [userId]);
+    try {
+      await client.query(`UPDATE coordinator_accounts SET created_by = NULL WHERE created_by = $1`, [userId]);
+    } catch (e) { if (e.code !== '42P01') throw e; } // legacy table absent on a fresh install
+    await client.query(`DELETE FROM coin_transactions WHERE user_id = $1`, [userId]);
+    await client.query(`DELETE FROM memberships WHERE user_id = $1`, [userId]);
+    await client.query(`DELETE FROM users WHERE id = $1`, [userId]);
+    await client.query('COMMIT');
+
+    await pgPool.query(
+      `INSERT INTO audit_log (user_id, user_name, action, entity_type, entity_id, meta)
+       VALUES ($1, $2, 'DELETE_USER', 'user', $3, $4)`,
+      [req.user.id, req.user.name, String(userId), JSON.stringify({ name: target.name, email: target.email, role: target.role })]
+    );
+
     await Promise.all([
       cache.del('stats:admin'),
-      cache.del(`session:user:${req.params.id}`, `session:tokens:${req.params.id}`),
+      cache.del(`session:user:${userId}`),
+      cache.del(`session:tokens:${userId}`),
+      cache.delPattern('clubs:*'),
     ]);
-    res.json({ message: 'User deactivated.' });
-  } catch (err) { next(err); }
+    res.json({ message: `${target.name} was permanently deleted.` });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    next(err);
+  } finally {
+    client.release();
+  }
 };
 
 /* GET /api/users/meta/stats  (admin)

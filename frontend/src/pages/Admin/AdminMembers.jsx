@@ -75,6 +75,7 @@ function UsersTab({ clubs }) {
   const [assigning,  setAssigning]  = useState(false);
   const [toast,      setToast]      = useState('');
   const [togglingId, setTogglingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
@@ -117,6 +118,26 @@ function UsersTab({ clubs }) {
       showToast(`Error: ${err.message}`);
     } finally {
       setTogglingId(null);
+    }
+  };
+
+  /* Permanent delete — distinct from deactivate above. Removes the account
+     entirely (backend keeps audit/history rows but detaches their identity
+     from them); anything that was genuinely theirs (messages, tasks they
+     created, event requests they submitted, etc.) goes with them. */
+  const handleDeleteUser = async (u) => {
+    if (!window.confirm(
+      `Permanently delete ${u.name}'s account?\n\nThis cannot be undone. Their messages, posts, and anything else they created will be deleted along with the account.`
+    )) return;
+    setDeletingId(u.id);
+    try {
+      const res = await api.delete(`/users/${u.id}`);
+      setUsers(prev => prev.filter(x => x.id !== u.id));
+      showToast(res.message || `${u.name} deleted`);
+    } catch (err) {
+      showToast(`Error: ${err.message}`);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -295,19 +316,33 @@ function UsersTab({ clubs }) {
                     {u.role === 'admin' && u.id === me?.id ? (
                       <span className={s.muted}>—</span>
                     ) : (
-                      <button
-                        onClick={() => toggleUserActive(u)}
-                        disabled={togglingId === u.id}
-                        style={{
-                          padding:'5px 12px', borderRadius:6, fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap',
-                          border: u.is_active ? '1.5px solid #fca5a5' : '1.5px solid #86efac',
-                          background: u.is_active ? '#fff1f2' : '#f0fdf4',
-                          color: u.is_active ? '#dc2626' : '#15803d',
-                          opacity: togglingId === u.id ? .5 : 1,
-                        }}
-                      >
-                        {togglingId === u.id ? '…' : (u.is_active ? 'Deactivate' : 'Reactivate')}
-                      </button>
+                      <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
+                        <button
+                          onClick={() => toggleUserActive(u)}
+                          disabled={togglingId === u.id || deletingId === u.id}
+                          style={{
+                            padding:'5px 12px', borderRadius:6, fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap',
+                            border: u.is_active ? '1.5px solid #fca5a5' : '1.5px solid #86efac',
+                            background: u.is_active ? '#fff1f2' : '#f0fdf4',
+                            color: u.is_active ? '#dc2626' : '#15803d',
+                            opacity: togglingId === u.id ? .5 : 1,
+                          }}
+                        >
+                          {togglingId === u.id ? '…' : (u.is_active ? 'Deactivate' : 'Reactivate')}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteUser(u)}
+                          disabled={togglingId === u.id || deletingId === u.id}
+                          title="Permanently delete this account"
+                          style={{
+                            padding:'5px 12px', borderRadius:6, fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap',
+                            border:'1.5px solid #dc2626', background:'#dc2626', color:'#fff',
+                            opacity: deletingId === u.id ? .5 : 1,
+                          }}
+                        >
+                          {deletingId === u.id ? '…' : 'Delete'}
+                        </button>
+                      </div>
                     )}
                   </td>
                   </tr>
