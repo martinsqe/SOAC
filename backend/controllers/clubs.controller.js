@@ -658,7 +658,10 @@ const ROLE_META = {
   faculty_coordinator: {
     label: 'Faculty Coordinator', roleLabel: 'Faculty Coordinator',
     auditAction: 'ASSIGN_FACULTY_COORDINATOR', clubNameCol: 'faculty_coordinator',
-    blockedRoles: { admin: 'admin', coordinator: 'Student Coordinator' },
+    /* An existing Student Coordinator is NOT blocked here — see promoteRole
+       below. Only admin accounts are refused outright. */
+    blockedRoles: { admin: 'admin' },
+    promoteFrom: 'coordinator',
   },
 };
 
@@ -695,9 +698,38 @@ const assignClubStaff = (role) => async (req, res, next) => {
       return res.status(400).json({ message: `${meta.label} name is required for new accounts.` });
     }
 
-    const isNewUser = !existing.length;
+    const isNewUser  = !existing.length;
+    /* Promotion: this email is currently the Student Coordinator of one or more
+       clubs and is being appointed Faculty Coordinator instead. Since a user has
+       exactly one role account-wide (assignment rows carry no role of their own —
+       it's inferred by joining users.role), they cannot remain SC anywhere once
+       promoted, or every one of those clubs would silently gain them as FC too the
+       next time anything queries by role. So promotion revokes their Student
+       Coordinator standing everywhere, not just on the club being assigned here —
+       "they can no longer access the Student Coordinator dashboard" — and, like a
+       brand-new account, issues a fresh temporary password rather than leaving
+       their old one in place. */
+    const isPromotion = !isNewUser && !!meta.promoteFrom && existing[0].role === meta.promoteFrom;
+    const issueNewCredentials = isNewUser || isPromotion;
     let userId;
     let tempPassword = null;
+
+    if (isPromotion) {
+      const { rows: priorClubs } = await pgPool.query(
+        `SELECT club_id FROM coordinator_club_assignments WHERE user_id = $1 AND is_active = true`,
+        [existing[0].id]
+      );
+      if (priorClubs.length) {
+        await pgPool.query(
+          `UPDATE clubs SET coordinator = '' WHERE id = ANY($1::bigint[])`,
+          [priorClubs.map(r => r.club_id)]
+        );
+        await pgPool.query(
+          `UPDATE coordinator_club_assignments SET is_active = false, updated_at = NOW() WHERE user_id = $1`,
+          [existing[0].id]
+        );
+      }
+    }
 
     if (isNewUser) {
       /* ── Brand-new account: generate temp password, create user ── */
@@ -710,6 +742,15 @@ const assignClubStaff = (role) => async (req, res, next) => {
         [emailLower, staffName, role, hash, req.user.id]
       );
       userId = newUser[0].id;
+    } else if (isPromotion) {
+      /* ── Promoted existing account: new role AND a fresh temp password ── */
+      tempPassword = crypto.randomBytes(5).toString('hex').toUpperCase();
+      const hash   = await bcrypt.hash(tempPassword, 12);
+      userId = existing[0].id;
+      await pgPool.query(
+        `UPDATE users SET name = $1, role = $2, is_active = true, password_hash = $3, must_change_password = true WHERE id = $4`,
+        [staffName, role, hash, userId]
+      );
     } else {
       /* ── Existing user: activate this role WITHOUT touching their password ── */
       userId = existing[0].id;
@@ -747,7 +788,7 @@ const assignClubStaff = (role) => async (req, res, next) => {
     await pgPool.query(`UPDATE clubs SET ${meta.clubNameCol} = $1 WHERE id = $2`, [staffName, clubId]);
 
     await logAudit(req.user.id, req.user.name, meta.auditAction, 'club', clubId, {
-      staffName, email: emailLower, clubName: club.name, isNewUser,
+      staffName, email: emailLower, clubName: club.name, isNewUser, isPromotion,
     });
 
     await Promise.all([
@@ -760,7 +801,7 @@ const assignClubStaff = (role) => async (req, res, next) => {
     let emailSent = false;
     let emailError = null;
     try {
-      if (isNewUser) {
+      if (issueNewCredentials) {
         await sendCoordinatorCredentials({
           toEmail: emailLower, toName: staffName,
           password: tempPassword, clubName: club.name, roleLabel: meta.roleLabel,
@@ -778,6 +819,7 @@ const assignClubStaff = (role) => async (req, res, next) => {
 
     res.json({
       isNewUser,
+      isPromotion,
       emailSent,
       emailError: emailError || undefined,
       credentials: {
@@ -786,7 +828,9 @@ const assignClubStaff = (role) => async (req, res, next) => {
         password:  tempPassword,
         clubName:  club.name,
       },
-      message: isNewUser
+      message: isPromotion
+        ? `${staffName} was promoted to Faculty Coordinator of ${club.name} — their Student Coordinator access has been revoked${emailSent ? ` and new login credentials were sent to ${emailLower}` : ', but the credentials email could not be sent — share the new password manually'}.`
+        : isNewUser
         ? `${meta.label} account created${emailSent ? `. Credentials sent to ${emailLower}` : ' — email could not be sent, share credentials manually'}.`
         : `${staffName} added as ${meta.label.toLowerCase()} of ${club.name}${emailSent ? `. Confirmation sent to ${emailLower}` : ' — email could not be sent'}.`,
     });

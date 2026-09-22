@@ -332,7 +332,7 @@ export default function AdminClubs() {
       });
       closeAssignFC();
       load();
-      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, roleLabel: 'Faculty Coordinator' });
+      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, roleLabel: 'Faculty Coordinator', isPromotion: res.isPromotion });
     } catch (err) {
       setFcError(err.message || 'Failed to assign Faculty Coordinator.');
     } finally {
@@ -460,10 +460,12 @@ export default function AdminClubs() {
             <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:20 }}>
               <div>
                 <div style={{ fontFamily:'Plus Jakarta Sans,sans-serif', fontWeight:900, fontSize:16, color:'#0f0a2e' }}>
-                  {creds.password ? 'Account Created!' : `${creds.roleLabel || 'Coordinator'} Assigned!`}
+                  {creds.isPromotion ? 'Promoted to Faculty Coordinator!' : creds.password ? 'Account Created!' : `${creds.roleLabel || 'Coordinator'} Assigned!`}
                 </div>
                 <div style={{ fontSize:13, color:'#6b7280', marginTop:2 }}>
-                  {creds.password
+                  {creds.isPromotion
+                    ? <><strong>{creds.name}</strong> is now Faculty Coordinator of <strong>{creds.clubName}</strong> — their Student Coordinator access (on every club) has been revoked, and a new password was issued below.</>
+                    : creds.password
                     ? <>Credentials for <strong>{creds.name}</strong> — send them this or they'll receive an email.</>
                     : <><strong>{creds.name}</strong> has been added as {(creds.roleLabel || "Coordinator").toLowerCase()} of <strong>{creds.clubName}</strong>.</>}
                 </div>
