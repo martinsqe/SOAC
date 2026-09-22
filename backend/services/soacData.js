@@ -595,7 +595,7 @@ const ensureSoacTables = async () => {
       is_free           BOOLEAN      NOT NULL DEFAULT true,
       fee_amount        NUMERIC(10,2) NOT NULL DEFAULT 0,
       status            VARCHAR(20)  NOT NULL DEFAULT 'pending'
-                          CHECK (status IN ('pending','approved','rejected')),
+                          CHECK (status IN ('pending_fc','pending','approved','rejected')),
       admin_note        TEXT         NOT NULL DEFAULT '',
       reviewed_by       INTEGER REFERENCES users(id) ON DELETE SET NULL,
       reviewed_at       TIMESTAMPTZ,
@@ -615,6 +615,29 @@ const ensureSoacTables = async () => {
   await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS target_audience VARCHAR(255) NOT NULL DEFAULT ''`);
   await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS university_expectations TEXT NOT NULL DEFAULT ''`);
   await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS image VARCHAR(255) NOT NULL DEFAULT ''`);
+  /* ── SC → FC → Admin review chain ──────────────────────────────────────────
+     A request from a Student Coordinator goes to their club's Faculty
+     Coordinator first (status 'pending_fc'); only once the FC approves does
+     it become 'pending' for admin — the same status a Faculty Coordinator's
+     own direct submission starts at (they have no one above them to review
+     it). submitted_by_role records who actually submitted it, and the
+     fc_* columns mirror the existing admin_note/reviewed_by/reviewed_at
+     columns for the FC's own review step, so admin can see the whole chain:
+     SC → FC → Admin, or FC → Admin, or (a club with no FC yet) SC → Admin. */
+  await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS submitted_by_role VARCHAR(20) NOT NULL DEFAULT 'coordinator'`);
+  await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS fc_reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS fc_reviewed_at TIMESTAMPTZ`);
+  await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS fc_note TEXT NOT NULL DEFAULT ''`);
+  /* Defensive: widen the status CHECK on an event_requests table that already
+     existed before 'pending_fc' was added (see the same pattern for users.role). */
+  await pgPool.query(`
+    DO $$ BEGIN
+      ALTER TABLE event_requests DROP CONSTRAINT IF EXISTS event_requests_status_check;
+      ALTER TABLE event_requests ADD CONSTRAINT event_requests_status_check
+        CHECK (status IN ('pending_fc', 'pending', 'approved', 'rejected'));
+    EXCEPTION WHEN others THEN NULL;
+    END $$;
+  `).catch(() => {});
 
   /* ── Club Feed (club members submit photos/videos; coordinator approves) ── */
   await pgPool.query(`

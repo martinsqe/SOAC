@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import { useCoordClub } from '../../context/CoordClubContext';
 import api from '../../api/client';
 import { fetchAllPages } from '../../utils/pagination';
@@ -7,11 +8,16 @@ import s from './CoordSubPage.module.css';
 import es from './CoordEvents.module.css';
 import TournamentBracket from '../../components/TournamentBracket/TournamentBracket';
 
-/* ── Status helpers ── */
+/* ── Status helpers ──
+   A Student Coordinator's request goes to their club's Faculty Coordinator
+   first ('pending_fc'); only once approved there does it reach admin
+   ('pending') — the same status a Faculty Coordinator's own direct
+   submission starts at, since they have no one above them to review it. */
 const REQ_STATUS = {
-  pending:  { label: 'Pending Review', color: '#d97706', bg: '#fffbeb' },
-  approved: { label: 'Approved',       color: '#059669', bg: '#ecfdf5' },
-  rejected: { label: 'Rejected',       color: '#dc2626', bg: '#fef2f2' },
+  pending_fc: { label: 'Pending Faculty Coordinator Review', color: '#7c3aed', bg: '#f5f3ff' },
+  pending:    { label: 'Pending Admin Review',               color: '#d97706', bg: '#fffbeb' },
+  approved:   { label: 'Approved',                           color: '#059669', bg: '#ecfdf5' },
+  rejected:   { label: 'Rejected',                           color: '#dc2626', bg: '#fef2f2' },
 };
 const EV_STATUS = { upcoming:'#635bff', ongoing:'#00C896', past:'#9ca3af', draft:'#f59e0b' };
 const EV_STATUS_BG = { upcoming:'#635bff14', ongoing:'#00c89614', past:'#9ca3af14', draft:'#f59e0b14' };
@@ -78,7 +84,9 @@ function Field({ label, required, hint, error, children }) {
 }
 
 export default function CoordEvents() {
+  const { user }                = useAuth();
   const { club }               = useCoordClub();
+  const isFC = user?.role === 'faculty_coordinator';
   const [requests,   setReqs]     = useState([]);
   const [events,     setEvents]   = useState([]);
   const [loading,    setLoading]  = useState(false);
@@ -93,6 +101,58 @@ export default function CoordEvents() {
   const [imgFile,    setImgFile]  = useState(null);
   const [imgPrev,    setImgPrev]  = useState('');
   const imgInputRef = useRef();
+
+  /* ── Faculty Coordinator's review queue — their clubs' Student Coordinator
+     requests, awaiting or already given their own review ── */
+  const [fcQueue,        setFcQueue]        = useState([]);
+  const [fcQueueLoading, setFcQueueLoading] = useState(false);
+  const [fcActionId,     setFcActionId]     = useState(null);
+  const [fcRejectTarget, setFcRejectTarget] = useState(null); // request being rejected
+  const [fcRejectNote,   setFcRejectNote]   = useState('');
+
+  const loadFCQueue = useCallback(() => {
+    if (!isFC) return;
+    setFcQueueLoading(true);
+    api.get('/event-requests/fc')
+      .then(d => setFcQueue(d.requests || []))
+      .catch(() => setFcQueue([]))
+      .finally(() => setFcQueueLoading(false));
+  }, [isFC]);
+
+  useEffect(() => { loadFCQueue(); }, [loadFCQueue]);
+
+  const handleFcApprove = async (reqId) => {
+    setFcActionId(reqId);
+    try {
+      await api.put(`/event-requests/${reqId}/fc-approve`, {});
+      setFcQueue(p => p.map(r => r.id === reqId ? { ...r, status: 'pending' } : r));
+      setToast({ msg: 'Approved and forwarded to Admin.', type: 'ok' });
+    } catch (err) {
+      setToast({ msg: err.message || 'Failed to approve.', type: 'err' });
+    } finally {
+      setFcActionId(null);
+    }
+  };
+
+  const openFcReject = (r) => { setFcRejectTarget(r); setFcRejectNote(''); };
+  const closeFcReject = () => { setFcRejectTarget(null); setFcRejectNote(''); };
+
+  const handleFcReject = async () => {
+    if (!fcRejectTarget) return;
+    setFcActionId(fcRejectTarget.id);
+    try {
+      await api.put(`/event-requests/${fcRejectTarget.id}/fc-reject`, { fc_note: fcRejectNote.trim() });
+      setFcQueue(p => p.map(r => r.id === fcRejectTarget.id ? { ...r, status: 'rejected', fcNote: fcRejectNote.trim() } : r));
+      setToast({ msg: 'Request rejected.', type: 'ok' });
+      closeFcReject();
+    } catch (err) {
+      setToast({ msg: err.message || 'Failed to reject.', type: 'err' });
+    } finally {
+      setFcActionId(null);
+    }
+  };
+
+  const fcPendingCount = fcQueue.filter(r => r.status === 'pending_fc').length;
 
   /* ── Registrations panel ── */
   const [regEvent,    setRegEvent]    = useState(null);
@@ -311,7 +371,9 @@ export default function CoordEvents() {
       } else {
         const { request } = await api.postForm('/event-requests', fd);
         setReqs(p => [request, ...p]);
-        showToast('Event request submitted! Awaiting admin approval.');
+        showToast(request.status === 'pending_fc'
+          ? 'Event request submitted! Awaiting your Faculty Coordinator’s review.'
+          : 'Event request submitted! Awaiting admin approval.');
       }
       setTab('requests');
       setOpen(false);
@@ -1218,7 +1280,7 @@ export default function CoordEvents() {
 
   const evCount = filter === 'all' ? events.length : events.filter(e => e.status === filter).length;
   const displayedEvents = filter === 'all' ? events : events.filter(e => e.status === filter);
-  const pendingCount = requests.filter(r => r.status === 'pending').length;
+  const pendingCount = requests.filter(r => r.status === 'pending' || r.status === 'pending_fc').length;
 
   const fmtDate = (d) => {
     if (!d) return '—';
@@ -1242,7 +1304,7 @@ export default function CoordEvents() {
           <h1 className={s.title}>Events</h1>
           <p className={s.sub}>
             {loading ? 'Loading…' : club
-              ? `${requests.filter(r => r.status === 'pending').length} pending request${pendingCount !== 1 ? 's' : ''} · ${events.length} published event${events.length !== 1 ? 's' : ''}`
+              ? `${pendingCount} pending request${pendingCount !== 1 ? 's' : ''} · ${events.length} published event${events.length !== 1 ? 's' : ''}`
               : 'No club assigned'}
           </p>
         </div>
@@ -1257,11 +1319,144 @@ export default function CoordEvents() {
           <button className={`${s.tab} ${tab === 'requests' ? s.tabOn : ''}`} onClick={() => setTab('requests')}>
             My Requests {pendingCount > 0 && <span className={es.tabBadge}>{pendingCount}</span>}
           </button>
+          {isFC && (
+            <button className={`${s.tab} ${tab === 'fcqueue' ? s.tabOn : ''}`} onClick={() => setTab('fcqueue')}>
+              Student Coordinator Requests {fcPendingCount > 0 && <span className={es.tabBadge}>{fcPendingCount}</span>}
+            </button>
+          )}
           <button className={`${s.tab} ${tab === 'events' ? s.tabOn : ''}`} onClick={() => setTab('events')}>
             Published Events
           </button>
         </div>
       </div>
+
+      {/* ── FACULTY COORDINATOR REVIEW QUEUE ── */}
+      {isFC && tab === 'fcqueue' && (
+        fcQueueLoading ? (
+          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+            {[1,2].map(i => <div key={i} className={s.shimmer} style={{ height:120, borderRadius:12 }} />)}
+          </div>
+        ) : fcQueue.length === 0 ? (
+          <div className={s.empty}>
+            <div className={s.emptyIcon}>📋</div>
+            <p>No requests from your Student Coordinator yet</p>
+            <span>Once they submit an event request, it lands here for your review before it goes to Admin.</span>
+          </div>
+        ) : (
+          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            {fcQueue.map(req => {
+              const st = REQ_STATUS[req.status] || REQ_STATUS.pending_fc;
+              return (
+                <div key={req.id} className={es.reqCard}>
+                  {req.imageUrl && (
+                    <img src={req.imageUrl} alt="" style={{ width:'100%', height:140, objectFit:'cover',
+                      borderRadius:10, marginBottom:12 }} />
+                  )}
+                  <div className={es.reqHead}>
+                    <div className={es.reqTitle}>{req.title}</div>
+                    <span className={es.reqBadge} style={{ background: st.bg, color: st.color }}>
+                      {st.label}
+                    </span>
+                  </div>
+                  <p className={es.reqDesc}>{req.description.slice(0, 140)}{req.description.length > 140 ? '…' : ''}</p>
+                  <div className={es.reqMeta}>
+                    <span>Submitted by: {req.coordinatorName}</span>
+                    {req.startDate && <span>Date: {fmtDate(req.startDate)}</span>}
+                    {req.time      && <span>Time: {req.time}</span>}
+                    {req.venue     && <span>Venue: {req.venue}</span>}
+                    {req.seats     && <span>Seats: {req.seats}</span>}
+                    <span className={es.reqFee}>
+                      {req.isFree
+                        ? <span className={es.freeBadge}>FREE</span>
+                        : <span className={es.paidBadge}>₹{req.feeAmount} fee</span>
+                      }
+                    </span>
+                  </div>
+
+                  <div style={{ marginTop:2, marginBottom:10, background:'#f9fafb', border:'1px solid #e5e7eb',
+                    borderRadius:8, padding:'10px 12px', display:'flex', flexDirection:'column', gap:6 }}>
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Objective:</strong> {req.objective || '—'}
+                    </div>
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Expected outcome:</strong> {req.expectedOutcome || '—'}
+                    </div>
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Who can participate:</strong> {req.targetAudience || '—'}
+                    </div>
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Expectations from university:</strong> {req.universityExpectations || '—'}
+                    </div>
+                  </div>
+
+                  {req.status === 'rejected' && req.fcNote && (
+                    <div className={es.rejectNote}>
+                      <strong>Your note:</strong> {req.fcNote}
+                    </div>
+                  )}
+
+                  <div className={es.reqFoot}>
+                    <span className={es.reqDate}>Submitted {new Date(req.createdAt).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' })}</span>
+                    {req.status === 'pending_fc' && (
+                      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                        <button
+                          className={es.reqEditBtn}
+                          style={{ borderColor:'#dc2626', color:'#dc2626' }}
+                          onClick={() => openFcReject(req)}
+                          disabled={fcActionId === req.id}>
+                          Reject
+                        </button>
+                        <button
+                          className={es.reqEditBtn}
+                          style={{ borderColor:'#059669', color:'#059669' }}
+                          onClick={() => handleFcApprove(req.id)}
+                          disabled={fcActionId === req.id}>
+                          {fcActionId === req.id ? 'Approving…' : 'Approve & Forward to Admin'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
+
+      {/* ── Reject-with-note modal (FC review) ── */}
+      {fcRejectTarget && (
+        <div className={s.overlay} onClick={closeFcReject}>
+          <div className={es.modal} style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+            <div className={es.modalHead}>
+              <div>
+                <div className={es.modalTag}>Reject Request</div>
+                <h2 className={es.modalTitle}>{fcRejectTarget.title}</h2>
+              </div>
+              <button className={es.closeBtn} onClick={closeFcReject}>✕</button>
+            </div>
+            <div style={{ padding: '0 24px 20px', display:'flex', flexDirection:'column', gap:8 }}>
+              <label style={{ fontSize:'.8rem', fontWeight:600, color:'#374151' }}>
+                Note to your Student Coordinator <span style={{ color:'#9ca3af', fontWeight:400 }}>(optional)</span>
+              </label>
+              <textarea rows={3} value={fcRejectNote} onChange={e => setFcRejectNote(e.target.value)}
+                placeholder="e.g. Please adjust the date to avoid a clash with exams…"
+                style={{ padding:'9px 12px', border:'1.5px solid #e5e7eb', borderRadius:8,
+                  fontSize:'.875rem', fontFamily:'inherit', resize:'vertical', outline:'none' }} />
+            </div>
+            <div className={es.modalFooter} style={{ padding: '0 24px 24px' }}>
+              <button type="button" className={es.cancelBtn} onClick={closeFcReject}>Cancel</button>
+              <button
+                type="button"
+                className={es.reqEditBtn}
+                style={{ borderColor:'#dc2626', color:'#dc2626' }}
+                onClick={handleFcReject}
+                disabled={fcActionId === fcRejectTarget.id}>
+                {fcActionId === fcRejectTarget.id ? 'Rejecting…' : 'Reject Request'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── REQUESTS TAB ── */}
       {tab === 'requests' && (
@@ -1273,7 +1468,7 @@ export default function CoordEvents() {
           <div className={s.empty}>
             <div className={s.emptyIcon}>📋</div>
             <p>No event requests yet</p>
-            <span>Submit a request and the admin will review and broadcast it.</span>
+            <span>Submit a request{!isFC ? " — your Faculty Coordinator reviews it first, then" : ' and'} the admin will review and broadcast it.</span>
           </div>
         ) : (
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
@@ -1325,6 +1520,18 @@ export default function CoordEvents() {
                     </div>
                   </div>
 
+                  {req.fcReviewedByName && (
+                    <div style={{ fontSize:'.76rem', color:'#6b21a8', background:'#f5f3ff', border:'1px solid #ddd6fe',
+                      borderRadius:8, padding:'6px 10px', marginBottom:8 }}>
+                      Reviewed by your Faculty Coordinator, <strong>{req.fcReviewedByName}</strong>
+                      {req.status === 'pending' ? ' — approved and forwarded to Admin.' : req.status === 'rejected' ? '.' : ''}
+                    </div>
+                  )}
+                  {req.status === 'rejected' && req.fcNote && (
+                    <div className={es.rejectNote}>
+                      <strong>Faculty Coordinator note:</strong> {req.fcNote}
+                    </div>
+                  )}
                   {req.status === 'rejected' && req.adminNote && (
                     <div className={es.rejectNote}>
                       <strong>Admin note:</strong> {req.adminNote}
@@ -1332,9 +1539,13 @@ export default function CoordEvents() {
                   )}
                   <div className={es.reqFoot}>
                     <span className={es.reqDate}>Submitted {new Date(req.createdAt).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' })}</span>
-                    {req.status === 'pending' && (
+                    {(req.status === 'pending' || req.status === 'pending_fc') && (
                       <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-                        <span className={es.pendingHint}>Admin will review this request shortly.</span>
+                        <span className={es.pendingHint}>
+                          {req.status === 'pending_fc'
+                            ? 'Your Faculty Coordinator will review this request shortly.'
+                            : 'Admin will review this request shortly.'}
+                        </span>
                         <button className={es.reqEditBtn} onClick={() => openEditRequest(req)}>Edit</button>
                       </div>
                     )}

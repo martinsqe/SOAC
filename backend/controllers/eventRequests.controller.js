@@ -5,6 +5,20 @@ const { notifyUser, notifyManyUsers } = require('../services/notify');
 const { getFileValue } = require('../config/multer');
 const { destroyImage } = require('../config/cloudinary');
 
+/* Every currently-active Faculty Coordinator assigned to this club — same
+   shared coordinator_club_assignments table the (Student) Coordinator uses,
+   distinguished by role. A club can have zero (not yet staffed) or, in
+   practice, one. */
+const getClubFacultyCoordinatorIds = async (clubId) => {
+  const { rows } = await pgPool.query(
+    `SELECT cca.user_id FROM coordinator_club_assignments cca
+     JOIN users u ON u.id = cca.user_id AND u.role = 'faculty_coordinator'
+     WHERE cca.club_id = $1 AND cca.is_active = true`,
+    [clubId]
+  );
+  return rows.map(r => r.user_id);
+};
+
 /* Same shape as events.controller.js's imageUrl() — Cloudinary URLs and disk-mode
    `/uploads/...` paths (as returned by getFileValue) pass through unchanged;
    anything else is a bare seeded/static asset served from the frontend's /images. */
@@ -78,17 +92,25 @@ const createRequest = async (req, res, next) => {
         ? tags.split(',').map(t => t.trim()).filter(Boolean)
         : [];
 
+    /* A Student Coordinator's request goes to their club's Faculty Coordinator
+       first; a Faculty Coordinator's own request (or a club with no FC yet —
+       never leave a request stranded with no one to review it) goes straight
+       to admin, exactly as every request always used to. */
+    const submitterRole = req.user.role === 'faculty_coordinator' ? 'faculty_coordinator' : 'coordinator';
+    const fcIds = submitterRole === 'coordinator' ? await getClubFacultyCoordinatorIds(club.id) : [];
+    const initialStatus = fcIds.length ? 'pending_fc' : 'pending';
+
     const { rows } = await pgPool.query(
       `INSERT INTO event_requests
-         (club_id, club_name, coordinator_id, coordinator_name,
+         (club_id, club_name, coordinator_id, coordinator_name, submitted_by_role, status,
           title, description, category, date, start_date, time, venue,
           seats, tags, highlight, registration_url, is_free, fee_amount,
           objective, expected_outcome, is_special_day, special_day_name,
           target_audience, university_expectations, image)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
        RETURNING *`,
       [
-        club.id, club.name, req.user.id, req.user.name || '',
+        club.id, club.name, req.user.id, req.user.name || '', submitterRole, initialStatus,
         title.trim(), description.trim(),
         category || 'general',
         date || '',
@@ -110,21 +132,34 @@ const createRequest = async (req, res, next) => {
         image,
       ]
     );
-    res.status(201).json({ request: asRequest(rows[0]) });
+    const created = rows[0];
+    res.status(201).json({ request: asRequest(created) });
 
-    /* Notify every admin of the new pending proposal — fire-and-forget. */
-    pgPool.query(`SELECT id FROM users WHERE role = 'admin' AND is_active = true`)
-      .then(({ rows: admins }) => {
-        if (!admins.length) return;
-        notifyManyUsers({
-          userIds: admins.map(a => a.id),
-          clubId:  club.id,
-          title:   'New event request',
-          body:    `${req.user.name || club.name} proposed "${title.trim()}".`,
-          type:    'event_request',
-          url:     '/admin/events',
-        });
+    if (initialStatus === 'pending_fc') {
+      /* Goes to this club's Faculty Coordinator(s), not admin, until they review it. */
+      notifyManyUsers({
+        userIds: fcIds,
+        clubId:  club.id,
+        title:   'New event request awaiting your review',
+        body:    `${req.user.name || 'Your Student Coordinator'} proposed "${title.trim()}" for ${club.name}.`,
+        type:    'event_request',
+        url:     '/coordinator/events',
       }).catch(() => {});
+    } else {
+      /* Notify every admin of the new pending proposal — fire-and-forget. */
+      pgPool.query(`SELECT id FROM users WHERE role = 'admin' AND is_active = true`)
+        .then(({ rows: admins }) => {
+          if (!admins.length) return;
+          notifyManyUsers({
+            userIds: admins.map(a => a.id),
+            clubId:  club.id,
+            title:   'New event request',
+            body:    `${req.user.name || club.name} proposed "${title.trim()}".`,
+            type:    'event_request',
+            url:     '/admin/events',
+          });
+        }).catch(() => {});
+    }
   } catch (err) { next(err); }
 };
 
@@ -142,7 +177,7 @@ const updateRequest = async (req, res, next) => {
     const existing = existingRows[0];
     if (existing.coordinator_id !== req.user.id)
       return res.status(403).json({ message: 'You do not own this request.' });
-    if (existing.status !== 'pending')
+    if (existing.status !== 'pending' && existing.status !== 'pending_fc')
       return res.status(409).json({ message: 'Only a request that is still pending review can be edited.' });
 
     const {
@@ -216,24 +251,27 @@ const updateRequest = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* ── GET /api/event-requests  (admin — all requests, optional ?status=pending) ── */
+/* ── GET /api/event-requests  (admin — all requests, optional ?status=pending)
+   Includes 'pending_fc' requests too — not yet actionable by admin, but visible
+   so admin can see the whole chain a request is moving through. ── */
 const getRequests = async (req, res, next) => {
   try {
     await ensureSoacTables();
     const { status } = req.query;
     const args  = [];
     let   where = '';
-    if (status && ['pending','approved','rejected'].includes(status)) {
+    if (status && ['pending_fc','pending','approved','rejected'].includes(status)) {
       args.push(status);
       where = `WHERE er.status = $1`;
     }
     const { rows } = await pgPool.query(
-      `SELECT er.*, u.name AS coordinator_name
+      `SELECT er.*, u.name AS coordinator_name, fc.name AS fc_reviewer_name
        FROM event_requests er
        JOIN users u ON u.id = er.coordinator_id
+       LEFT JOIN users fc ON fc.id = er.fc_reviewed_by
        ${where}
        ORDER BY
-         CASE er.status WHEN 'pending' THEN 0 WHEN 'rejected' THEN 1 ELSE 2 END,
+         CASE er.status WHEN 'pending' THEN 0 WHEN 'pending_fc' THEN 1 WHEN 'rejected' THEN 2 ELSE 3 END,
          er.created_at DESC`,
       args
     );
@@ -246,12 +284,140 @@ const getMyRequests = async (req, res, next) => {
   try {
     await ensureSoacTables();
     const { rows } = await pgPool.query(
-      `SELECT * FROM event_requests
-       WHERE coordinator_id = $1
-       ORDER BY created_at DESC`,
+      `SELECT er.*, fc.name AS fc_reviewer_name
+       FROM event_requests er
+       LEFT JOIN users fc ON fc.id = er.fc_reviewed_by
+       WHERE er.coordinator_id = $1
+       ORDER BY er.created_at DESC`,
       [req.user.id]
     );
     res.json({ requests: rows.map(asRequest) });
+  } catch (err) { next(err); }
+};
+
+/* ── GET /api/event-requests/fc  (Faculty Coordinator — their clubs' requests
+   awaiting or already given their own review; admin may also view for
+   oversight) ── */
+const getFCQueue = async (req, res, next) => {
+  try {
+    await ensureSoacTables();
+    if (req.user.role !== 'faculty_coordinator' && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Faculty Coordinator or admin access required.' });
+    }
+    const clubIds = req.user.role === 'admin' ? null : await getCoordClubIds(req.user.id);
+    if (clubIds && !clubIds.length) return res.json({ requests: [] });
+
+    const { status } = req.query;
+    const args  = clubIds ? [clubIds] : [];
+    const clauses = clubIds ? [`er.club_id = ANY($1::bigint[])`] : [];
+    clauses.push(`er.submitted_by_role = 'coordinator'`); // only ever an SC's request reaches this queue
+    if (status && ['pending_fc','pending','approved','rejected'].includes(status)) {
+      args.push(status);
+      clauses.push(`er.status = $${args.length}`);
+    }
+    const { rows } = await pgPool.query(
+      `SELECT er.*, u.name AS coordinator_name, fc.name AS fc_reviewer_name
+       FROM event_requests er
+       JOIN users u ON u.id = er.coordinator_id
+       LEFT JOIN users fc ON fc.id = er.fc_reviewed_by
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY
+         CASE er.status WHEN 'pending_fc' THEN 0 ELSE 1 END,
+         er.created_at DESC`,
+      args
+    );
+    res.json({ requests: rows.map(asRequest) });
+  } catch (err) { next(err); }
+};
+
+/* ── PUT /api/event-requests/:id/fc-approve  (Faculty Coordinator of that club,
+   or admin) — forwards an SC's request to admin, same as if it had always
+   been pending there. ── */
+const fcApproveRequest = async (req, res, next) => {
+  try {
+    const { rows } = await pgPool.query(`SELECT * FROM event_requests WHERE id = $1`, [req.params.id]);
+    if (!rows.length) return res.status(404).json({ message: 'Request not found.' });
+    const r = rows[0];
+    if (r.status !== 'pending_fc') {
+      return res.status(409).json({ message: 'This request is not awaiting Faculty Coordinator review.' });
+    }
+    if (req.user.role === 'faculty_coordinator') {
+      const ok = await assertCoordOwnsClub(req.user.id, r.club_id);
+      if (!ok) return res.status(403).json({ message: 'You can only review requests for your own club.' });
+    } else if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Faculty Coordinator or admin access required.' });
+    }
+
+    const { rows: updated } = await pgPool.query(
+      `UPDATE event_requests
+       SET status = 'pending', fc_reviewed_by = $1, fc_reviewed_at = NOW(), updated_at = NOW()
+       WHERE id = $2
+       RETURNING *`,
+      [req.user.id, req.params.id]
+    );
+    res.json({ request: asRequest({ ...updated[0], fc_reviewer_name: req.user.name }) });
+
+    notifyUser({
+      userId: r.coordinator_id,
+      clubId: r.club_id,
+      title:  'Your event request was approved by your Faculty Coordinator',
+      body:   `"${r.title}" was forwarded to Admin for final review.`,
+      type:   'event_request',
+      url:    '/coordinator/events',
+    }).catch(() => {});
+
+    pgPool.query(`SELECT id FROM users WHERE role = 'admin' AND is_active = true`)
+      .then(({ rows: admins }) => {
+        if (!admins.length) return;
+        notifyManyUsers({
+          userIds: admins.map(a => a.id),
+          clubId:  r.club_id,
+          title:   'New event request',
+          body:    `${req.user.name} (Faculty Coordinator) approved and forwarded "${r.title}" from ${r.coordinator_name || r.club_name}.`,
+          type:    'event_request',
+          url:     '/admin/events',
+        });
+      }).catch(() => {});
+  } catch (err) { next(err); }
+};
+
+/* ── PUT /api/event-requests/:id/fc-reject  (Faculty Coordinator of that club,
+   or admin) — with optional note; never reaches admin. ── */
+const fcRejectRequest = async (req, res, next) => {
+  try {
+    const { fc_note = '' } = req.body;
+    const { rows } = await pgPool.query(`SELECT * FROM event_requests WHERE id = $1`, [req.params.id]);
+    if (!rows.length) return res.status(404).json({ message: 'Request not found.' });
+    const r = rows[0];
+    if (r.status !== 'pending_fc') {
+      return res.status(409).json({ message: 'This request is not awaiting Faculty Coordinator review.' });
+    }
+    if (req.user.role === 'faculty_coordinator') {
+      const ok = await assertCoordOwnsClub(req.user.id, r.club_id);
+      if (!ok) return res.status(403).json({ message: 'You can only review requests for your own club.' });
+    } else if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Faculty Coordinator or admin access required.' });
+    }
+
+    const { rows: updated } = await pgPool.query(
+      `UPDATE event_requests
+       SET status = 'rejected', fc_note = $1, fc_reviewed_by = $2, fc_reviewed_at = NOW(), updated_at = NOW()
+       WHERE id = $3
+       RETURNING *`,
+      [fc_note.trim(), req.user.id, req.params.id]
+    );
+    res.json({ request: asRequest({ ...updated[0], fc_reviewer_name: req.user.name }) });
+
+    notifyUser({
+      userId: r.coordinator_id,
+      clubId: r.club_id,
+      title:  'Event request rejected by your Faculty Coordinator',
+      body:   fc_note.trim()
+        ? `"${r.title}" was rejected: ${fc_note.trim()}`
+        : `"${r.title}" was rejected.`,
+      type:   'event_request',
+      url:    '/coordinator/events',
+    }).catch(() => {});
   } catch (err) { next(err); }
 };
 
@@ -264,6 +430,8 @@ const approveRequest = async (req, res, next) => {
     );
     if (!reqRow.rows.length)
       return res.status(404).json({ message: 'Request not found.' });
+    if (reqRow.rows[0].status === 'pending_fc')
+      return res.status(409).json({ message: 'This request is still awaiting Faculty Coordinator review.' });
     if (reqRow.rows[0].status !== 'pending')
       return res.status(409).json({ message: 'This request has already been reviewed.' });
 
@@ -456,7 +624,7 @@ const deleteRequest = async (req, res, next) => {
     if (req.user.role !== 'admin' && r.coordinator_id !== req.user.id) {
       return res.status(403).json({ message: 'You do not own this request.' });
     }
-    if (r.status === 'pending') {
+    if (r.status === 'pending' || r.status === 'pending_fc') {
       return res.status(409).json({ message: 'This request is still pending review and cannot be deleted yet.' });
     }
 
@@ -500,8 +668,21 @@ const asRequest = (r) => ({
   adminNote:        r.admin_note,
   reviewedBy:       r.reviewed_by,
   reviewedAt:       r.reviewed_at,
+  /* SC → FC → Admin chain — submittedByRole is who originated the request;
+     fcReviewedBy/fcReviewedByName/fcReviewedAt/fcNote are set once (and only
+     once) a Faculty Coordinator has acted on it. A request with no Faculty
+     Coordinator ever in its path (an FC's own submission, or a club with no
+     FC assigned when submitted) simply never gets these set. */
+  submittedByRole:  r.submitted_by_role,
+  fcReviewedBy:     r.fc_reviewed_by,
+  fcReviewedByName: r.fc_reviewer_name || null,
+  fcReviewedAt:     r.fc_reviewed_at,
+  fcNote:           r.fc_note,
   createdAt:        r.created_at,
   updatedAt:        r.updated_at,
 });
 
-module.exports = { createRequest, updateRequest, getRequests, getMyRequests, approveRequest, rejectRequest, deleteRequest };
+module.exports = {
+  createRequest, updateRequest, getRequests, getMyRequests, approveRequest, rejectRequest, deleteRequest,
+  getFCQueue, fcApproveRequest, fcRejectRequest,
+};

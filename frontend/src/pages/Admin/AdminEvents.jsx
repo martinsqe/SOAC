@@ -58,9 +58,26 @@ const EMPTY_GALORE = {
 const GALORE_CATEGORY_LABEL = { sports: 'Sports', cultural: 'Cultural', academic: 'Academic' };
 
 const REQ_STATUS_META = {
-  pending:  { label: 'Pending',  color: '#d97706', bg: '#fffbeb' },
-  approved: { label: 'Approved', color: '#059669', bg: '#ecfdf5' },
-  rejected: { label: 'Rejected', color: '#dc2626', bg: '#fef2f2' },
+  pending_fc: { label: 'Pending Faculty Coordinator Review', color: '#7c3aed', bg: '#f5f3ff' },
+  pending:    { label: 'Pending',                            color: '#d97706', bg: '#fffbeb' },
+  approved:   { label: 'Approved',                           color: '#059669', bg: '#ecfdf5' },
+  rejected:   { label: 'Rejected',                           color: '#dc2626', bg: '#fef2f2' },
+};
+
+/* The chain a request actually travelled — Student Coordinator → Faculty
+   Coordinator → Admin, or straight from whoever submitted it → Admin when
+   there's no Faculty Coordinator stage (an FC's own request, or a club with
+   no FC assigned when it was submitted). */
+const requestChain = (req) => {
+  const steps = [req.submittedByRole === 'faculty_coordinator' ? 'Faculty Coordinator' : 'Student Coordinator'];
+  /* Went (or is still going) through the Faculty Coordinator stage if it's
+     currently sitting there, or already has an FC reviewer recorded. An SC
+     request with neither means no FC was assigned to that club when it was
+     submitted, so it skipped straight to Admin. */
+  const wentThroughFC = req.submittedByRole === 'coordinator' && (req.status === 'pending_fc' || !!req.fcReviewedByName);
+  if (wentThroughFC) steps.push('Faculty Coordinator');
+  steps.push('Admin');
+  return steps;
 };
 
 /* ── Event Card ── */
@@ -1244,7 +1261,7 @@ export default function AdminEvents() {
       {pageTab === 'requests' && (<>
         {/* Filter strip */}
         <div className={s.statusTabs} style={{ marginBottom:20 }}>
-          {[['all','All'],['pending','Pending'],['approved','Approved'],['rejected','Rejected']].map(([val, label]) => (
+          {[['all','All'],['pending','Pending'],['pending_fc','With Faculty Coordinator'],['approved','Approved'],['rejected','Rejected']].map(([val, label]) => (
             <button key={val}
               className={`${s.statusTab} ${reqFilter === val ? s.statusTabOn : ''}`}
               onClick={() => setReqFilter(val)}>
@@ -1292,6 +1309,10 @@ export default function AdminEvents() {
                       </div>
                       <div style={{ fontSize:'.78rem', color:'#6b7280' }}>
                         From <strong>{req.coordinatorName}</strong> · {req.clubName} · {new Date(req.createdAt).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' })}
+                      </div>
+                      <div style={{ display:'flex', alignItems:'center', gap:5, marginTop:5, fontSize:'.72rem', color:'#7c3aed', fontWeight:600 }}>
+                        {requestChain(req).join('  →  ')}
+                        {req.fcReviewedByName && <span style={{ color:'#9ca3af', fontWeight:500 }}>&nbsp;(by {req.fcReviewedByName})</span>}
                       </div>
                     </div>
                     {/* Action buttons */}
@@ -1348,11 +1369,23 @@ export default function AdminEvents() {
                     </div>
                   </div>
 
-                  {/* Rejection note */}
+                  {/* Rejection note — from whichever stage actually rejected it */}
                   {req.status === 'rejected' && req.adminNote && (
                     <div style={{ marginTop:10, background:'#fef2f2', border:'1px solid #fecaca',
                       borderRadius:8, padding:'8px 12px', fontSize:'.8rem', color:'#7f1d1d' }}>
-                      <strong>Rejection note:</strong> {req.adminNote}
+                      <strong>Rejected by Admin:</strong> {req.adminNote}
+                    </div>
+                  )}
+                  {req.status === 'rejected' && !req.adminNote && req.fcNote && (
+                    <div style={{ marginTop:10, background:'#f5f3ff', border:'1px solid #ddd6fe',
+                      borderRadius:8, padding:'8px 12px', fontSize:'.8rem', color:'#4c1d95' }}>
+                      <strong>Rejected by Faculty Coordinator{req.fcReviewedByName ? ` (${req.fcReviewedByName})` : ''}:</strong> {req.fcNote}
+                    </div>
+                  )}
+                  {req.status === 'rejected' && !req.adminNote && !req.fcNote && req.fcReviewedByName && (
+                    <div style={{ marginTop:10, background:'#f5f3ff', border:'1px solid #ddd6fe',
+                      borderRadius:8, padding:'8px 12px', fontSize:'.8rem', color:'#4c1d95' }}>
+                      Rejected by Faculty Coordinator <strong>{req.fcReviewedByName}</strong>.
                     </div>
                   )}
                 </div>
