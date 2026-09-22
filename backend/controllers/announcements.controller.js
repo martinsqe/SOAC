@@ -101,7 +101,7 @@ const createClubAnnouncement = async (req, res, next) => {
 
     /* Coordinators can only post to their assigned clubs */
     let clubId = null;
-    if (req.user.role === 'coordinator') {
+    if (req.user.role === 'coordinator' || req.user.role === 'faculty_coordinator') {
       const requestedClubId = req.body.clubId || null;
       if (!requestedClubId) {
         return res.status(400).json({ message: 'clubId is required.' });
@@ -207,7 +207,7 @@ const createSOACAnnouncement = async (req, res, next) => {
           url:   '/student/soac-updates',
         });
       }).catch(() => {});
-    pgPool.query(`SELECT id FROM users WHERE role = 'coordinator' AND is_active = true`)
+    pgPool.query(`SELECT id FROM users WHERE role IN ('coordinator', 'faculty_coordinator') AND is_active = true`)
       .then(({ rows: coords }) => {
         if (!coords.length) return;
         notifyManyUsers({

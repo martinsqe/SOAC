@@ -13,7 +13,7 @@ const cache = require('../services/cache');
    Avoids SELECT * so the result set is predictable regardless of future
    schema additions, and lets the query planner know exactly what to fetch. */
 const CLUB_COLS = [
-  'id', 'name', 'slug', 'category', 'color', 'logo', 'coordinator',
+  'id', 'name', 'slug', 'category', 'color', 'logo', 'coordinator', 'faculty_coordinator',
   'founded_year', 'description', 'tags', 'vision', 'rules', 'schedule',
   'is_active', 'created_at', 'updated_at',
 ].join(', ');
@@ -120,18 +120,23 @@ const getOne = async (req, res, next) => {
               (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = clubs.id AND is_active = true) AS real_member_count,
               (SELECT COUNT(*)::int FROM events WHERE club = clubs.name AND is_active = true) AS real_event_count,
               (SELECT u.avatar FROM coordinator_club_assignments cca
-               JOIN users u ON u.id = cca.user_id
+               JOIN users u ON u.id = cca.user_id AND u.role = 'coordinator'
                WHERE cca.club_id = clubs.id AND cca.is_active = true
-               ORDER BY cca.id ASC LIMIT 1) AS coordinator_avatar
+               ORDER BY cca.id ASC LIMIT 1) AS coordinator_avatar,
+              (SELECT u.avatar FROM coordinator_club_assignments cca
+               JOIN users u ON u.id = cca.user_id AND u.role = 'faculty_coordinator'
+               WHERE cca.club_id = clubs.id AND cca.is_active = true
+               ORDER BY cca.id ASC LIMIT 1) AS faculty_coordinator_avatar
        FROM clubs WHERE id = $1`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Club not found.' });
 
     const club = asClub(rows[0]);
-    club.memberCount        = rows[0].real_member_count;
-    club.eventCount         = rows[0].real_event_count;
-    club.coordinatorAvatar  = rows[0].coordinator_avatar || null;
+    club.memberCount            = rows[0].real_member_count;
+    club.eventCount             = rows[0].real_event_count;
+    club.coordinatorAvatar      = rows[0].coordinator_avatar || null;
+    club.facultyCoordinatorAvatar = rows[0].faculty_coordinator_avatar || null;
     const result = { club: withLogoUrl(club) };
     await cache.set(cacheKey, result, cache.TTL.CLUB);
     res.json(result);
@@ -379,7 +384,7 @@ const mine = async (req, res, next) => {
    Single LATERAL JOIN — no N+1. Cache keyed on all filter params. */
 const getMembers = async (req, res, next) => {
   try {
-    if (req.user?.role === 'coordinator') {
+    if (req.user?.role === 'coordinator' || req.user?.role === 'faculty_coordinator') {
       const ok = await assertCoordOwnsClub(req.user.id, req.params.id);
       if (!ok) return res.status(403).json({ message: 'You can only access members for your assigned club.' });
     }
@@ -606,7 +611,8 @@ const toggleMemberActive = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* GET /api/clubs/coordinator-assignments?email=X  (admin) */
+/* GET /api/clubs/coordinator-assignments?email=X  (admin, or a Faculty Coordinator
+   looking up an email before assigning them as their club's Student Coordinator) */
 const getCoordinatorAssignments = async (req, res, next) => {
   try {
     const email = String(req.query.email || '').trim().toLowerCase();
@@ -627,31 +633,47 @@ const getCoordinatorAssignments = async (req, res, next) => {
        ORDER BY cca.created_at DESC`,
       [user.id]
     );
-    res.json({ assignments: rows, user: { id: user.id, name: user.name, email: user.email } });
+    res.json({ assignments: rows, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
   } catch (err) { next(err); }
 };
 
-/* POST /api/clubs/:id/assign-coordinator  (admin)
-   One coordinator → many clubs. A single password in users.password_hash covers
-   all clubs. coordinator_club_assignments tracks which clubs they manage.
+/* ── Club staff role assignment (Coordinator / Faculty Coordinator) ─────────
+   Both roles share the exact same mechanics — one account → many clubs, a
+   single password in users.password_hash, coordinator_club_assignments
+   tracking which clubs they manage — so both assign-* endpoints below are
+   thin wrappers around this one function, parameterised by role.
+     • New user      → create account with temp password, send credentials email.
+     • Existing user → just add the assignment, send confirmation-only email
+       (no password reset) — mirrors how students join clubs.
+   Deactivating "any other X currently assigned to this club" is scoped to
+   users of the SAME role, so assigning a new Student Coordinator never
+   touches that club's Faculty Coordinator, and vice versa — both can be
+   active on one club at once, unlike the old single-coordinator model. */
+const ROLE_META = {
+  coordinator: {
+    label: 'Coordinator', roleLabel: 'Student Coordinator',
+    auditAction: 'ASSIGN_COORDINATOR', clubNameCol: 'coordinator',
+    blockedRoles: { admin: 'admin', faculty_coordinator: 'Faculty Coordinator' },
+  },
+  faculty_coordinator: {
+    label: 'Faculty Coordinator', roleLabel: 'Faculty Coordinator',
+    auditAction: 'ASSIGN_FACULTY_COORDINATOR', clubNameCol: 'faculty_coordinator',
+    blockedRoles: { admin: 'admin', coordinator: 'Student Coordinator' },
+  },
+};
 
-   BEHAVIOUR:
-   • New user  → create account with temp password, send credentials email.
-   • Existing user → just add assignment, send confirmation-only email (no password reset).
-     This mirrors how students join clubs — they get a confirmation, not new credentials. */
-const assignCoordinator = async (req, res, next) => {
+const assignClubStaff = (role) => async (req, res, next) => {
   try {
-    // Ensure migration (password_hash nullable) has run before inserting
     await ensureSoacTables();
+    const meta = ROLE_META[role];
     const { name, email } = req.body;
     const clubId = req.params.id;
 
     if (!email?.trim()) {
-      return res.status(400).json({ message: 'Coordinator email is required.' });
+      return res.status(400).json({ message: `${meta.label} email is required.` });
     }
     const emailLower = email.trim().toLowerCase();
 
-    /* Verify the club exists */
     const { rows: clubRows } = await pgPool.query(
       `SELECT ${CLUB_COLS} FROM clubs WHERE id = $1 AND is_active = true`,
       [clubId]
@@ -659,18 +681,18 @@ const assignCoordinator = async (req, res, next) => {
     if (!clubRows.length) return res.status(404).json({ message: 'Club not found.' });
     const club = asClub(clubRows[0]);
 
-    /* Refuse to overwrite an admin account */
+    /* Refuse to overwrite an admin account, or the club's other staff role */
     const { rows: existing } = await pgPool.query(
       `SELECT id, name, role FROM users WHERE email = $1`,
       [emailLower]
     );
-    if (existing.length && existing[0].role === 'admin') {
-      return res.status(409).json({ message: 'This email belongs to an admin account and cannot be used as coordinator.' });
+    if (existing.length && meta.blockedRoles[existing[0].role]) {
+      return res.status(409).json({ message: `This email belongs to a${meta.blockedRoles[existing[0].role] === 'admin' ? 'n' : ''} ${meta.blockedRoles[existing[0].role]} account and cannot be used as ${meta.label}.` });
     }
 
-    const coordName = name?.trim() || (existing.length ? existing[0].name : null);
-    if (!coordName) {
-      return res.status(400).json({ message: 'Coordinator name is required for new accounts.' });
+    const staffName = name?.trim() || (existing.length ? existing[0].name : null);
+    if (!staffName) {
+      return res.status(400).json({ message: `${meta.label} name is required for new accounts.` });
     }
 
     const isNewUser = !existing.length;
@@ -683,31 +705,30 @@ const assignCoordinator = async (req, res, next) => {
       const hash   = await bcrypt.hash(tempPassword, 12);
       const { rows: newUser } = await pgPool.query(
         `INSERT INTO users (email, name, role, password_hash, must_change_password, created_by)
-         VALUES ($1, $2, 'coordinator', $3, true, $4)
+         VALUES ($1, $2, $3, $4, true, $5)
          RETURNING id`,
-        [emailLower, coordName, hash, req.user.id]
+        [emailLower, staffName, role, hash, req.user.id]
       );
       userId = newUser[0].id;
     } else {
-      /* ── Existing user: activate coordinator role WITHOUT touching their password ── */
+      /* ── Existing user: activate this role WITHOUT touching their password ── */
       userId = existing[0].id;
       await pgPool.query(
-        `UPDATE users
-         SET name = $1, role = 'coordinator', is_active = true
-         WHERE id = $2`,
-        [coordName, userId]
+        `UPDATE users SET name = $1, role = $2, is_active = true WHERE id = $3`,
+        [staffName, role, userId]
       );
     }
 
-    /* Deactivate any OTHER coordinator currently assigned to this club */
+    /* Deactivate any OTHER user of this SAME role currently assigned to this club */
     await pgPool.query(
-      `UPDATE coordinator_club_assignments
+      `UPDATE coordinator_club_assignments cca
        SET is_active = false, updated_at = NOW()
-       WHERE club_id = $1 AND user_id != $2`,
-      [clubId, userId]
+       FROM users u
+       WHERE cca.user_id = u.id AND cca.club_id = $1 AND cca.user_id != $2 AND u.role = $3`,
+      [clubId, userId, role]
     );
 
-    /* Upsert assignment: this coordinator → this club */
+    /* Upsert assignment: this person → this club */
     await pgPool.query(
       `INSERT INTO coordinator_club_assignments (user_id, club_id, is_active)
        VALUES ($1, $2, true)
@@ -722,11 +743,11 @@ const assignCoordinator = async (req, res, next) => {
       [clubId, userId]
     );
 
-    /* Keep the club's coordinator display name in sync */
-    await pgPool.query('UPDATE clubs SET coordinator = $1 WHERE id = $2', [coordName, clubId]);
+    /* Keep the club's display name for this role in sync */
+    await pgPool.query(`UPDATE clubs SET ${meta.clubNameCol} = $1 WHERE id = $2`, [staffName, clubId]);
 
-    await logAudit(req.user.id, req.user.name, 'ASSIGN_COORDINATOR', 'club', clubId, {
-      coordinatorName: coordName, email: emailLower, clubName: club.name, isNewUser,
+    await logAudit(req.user.id, req.user.name, meta.auditAction, 'club', clubId, {
+      staffName, email: emailLower, clubName: club.name, isNewUser,
     });
 
     await Promise.all([
@@ -741,18 +762,18 @@ const assignCoordinator = async (req, res, next) => {
     try {
       if (isNewUser) {
         await sendCoordinatorCredentials({
-          toEmail: emailLower, toName: coordName,
-          password: tempPassword, clubName: club.name,
+          toEmail: emailLower, toName: staffName,
+          password: tempPassword, clubName: club.name, roleLabel: meta.roleLabel,
         });
       } else {
         await sendCoordinatorAssignment({
-          toEmail: emailLower, toName: coordName, clubName: club.name,
+          toEmail: emailLower, toName: staffName, clubName: club.name, roleLabel: meta.roleLabel,
         });
       }
       emailSent = true;
     } catch (err) {
       emailError = err.message;
-      console.warn('Coordinator email failed:', err.message);
+      console.warn(`${meta.label} email failed:`, err.message);
     }
 
     res.json({
@@ -760,14 +781,14 @@ const assignCoordinator = async (req, res, next) => {
       emailSent,
       emailError: emailError || undefined,
       credentials: {
-        name:      coordName,
+        name:      staffName,
         email:     emailLower,
         password:  tempPassword,
         clubName:  club.name,
       },
       message: isNewUser
-        ? `Coordinator account created${emailSent ? `. Credentials sent to ${emailLower}` : ' — email could not be sent, share credentials manually'}.`
-        : `${coordName} added as coordinator of ${club.name}${emailSent ? `. Confirmation sent to ${emailLower}` : ' — email could not be sent'}.`,
+        ? `${meta.label} account created${emailSent ? `. Credentials sent to ${emailLower}` : ' — email could not be sent, share credentials manually'}.`
+        : `${staffName} added as ${meta.label.toLowerCase()} of ${club.name}${emailSent ? `. Confirmation sent to ${emailLower}` : ' — email could not be sent'}.`,
     });
   } catch (err) {
     if (err.code === '23505') {
@@ -777,4 +798,11 @@ const assignCoordinator = async (req, res, next) => {
   }
 };
 
-module.exports = { getAll, getOne, create, update, remove, stats, publicStats, seed, mine, getMembers, getAllMembers, toggleMemberActive, assignCoordinator, getCoordinatorAssignments };
+/* POST /api/clubs/:id/assign-coordinator  (admin, or that club's own Faculty
+   Coordinator — see requireAdminOrOwningFC in clubs.routes.js) */
+const assignCoordinator = assignClubStaff('coordinator');
+
+/* POST /api/clubs/:id/assign-fc  (admin only) */
+const assignFacultyCoordinator = assignClubStaff('faculty_coordinator');
+
+module.exports = { getAll, getOne, create, update, remove, stats, publicStats, seed, mine, getMembers, getAllMembers, toggleMemberActive, assignCoordinator, assignFacultyCoordinator, getCoordinatorAssignments };

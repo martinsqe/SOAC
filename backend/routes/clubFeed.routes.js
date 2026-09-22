@@ -4,7 +4,7 @@ const { verifyToken }  = require('../middleware/auth');
 const { uploadClubFeedMedia } = require('../config/multer');
 
 const requireCoordinator = (req, res, next) => {
-  if (req.user?.role !== 'coordinator') {
+  if (req.user?.role !== 'coordinator' && req.user?.role !== 'faculty_coordinator') {
     return res.status(403).json({ message: 'Coordinator access required.' });
   }
   next();

@@ -290,7 +290,7 @@ export default function StudentMessages() {
       )
     : clubMembers;
 
-  const staffVisible   = mVisible.filter(m => m.role === 'admin' || m.role === 'coordinator');
+  const staffVisible   = mVisible.filter(m => m.role === 'admin' || m.role === 'coordinator' || m.role === 'faculty_coordinator');
   const membersVisible = mVisible.filter(m => m.role !== 'admin' && m.role !== 'coordinator');
 
   /* shell gets .chatOpen class when mobile should show the chat panel */
@@ -504,9 +504,9 @@ export default function StudentMessages() {
                               && msg.user_role !== 'student'
                               && startDM({ id: msg.user_id, name: msg.user_name, avatar: msg.user_avatar })}>
                             {senderName(msg)}
-                            {(msg.user_role === 'coordinator' || msg.user_role === 'admin') && (
+                            {(msg.user_role === 'coordinator' || msg.user_role === 'faculty_coordinator' || msg.user_role === 'admin') && (
                               <span className={s.coordBadge}>
-                                {msg.user_role === 'admin' ? 'Admin' : 'Coordinator'}
+                                {msg.user_role === 'admin' ? 'Admin' : msg.user_role === 'faculty_coordinator' ? 'Faculty Coordinator' : 'Coordinator'}
                               </span>
                             )}
                           </div>
@@ -574,9 +574,9 @@ function MemberRow({ member, onSelect, UserAv, avatarUrl, coordBadgeClass,
       <div className={convMetaClass}>
         <div className={convTopClass}>
           <span className={convNameClass}>{member.name}</span>
-          {(member.role === 'coordinator' || member.role === 'admin') && (
+          {(member.role === 'coordinator' || member.role === 'faculty_coordinator' || member.role === 'admin') && (
             <span className={coordBadgeClass} style={{ fontSize: 9 }}>
-              {member.role === 'admin' ? 'Admin' : 'Coord'}
+              {member.role === 'admin' ? 'Admin' : member.role === 'faculty_coordinator' ? 'FC' : 'Coord'}
             </span>
           )}
         </div>

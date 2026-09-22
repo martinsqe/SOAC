@@ -59,7 +59,7 @@ const getAll = async (req, res, next) => {
     const values  = [];
     const clauses = [];
 
-    if (req.user?.role === 'coordinator') {
+    if (req.user?.role === 'coordinator' || req.user?.role === 'faculty_coordinator') {
       const coordClubIds = await getCoordClubIds(req.user.id);
       if (!coordClubIds.length) {
         return res.status(403).json({ message: 'No club assigned to this coordinator account.' });
@@ -277,7 +277,7 @@ const approve = async (req, res, next) => {
     if (!jr)                    return res.status(404).json({ message: 'Request not found.' });
     if (jr.status !== 'pending') return res.status(400).json({ message: `Request is already ${jr.status}.` });
 
-    if (req.user?.role === 'coordinator') {
+    if (req.user?.role === 'coordinator' || req.user?.role === 'faculty_coordinator') {
       const ok = await assertCoordOwnsClub(req.user.id, jr.club_id);
       if (!ok) return res.status(403).json({ message: 'You can only approve requests for your assigned club.' });
     }
@@ -413,7 +413,7 @@ const decline = async (req, res, next) => {
     if (!jr)                    return res.status(404).json({ message: 'Request not found.' });
     if (jr.status !== 'pending') return res.status(400).json({ message: `Request is already ${jr.status}.` });
 
-    if (req.user?.role === 'coordinator') {
+    if (req.user?.role === 'coordinator' || req.user?.role === 'faculty_coordinator') {
       const ok = await assertCoordOwnsClub(req.user.id, jr.club_id);
       if (!ok) return res.status(403).json({ message: 'You can only decline requests for your assigned club.' });
     }
@@ -459,7 +459,7 @@ const resendEmail = async (req, res, next) => {
     if (!jr) return res.status(404).json({ message: 'Request not found.' });
     if (jr.status !== 'approved') return res.status(400).json({ message: 'Can only resend email for approved requests.' });
 
-    if (req.user?.role === 'coordinator') {
+    if (req.user?.role === 'coordinator' || req.user?.role === 'faculty_coordinator') {
       const ok = await assertCoordOwnsClub(req.user.id, jr.club_id);
       if (!ok) return res.status(403).json({ message: 'Not your club.' });
     }

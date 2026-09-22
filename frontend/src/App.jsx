@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { StatsProvider } from './context/StatsContext';
@@ -197,6 +197,11 @@ function AppInner() {
           <Route path="club-feed"    element={<CoordClubFeed />} />
           <Route path="notifications" element={<NotificationsPage />} />
         </Route>
+
+        {/* Faculty Coordinator shares the Coordinator portal for now (same dashboard,
+            same pages) — this is just a friendly landing alias so a Faculty
+            Coordinator's own URL takes them straight into it. */}
+        <Route path="/faculty-coordinator/*" element={<Navigate to="/coordinator" replace />} />
       </Routes>
     </Router>
     </>

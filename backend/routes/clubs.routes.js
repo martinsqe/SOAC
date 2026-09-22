@@ -10,10 +10,25 @@ const msgRateLimit     = require('../middleware/msgRateLimit');
 
 const requireCoordOrAdmin = (req, res, next) => {
   const role = String(req.user?.role || '').toLowerCase();
-  if (role !== 'coordinator' && role !== 'admin') {
+  if (role !== 'coordinator' && role !== 'faculty_coordinator' && role !== 'admin') {
     return res.status(403).json({ message: 'Coordinator or admin access required.' });
   }
   next();
+};
+
+/* Assigning a Student Coordinator is allowed for admin (any club) or that
+   club's own Faculty Coordinator (their club only) — never a Student
+   Coordinator assigning a peer. */
+const requireAdminOrOwningFC = async (req, res, next) => {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'admin') return next();
+  if (role === 'faculty_coordinator') {
+    const { assertCoordOwnsClub } = require('../services/coordAuth');
+    const ok = await assertCoordOwnsClub(req.user.id, req.params.id);
+    if (ok) return next();
+    return res.status(403).json({ message: 'You can only assign a Student Coordinator for your own club.' });
+  }
+  return res.status(403).json({ message: 'Admin or Faculty Coordinator access required.' });
 };
 
 /* ── Static-path routes must come before /:id ── */
@@ -24,7 +39,7 @@ router.post('/seed',    verifyToken, requireAdmin, ctrl.seed);
 router.get('/mine',        verifyToken, requireCoordOrAdmin, ctrl.mine);
 router.get('/members',     verifyToken, requireAdmin, ctrl.getAllMembers);   // admin: all clubs
 
-router.get('/coordinator-assignments', verifyToken, requireAdmin, ctrl.getCoordinatorAssignments);
+router.get('/coordinator-assignments', verifyToken, requireCoordOrAdmin, ctrl.getCoordinatorAssignments);
 
 /* ── Single club ── */
 router.get('/:id',      ctrl.getOne);
@@ -93,8 +108,11 @@ router.get  ('/:id/live-scores/:scoreId/mvp',        verifyToken, cd.getMvp);
 router.patch('/:id/live-scores/:scoreId/mvp/photo',   verifyToken, requireCoordinatorOwnership, uploadMvpPhoto.single('photo'), cd.uploadMvpPhotoCtrl);
 router.patch('/:id/live-scores/:scoreId/mvp/player',  verifyToken, requireCoordinatorOwnership, cd.setMvpPlayer);
 
+/* ── Club staff assignment ── */
+router.post('/:id/assign-coordinator', verifyToken, requireAdminOrOwningFC, ctrl.assignCoordinator);
+router.post('/:id/assign-fc',          verifyToken, requireAdmin, ctrl.assignFacultyCoordinator);
+
 /* ── Admin-only club CRUD ── */
-router.post('/:id/assign-coordinator', verifyToken, requireAdmin, ctrl.assignCoordinator);
 router.post('/',      verifyToken, requireAdmin, uploadLogo.single('logo'), ctrl.create);
 router.put('/:id',    verifyToken, requireAdmin, uploadLogo.single('logo'), ctrl.update);
 router.delete('/:id', verifyToken, requireAdmin, ctrl.remove);

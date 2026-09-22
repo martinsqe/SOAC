@@ -1,0 +1,161 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.modal {
+  background: #fff;
+  border-radius: 4px;
+  width: 100%;
+  max-width: 460px;
+  max-height: 92vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.18);
+}
+.modalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 22px 24px 0;
+}
+.modalTag {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #635bff;
+  background: #635bff14;
+  padding: 3px 10px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  display: inline-block;
+}
+.modalTitle {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #0f0a2e;
+  margin: 0;
+}
+.closeBtn {
+  background: #f4f4f8;
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: #6b7280;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.closeBtn:hover { background: #ebebf2; color: #374151; }
+
+.currentBanner {
+  margin: 0 24px 20px;
+  padding: 10px 14px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #0369a1;
+}
+
+.form {
+  padding: 20px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label { font-size: 0.8rem; font-weight: 600; color: #374151; }
+.req { color: #ef4444; }
+.field input {
+  padding: 8px 12px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  color: #111;
+  background: #fff;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  font-family: inherit;
+}
+.field input:focus { border-color: #635bff; box-shadow: 0 0 0 3px #635bff18; }
+.hint { font-size: 11px; color: #6b7280; margin-top: 4px; }
+
+.lookupBanner {
+  padding: 10px 13px;
+  border-radius: 4px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  font-size: 13px;
+  color: #0369a1;
+}
+.lookupTitle { font-weight: 700; margin-bottom: 6px; }
+.lookupChips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid;
+}
+.chipOn  { background: #00c89618; color: #007a5e; border-color: #00c89640; }
+.chipOff { background: #f3f4f6;   color: #9ca3af; border-color: #e5e7eb; }
+
+.errorBanner {
+  padding: 10px 13px;
+  border-radius: 4px;
+  background: #fff0f0;
+  border: 1px solid #fca5a5;
+  color: #b91c1c;
+  font-size: 13px;
+}
+.doneBanner {
+  padding: 12px 14px;
+  border-radius: 4px;
+  background: #f0fff8;
+  border: 1px solid #86efac;
+  color: #15803d;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.modalFooter {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+.cancelBtn {
+  padding: 9px 20px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 4px;
+  background: #fff;
+  color: #6b7280;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.cancelBtn:hover { border-color: #d1d5db; color: #374151; }
+.saveBtn {
+  padding: 9px 24px;
+  background: #4c44e0;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.saveBtn:hover:not(:disabled) { background: #3d36c4; }
+.saveBtn:disabled { opacity: 0.55; cursor: not-allowed; }

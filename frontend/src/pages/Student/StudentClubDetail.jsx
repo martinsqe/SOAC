@@ -425,11 +425,28 @@ export default function StudentClubDetail() {
               </div>
               <div className={s.coordCard}>
                 <div className={s.coordAv} style={{ background: color }}>
+                  {club.facultyCoordinator?.charAt(0)?.toUpperCase() || 'F'}
+                </div>
+                <div>
+                  <div className={s.coordName}>{club.facultyCoordinator || 'TBA'}</div>
+                  <div className={s.coordRole}>Faculty Coordinator</div>
+                  <div className={s.coordBadge} style={{ background: color + '18', color }}>Active</div>
+                </div>
+              </div>
+            </div>
+
+            <div className={s.card}>
+              <div className={s.cardHead}>
+                <span className={s.cardIcon} style={{ background: color + '18', color }}>🎓</span>
+                <span className={s.cardTitle}>Student Coordinator</span>
+              </div>
+              <div className={s.coordCard}>
+                <div className={s.coordAv} style={{ background: color }}>
                   {club.coordinator?.charAt(0)?.toUpperCase() || 'C'}
                 </div>
                 <div>
                   <div className={s.coordName}>{club.coordinator || 'TBA'}</div>
-                  <div className={s.coordRole}>Faculty Coordinator</div>
+                  <div className={s.coordRole}>Student Coordinator</div>
                   <div className={s.coordBadge} style={{ background: color + '18', color }}>Active</div>
                 </div>
               </div>
@@ -667,6 +684,36 @@ export default function StudentClubDetail() {
 
                 {/* 1 — Faculty Coordinator (always from club data) */}
                 {(() => {
+                  const fcAvatar = club.facultyCoordinatorAvatar
+                    ? (club.facultyCoordinatorAvatar.startsWith('http') ? club.facultyCoordinatorAvatar : AVATAR_BASE + club.facultyCoordinatorAvatar)
+                    : null;
+                  return (
+                    <div className={s.leaderCard} style={{ borderColor: color + '40' }}>
+                      {fcAvatar ? (
+                        <div className={s.leaderAv} style={{ padding: 0 }}>
+                          <img
+                            src={fcAvatar}
+                            alt={club.facultyCoordinator || 'Faculty Coordinator'}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center', display: 'block', borderRadius: '50%' }}
+                          />
+                        </div>
+                      ) : (
+                        <div className={s.leaderAv}
+                          style={{ background: `linear-gradient(135deg,${color},${color}99)`, color: '#fff' }}>
+                          {club.facultyCoordinator?.charAt(0)?.toUpperCase() || 'F'}
+                        </div>
+                      )}
+                      <div className={s.leaderRole} style={{ color, background: color + '14' }}>
+                        Faculty Coordinator
+                      </div>
+                      <div className={s.leaderName}>{club.facultyCoordinator || 'TBA'}</div>
+                      <div className={s.leaderDesc}>Oversees the club on behalf of the university.</div>
+                    </div>
+                  );
+                })()}
+
+                {/* 2 — Student Coordinator (always from club data) */}
+                {(() => {
                   const coordAvatar = club.coordinatorAvatar
                     ? (club.coordinatorAvatar.startsWith('http') ? club.coordinatorAvatar : AVATAR_BASE + club.coordinatorAvatar)
                     : null;
@@ -676,7 +723,7 @@ export default function StudentClubDetail() {
                         <div className={s.leaderAv} style={{ padding: 0 }}>
                           <img
                             src={coordAvatar}
-                            alt={club.coordinator || 'Faculty Coordinator'}
+                            alt={club.coordinator || 'Student Coordinator'}
                             style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center', display: 'block', borderRadius: '50%' }}
                           />
                         </div>
@@ -687,7 +734,7 @@ export default function StudentClubDetail() {
                         </div>
                       )}
                       <div className={s.leaderRole} style={{ color, background: color + '14' }}>
-                        Faculty Coordinator
+                        Student Coordinator
                       </div>
                       <div className={s.leaderName}>{club.coordinator || 'TBA'}</div>
                       <div className={s.leaderDesc}>Oversees all club operations and student welfare.</div>
@@ -695,7 +742,7 @@ export default function StudentClubDetail() {
                   );
                 })()}
 
-                {/* 2+ — Saved club leadership positions */}
+                {/* 3+ — Saved club leadership positions */}
                 {(leadership.length > 0 ? leadership : FIXED_STUDENT_ROLES).map((pos, i) => {
                   const filled = !!pos.holder_name;
                   return (

@@ -12,7 +12,7 @@ const EMPTY = {
 };
 
 /* ── Club Card (admin view) ── */
-function ClubCard({ club, onEdit, onDelete, onViewRequests, onViewMembers, onAssignCoord, onViewLeadership }) {
+function ClubCard({ club, onEdit, onDelete, onViewRequests, onViewMembers, onAssignCoord, onAssignFC, onViewLeadership }) {
   const accent = club.color || CAT_COLORS[club.category] || '#635bff';
   const logoSrc = club.logoUrl || (club.logo ? `/logos/${club.logo}` : null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -47,17 +47,36 @@ function ClubCard({ club, onEdit, onDelete, onViewRequests, onViewMembers, onAss
       <div className={s.cardBody}>
         <div className={s.cardName}>{club.name}</div>
 
-        {/* Coordinator row */}
+        {/* Faculty Coordinator row — senior staff, assigned by admin only */}
         <div className={s.coordRow}>
           <div className={s.coordInfo}>
+            <span className={s.coordRoleTag}>FC</span>
+            <span className={club.facultyCoordinator ? s.coordName : s.coordEmpty}>
+              {club.facultyCoordinator || 'No Faculty Coordinator assigned'}
+            </span>
+          </div>
+          <button
+            className={s.assignCoordBtn}
+            onClick={() => onAssignFC(club)}
+            title={club.facultyCoordinator ? 'Change Faculty Coordinator' : 'Assign Faculty Coordinator'}
+          >
+            {club.facultyCoordinator ? 'Change' : '+ Assign'}
+          </button>
+        </div>
+
+        {/* Student Coordinator row — day-to-day operations, assigned by admin
+            or by this club's own Faculty Coordinator */}
+        <div className={s.coordRow}>
+          <div className={s.coordInfo}>
+            <span className={s.coordRoleTag}>SC</span>
             <span className={club.coordinator ? s.coordName : s.coordEmpty}>
-              {club.coordinator || 'No coordinator assigned'}
+              {club.coordinator || 'No Student Coordinator assigned'}
             </span>
           </div>
           <button
             className={s.assignCoordBtn}
             onClick={() => onAssignCoord(club)}
-            title={club.coordinator ? 'Change coordinator' : 'Assign coordinator'}
+            title={club.coordinator ? 'Change Student Coordinator' : 'Assign Student Coordinator'}
           >
             {club.coordinator ? 'Change' : '+ Assign'}
           </button>
@@ -119,6 +138,14 @@ export default function AdminClubs() {
   const [coordAssignments, setCoordAssignments] = useState([]); // existing clubs for this email
   const [coordLookingUp,   setCoordLookingUp]   = useState(false);
   const [coordLookupUser,  setCoordLookupUser]  = useState(null); // { id, name, email } if exists
+  /* ── Assign Faculty Coordinator — same shape, one tier above Coordinator ── */
+  const [fcClub,   setFcClub]   = useState(null);
+  const [fcName,   setFcName]   = useState('');
+  const [fcEmail,  setFcEmail]  = useState('');
+  const [fcSaving, setFcSaving] = useState(false);
+  const [fcError,  setFcError]  = useState('');
+  const [fcAssignments, setFcAssignments] = useState([]);
+  const [fcLookingUp,   setFcLookingUp]   = useState(false);
   /* ── Requests panel ── */
   const [reqClub,     setReqClub]    = useState(null);
   const [requests,    setRequests]   = useState([]);
@@ -256,11 +283,60 @@ export default function AdminClubs() {
       });
       closeAssignCoord();
       load();
-      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent });
+      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, roleLabel: 'Student Coordinator' });
     } catch (err) {
       setCoordError(err.message || 'Failed to assign coordinator.');
     } finally {
       setCoordSaving(false);
+    }
+  };
+
+  /* ── Assign Faculty Coordinator — mirrors Assign Coordinator above, posting
+     to /clubs/:id/assign-fc instead, one tier above the Student Coordinator. ── */
+  const openAssignFC = (club) => {
+    setFcClub(club);
+    setFcName(club.facultyCoordinator || '');
+    setFcEmail('');
+    setFcError('');
+    setFcAssignments([]);
+    setFcLookingUp(false);
+  };
+  const closeAssignFC = () => {
+    setFcClub(null); setFcName(''); setFcEmail(''); setFcError(''); setFcAssignments([]);
+  };
+
+  const handleFcEmailLookup = async (email) => {
+    const e = email.trim().toLowerCase();
+    if (!e.endsWith('@rku.ac.in')) { setFcAssignments([]); return; }
+    setFcLookingUp(true);
+    try {
+      const d = await api.get(`/clubs/coordinator-assignments?email=${encodeURIComponent(e)}`);
+      setFcAssignments(d.assignments || []);
+      if (d.user?.name && !fcName) setFcName(d.user.name);
+    } catch {
+      setFcAssignments([]);
+    } finally {
+      setFcLookingUp(false);
+    }
+  };
+
+  const handleAssignFC = async (e) => {
+    e.preventDefault();
+    if (!fcName.trim()) return setFcError('Faculty Coordinator name is required.');
+    if (!fcEmail.trim()) return setFcError('RKU email is required.');
+    if (!fcEmail.toLowerCase().endsWith('@rku.ac.in')) return setFcError('Only @rku.ac.in emails are allowed.');
+    setFcSaving(true); setFcError('');
+    try {
+      const res = await api.post(`/clubs/${fcClub._id}/assign-fc`, {
+        name: fcName.trim(), email: fcEmail.trim(),
+      });
+      closeAssignFC();
+      load();
+      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, roleLabel: 'Faculty Coordinator' });
+    } catch (err) {
+      setFcError(err.message || 'Failed to assign Faculty Coordinator.');
+    } finally {
+      setFcSaving(false);
     }
   };
 
@@ -384,12 +460,12 @@ export default function AdminClubs() {
             <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:20 }}>
               <div>
                 <div style={{ fontFamily:'Plus Jakarta Sans,sans-serif', fontWeight:900, fontSize:16, color:'#0f0a2e' }}>
-                  {creds.password ? 'Account Created!' : 'Coordinator Assigned!'}
+                  {creds.password ? 'Account Created!' : `${creds.roleLabel || 'Coordinator'} Assigned!`}
                 </div>
                 <div style={{ fontSize:13, color:'#6b7280', marginTop:2 }}>
                   {creds.password
                     ? <>Credentials for <strong>{creds.name}</strong> — send them this or they'll receive an email.</>
-                    : <><strong>{creds.name}</strong> has been added as coordinator of <strong>{creds.clubName}</strong>.</>}
+                    : <><strong>{creds.name}</strong> has been added as {(creds.roleLabel || "Coordinator").toLowerCase()} of <strong>{creds.clubName}</strong>.</>}
                 </div>
               </div>
             </div>
@@ -559,19 +635,19 @@ export default function AdminClubs() {
           {filtered.map(club => (
             <ClubCard key={club._id} club={club} onEdit={openEdit} onDelete={setDeleteId}
               onViewRequests={viewRequests} onViewMembers={viewMembers}
-              onAssignCoord={openAssignCoord} onViewLeadership={viewLeadership} />
+              onAssignCoord={openAssignCoord} onAssignFC={openAssignFC} onViewLeadership={viewLeadership} />
           ))}
         </div>
       )}
 
-      {/* ══ Assign Coordinator Modal ══ */}
+      {/* ══ Assign Student Coordinator Modal ══ */}
       {coordClub && (
         <div className={s.overlay} onClick={closeAssignCoord}>
           <div className={s.modal} style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div className={s.modalHeader}>
               <div>
-                <div className={s.modalTag}>Coordinator Assignment</div>
+                <div className={s.modalTag}>Student Coordinator Assignment</div>
                 <h2 className={s.modalTitle}>{coordClub.name}</h2>
               </div>
               <button className={s.closeBtn} onClick={closeAssignCoord}>✕</button>
@@ -592,7 +668,7 @@ export default function AdminClubs() {
             <form onSubmit={handleAssignCoord} className={s.form}>
               <div className={s.field}>
                 <label>
-                  Coordinator Full Name <span className={s.req}>*</span>
+                  Student Coordinator Full Name <span className={s.req}>*</span>
                 </label>
                 <input
                   value={coordName}
@@ -665,7 +741,113 @@ export default function AdminClubs() {
               <div className={s.modalFooter}>
                 <button type="button" className={s.cancelBtn} onClick={closeAssignCoord}>Cancel</button>
                 <button type="submit" className={s.saveBtn} disabled={coordSaving}>
-                  {coordSaving ? 'Assigning…' : 'Assign Coordinator'}
+                  {coordSaving ? 'Assigning…' : 'Assign Student Coordinator'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ══ Assign Faculty Coordinator Modal — same procedure, one tier up ══ */}
+      {fcClub && (
+        <div className={s.overlay} onClick={closeAssignFC}>
+          <div className={s.modal} style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+            <div className={s.modalHeader}>
+              <div>
+                <div className={s.modalTag}>Faculty Coordinator Assignment</div>
+                <h2 className={s.modalTitle}>{fcClub.name}</h2>
+              </div>
+              <button className={s.closeBtn} onClick={closeAssignFC}>✕</button>
+            </div>
+
+            {fcClub.facultyCoordinator && (
+              <div style={{
+                margin: '0 24px 20px', padding: '10px 14px',
+                background: '#f0f9ff', border: '1px solid #bae6fd',
+                borderRadius: 4, fontSize: 13, color: '#0369a1',
+                display: 'flex', alignItems: 'center', gap: 8,
+              }}>
+                <span>Currently assigned: <strong>{fcClub.facultyCoordinator}</strong></span>
+              </div>
+            )}
+
+            <form onSubmit={handleAssignFC} className={s.form}>
+              <div className={s.field}>
+                <label>
+                  Faculty Coordinator Full Name <span className={s.req}>*</span>
+                </label>
+                <input
+                  value={fcName}
+                  onChange={e => setFcName(e.target.value)}
+                  placeholder="e.g. Prof. Anita Mehta"
+                  required
+                />
+              </div>
+
+              <div className={s.field}>
+                <label>
+                  RKU Email Address <span className={s.req}>*</span>
+                </label>
+                <input
+                  type="email"
+                  value={fcEmail}
+                  onChange={e => { setFcEmail(e.target.value); setFcAssignments([]); }}
+                  onBlur={e => handleFcEmailLookup(e.target.value)}
+                  placeholder="faculty.coordinator@rku.ac.in"
+                  required
+                />
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+                  If this email doesn't exist yet, a new account will be created and credentials emailed to them.
+                  If it already exists, they'll receive a <strong>confirmation email only</strong> — their password won't be changed.
+                </div>
+              </div>
+
+              {(fcLookingUp || fcAssignments.length > 0) && (
+                <div style={{
+                  padding: '10px 13px', borderRadius: 4,
+                  background: '#f0f9ff', border: '1px solid #bae6fd',
+                  fontSize: 13,
+                }}>
+                  {fcLookingUp ? (
+                    <span style={{ color: '#0369a1' }}>Looking up…</span>
+                  ) : (
+                    <>
+                      <div style={{ fontWeight: 700, color: '#0369a1', marginBottom: 6 }}>
+                        Already managing {fcAssignments.length} club{fcAssignments.length !== 1 ? 's' : ''}:
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {fcAssignments.map(a => (
+                          <span key={a.id} style={{
+                            padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+                            background: a.is_active ? '#00c89618' : '#f3f4f6',
+                            color: a.is_active ? '#007a5e' : '#9ca3af',
+                            border: `1px solid ${a.is_active ? '#00c89640' : '#e5e7eb'}`,
+                          }}>
+                            {a.club_name}{!a.is_active ? ' (inactive)' : ''}
+                          </span>
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
+                        Assigning to <strong>{fcClub?.name}</strong> will add the club to their dashboard. If they're a new user, a temporary password will be set.
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {fcError && (
+                <div style={{
+                  padding: '10px 13px', borderRadius: 4,
+                  background: '#fff0f0', border: '1px solid #fca5a5',
+                  color: '#b91c1c', fontSize: 13,
+                }}>{fcError}</div>
+              )}
+
+              <div className={s.modalFooter}>
+                <button type="button" className={s.cancelBtn} onClick={closeAssignFC}>Cancel</button>
+                <button type="submit" className={s.saveBtn} disabled={fcSaving}>
+                  {fcSaving ? 'Assigning…' : 'Assign Faculty Coordinator'}
                 </button>
               </div>
             </form>

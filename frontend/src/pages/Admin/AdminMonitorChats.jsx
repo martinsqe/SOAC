@@ -362,7 +362,7 @@ export default function AdminMonitorChats() {
                       <div className={s.convMeta}>
                         <div className={s.convTop}>
                           <span className={s.convName}>{member.name}</span>
-                          {(member.role === 'coordinator' || member.role === 'admin') && (
+                          {(member.role === 'coordinator' || member.role === 'faculty_coordinator' || member.role === 'admin') && (
                             <span className={s.roleBadge}>
                               {member.role === 'admin' ? 'Admin' : 'Coord'}
                             </span>
@@ -526,6 +526,7 @@ export default function AdminMonitorChats() {
                             })}>
                             {senderName(msg)}
                             {msg.user_role === 'coordinator' && <span className={s.roleBadge}>Coordinator</span>}
+                            {msg.user_role === 'faculty_coordinator' && <span className={s.roleBadge}>Faculty Coordinator</span>}
                             {msg.user_role === 'admin'       && <span className={s.roleBadge} style={{ background:'#fef3c7', color:'#d97706' }}>Admin</span>}
                           </div>
                         )}

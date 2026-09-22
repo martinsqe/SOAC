@@ -5,6 +5,7 @@ import { CoordClubProvider, useCoordClub } from '../../context/CoordClubContext'
 import AnimatedOutlet from '../../components/AnimatedOutlet/AnimatedOutlet';
 import ProfileModal from '../../components/ProfileModal/ProfileModal';
 import PushOptInModal from '../../components/PushOptInModal/PushOptInModal';
+import AssignStudentCoordinatorModal from '../../components/AssignStudentCoordinatorModal/AssignStudentCoordinatorModal';
 import { refreshAppBadge } from '../../utils/badge';
 import { syncFcmToken, onForegroundMessage, fcmSupported, registerFcmServiceWorker } from '../../firebaseMessaging';
 import api from '../../api/client';
@@ -101,10 +102,17 @@ function CoordLayoutInner() {
   const location  = useLocation();
   const [mobileOpen,  setMobileOpen]  = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [assignScOpen, setAssignScOpen] = useState(false);
   const [unreadGroup, setUnreadGroup] = useState(0);
   const [unreadDMs,   setUnreadDMs]   = useState(0);
   const [unreadNotifs, setUnreadNotifs] = useState(0);
   const [pendingClubFeed, setPendingClubFeed] = useState(0);
+
+  /* Faculty Coordinator is the senior club-staff role, one tier above the
+     (Student) Coordinator — same dashboard for now (identical portal), with
+     one extra capability: assigning that club's own Student Coordinator. */
+  const isFC = user?.role === 'faculty_coordinator';
+  const portalLabel = isFC ? 'Faculty Coordinator' : 'Coordinator';
 
   const unreadMsgs = unreadGroup + unreadDMs;
 
@@ -234,9 +242,9 @@ function CoordLayoutInner() {
     <div className={s.sidebarInner}>
       {/* Brand */}
       <div className={s.brand}>
-        <div className={s.brandBadge}>C</div>
+        <div className={s.brandBadge}>{isFC ? 'FC' : 'C'}</div>
         <div>
-          <div className={s.brandName}>Coordinator</div>
+          <div className={s.brandName}>{portalLabel}</div>
           <div className={s.brandSub}>SOAC · RK University</div>
         </div>
       </div>
@@ -283,6 +291,20 @@ function CoordLayoutInner() {
         ))}
       </nav>
 
+      {/* Faculty Coordinator only — assign this club's own Student Coordinator */}
+      {isFC && selectedClub && (
+        <div className={s.nav} style={{ marginTop: -8 }}>
+          <div className={s.navGroupLabel}>Club Staffing</div>
+          <button
+            className={s.navLink}
+            style={{ width: '100%', border: 'none', cursor: 'pointer', textAlign: 'left', background: 'none' }}
+            onClick={() => { setAssignScOpen(true); setMobileOpen(false); }}
+          >
+            <span className={s.navLabel}>Assign Student Coordinator</span>
+          </button>
+        </div>
+      )}
+
       {/* Footer */}
       <div className={s.sidebarFooter}>
         <div
@@ -298,7 +320,7 @@ function CoordLayoutInner() {
           )}
           <div className={s.userInfo}>
             <div className={s.userName}>{user?.name || 'Coordinator'}</div>
-            <div className={s.userRole}>Club Coordinator</div>
+            <div className={s.userRole}>{isFC ? 'Faculty Coordinator' : 'Club Coordinator'}</div>
           </div>
         </div>
         <button className={s.logoutBtn} onClick={handleLogout}>
@@ -354,7 +376,7 @@ function CoordLayoutInner() {
             <button className={s.hamburger} onClick={() => setMobileOpen(p => !p)}>
               <span /><span /><span />
             </button>
-            <div className={s.pageId}>SOAC · Coordinator Portal</div>
+            <div className={s.pageId}>SOAC · {portalLabel} Portal</div>
           </div>
           <div className={s.topbarRight}>
             <div
@@ -378,6 +400,9 @@ function CoordLayoutInner() {
       </div>
 
       {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} />}
+      {assignScOpen && selectedClub && (
+        <AssignStudentCoordinatorModal club={selectedClub} onClose={() => setAssignScOpen(false)} />
+      )}
       <PushOptInModal />
     </div>
   );

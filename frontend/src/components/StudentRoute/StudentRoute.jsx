@@ -15,6 +15,7 @@ export default function StudentRoute({ children }) {
   }
 
   if (user?.role === 'admin') return <Navigate to="/admin" replace />;
+  if (user?.role === 'faculty_coordinator') return <Navigate to="/faculty-coordinator" replace />;
   if (user?.role === 'coordinator') return <Navigate to="/coordinator" replace />;
   if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
   return children;

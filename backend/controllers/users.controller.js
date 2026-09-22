@@ -870,7 +870,7 @@ const updateProfile = async (req, res, next) => {
 
     // If a coordinator changed their avatar, bust their clubs' cache so the
     // Faculty Coordinator card in the student view updates immediately
-    if (req.file && req.user.role === 'coordinator') {
+    if (req.file && (req.user.role === 'coordinator' || req.user.role === 'faculty_coordinator')) {
       const { rows: clubRows } = await pgPool.query(
         `SELECT club_id FROM coordinator_club_assignments WHERE user_id = $1 AND is_active = true`,
         [req.user.id]
@@ -892,7 +892,7 @@ const assignClub = async (req, res, next) => {
 
     const { rows } = await pgPool.query(
       `UPDATE users SET managed_club_id = $1
-       WHERE id = $2 AND role = 'coordinator'
+       WHERE id = $2 AND role IN ('coordinator', 'faculty_coordinator')
        RETURNING id, email, name, role, managed_club_id`,
       [clubId || null, userId]
     );

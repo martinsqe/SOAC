@@ -2,7 +2,10 @@ const { pgPool } = require('../config/db');
 
 const ensureSoacTables = async () => {
   /* ── 1. Users ───────────────────────────────────────────────────────────────
-     Single table for all roles: admin | coordinator | student.
+     Single table for all roles: admin | faculty_coordinator | coordinator | student.
+     'coordinator' is the club's Student Coordinator (day-to-day operations);
+     'faculty_coordinator' is the senior role above it, assigned by admin, who
+     in turn assigns the Student Coordinator. Both share coordinator_club_assignments.
      Must exist before any child table that carries a users(id) FK. */
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -12,7 +15,7 @@ const ensureSoacTables = async () => {
       password_hash        VARCHAR(255)  NOT NULL,
       name                 VARCHAR(255)  NOT NULL,
       role                 VARCHAR(50)   NOT NULL DEFAULT 'admin'
-                             CHECK (role IN ('admin', 'coordinator', 'student')),
+                             CHECK (role IN ('admin', 'coordinator', 'faculty_coordinator', 'student')),
       is_active            BOOLEAN       NOT NULL DEFAULT true,
       must_change_password BOOLEAN       NOT NULL DEFAULT true,
       managed_club_id      BIGINT,
@@ -24,6 +27,17 @@ const ensureSoacTables = async () => {
   `);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_users_email_active ON users(email, is_active)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_users_role_active  ON users(role,  is_active)`);
+  /* Defensive: widen the role CHECK on a users table that already existed before
+     'faculty_coordinator' was added (the CREATE TABLE above is IF NOT EXISTS,
+     so a pre-existing table never picks up the new clause on its own). */
+  await pgPool.query(`
+    DO $$ BEGIN
+      ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+      ALTER TABLE users ADD CONSTRAINT users_role_check
+        CHECK (role IN ('admin', 'coordinator', 'faculty_coordinator', 'student'));
+    EXCEPTION WHEN others THEN NULL;
+    END $$;
+  `).catch(() => {});
 
   /* ── 2. Auth tokens ─────────────────────────────────────────────────────────
      Hashed refresh tokens — revoked on logout, checked on /api/auth/refresh. */
@@ -98,6 +112,10 @@ const ensureSoacTables = async () => {
   `);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_clubs_active ON clubs(is_active)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_clubs_category_active ON clubs(category, is_active)`);
+  /* `coordinator` (above) is the club's Student Coordinator — the day-to-day operational
+     role, assigned by admin OR by this club's own Faculty Coordinator. This is the new,
+     separate Faculty Coordinator display name — assigned by admin only, one tier above. */
+  await pgPool.query(`ALTER TABLE clubs ADD COLUMN IF NOT EXISTS faculty_coordinator VARCHAR(255) NOT NULL DEFAULT ''`).catch(() => {});
 
   /* ── Migrate any old category values before adding constraint ─────────── */
   await pgPool.query(`
@@ -896,6 +914,9 @@ const asClub = (row) => ({
   color: row.color,
   logo: row.logo || '',
   coordinator: row.coordinator || '',
+  /* Faculty Coordinator — a separate, senior role above the (Student) Coordinator
+     above; see clubs.controller.js's assignFacultyCoordinator. */
+  facultyCoordinator: row.faculty_coordinator || '',
   foundedYear: row.founded_year || '',
   memberCount: Number(row.member_count || 0),
   eventCount: Number(row.event_count || 0),

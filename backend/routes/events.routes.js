@@ -10,7 +10,7 @@ const { requireAdmin } = require('../middleware/requireAdmin');
 const { uploadEvent, uploadEventMemory, uploadCertTemplate } = require('../config/multer');
 
 const requireCoordOrAdmin = (req, res, next) => {
-  if (req.user?.role !== 'coordinator' && req.user?.role !== 'admin') {
+  if (req.user?.role !== 'coordinator' && req.user?.role !== 'faculty_coordinator' && req.user?.role !== 'admin') {
     return res.status(403).json({ message: 'Coordinator or admin access required.' });
   }
   next();

@@ -339,7 +339,7 @@ export default function CoordMessages() {
         m.role?.toLowerCase().includes(mq)
       )
     : clubMembers;
-  const staffVisible   = mVisible.filter(m => m.role === 'admin' || m.role === 'coordinator');
+  const staffVisible   = mVisible.filter(m => m.role === 'admin' || m.role === 'coordinator' || m.role === 'faculty_coordinator');
   const membersVisible = mVisible.filter(m => m.role !== 'admin' && m.role !== 'coordinator');
 
   /* ══════════════ RENDER ══════════════ */
@@ -551,9 +551,9 @@ export default function CoordMessages() {
                         {!grouped && !isMe && (
                           <div className={s.gmSenderRow}>
                             <span className={s.gmSender} style={{ color: clubColor }}>{msg.user_name}</span>
-                            {(msg.user_role === 'coordinator' || msg.user_role === 'admin') && (
+                            {(msg.user_role === 'coordinator' || msg.user_role === 'faculty_coordinator' || msg.user_role === 'admin') && (
                               <span className={s.roleBadge}>
-                                {msg.user_role === 'admin' ? 'Admin' : 'Coordinator'}
+                                {msg.user_role === 'admin' ? 'Admin' : msg.user_role === 'faculty_coordinator' ? 'Faculty Coordinator' : 'Coordinator'}
                               </span>
                             )}
                           </div>
@@ -686,9 +686,9 @@ function MemberRow({ member, onClick }) {
       <div className={s.contactInfo}>
         <div className={s.contactName}>
           {member.name}
-          {(member.role === 'coordinator' || member.role === 'admin') && (
+          {(member.role === 'coordinator' || member.role === 'faculty_coordinator' || member.role === 'admin') && (
             <span className={s.roleBadge} style={{ marginLeft: 5 }}>
-              {member.role === 'admin' ? 'Admin' : 'Coord'}
+              {member.role === 'admin' ? 'Admin' : member.role === 'faculty_coordinator' ? 'FC' : 'Coord'}
             </span>
           )}
         </div>

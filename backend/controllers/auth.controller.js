@@ -121,7 +121,7 @@ const login = async (req, res, next) => {
     await pgPool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
 
     // Coordinators: resolve club assignments (auto-repair legacy rows) before responding
-    if (user.role === 'coordinator') {
+    if (user.role === 'coordinator' || user.role === 'faculty_coordinator') {
       const clubIds = await getCoordClubIds(user.id);
       if (clubIds.length && !user.managed_club_id) {
         await pgPool.query(
@@ -213,7 +213,7 @@ const me = async (req, res, next) => {
     }
 
     const dbUser = rows[0];
-    if (dbUser.role === 'coordinator') {
+    if (dbUser.role === 'coordinator' || dbUser.role === 'faculty_coordinator') {
       const clubIds = await getCoordClubIds(dbUser.id);
       if (clubIds.length && !dbUser.managed_club_id) {
         await pgPool.query(

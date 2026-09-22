@@ -7,21 +7,25 @@ const { ensureSoacTables } = require('../services/soacData');
 const { notifyUser } = require('../services/notify');
 const { getCoordClubIds, getClubCoordinatorIds } = require('../services/coordAuth');
 
-/* Students may DM admins and the coordinators of clubs they belong to, never
-   another student. Coordinators may DM admins, other coordinators, and
-   students in clubs they manage. Admin is unrestricted on both sides.
-   Checked symmetrically since either party can call sendDM. Uses
-   getClubCoordinatorIds() (not a direct coordinator_club_assignments join)
-   so a coordinator with a stale/missing assignment row — the exact problem
+/* Student Coordinator and Faculty Coordinator share coordinator_club_assignments
+   and both count as "the coordinators of a club" for DM purposes below. */
+const isCoordLike = (role) => role === 'coordinator' || role === 'faculty_coordinator';
+
+/* Students may DM admins and the coordinators (Student or Faculty) of clubs they
+   belong to, never another student. Coordinators may DM admins, other
+   coordinators (either tier), and students in clubs they manage. Admin is
+   unrestricted on both sides. Checked symmetrically since either party can call
+   sendDM. Uses getClubCoordinatorIds() (not a direct coordinator_club_assignments
+   join) so a coordinator with a stale/missing assignment row — the exact problem
    coordAuth.js exists to paper over — doesn't become unreachable by their
    own students. */
 async function isDmAllowed(userA, roleA, userB, roleB) {
   if (roleA === 'admin' || roleB === 'admin') return true;
-  if (roleA === 'coordinator' && roleB === 'coordinator') return true;
+  if (isCoordLike(roleA) && isCoordLike(roleB)) return true;
 
   let studentId, coordinatorId;
-  if (roleA === 'student' && roleB === 'coordinator')      { studentId = userA; coordinatorId = userB; }
-  else if (roleA === 'coordinator' && roleB === 'student') { studentId = userB; coordinatorId = userA; }
+  if (roleA === 'student' && isCoordLike(roleB))      { studentId = userA; coordinatorId = userB; }
+  else if (isCoordLike(roleA) && roleB === 'student') { studentId = userB; coordinatorId = userA; }
   else return false; // student <-> student, or any other combination
 
   const { rows: memberships } = await pgPool.query(
@@ -244,7 +248,7 @@ const sendDM = async (req, res, next) => {
        would land on a route they don't have access to. Admin has no dedicated
        /admin/messages page; their own DMs live inside Monitor Chats' "DMs" tab. */
     const messagesUrl =
-      check[0].role === 'coordinator' ? '/coordinator/messages' :
+      isCoordLike(check[0].role) ? '/coordinator/messages' :
       check[0].role === 'admin'       ? '/admin/chats' :
       '/student/messages';
 
@@ -286,7 +290,7 @@ const getClubMembers = async (req, res, next) => {
          ORDER BY u.id, u.name`,
         [uid]
       ));
-    } else if (req.user.role === 'coordinator') {
+    } else if (isCoordLike(req.user.role)) {
       /* Coordinator: any admin/coordinator, plus only students in clubs THEY
          manage (not every club's members). */
       const clubIds = (await getCoordClubIds(uid)).map(Number);
@@ -307,7 +311,7 @@ const getClubMembers = async (req, res, next) => {
          ) jr ON true
          WHERE u.is_active = true AND u.id != $1
            AND (
-             u.role IN ('coordinator', 'admin')
+             u.role IN ('coordinator', 'faculty_coordinator', 'admin')
              OR (u.role = 'student' AND sc.club_id = ANY($2::bigint[]))
            )
          ORDER BY u.id, sc.club_id NULLS LAST`,

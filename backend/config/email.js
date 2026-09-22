@@ -208,14 +208,19 @@ const sendApproval = async ({ toEmail, toName, clubName }) => {
   });
 };
 
-const sendCoordinatorCredentials = async ({ toEmail, toName, password, clubName }) => {
+/* roleLabel lets the exact same template serve both club staff roles — the
+   (Student) Coordinator and, one tier up, the Faculty Coordinator — so a
+   role assigned from either the admin dashboard or a Faculty Coordinator's
+   own "Assign Student Coordinator" action gets an identical-looking email,
+   just naming the correct role. */
+const sendCoordinatorCredentials = async ({ toEmail, toName, password, clubName, roleLabel = 'Coordinator' }) => {
   await send({
     to:      toEmail,
-    subject: `You've been appointed Coordinator of ${clubName} — SOAC RKU`,
+    subject: `You've been appointed ${roleLabel} of ${clubName} — SOAC RKU`,
     html: wrap(`
       ${header('#4c44e0,#a78bfa')}
       <h2 style="color:#1a1040;margin-bottom:8px">Congratulations, ${toName}!</h2>
-      <p style="color:#555;line-height:1.6">You have been appointed as <strong style="color:#4c44e0">Club Coordinator</strong> for <strong style="color:#4c44e0">${clubName}</strong> on the SOAC RKU Platform.</p>
+      <p style="color:#555;line-height:1.6">You have been appointed as <strong style="color:#4c44e0">${roleLabel}</strong> for <strong style="color:#4c44e0">${clubName}</strong> on the SOAC RKU Platform.</p>
       <div style="background:#f5f3ff;border:1.5px solid #c4b5fd;border-radius:12px;padding:20px 24px;margin:24px 0">
         <p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Login URL</p>
         <p style="margin:0 0 16px;font-weight:700;color:#4c44e0">${APP_LOGIN}</p>
@@ -230,16 +235,16 @@ const sendCoordinatorCredentials = async ({ toEmail, toName, password, clubName 
   });
 };
 
-const sendCoordinatorAssignment = async ({ toEmail, toName, clubName }) => {
+const sendCoordinatorAssignment = async ({ toEmail, toName, clubName, roleLabel = 'Coordinator' }) => {
   await send({
     to:      toEmail,
-    subject: `You've been assigned as Coordinator of ${clubName} — SOAC RKU`,
+    subject: `You've been assigned as ${roleLabel} of ${clubName} — SOAC RKU`,
     html: wrap(`
       ${header('#4c44e0,#a78bfa')}
       <h2 style="color:#1a1040;margin-bottom:8px">Hello, ${toName}!</h2>
-      <p style="color:#555;line-height:1.6">You have been appointed as <strong style="color:#4c44e0">Club Coordinator</strong> for <strong style="color:#4c44e0">${clubName}</strong>.</p>
+      <p style="color:#555;line-height:1.6">You have been appointed as <strong style="color:#4c44e0">${roleLabel}</strong> for <strong style="color:#4c44e0">${clubName}</strong>.</p>
       <div style="background:#f0fff8;border:1.5px solid #86efac;border-radius:12px;padding:20px 24px;margin:24px 0;text-align:center">
-        <p style="margin:0;font-size:16px;font-weight:800;color:#15803d">Coordinator of ${clubName}</p>
+        <p style="margin:0;font-size:16px;font-weight:800;color:#15803d">${roleLabel} of ${clubName}</p>
         <p style="margin:6px 0 0;font-size:13px;color:#555">Log in to your SOAC Coordinator Portal to manage your club, members, and events.</p>
       </div>
       <p style="color:#888;font-size:13px;line-height:1.6">Your existing credentials are unchanged. Visit <strong>${APP_LOGIN}</strong> to access your portal.</p>

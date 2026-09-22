@@ -1096,7 +1096,7 @@ const listRegistrations = async (req, res, next) => {
   try {
     // Coordinators may only view registrations for events they own — directly
     // (a Galore activity assignment) or via their club — see coordAuth.js.
-    if (req.user.role === 'coordinator') {
+    if (req.user.role === 'coordinator' || req.user.role === 'faculty_coordinator') {
       const ok = await assertCoordOwnsEvent(req.user.id, req.params.id);
       if (!ok) return res.status(403).json({ message: 'You can only view registrations for your own events.' });
     }
@@ -1373,7 +1373,7 @@ const getDepartmentRegistrations = async (req, res, next) => {
     if (!umbrellaRows.length) return res.status(404).json({ message: 'Galore event not found.' });
 
     let ownEventIds = null; // null = no restriction (admin sees every activity)
-    if (req.user.role === 'coordinator') {
+    if (req.user.role === 'coordinator' || req.user.role === 'faculty_coordinator') {
       const { rows: owned } = await pgPool.query(
         `SELECT ec.event_id FROM event_coordinators ec
          JOIN events e ON e.id = ec.event_id

@@ -263,6 +263,16 @@
   flex: 1;
 }
 .coordIcon { font-size: 13px; flex-shrink: 0; }
+.coordRoleTag {
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: #4c44e0;
+  background: #4c44e018;
+  border-radius: 4px;
+  padding: 1px 5px;
+  letter-spacing: 0.02em;
+}
 .coordName {
   font-size: 0.78rem;
   font-weight: 600;

@@ -46,6 +46,7 @@ export default function Login() {
   // If already authenticated, don't let the user sit on /login.
   if (!loading && user) {
     const dest = user.role === 'admin' ? '/admin'
+      : user.role === 'faculty_coordinator' ? '/faculty-coordinator'
       : user.role === 'coordinator' ? '/coordinator'
       : '/student';
     return <Navigate to={dest} replace />;
@@ -74,8 +75,9 @@ export default function Login() {
       const from = location.state?.from?.pathname;
       const dest = from && from !== '/login'
         ? from
-        : loggedIn.role === 'admin'       ? '/admin'
-        : loggedIn.role === 'coordinator' ? '/coordinator'
+        : loggedIn.role === 'admin'               ? '/admin'
+        : loggedIn.role === 'faculty_coordinator' ? '/faculty-coordinator'
+        : loggedIn.role === 'coordinator'         ? '/coordinator'
         : '/student';
       setGreetName(loggedIn.name?.split(' ')[0] || 'back');
       setTransitioning(true);

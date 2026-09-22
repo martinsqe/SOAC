@@ -5,8 +5,8 @@ import { useAuth } from '../../context/AuthContext';
 import s from './AdminMembers.module.css';
 
 /* ── constants ── */
-const ROLE_COLOR = { admin: '#635bff', student: '#00c896', coordinator: '#ff9500' };
-const ROLE_BG    = { admin: '#635bff18', student: '#00c89618', coordinator: '#ff950018' };
+const ROLE_COLOR = { admin: '#635bff', student: '#00c896', coordinator: '#ff9500', faculty_coordinator: '#4c44e0' };
+const ROLE_BG    = { admin: '#635bff18', student: '#00c89618', coordinator: '#ff950018', faculty_coordinator: '#4c44e018' };
 const GRADS = [
   'linear-gradient(135deg,#3DDC84,#635BFF)', 'linear-gradient(135deg,#FF6B35,#FFD166)',
   'linear-gradient(135deg,#A259FF,#3DDC84)', 'linear-gradient(135deg,#06D6A0,#00E5FF)',
@@ -121,7 +121,7 @@ function UsersTab({ clubs }) {
   /* Group by role (admin, coordinator, student, other) rather than interleaving them —
      coordinators and students look alike in a flat list, so keeping each role together
      makes the table scannable. Search/role-filter still narrow the same grouped list. */
-  const ROLE_ORDER = { admin: 0, coordinator: 1, student: 2 };
+  const ROLE_ORDER = { admin: 0, faculty_coordinator: 1, coordinator: 2, student: 3 };
   const filtered = users
     .filter(u => {
       const mr = roleF === 'all' || u.role === roleF;
@@ -139,6 +139,7 @@ function UsersTab({ clubs }) {
 
   const active       = users.filter(u => u.is_active).length;
   const admins       = users.filter(u => u.role === 'admin').length;
+  const facultyCoords = users.filter(u => u.role === 'faculty_coordinator');
   const coordinators = users.filter(u => u.role === 'coordinator');
   const students     = users.filter(u => u.role === 'student').length;
 
@@ -185,7 +186,8 @@ function UsersTab({ clubs }) {
             { n: users.length, l: 'Total', c: '#0f0a2e' },
             { n: active,       l: 'Active',      c: '#00c896' },
             { n: admins,       l: 'Admins',      c: '#635bff' },
-            { n: coordinators.length, l: 'Coordinators', c: '#ff9500' },
+            { n: facultyCoords.length, l: 'Faculty Coordinators', c: '#4c44e0' },
+            { n: coordinators.length, l: 'Student Coordinators', c: '#ff9500' },
             { n: students,     l: 'Students',    c: '#06b6d4' },
             { n: users.length - active, l: 'Inactive', c: '#ef4444' },
           ].map(({ n, l, c }) => (
@@ -261,7 +263,7 @@ function UsersTab({ clubs }) {
                     <span className={s.roleBadge} style={{ borderBottomColor: ROLE_COLOR[u.role] || '#f4f4f8', color: ROLE_COLOR[u.role] || '#555' }}>{u.role}</span>
                   </td>
                   <td data-label="Club">
-                    {u.role === 'coordinator' ? (
+                    {(u.role === 'coordinator' || u.role === 'faculty_coordinator') ? (
                       <div style={{ display:'flex', alignItems:'center', gap:7, flexWrap:'wrap', justifyContent:'flex-end' }}>
                         <span style={{ fontSize:11, fontWeight:600, color: u.managed_club_id ? '#007a5e' : '#9ca3af' }}>
                           {u.managed_club_id ? (clubs.find(c => String(c._id) === String(u.managed_club_id))?.name || 'Assigned') : 'Not assigned'}

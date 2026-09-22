@@ -13,7 +13,7 @@ const createPost = async (req, res, next) => {
   try {
     await ensureSoacTables();
     const { clubId, caption = '' } = req.body;
-    const isCoordinator = req.user.role === 'coordinator';
+    const isCoordinator = req.user.role === 'coordinator' || req.user.role === 'faculty_coordinator';
 
     if (!req.file) return res.status(400).json({ message: 'Please choose a photo or video to submit.' });
     if (!clubId)   return res.status(400).json({ message: 'Please choose which club this is for.' });
@@ -245,7 +245,7 @@ const deletePost = async (req, res, next) => {
 
     const isOwner = post.student_id === req.user.id;
     const isAdmin = req.user.role === 'admin';
-    const isCoord = req.user.role === 'coordinator' && await assertCoordOwnsClub(req.user.id, post.club_id);
+    const isCoord = (req.user.role === 'coordinator' || req.user.role === 'faculty_coordinator') && await assertCoordOwnsClub(req.user.id, post.club_id);
     if (!isOwner && !isAdmin && !isCoord)
       return res.status(403).json({ message: 'You cannot delete this post.' });
 
