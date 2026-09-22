@@ -68,7 +68,7 @@ router.get('/:id/tasks/:taskId/completions',         verifyToken, requireCoordin
 router.post('/:id/tasks/:taskId/completions',        verifyToken, requireCoordinatorOwnership, cd.saveTaskCompletions);
 
 /* ── Overview (coordinator self-service) ── */
-router.patch('/:id/overview', verifyToken, requireCoordinatorOwnership, cd.updateOverview);
+router.patch('/:id/overview', verifyToken, requireCoordinatorOwnership, uploadLogo.single('logo'), cd.updateOverview);
 
 /* ── Attendance ── */
 router.get('/:id/attendance',                       verifyToken, requireCoordinatorOwnership, cd.getAttendance);

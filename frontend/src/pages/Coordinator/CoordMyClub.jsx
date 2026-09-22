@@ -401,6 +401,9 @@ function OverviewTab({ club, clubId, refetchClub, showToast }) {
   const [tagInput, setTagInput] = useState('');
   const [saving,   setSaving]   = useState(false);
   const [err,      setErr]      = useState('');
+  const [logoFile, setLogoFile] = useState(null);
+  const [logoPrev, setLogoPrev] = useState('');
+  const logoInputRef = useRef();
 
   const addRule = () => {
     const v = ruleInput.trim();
@@ -411,11 +414,31 @@ function OverviewTab({ club, clubId, refetchClub, showToast }) {
     if (v && !tags.includes(v))  { setTags(t => [...t, v]);  setTagInput(''); }
   };
 
+  const pickLogo = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setLogoFile(file);
+    setLogoPrev(URL.createObjectURL(file));
+  };
+
   const save = async () => {
     setSaving(true); setErr('');
     try {
       const schedule = compileDaysToSchedule(schedDays, schedNotes);
-      const res = await api.patch(`/clubs/${clubId}/overview`, { ...form, schedule, rules, tags });
+      if (logoFile) {
+        const fd = new FormData();
+        fd.append('description', form.description);
+        fd.append('vision', form.vision);
+        fd.append('schedule', schedule);
+        fd.append('rules', JSON.stringify(rules));
+        fd.append('tags', JSON.stringify(tags));
+        fd.append('logo', logoFile);
+        await api.patchForm(`/clubs/${clubId}/overview`, fd);
+        setLogoFile(null);
+        setLogoPrev('');
+      } else {
+        await api.patch(`/clubs/${clubId}/overview`, { ...form, schedule, rules, tags });
+      }
       refetchClub();
       showToast('Overview saved ✓');
     } catch (e) {
@@ -428,6 +451,42 @@ function OverviewTab({ club, clubId, refetchClub, showToast }) {
   return (
     <>
       {err && <div className={s.errBox}>{err}</div>}
+
+      {/* ── Logo ── */}
+      <div className={s.card}>
+        <div className={s.sectionHead}>
+          <div className={s.sectionIcon}>🖼️</div>
+          <div>
+            <p className={s.cardTitle}>Club Logo</p>
+            <p className={s.cardSub}>Shown across the platform wherever this club appears.</p>
+          </div>
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:16 }}>
+          <div
+            onClick={() => logoInputRef.current.click()}
+            style={{
+              width:72, height:72, borderRadius:12, cursor:'pointer', flexShrink:0,
+              border:'1.5px dashed #d1d5db', overflow:'hidden',
+              display:'flex', alignItems:'center', justifyContent:'center',
+              background:'#f9fafb',
+            }}>
+            {(logoPrev || club.logoUrl) ? (
+              <img src={logoPrev || club.logoUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+            ) : (
+              <span style={{ fontSize:11, color:'#9ca3af', textAlign:'center' }}>No logo</span>
+            )}
+          </div>
+          <div>
+            <button type="button" onClick={() => logoInputRef.current.click()}
+              style={{ padding:'7px 14px', borderRadius:8, border:'1.5px solid #e5e7eb', background:'#fff',
+                fontSize:'.82rem', fontWeight:600, cursor:'pointer', color:'#374151' }}>
+              {logoFile ? 'Change selected photo' : 'Upload new logo'}
+            </button>
+            <div style={{ fontSize:11, color:'#9ca3af', marginTop:6 }}>JPG, PNG or WEBP. Saved with the rest of this form.</div>
+          </div>
+          <input ref={logoInputRef} type="file" accept="image/*" style={{ display:'none' }} onChange={pickLogo} />
+        </div>
+      </div>
 
       {/* ── About ── */}
       <div className={s.card}>

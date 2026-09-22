@@ -8,6 +8,7 @@ const { assertCoordOwnsClub, getCoordClubIds } = require('../services/coordAuth'
 const { destroyImage } = require('../config/cloudinary');
 const { getFileValue } = require('../config/multer');
 const cache = require('../services/cache');
+const { notifyAdminsOfClubChange } = require('./clubDetail.controller');
 
 /* ── Column list (every column asClub() reads) ─────────────────────────────
    Avoids SELECT * so the result set is predictable regardless of future
@@ -834,6 +835,13 @@ const assignClubStaff = (role) => async (req, res, next) => {
         ? `${meta.label} account created${emailSent ? `. Credentials sent to ${emailLower}` : ' — email could not be sent, share credentials manually'}.`
         : `${staffName} added as ${meta.label.toLowerCase()} of ${club.name}${emailSent ? `. Confirmation sent to ${emailLower}` : ' — email could not be sent'}.`,
     });
+
+    /* Only ever fires for a Student Coordinator change made by that club's own
+       Faculty Coordinator — admin assigning either role doesn't need to notify
+       itself, and notifyAdminsOfClubChange already no-ops for an admin actor. */
+    if (role === 'coordinator') {
+      notifyAdminsOfClubChange(req, clubId, `set ${staffName} as the Student Coordinator`).catch(() => {});
+    }
   } catch (err) {
     if (err.code === '23505') {
       return res.status(409).json({ message: 'A conflicting assignment already exists.' });

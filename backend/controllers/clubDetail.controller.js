@@ -5,9 +5,37 @@
 const { pgPool } = require('../config/db');
 const { ensureSoacTables } = require('../services/soacData');
 const { getFileValue } = require('../config/multer');
+const { destroyImage } = require('../config/cloudinary');
 const bracketEngine = require('../services/bracketEngine');
 const { autoRefreshReportIfExists } = require('./reports.controller');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
+
+/* Tells every admin whenever a Student or Faculty Coordinator changes something
+   on their club's dashboard — leadership, the overview (description/logo/etc.),
+   or (from clubs.controller.js's assignClubStaff) who the club's Student
+   Coordinator is. Never fires for an admin's own changes — they don't need to
+   be told about their own actions. Fire-and-forget; never throws. */
+const CLUB_STAFF_ROLE_LABEL = { coordinator: 'Student Coordinator', faculty_coordinator: 'Faculty Coordinator' };
+const notifyAdminsOfClubChange = async (req, clubId, changeDescription) => {
+  const roleLabel = CLUB_STAFF_ROLE_LABEL[req.user?.role];
+  if (!roleLabel) return; // only ever notify for an SC/FC's own action, never admin's
+  try {
+    const [{ rows: clubRows }, { rows: admins }] = await Promise.all([
+      pgPool.query(`SELECT name FROM clubs WHERE id = $1::bigint`, [clubId]),
+      pgPool.query(`SELECT id FROM users WHERE role = 'admin' AND is_active = true`),
+    ]);
+    if (!admins.length) return;
+    const clubName = clubRows[0]?.name || 'a club';
+    await notifyManyUsers({
+      userIds: admins.map(a => a.id),
+      clubId,
+      title: 'Club dashboard updated',
+      body:  `${roleLabel} ${req.user.name} ${changeDescription} for ${clubName}.`,
+      type:  'club_update',
+      url:   '/admin/clubs',
+    });
+  } catch (e) { console.error('[clubDetail] notifyAdminsOfClubChange failed:', e.message); }
+};
 
 /* ── GET /api/clubs/:id/membership  (authenticated) ────────────────────── */
 const getMembership = async (req, res, next) => {
@@ -107,6 +135,7 @@ const setLeadership = async (req, res, next) => {
       [clubId]
     );
     res.json({ leadership: rows });
+    notifyAdminsOfClubChange(req, clubId, 'updated the leadership team').catch(() => {});
   } catch (err) { next(err); }
 };
 
@@ -385,10 +414,23 @@ const saveTaskCompletions = async (req, res, next) => {
 ══════════════════════════════════════════════════════════════════════════ */
 
 /* PATCH /api/clubs/:id/overview  (coordinator/admin)
-   Allows coordinator to update description, vision, schedule, rules, tags. */
+   Allows coordinator to update description, vision, schedule, rules, tags,
+   and — via an optional multipart 'logo' file — the club logo. */
 const updateOverview = async (req, res, next) => {
   try {
+    const { rows: cur } = await pgPool.query(
+      `SELECT name, description, vision, schedule, rules, tags, logo FROM clubs WHERE id = $1::bigint`,
+      [req.params.id]
+    );
+    if (!cur.length) return res.status(404).json({ message: 'Club not found.' });
+    const current = cur[0];
+
     const { description, vision, schedule, rules, tags } = req.body;
+    const parsedRules = rules ? (Array.isArray(rules) ? rules : JSON.parse(rules)) : null;
+    const parsedTags  = tags  ? (Array.isArray(tags)  ? tags  : JSON.parse(tags))  : null;
+    const nextLogo = req.file ? getFileValue(req.file) : current.logo;
+    if (req.file && current.logo) destroyImage(current.logo).catch(() => {});
+
     const { rows } = await pgPool.query(
       `UPDATE clubs
        SET description = COALESCE($1, description),
@@ -396,20 +438,33 @@ const updateOverview = async (req, res, next) => {
            schedule    = COALESCE($3, schedule),
            rules       = COALESCE($4::text[], rules),
            tags        = COALESCE($5::text[], tags),
+           logo        = $6,
            updated_at  = NOW()
-       WHERE id = $6::bigint
-       RETURNING id, name, description, vision, schedule, rules, tags, updated_at`,
+       WHERE id = $7::bigint
+       RETURNING id, name, description, vision, schedule, rules, tags, logo, updated_at`,
       [
         description ?? null,
         vision      ?? null,
         schedule    ?? null,
-        rules  ? (Array.isArray(rules)  ? rules  : JSON.parse(rules))  : null,
-        tags   ? (Array.isArray(tags)   ? tags   : JSON.parse(tags))   : null,
+        parsedRules, parsedTags,
+        nextLogo,
         req.params.id,
       ]
     );
     if (!rows.length) return res.status(404).json({ message: 'Club not found.' });
     res.json({ club: rows[0] });
+
+    /* Tell admin exactly which fields actually changed. */
+    const changed = [];
+    if (description !== undefined && description !== current.description) changed.push('description');
+    if (vision      !== undefined && vision      !== current.vision)      changed.push('vision');
+    if (schedule    !== undefined && schedule    !== current.schedule)    changed.push('schedule');
+    if (parsedRules && JSON.stringify(parsedRules) !== JSON.stringify(current.rules || [])) changed.push('rules');
+    if (parsedTags  && JSON.stringify(parsedTags)  !== JSON.stringify(current.tags  || [])) changed.push('tags');
+    if (req.file) changed.push('logo');
+    if (changed.length) {
+      notifyAdminsOfClubChange(req, req.params.id, `updated the ${changed.join(', ')}`).catch(() => {});
+    }
   } catch (err) { next(err); }
 };
 
@@ -1382,4 +1437,5 @@ module.exports = {
   getLiveScores, createLiveScore, updateLiveScore, deleteLiveScore, startLiveScore, endLiveScore, startLiveTimer, stopLiveTimer, resetLiveTimer,
   getBasketballEvents, logBasketballEvent, editBasketballEvent, undoBasketballEvent, redoBasketballEvent,
   getMvp, getEventMvp, uploadMvpPhotoCtrl, setMvpPlayer,
+  notifyAdminsOfClubChange,
 };
