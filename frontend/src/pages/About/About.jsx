@@ -31,20 +31,16 @@ const orgAchievements = [
 ];
 
 /*
- * TASK FORCE PHOTOS
+ * GOVERNING BODY PHOTOS
  * To update a photo: replace the file at the path shown below.
  * Files live in:  public/images/team/
  * Supported formats: .jpg  .jpeg  .png  .webp
  * If a photo file is missing, the coloured initial circle shows instead.
  */
 const taskForce = [
-  { initial: 'D', name: 'Denish Patel', role: 'Co-Founder', photo: '/images/denish.png' },
-  { initial: 'M', name: 'Mohit Patel', role: 'Co-Founder', photo: '/images/mohit.png' },
-  { initial: 'S', name: 'Sagar Patel', role: 'Co-Founder', photo: '/images/sagar.png' },
-  { initial: 'A', name: 'Ashwin Raiyani', role: 'Task Force', photo: '/images/ashwini.png' },
-  { initial: 'D', name: 'Dhaval Pipaliya', role: 'Task Force', photo: '/images/dhaval.png' },
-  { initial: 'P', name: 'Pravin Tirgar', role: 'Task Force', photo: '/images/pravin.png' },
-  { initial: 'M', name: 'Mayur Visani', role: 'Task Force', photo: '/images/mayur.png' },
+  { initial: 'D', name: 'Denish Patel', role: 'Executive Vice President', photo: '/images/denish.png' },
+  { initial: 'D', name: 'Dhaval Pipaliya', role: 'Director of Student Affairs', photo: '/images/dhaval.png' },
+  { initial: 'B', name: 'Bhavna Patel', role: 'Head-SOAC | CTO - NCC', photo: '/images/bhavna.png' },
 ];
 
 /* Combined sequence: org first, then students — carousel loops across both */
@@ -280,11 +276,7 @@ const About = () => {
       <div className={styles.tf}>
         <div className="wrap">
           <div style={{ textAlign: 'center', marginBottom: '36px' }}>
-            <div className="tag" style={{ justifyContent: 'center' }}>The Founders</div>
-            <h2 className="h2" style={{ textAlign: 'center', marginBottom: '8px' }}>SOAC Task Force</h2>
-            <p style={{ fontSize: '14px', color: 'var(--muted)', textAlign: 'center' }}>
-              Conceived and built by these dedicated individuals at RK University.
-            </p>
+            <h2 className="h2" style={{ textAlign: 'center', marginBottom: '8px' }}>SOAC Governing Body</h2>
           </div>
           <div className={`${styles.tfgrid} fade`}>
             {taskForce.map((p, i) => (
@@ -299,7 +291,7 @@ const About = () => {
                   <div className={styles.tfav} style={{ display: 'none' }}>{p.initial}</div>
                 </div>
                 <div className={styles.tfname}>{p.name}</div>
-                <div className={`${styles.tfrole} ${p.role === 'Co-Founder' ? styles.tfroleRed : ''}`}>{p.role}</div>
+                <div className={`${styles.tfrole} ${styles.tfroleRed}`}>{p.role}</div>
               </div>
             ))}
           </div>

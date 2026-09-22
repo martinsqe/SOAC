@@ -446,9 +446,10 @@
 }
 
 .tfgrid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 16px;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 64px;
   margin-top: 38px;
   width: 100%;
 }
@@ -459,6 +460,7 @@
   align-items: center;
   text-align: center;
   transition: transform .22s;
+  width: 180px;
 }
 
 .tfc:hover {
@@ -482,7 +484,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: top center;
+  object-position: center center;
   border-radius: 50%;
   display: block;
 }
@@ -812,16 +814,9 @@
 /* Tablet landscape / small desktop */
 @media (max-width: 1024px) {
   .tfgrid {
-    display: flex;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    gap: 20px;
-    padding-bottom: 4px;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    gap: 40px;
   }
-  .tfgrid::-webkit-scrollbar { display: none; }
-  .tfc { flex: 0 0 100px; min-width: 0; }
+  .tfc { width: 140px; }
   .aobjgrid { grid-template-columns: repeat(2, 1fr); }
 
   /* Hierarchy: tighten gap, shrink image */
@@ -863,6 +858,19 @@
   .hierarchy { padding: 48px 0; }
   .aboutCta { padding: 72px 0; }
   .achHeader { flex-direction: column; }
+
+  /* Governing body: single scrollable line on mobile */
+  .tfgrid {
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 32px;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tfgrid::-webkit-scrollbar { display: none; }
+  .tfc { flex: 0 0 120px; width: 120px; }
 }
 
 /* Small phone */
