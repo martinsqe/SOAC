@@ -344,13 +344,25 @@ const actEventStatus = (achievements) => {
 };
 
 const sendActivityReport = async ({ toEmail, toName, clubs = [], attendanceSummary, categories = [] }) => {
+  /* Two-column rows (name/title left, status right) use a <table> rather than flexbox —
+     flexbox is unreliable across email clients (notably the Gmail mobile app), and would
+     otherwise render the status jammed right up against the name with no separation. */
   const clubsHtml = clubs.length ? `
     <div style="margin:24px 0">
-      <p style="margin:0 0 10px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Your Clubs</p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:6px">
+        <tr>
+          <td style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Your Clubs</td>
+          <td style="text-align:right;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Status</td>
+        </tr>
+      </table>
       ${clubs.map(c => `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:#f8f7ff;border:1px solid #e8e5ff;border-radius:10px;margin-bottom:8px">
-          <span style="font-weight:700;color:#1a1040">${c.clubName}</span>
-          <span style="font-weight:700;font-size:12px;color:${ACT_CLUB_COLOR[c.status] || '#6b7280'}">${ACT_CLUB_LABEL[c.status] || c.status}</span>
+        <div style="background:#f8f7ff;border:1px solid #e8e5ff;border-radius:10px;padding:10px 14px;margin-bottom:8px">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse">
+            <tr>
+              <td style="text-align:left;font-weight:700;color:#1a1040">${c.clubName}</td>
+              <td style="text-align:right;white-space:nowrap;padding-left:10px;font-weight:700;font-size:12px;color:${ACT_CLUB_COLOR[c.status] || '#6b7280'}">${ACT_CLUB_LABEL[c.status] || c.status}</td>
+            </tr>
+          </table>
         </div>`).join('')}
     </div>` : '';
 
@@ -373,13 +385,17 @@ const sendActivityReport = async ({ toEmail, toName, clubs = [], attendanceSumma
         .join(' &nbsp;·&nbsp; ');
       return `
         <div style="padding:12px 14px;border:1px solid #eee;border-radius:10px;margin-bottom:8px">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-            <div>
-              <p style="margin:0;font-weight:700;color:#1a1040">${ev.eventTitle}</p>
-              <p style="margin:2px 0 0;font-size:12px;color:#888">${ev.clubName}${ev.venue ? ` · ${ev.venue}` : ''}${ev.eventDate ? ` · ${actFmtDate(ev.eventDate)}` : ''}</p>
-            </div>
-            <span style="font-size:11px;font-weight:800;color:${ACT_STATUS_COLOR[status]};white-space:nowrap">${status}</span>
-          </div>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse">
+            <tr>
+              <td style="text-align:left;vertical-align:top">
+                <p style="margin:0;font-weight:700;color:#1a1040">${ev.eventTitle}</p>
+                <p style="margin:2px 0 0;font-size:12px;color:#888">${ev.clubName}${ev.venue ? ` · ${ev.venue}` : ''}${ev.eventDate ? ` · ${actFmtDate(ev.eventDate)}` : ''}</p>
+              </td>
+              <td style="text-align:right;vertical-align:top;white-space:nowrap;padding-left:10px">
+                <span style="font-size:11px;font-weight:800;color:${ACT_STATUS_COLOR[status]}">${status}</span>
+              </td>
+            </tr>
+          </table>
           ${attLine}
           ${certs ? `<p style="margin:8px 0 0">${certs}</p>` : ''}
         </div>`;

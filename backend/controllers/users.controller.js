@@ -534,7 +534,7 @@ const activityByEmail = async (req, res, next) => {
       [email]
     );
     if (rl.length) {
-      return res.json({ alreadySent: true, message: 'Your activity was sent to your email. Please check your email.' });
+      return res.json({ alreadySent: true, message: 'Your activity has already been sent to your email.' });
     }
 
     const data = await buildActivity(email);
@@ -556,7 +556,7 @@ const activityByEmail = async (req, res, next) => {
       [email]
     );
 
-    res.json({ emailed: true, message: 'Your activity has been sent to your email. Please check your inbox.' });
+    res.json({ emailed: true, message: 'Your activity has been sent to your email.' });
   } catch (err) { next(err); }
 };
 
