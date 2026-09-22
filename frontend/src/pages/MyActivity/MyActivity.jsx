@@ -1,21 +1,15 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../../api/client';
 import s from './MyActivity.module.css';
-import ActivityResults from './ActivityResults';
-import { fmt } from './activityUtils';
-
-const CLUB_STATUS = {
-  member:   { label: 'Accepted', cls: 'clubStatusMember'   },
-  pending:  { label: 'Pending',  cls: 'clubStatusPending'  },
-  declined: { label: 'Declined', cls: 'clubStatusDeclined' },
-  inactive: { label: 'Inactive', cls: 'clubStatusInactive' },
-};
 
 export default function MyActivity() {
   const [email, setEmail]     = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
-  const [result, setResult]   = useState(null); // { participated, hasAccount, clubs, categories, attendanceSummary }
+  /* { emailed/alreadySent, message } once mailed (or already mailed today), or the raw
+     { participated: false, clubs: [] } shape when there's truly nothing on record. */
+  const [result, setResult]   = useState(null);
 
   const submit = (e) => {
     e.preventDefault();
@@ -38,15 +32,16 @@ export default function MyActivity() {
 
   const reset = () => { setResult(null); setError(''); };
 
-  const clubs = result?.clubs || [];
+  const sent = result && (result.emailed || result.alreadySent);
 
   return (
     <div className="wrap">
       <div className={s.hero}>
         <h1 className={s.heroTitle}>My Activity</h1>
         <p className={s.heroSub}>
-          Enter email to check your club status and see everything you've participated in —
-          sports, cultural, social and academic.
+          Enter your email and we'll send your full activity summary — club status, and
+          everything you've participated in across sports, cultural, social and academic —
+          straight to your inbox.
         </p>
       </div>
 
@@ -64,7 +59,7 @@ export default function MyActivity() {
           />
           {error && <div className={s.formError}>{error}</div>}
           <button className={s.formBtn} type="submit" disabled={loading}>
-            {loading ? 'Checking…' : 'View My Activity'}
+            {loading ? 'Sending…' : 'Email My Activity'}
           </button>
         </form>
       )}
@@ -73,39 +68,16 @@ export default function MyActivity() {
         <div className={s.resultWrap}>
           <button className={s.changeEmailBtn} onClick={reset}>← Check a different email</button>
 
-          {clubs.length > 0 && (
-            <div className={s.clubSection}>
-              <div className={`${s.actSectionTitle} ${s.clubSectionHead}`}>
-                <span>Clubs</span>
-                <span>Status</span>
-              </div>
-              {clubs.map(c => {
-                const st = CLUB_STATUS[c.status] || CLUB_STATUS.pending;
-                return (
-                  <div key={c.clubId} className={s.clubRow}>
-                    <div className={s.clubInfo}>
-                      <span className={s.clubName}>{c.clubName}</span>
-                      {c.requestedAt && (
-                        <span className={s.clubDate}>
-                          {c.status === 'member' || c.status === 'inactive' ? 'Since' : 'Requested'} {fmt(c.requestedAt)}
-                        </span>
-                      )}
-                    </div>
-                    <span className={`${s.clubStatus} ${s[st.cls]}`}>{st.label}</span>
-                  </div>
-                );
-              })}
+          {sent ? (
+            <div className={s.emptyCard}>
+              <p className={s.emptyMsg}>{result.message}</p>
+            </div>
+          ) : (
+            <div className={s.emptyCard}>
+              <p className={s.emptyMsg}>You have no club membership or activity on record for this email. Join a club of your interest to get started.</p>
+              <Link className={s.emptyCta} to="/clubs">Explore Clubs</Link>
             </div>
           )}
-
-          <ActivityResults
-            result={result}
-            emptyMessage={clubs.length > 0
-              ? 'You have not participated in any events yet.'
-              : 'You have not participated in any events. Join a club of your interest to participate.'}
-            emptyTo="/clubs"
-            emptyCta="Explore Clubs"
-          />
         </div>
       )}
     </div>

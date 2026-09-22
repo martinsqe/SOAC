@@ -323,6 +323,90 @@ const sendGaloreActivityAssignment = async ({ toEmail, toName, activityTitle, ca
   });
 };
 
+/* ── "My Activity" report email ──────────────────────────────────────────────
+   Sent in place of showing the public lookup's results directly on the guest
+   page — see activityByEmail in users.controller.js. Mirrors exactly what the
+   My Activity page itself renders (club status, overall event attendance, and
+   every event grouped by category with its attendance and any certificate),
+   so the email is a faithful copy of the page rather than a trimmed summary. */
+const ACT_STATUS_LABEL = { winner: 'Winner', runner_up: 'Runner-up', participation: 'Participation' };
+const ACT_STATUS_RANK  = { winner: 0, runner_up: 1, participation: 2 };
+const ACT_CLUB_LABEL   = { member: 'Accepted', pending: 'Pending', declined: 'Declined', inactive: 'Inactive' };
+const ACT_CLUB_COLOR   = { member: '#15803d', pending: '#b45309', declined: '#b91c1c', inactive: '#6b7280' };
+const ACT_STATUS_COLOR = { Winner: '#b45309', 'Runner-up': '#4b5563', Participation: '#059669', Registered: '#6b7280' };
+
+const actFmtDate = (d) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+
+const actEventStatus = (achievements) => {
+  if (!achievements?.length) return 'Registered';
+  const best = [...achievements].sort((a, b) => (ACT_STATUS_RANK[a.category] ?? 9) - (ACT_STATUS_RANK[b.category] ?? 9))[0];
+  return ACT_STATUS_LABEL[best.category] || 'Registered';
+};
+
+const sendActivityReport = async ({ toEmail, toName, clubs = [], attendanceSummary, categories = [] }) => {
+  const clubsHtml = clubs.length ? `
+    <div style="margin:24px 0">
+      <p style="margin:0 0 10px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Your Clubs</p>
+      ${clubs.map(c => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:#f8f7ff;border:1px solid #e8e5ff;border-radius:10px;margin-bottom:8px">
+          <span style="font-weight:700;color:#1a1040">${c.clubName}</span>
+          <span style="font-weight:700;font-size:12px;color:${ACT_CLUB_COLOR[c.status] || '#6b7280'}">${ACT_CLUB_LABEL[c.status] || c.status}</span>
+        </div>`).join('')}
+    </div>` : '';
+
+  const attHtml = attendanceSummary?.averagePct != null ? `
+    <div style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:12px;padding:16px 20px;margin:20px 0;text-align:center">
+      <p style="margin:0;font-size:12px;color:#9a3412;text-transform:uppercase;letter-spacing:1px;font-weight:700">Overall Event Attendance</p>
+      <p style="margin:6px 0 0;font-size:28px;font-weight:800;color:#c2410c">${attendanceSummary.averagePct}%</p>
+      <p style="margin:4px 0 0;font-size:12px;color:#9a3412">Average across ${attendanceSummary.eventsCounted} event${attendanceSummary.eventsCounted === 1 ? '' : 's'} with attendance recorded</p>
+    </div>` : '';
+
+  const catsHtml = categories.map(cat => {
+    if (!cat.events.length) return '';
+    const rows = cat.events.map(ev => {
+      const status  = actEventStatus(ev.achievements);
+      const attLine = ev.attendance
+        ? `<p style="margin:4px 0 0;font-size:12px;color:#555">Attendance: <strong>${ev.attendance.percentage}%</strong> (${ev.attendance.presentSessions}/${ev.attendance.totalSessions} days)</p>`
+        : `<p style="margin:4px 0 0;font-size:12px;color:#9ca3af">No attendance recorded yet.</p>`;
+      const certs = (ev.achievements || []).filter(a => a.fileUrl)
+        .map(a => `<a href="${a.fileUrl}" style="color:#635BFF;font-size:12px;font-weight:700;text-decoration:none">Download Certificate of ${ACT_STATUS_LABEL[a.category] || 'Participation'}</a>`)
+        .join(' &nbsp;·&nbsp; ');
+      return `
+        <div style="padding:12px 14px;border:1px solid #eee;border-radius:10px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+            <div>
+              <p style="margin:0;font-weight:700;color:#1a1040">${ev.eventTitle}</p>
+              <p style="margin:2px 0 0;font-size:12px;color:#888">${ev.clubName}${ev.venue ? ` · ${ev.venue}` : ''}${ev.eventDate ? ` · ${actFmtDate(ev.eventDate)}` : ''}</p>
+            </div>
+            <span style="font-size:11px;font-weight:800;color:${ACT_STATUS_COLOR[status]};white-space:nowrap">${status}</span>
+          </div>
+          ${attLine}
+          ${certs ? `<p style="margin:8px 0 0">${certs}</p>` : ''}
+        </div>`;
+    }).join('');
+    return `
+      <div style="margin:20px 0">
+        <p style="margin:0 0 10px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">${cat.label} Activity</p>
+        ${rows}
+      </div>`;
+  }).join('');
+
+  await send({
+    to:      toEmail,
+    subject: 'Your SOAC Activity Summary',
+    html: wrap(`
+      ${header()}
+      <h2 style="color:#1a1040;margin-bottom:8px">Hi ${toName},</h2>
+      <p style="color:#555;line-height:1.6">You asked to see your activity on the SOAC platform, so here it is — the clubs you're part of, every event you've taken part in, and your attendance record, all in one place.</p>
+      ${clubsHtml}
+      ${attHtml}
+      ${catsHtml || '<p style="color:#888;font-size:13px;line-height:1.6">You have not participated in any events yet — keep an eye on your club for upcoming ones.</p>'}
+      <p style="color:#888;font-size:13px;line-height:1.6;margin-top:24px">Thanks for being part of SOAC — keep up the great work!</p>
+      ${footer()}
+    `),
+  });
+};
+
 /* ── Diagnostic: send a test email, return { ok, via, error } ─────────────── */
 const sendTestEmail = async (toEmail) => {
   const chain = PROVIDER_CHAIN.map(p => p.name).join(' → ');
@@ -346,5 +430,6 @@ module.exports = {
   sendPasswordReset,
   sendTeamAssignment,
   sendGaloreActivityAssignment,
+  sendActivityReport,
   sendTestEmail,
 };

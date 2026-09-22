@@ -5,7 +5,7 @@ const fs       = require('fs');
 const { pgPool } = require('../config/db');
 const { cloudinaryInstance, useCloudinary } = require('../config/multer');
 const { ensureSoacTables } = require('../services/soacData');
-const { sendCredentials } = require('../config/email');
+const { sendCredentials, sendActivityReport } = require('../config/email');
 const { notifyUser } = require('../services/notify');
 const cache = require('../services/cache');
 const { syncPastEvents } = require('../services/eventStatus');
@@ -489,16 +489,74 @@ const buildActivity = async (email) => {
   };
 };
 
+/* Best-effort display name for the activity-report email's greeting — tries a real
+   account first, then the name given on a club join request, then the name given at
+   event registration, and finally falls back to the email's own local part so the
+   greeting is never blank. */
+const resolveActivityEmailName = async (email) => {
+  const { rows: u } = await pgPool.query(
+    `SELECT name FROM users WHERE LOWER(email) = $1 AND is_active = true LIMIT 1`, [email]
+  );
+  if (u[0]?.name) return u[0].name;
+  const { rows: jr } = await pgPool.query(
+    `SELECT name FROM join_requests WHERE LOWER(email) = $1 ORDER BY created_at DESC LIMIT 1`, [email]
+  );
+  if (jr[0]?.name) return jr[0].name;
+  const { rows: er } = await pgPool.query(
+    `SELECT name FROM event_registrations WHERE LOWER(email) = $1 ORDER BY registered_at DESC LIMIT 1`, [email]
+  );
+  if (er[0]?.name) return er[0].name;
+  return email.split('@')[0];
+};
+
 /* GET /api/users/activity-by-email — public, no login required. Lets a student who
    isn't a club member (and so has no dashboard of their own) look up their participation
-   history across every category by just entering the email they registered events with. */
+   history across every category by just entering the email they registered events with.
+   Rather than rendering the result on the page, this mails it to that address — so a
+   full lookup requires actually owning the inbox — and is capped at one send per email
+   per rolling 24h. A repeat request inside that window gets a short message instead of
+   another email; an email with nothing on record at all (no club, never registered,
+   never participated) gets the same empty-state response as before and never touches
+   the rate limit, since nothing was sent. */
 const activityByEmail = async (req, res, next) => {
   try {
     const email = String(req.query.email || '').trim().toLowerCase();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.endsWith('@roster.internal')) {
       return res.status(400).json({ message: 'Please enter a valid email address.' });
     }
-    res.json(await buildActivity(email));
+    if (!email.endsWith('@rku.ac.in')) {
+      return res.status(400).json({ message: 'Only @rku.ac.in emails are allowed.' });
+    }
+
+    await ensureSoacTables();
+    const { rows: rl } = await pgPool.query(
+      `SELECT 1 FROM activity_email_requests WHERE email = $1 AND last_sent_at > NOW() - INTERVAL '1 day'`,
+      [email]
+    );
+    if (rl.length) {
+      return res.json({ alreadySent: true, message: 'Your activity was sent to your email. Please check your email.' });
+    }
+
+    const data = await buildActivity(email);
+    if (!data.participated && !data.clubs?.length) {
+      return res.json(data);
+    }
+
+    /* Stamp the rate limit only AFTER a successful send — if the mail provider
+       throws (both providers down, transient DNS failure, etc.) the student must
+       not be locked out for a day over an email that never actually went out. */
+    const toName = await resolveActivityEmailName(email);
+    await sendActivityReport({
+      toEmail: email, toName,
+      clubs: data.clubs, attendanceSummary: data.attendanceSummary, categories: data.categories,
+    });
+    await pgPool.query(
+      `INSERT INTO activity_email_requests (email, last_sent_at) VALUES ($1, NOW())
+       ON CONFLICT (email) DO UPDATE SET last_sent_at = NOW()`,
+      [email]
+    );
+
+    res.json({ emailed: true, message: 'Your activity has been sent to your email. Please check your inbox.' });
   } catch (err) { next(err); }
 };
 

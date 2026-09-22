@@ -228,35 +228,6 @@
 .attSummaryValue { font-size: 1.6rem; font-weight: 800; color: #D32F2F; line-height: 1; }
 .attSummaryNote { font-size: .78rem; color: #9ca3af; margin: 8px 0 0; }
 
-/* ── Club status ── */
-.clubSection { margin-bottom: 28px; }
-.clubSectionHead { display: flex; justify-content: space-between; padding-right: 17px; }
-.clubRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 12px 16px;
-  margin-bottom: 8px;
-  background: #fff;
-}
-.clubInfo { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.clubName { font-size: .9rem; font-weight: 700; color: #111827; }
-.clubDate { font-size: .72rem; color: #9ca3af; }
-.clubStatus {
-  font-size: .72rem;
-  font-weight: 700;
-  border-radius: 20px;
-  padding: 3px 12px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.clubStatusMember   { background: #ecfdf5; color: #059669; }
-.clubStatusPending  { background: #fffbeb; color: #d97706; }
-.clubStatusDeclined { background: #fef2f2; color: #dc2626; }
-.clubStatusInactive { background: #f1f5f9; color: #6b7280; }
 .actNoResult { color: #9ca3af; font-style: italic; font-size: .8rem; margin: 0; }
 .actEmpty { font-size: .875rem; color: #9ca3af; text-align: center; padding: 32px 0; }
 

@@ -870,6 +870,16 @@ const ensureSoacTables = async () => {
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_reports_academic_year  ON event_reports(academic_year)`);
   await pgPool.query(`ALTER TABLE event_reports ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ`);
   await pgPool.query(`ALTER TABLE event_reports ADD COLUMN IF NOT EXISTS submitted_by BIGINT`);
+
+  /* Rate-limits the public "My Activity" email lookup to one send per email per
+     day — see activityByEmail in users.controller.js. Only written to when an
+     email actually goes out (the "nothing on record" response never touches it). */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS activity_email_requests (
+      email        VARCHAR(255) PRIMARY KEY,
+      last_sent_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )
+  `);
 };
 
 const asClub = (row) => ({
