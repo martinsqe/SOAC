@@ -295,7 +295,7 @@ export default function StudentEvents() {
             const catColor = CAT_COLOR[ev.category] || '#6b7280';
             const isUpcoming = ev.status === 'upcoming';
             const isOngoing  = ev.status === 'ongoing';
-            const canRegister = isUpcoming || isOngoing;
+            const canRegister = (isUpcoming || isOngoing) && !ev.registrationClosed;
 
             return (
               <div key={ev._id || i} className={s.card}>

@@ -29,6 +29,7 @@ router.get('/:id/activities',    ctrl.getActivities); /* public — Galore umbre
 router.get('/:id/department-registrations', verifyToken, requireCoordOrAdmin, ctrl.getDepartmentRegistrations);
 router.post('/',       verifyToken, requireCoordOrAdmin, uploadEvent.single('image'), ctrl.create);
 router.put('/:id',     verifyToken, requireAdmin, uploadEvent.single('image'), ctrl.update);
+router.patch('/:id/registration', verifyToken, requireAdmin, ctrl.toggleRegistration);
 router.delete('/:id',  verifyToken, requireAdmin, ctrl.remove);
 
 /* Registration routes */

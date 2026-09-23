@@ -1,6 +1,6 @@
 const { pgPool }   = require('../config/db');
 const { ensureSoacTables, asEvent } = require('../services/soacData');
-const { assertCoordOwnsEvent } = require('../services/coordAuth');
+const { assertCoordOwnsEvent, getEventCoordinatorIds } = require('../services/coordAuth');
 const { destroyImage } = require('../config/cloudinary');
 const { getFileValue, uploadImageBuffer } = require('../config/multer');
 const { autoRefreshReportIfExists } = require('./reports.controller');
@@ -14,7 +14,7 @@ const EVENT_COLS = [
   'id', 'title', 'club', 'club_id', 'category', 'status', 'date', 'start_date',
   'time', 'venue', 'description', 'image', 'tags', 'seats',
   'highlight', 'registration_url', 'is_free', 'fee_amount',
-  'is_active', 'created_at', 'updated_at', 'fixtures_declared',
+  'is_active', 'registration_closed', 'created_at', 'updated_at', 'fixtures_declared',
   'certificates_finalized_at',
   'event_format', 'captain_name', 'captain_email', 'captain_phone',
   'team_members', 'payment_link', 'team_size', 'min_team_size',
@@ -392,7 +392,7 @@ const getActivities = async (req, res, next) => {
   try {
     const { rows } = await pgPool.query(
       `SELECT e.id, e.title, e.category, e.event_format,
-              e.team_size, e.min_team_size, e.status,
+              e.team_size, e.min_team_size, e.status, e.registration_closed,
               (SELECT COUNT(*)::int FROM event_registrations er WHERE er.event_id = e.id) AS registration_count,
               (SELECT COUNT(*)::int FROM event_teams et WHERE et.event_id = e.id) AS team_count
        FROM events e
@@ -415,6 +415,7 @@ const getActivities = async (req, res, next) => {
         teamSize:          Number(r.team_size || 0),
         minTeamSize:       Number(r.min_team_size || 0),
         status:            r.status,
+        registrationClosed: !!r.registration_closed,
         registrationCount: r.registration_count,
         teamCount:         r.team_count,
       })),
@@ -681,6 +682,44 @@ const update = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+/* PATCH /api/events/:id/registration  (admin only)
+   Cuts off (or reopens) sign-ups independently of the event's status/date —
+   e.g. capping a still-upcoming event early once seats fill up — without
+   forcing admin through the full edit form. Mirrors the register()/
+   submitTeamRoster() "Registrations for this event are closed." check. */
+const toggleRegistration = async (req, res, next) => {
+  try {
+    const closed = !!req.body.closed;
+    const { rows } = await pgPool.query(
+      `UPDATE events SET registration_closed = $1, updated_at = NOW()
+       WHERE id = $2 AND is_active = true
+       RETURNING ${EVENT_COLS}`,
+      [closed, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ message: 'Event not found.' });
+    const event = asEvent(rows[0]);
+
+    await logAudit(req.user.id, req.user.name, 'UPDATE_EVENT', 'event', event.id, {
+      title: event.title,
+      changes: [{ field: 'Registration', from: closed ? 'Open' : 'Closed', to: closed ? 'Closed' : 'Open' }],
+    });
+    await Promise.all([cache.del(`events:${req.params.id}`), cache.delPattern('events:*')]);
+
+    const ids = await getEventCoordinatorIds(event.id);
+    if (ids.length) {
+      notifyManyUsers({
+        userIds: ids,
+        title: closed ? 'Registration closed' : 'Registration reopened',
+        body: `Admin ${req.user.name} ${closed ? 'closed' : 'reopened'} registration for "${event.title}".`,
+        type: 'event_update',
+        url: '/coordinator/events',
+      }).catch(() => {});
+    }
+
+    res.json({ event: withImageUrl(event), message: closed ? 'Registration closed.' : 'Registration reopened.' });
+  } catch (err) { next(err); }
+};
+
 /* DELETE /api/events/:id  (admin — soft delete) */
 const remove = async (req, res, next) => {
   try {
@@ -774,11 +813,12 @@ const registerForGaloreUmbrella = async (umbrella, req, res) => {
   if (!ids.length) return res.status(400).json({ message: 'Select at least one activity.' });
 
   const { rows: actRows } = await pgPool.query(
-    `SELECT id, title, category FROM events WHERE id = ANY($1::bigint[]) AND parent_event_id = $2 AND is_active = true`,
+    `SELECT id, title, category FROM events
+     WHERE id = ANY($1::bigint[]) AND parent_event_id = $2 AND is_active = true AND registration_closed = false`,
     [ids, umbrella.id]
   );
   if (actRows.length !== ids.length) {
-    return res.status(400).json({ message: 'One or more selected activities are invalid.' });
+    return res.status(400).json({ message: 'One or more selected activities are invalid, or registration for them has closed.' });
   }
 
   const emailNorm = email.trim().toLowerCase();
@@ -865,12 +905,14 @@ const register = async (req, res, next) => {
   try {
     /* Only fetch what we need: id, title, status, category, event_format + parent_event_id */
     const { rows: eventRows } = await pgPool.query(
-      `SELECT id, title, status, category, event_format, parent_event_id FROM events WHERE id = $1 AND is_active = true`,
+      `SELECT id, title, status, category, event_format, parent_event_id, registration_closed FROM events WHERE id = $1 AND is_active = true`,
       [req.params.id]
     );
     if (!eventRows.length) return res.status(404).json({ message: 'Event not found.' });
     const event = eventRows[0];
-    if (event.status === 'past') return res.status(400).json({ message: 'Registrations for this event are closed.' });
+    if (event.status === 'past' || event.registration_closed) {
+      return res.status(400).json({ message: 'Registrations for this event are closed.' });
+    }
 
     if (event.event_format === 'galore' && !event.parent_event_id) {
       return await registerForGaloreUmbrella(event, req, res);
@@ -940,13 +982,15 @@ const register = async (req, res, next) => {
 const submitTeamRoster = async (req, res, next) => {
   try {
     const { rows } = await pgPool.query(
-      `SELECT id, title, status, event_format, team_size, min_team_size, category, parent_event_id
+      `SELECT id, title, status, event_format, team_size, min_team_size, category, parent_event_id, registration_closed
        FROM events WHERE id = $1 AND is_active = true`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Event not found.' });
     const event = rows[0];
-    if (event.status === 'past') return res.status(400).json({ message: 'Registrations for this event are closed.' });
+    if (event.status === 'past' || event.registration_closed) {
+      return res.status(400).json({ message: 'Registrations for this event are closed.' });
+    }
     if (event.event_format !== 'sports_fiesta') {
       return res.status(400).json({ message: 'This event does not accept a team roster submission.' });
     }
@@ -1436,5 +1480,5 @@ module.exports = {
   getAll, getLiveScores, getPastScores, getOne, getActivities,
   getGaloreDepartments, getGaloreCatalog, getGaloreCoordinators, createGaloreEvent, getDepartmentRegistrations,
   getMyAssignments,
-  create, update, remove, register, submitTeamRoster, listRegistrations, updateRegistration, deleteRegistration,
+  create, update, remove, toggleRegistration, register, submitTeamRoster, listRegistrations, updateRegistration, deleteRegistration,
 };

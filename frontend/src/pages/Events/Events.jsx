@@ -295,6 +295,7 @@ const normaliseEvent = (e) => ({
   minTeamSize: e.minTeamSize || 0,
   paymentLink: e.paymentLink || '',
   parentEventId: e.parentEventId || null, // set → this is a Galore activity (department + division apply)
+  registrationClosed: !!e.registrationClosed,
 });
 
 const DEPTS = ['ACH', 'AI/ML', 'FOT', 'SOE', 'SOM', 'SOP', 'SPT', 'SDS', 'SOS'];
@@ -845,10 +846,10 @@ const Events = () => {
                       {featured.tags.map(t => <span key={t} className={styles.tag}>{t}</span>)}
                     </div>
                     <div className={styles.featBtnRow}>
-                      {featured.eventFormat === 'sports_fiesta' ? (
-                        <button className={styles.regBtn} onClick={() => openReg(featured)}>Register Now →</button>
-                      ) : registeredIds.has(String(featured.id)) && featured.category === 'sports' ? (
+                      {registeredIds.has(String(featured.id)) && featured.category === 'sports' && featured.eventFormat !== 'sports_fiesta' ? (
                         <button className={styles.fixturesBtn} onClick={() => openFixtures(featured)}>Teams &amp; Fixtures</button>
+                      ) : featured.registrationClosed ? (
+                        <span className={styles.closedNote}>Registration closed</span>
                       ) : (
                         <button className={styles.regBtn} onClick={() => openReg(featured)}>Register Now →</button>
                       )}
@@ -877,10 +878,10 @@ const Events = () => {
                           <span><strong className={styles.upCardMetaLabel}>Venue:</strong> {ev.venue}</span>
                         </div>
                         <div className={styles.upCardFooter}>
-                          {ev.eventFormat === 'sports_fiesta' ? (
-                            <button className={styles.upRegBtn} onClick={() => openReg(ev)}>Register Now →</button>
-                          ) : registeredIds.has(String(ev.id)) && ev.category === 'sports' ? (
+                          {registeredIds.has(String(ev.id)) && ev.category === 'sports' && ev.eventFormat !== 'sports_fiesta' ? (
                             <button className={styles.fixturesBtn} onClick={() => openFixtures(ev)}>Teams &amp; Fixtures</button>
+                          ) : ev.registrationClosed ? (
+                            <span className={styles.closedNote}>Registration closed</span>
                           ) : (
                             <button className={styles.upRegBtn} onClick={() => openReg(ev)}>Register Now →</button>
                           )}
@@ -1371,7 +1372,7 @@ const Events = () => {
                             }}>
                               {inCat.map(act => {
                                 const selected = galoreRegForm.activityIds.includes(act.id);
-                                const disabled = !selected && catCount >= 2;
+                                const disabled = !selected && (catCount >= 2 || act.registrationClosed);
                                 return (
                                   <label key={act.id} style={{
                                     display: 'flex', alignItems: 'center', gap: 8,
@@ -1389,7 +1390,7 @@ const Events = () => {
                                       onChange={() => toggleGaloreActivity(act)}
                                       style={{ margin: 0, width: 16, height: 16, flex: '0 0 16px', accentColor: '#635BFF' }}
                                     />
-                                    <span>{act.title}</span>
+                                    <span>{act.title}{act.registrationClosed ? ' (Closed)' : ''}</span>
                                   </label>
                                 );
                               })}

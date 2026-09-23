@@ -164,6 +164,9 @@ const ensureSoacTables = async () => {
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_events_start_date      ON events(start_date)`);
   // Filtering events by club name (used in getAll ?club= filter)
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_events_club_active     ON events(club, is_active)`);
+  /* Admin-only override that closes registration independently of `status`/dates —
+     lets admin cut off sign-ups early without having to mark the whole event "past". */
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS registration_closed BOOLEAN NOT NULL DEFAULT false`).catch(() => {});
 
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS event_registrations (
@@ -974,6 +977,7 @@ const asEvent = (row) => ({
   isFree: row.is_free !== false,
   feeAmount: Number(row.fee_amount || 0),
   isActive: !!row.is_active,
+  registrationClosed: !!row.registration_closed,
   fixturesDeclared: !!row.fixtures_declared,
   certificatesFinalizedAt: row.certificates_finalized_at || null,
   createdAt: row.created_at,

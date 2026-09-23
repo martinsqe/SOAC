@@ -342,6 +342,12 @@
   color: var(--mid);
 }
 
+.closedNote {
+  font-size: .78rem;
+  color: #9ca3af;
+  font-style: italic;
+}
+
 .regBtn {
   display: inline-flex;
   align-items: center;

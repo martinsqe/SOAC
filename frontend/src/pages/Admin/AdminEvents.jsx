@@ -81,7 +81,7 @@ const requestChain = (req) => {
 };
 
 /* ── Event Card ── */
-function EventCard({ ev, onEdit, onDelete, onViewRegs }) {
+function EventCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg }) {
   const color = CAT_COLOR[ev.category] || '#888';
   const imgSrc = ev.imageUrl || (ev.image ? `/images/${ev.image}` : null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -122,6 +122,16 @@ function EventCard({ ev, onEdit, onDelete, onViewRegs }) {
         <button className={s.delBtn} onClick={() => onDelete(ev._id)}>Delete</button>
       </div>
       <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
+        <button
+          className={s.regsBtn}
+          onClick={() => onToggleReg(ev)}
+          style={{ width: '100%' }}
+          title={ev.registrationClosed ? 'Let students register again' : 'Stop new registrations without changing the event status'}
+        >
+          {ev.registrationClosed ? 'Reopen Registration' : 'Close Registration'}
+        </button>
+      </div>
+      <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
         <button className={s.regsBtn} onClick={copyLink} style={{ width: '100%' }} title="Copy a direct link students can use to register">
           {linkCopied ? 'Link copied ✓' : '🔗 Copy Registration Link'}
         </button>
@@ -136,7 +146,7 @@ function EventCard({ ev, onEdit, onDelete, onViewRegs }) {
    included) lands in event_registrations just like an Other Events sign-up,
    so "Registrations" here opens the exact same panel/CSV export, just
    showing every team's members instead of individual sign-ups. ── */
-function SportsFiestaCard({ ev, onEdit, onDelete, onViewRegs }) {
+function SportsFiestaCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg }) {
   const imgSrc = ev.imageUrl || (ev.image ? `/images/${ev.image}` : null);
   const captainSet = !!ev.captainName;
   const [linkCopied, setLinkCopied] = useState(false);
@@ -188,6 +198,16 @@ function SportsFiestaCard({ ev, onEdit, onDelete, onViewRegs }) {
         <button className={s.regsBtn} onClick={() => onViewRegs(ev)}>Registrations</button>
         <button className={s.editBtn} onClick={() => onEdit(ev)}>Edit</button>
         <button className={s.delBtn} onClick={() => onDelete(ev._id)}>Delete</button>
+      </div>
+      <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
+        <button
+          className={s.regsBtn}
+          onClick={() => onToggleReg(ev)}
+          style={{ width: '100%' }}
+          title={ev.registrationClosed ? 'Let captains submit team rosters again' : 'Stop new team rosters without changing the event status'}
+        >
+          {ev.registrationClosed ? 'Reopen Registration' : 'Close Registration'}
+        </button>
       </div>
       <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
         <button className={s.regsBtn} onClick={copyLink} style={{ width: '100%' }} title="Copy the link the captain uses to fill in their team roster">
@@ -461,6 +481,21 @@ export default function AdminEvents() {
       /* Deleting an activity while its Galore umbrella's panel is open needs the
          activities list refreshed too — a no-op fetch when deleting anything else. */
       if (selectedGalore) { loadActivities(selectedGalore._id); loadDeptRegs(selectedGalore._id); }
+    } catch (err) { setError(err.message); }
+  };
+
+  const handleToggleReg = async (ev) => {
+    try {
+      await api.patch(`/events/${ev._id}/registration`, { closed: !ev.registrationClosed });
+      load();
+      if (selectedGalore) loadActivities(selectedGalore._id);
+    } catch (err) { setError(err.message); }
+  };
+
+  const handleToggleActivityReg = async (act) => {
+    try {
+      await api.patch(`/events/${act.id}/registration`, { closed: !act.registrationClosed });
+      if (selectedGalore) loadActivities(selectedGalore._id);
     } catch (err) { setError(err.message); }
   };
 
@@ -1023,7 +1058,7 @@ export default function AdminEvents() {
           ) : (
             <div className={s.grid}>
               {otherEvents.map(ev => (
-                <EventCard key={ev._id} ev={ev} onEdit={openEdit} onDelete={setDeleteId} onViewRegs={viewRegs} />
+                <EventCard key={ev._id} ev={ev} onEdit={openEdit} onDelete={setDeleteId} onViewRegs={viewRegs} onToggleReg={handleToggleReg} />
               ))}
             </div>
           )}
@@ -1052,7 +1087,7 @@ export default function AdminEvents() {
           ) : (
             <div className={s.grid}>
               {sportsFiestaEvents.map(ev => (
-                <SportsFiestaCard key={ev._id} ev={ev} onEdit={openEditSF} onDelete={setDeleteId} onViewRegs={viewRegs} />
+                <SportsFiestaCard key={ev._id} ev={ev} onEdit={openEditSF} onDelete={setDeleteId} onViewRegs={viewRegs} onToggleReg={handleToggleReg} />
               ))}
             </div>
           )}
@@ -1099,6 +1134,15 @@ export default function AdminEvents() {
                         <div className={s.cardActions}>
                           <button className={s.regsBtn} onClick={() => viewRegs(act)}>Registrations</button>
                           <button className={s.delBtn} onClick={() => setDeleteId(act.id)}>Delete</button>
+                        </div>
+                        <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
+                          <button
+                            className={s.regsBtn}
+                            onClick={() => handleToggleActivityReg(act)}
+                            style={{ width: '100%' }}
+                          >
+                            {act.registrationClosed ? 'Reopen Registration' : 'Close Registration'}
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -1248,6 +1292,16 @@ export default function AdminEvents() {
                       <button className={s.regsBtn} onClick={() => openGaloreActivities(ev)}>Manage Activities</button>
                       <button className={s.editBtn} onClick={() => openEditGalore(ev)}>Edit</button>
                       <button className={s.delBtn} onClick={() => setDeleteId(ev._id)}>Delete</button>
+                    </div>
+                    <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
+                      <button
+                        className={s.regsBtn}
+                        onClick={() => handleToggleReg(ev)}
+                        style={{ width: '100%' }}
+                        title={ev.registrationClosed ? 'Let students register for this Galore event again' : 'Stop new registrations for this Galore event (each activity can also be closed individually)'}
+                      >
+                        {ev.registrationClosed ? 'Reopen Registration' : 'Close Registration'}
+                      </button>
                     </div>
                   </div>
                 ))
