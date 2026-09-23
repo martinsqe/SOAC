@@ -9,6 +9,12 @@ const CAT_COLORS = { sports: '#ff4757', cultural: '#ff6b9d', social: '#06d6a0', 
 const EMPTY = {
   name: '', category: 'academic', color: '#635BFF',
   coordinator: '', foundedYear: '', memberCount: 0, eventCount: 0, description: '',
+  /* Optional — assign the club's Faculty Coordinator and/or Student Coordinator
+     in the same step as creating the club, through the same account
+     creation-or-reuse + credentials-email flow the dedicated Assign modals use.
+     Only ever sent (and only ever shown) while adding a new club — editing an
+     existing one goes through Assign FC / Assign Coordinator on its card instead. */
+  fcName: '', fcEmail: '', scName: '', scEmail: '',
 };
 
 /* ── Club Card (admin view) ── */
@@ -129,6 +135,16 @@ export default function AdminClubs() {
   const [error,       setError]      = useState('');
   const [seeding,     setSeeding]    = useState(false);
   const [creds,       setCreds]      = useState(null); // { name, email, password }
+  const [credsQueue,  setCredsQueue] = useState([]); // remaining creds to show, when a club is created with both FC and SC at once
+  const showCredsQueue = (list) => {
+    const [first, ...rest] = list;
+    setCreds(first || null);
+    setCredsQueue(rest);
+  };
+  const closeCreds = () => {
+    if (credsQueue.length) showCredsQueue(credsQueue);
+    else setCreds(null);
+  };
   /* ── Assign Coordinator ── */
   const [coordClub,   setCoordClub]  = useState(null); // club being assigned
   const [coordName,   setCoordName]  = useState('');
@@ -201,13 +217,31 @@ export default function AdminClubs() {
   const handleSave = async (e) => {
     e.preventDefault();
     if (!form.name.trim()) return setError('Club name is required.');
+    if (modal === 'add') {
+      if (form.fcEmail.trim() && !form.fcName.trim()) return setError('Faculty Coordinator name is required if an email is given.');
+      if (form.scEmail.trim() && !form.scName.trim()) return setError('Student Coordinator name is required if an email is given.');
+      if (form.fcEmail.trim() && !form.fcEmail.toLowerCase().endsWith('@rku.ac.in')) return setError('Faculty Coordinator email must be an @rku.ac.in address.');
+      if (form.scEmail.trim() && !form.scEmail.toLowerCase().endsWith('@rku.ac.in')) return setError('Student Coordinator email must be an @rku.ac.in address.');
+    }
     setSaving(true); setError('');
     try {
       const fd = new FormData();
       Object.entries(form).forEach(([k, v]) => fd.append(k, v));
       if (logoFile) fd.append('logo', logoFile);
-      if (modal === 'add') await api.postForm('/clubs', fd);
-      else                 await api.putForm(`/clubs/${editingId}`, fd);
+      if (modal === 'add') {
+        const res = await api.postForm('/clubs', fd);
+        /* Surface whichever FC/SC assignments were requested — a failed one
+           (bad email, name missing) never blocks the club itself, which by
+           now already exists, so report it as a plain warning instead. */
+        const failures = [res.fc, res.sc].filter(r => r && !r.ok).map(r => r.message);
+        if (failures.length) alert(`Club created, but: ${failures.join(' ')} You can assign this from the club's card.`);
+        const queued = [res.fc, res.sc]
+          .filter(r => r?.ok && r.credentials)
+          .map(r => ({ ...r.credentials, emailSent: r.emailSent, roleLabel: r === res.fc ? 'Faculty Coordinator' : 'Student Coordinator' }));
+        if (queued.length) showCredsQueue(queued);
+      } else {
+        await api.putForm(`/clubs/${editingId}`, fd);
+      }
       closeModal();
       load();
     } catch (err) {
@@ -556,7 +590,7 @@ export default function AdminClubs() {
             )}
 
             <button
-              onClick={() => setCreds(null)}
+              onClick={closeCreds}
               style={{
                 width:'100%', padding:11, borderRadius:4, border:'none',
                 background:'#635BFF', color:'#fff', fontWeight:800,
@@ -934,6 +968,46 @@ export default function AdminClubs() {
                 <label>Description</label>
                 <textarea rows={3} value={form.description} onChange={sf('description')} placeholder="Short description of the club…" />
               </div>
+
+              {/* Assign real FC/SC accounts at creation time — optional. Same
+                  account creation-or-reuse + credentials-email flow as the
+                  Assign FC / Assign Coordinator actions on the club card;
+                  only ever offered while adding a new club. */}
+              {modal === 'add' && (
+                <div style={{
+                  border: '1.5px dashed #e5e7eb', borderRadius: 8, padding: '14px 16px',
+                  display: 'flex', flexDirection: 'column', gap: 12,
+                }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>Assign Club Staff</div>
+                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                      Optional — leave blank to assign later from the club's card. Each gets a real account and a credentials email.
+                    </div>
+                  </div>
+
+                  <div className={s.row2}>
+                    <div className={s.field}>
+                      <label>Faculty Coordinator Name</label>
+                      <input value={form.fcName} onChange={sf('fcName')} placeholder="e.g. Prof. Anita Mehta" />
+                    </div>
+                    <div className={s.field}>
+                      <label>Faculty Coordinator Email</label>
+                      <input type="email" value={form.fcEmail} onChange={sf('fcEmail')} placeholder="faculty.coordinator@rku.ac.in" />
+                    </div>
+                  </div>
+
+                  <div className={s.row2}>
+                    <div className={s.field}>
+                      <label>Student Coordinator Name</label>
+                      <input value={form.scName} onChange={sf('scName')} placeholder="e.g. Priya Sharma" />
+                    </div>
+                    <div className={s.field}>
+                      <label>Student Coordinator Email</label>
+                      <input type="email" value={form.scEmail} onChange={sf('scEmail')} placeholder="student.coordinator@rku.ac.in" />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {error && <div className={s.formError}>{error}</div>}
 

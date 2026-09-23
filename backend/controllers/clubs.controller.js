@@ -144,11 +144,24 @@ const getOne = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* POST /api/clubs  (admin) */
+/* POST /api/clubs  (admin)
+   Optionally takes fcName/fcEmail and/or scName/scEmail to assign the club's
+   Faculty Coordinator and/or Student Coordinator in the same step, through
+   the exact same performStaffAssignment() the dedicated Assign FC/SC modals
+   use — same account creation-or-reuse logic, same credentials email, same
+   coordinator_club_assignments row — so a club created with staff already
+   named is indistinguishable from one assigned afterward the usual way. A
+   club that fails to save is never created (existing behaviour, unchanged);
+   a bad FC/SC email, once the club itself exists, is reported back instead
+   of rolling the whole club back — admin can always assign it afterward
+   from the club card the ordinary way. */
 const create = async (req, res, next) => {
   try {
     await ensureSoacTables();
-    const { name, category, color, coordinator, foundedYear, memberCount, eventCount, description, tags } = req.body;
+    const {
+      name, category, color, coordinator, foundedYear, memberCount, eventCount, description, tags,
+      fcName, fcEmail, scName, scEmail,
+    } = req.body;
     const logo = getFileValue(req.file) ?? '';
     const { rows } = await pgPool.query(
       `INSERT INTO clubs
@@ -162,10 +175,36 @@ const create = async (req, res, next) => {
         description || '', tags ? JSON.parse(tags) : [], logo,
       ]
     );
-    const club = asClub(rows[0]);
+    let club = asClub(rows[0]);
     await logAudit(req.user.id, req.user.name, 'CREATE_CLUB', 'club', club.id, { name });
     await Promise.all([cache.delPattern('clubs:*'), cache.del('stats:admin')]);
-    res.status(201).json({ club: withLogoUrl(club) });
+
+    const staff = {};
+    if (fcEmail?.trim()) {
+      staff.fc = await performStaffAssignment({
+        role: 'faculty_coordinator', clubId: club.id, name: fcName, email: fcEmail,
+        actorUserId: req.user.id, actorName: req.user.name,
+      });
+    }
+    if (scEmail?.trim()) {
+      staff.sc = await performStaffAssignment({
+        role: 'coordinator', clubId: club.id, name: scName, email: scEmail,
+        actorUserId: req.user.id, actorName: req.user.name,
+      });
+    }
+
+    /* Re-read the club if either assignment touched its coordinator/
+       faculty_coordinator display columns, so the response reflects them. */
+    if (staff.fc?.ok || staff.sc?.ok) {
+      const { rows: freshRows } = await pgPool.query(`SELECT ${CLUB_COLS} FROM clubs WHERE id = $1`, [club.id]);
+      club = asClub(freshRows[0]);
+    }
+
+    res.status(201).json({
+      club: withLogoUrl(club),
+      fc: staff.fc && { ok: staff.fc.ok, message: staff.fc.message, credentials: staff.fc.credentials, emailSent: staff.fc.emailSent },
+      sc: staff.sc && { ok: staff.sc.ok, message: staff.sc.message, credentials: staff.sc.credentials, emailSent: staff.sc.emailSent },
+    });
   } catch (err) { next(err); }
 };
 
@@ -666,181 +705,205 @@ const ROLE_META = {
   },
 };
 
-const assignClubStaff = (role) => async (req, res, next) => {
-  try {
-    await ensureSoacTables();
-    const meta = ROLE_META[role];
-    const { name, email } = req.body;
-    const clubId = req.params.id;
+/* Core assignment logic, lifted out of the route handler below so club
+   creation can call it too (see create()) — assigning FC/SC in the same
+   step a club is created, rather than requiring two more round trips
+   through the separate Assign modals afterward. Returns a plain result
+   object instead of touching res, so either caller can decide how to
+   respond. Never throws for an expected/validation failure — those come
+   back as { ok: false, status, message } so a bad FC/SC email at
+   creation time reports back clearly without rolling back the club
+   itself, which by that point already exists. */
+const performStaffAssignment = async ({ role, clubId, name, email, actorUserId, actorName }) => {
+  await ensureSoacTables();
+  const meta = ROLE_META[role];
 
-    if (!email?.trim()) {
-      return res.status(400).json({ message: `${meta.label} email is required.` });
-    }
-    const emailLower = email.trim().toLowerCase();
+  if (!email?.trim()) {
+    return { ok: false, status: 400, message: `${meta.label} email is required.` };
+  }
+  const emailLower = email.trim().toLowerCase();
 
-    const { rows: clubRows } = await pgPool.query(
-      `SELECT ${CLUB_COLS} FROM clubs WHERE id = $1 AND is_active = true`,
-      [clubId]
+  const { rows: clubRows } = await pgPool.query(
+    `SELECT ${CLUB_COLS} FROM clubs WHERE id = $1 AND is_active = true`,
+    [clubId]
+  );
+  if (!clubRows.length) return { ok: false, status: 404, message: 'Club not found.' };
+  const club = asClub(clubRows[0]);
+
+  /* Refuse to overwrite an admin account, or the club's other staff role */
+  const { rows: existing } = await pgPool.query(
+    `SELECT id, name, role FROM users WHERE email = $1`,
+    [emailLower]
+  );
+  if (existing.length && meta.blockedRoles[existing[0].role]) {
+    return {
+      ok: false, status: 409,
+      message: `This email belongs to a${meta.blockedRoles[existing[0].role] === 'admin' ? 'n' : ''} ${meta.blockedRoles[existing[0].role]} account and cannot be used as ${meta.label}.`,
+    };
+  }
+
+  const staffName = name?.trim() || (existing.length ? existing[0].name : null);
+  if (!staffName) {
+    return { ok: false, status: 400, message: `${meta.label} name is required for new accounts.` };
+  }
+
+  const isNewUser  = !existing.length;
+  /* Promotion: this email is currently the Student Coordinator of one or more
+     clubs and is being appointed Faculty Coordinator instead. Since a user has
+     exactly one role account-wide (assignment rows carry no role of their own —
+     it's inferred by joining users.role), they cannot remain SC anywhere once
+     promoted, or every one of those clubs would silently gain them as FC too the
+     next time anything queries by role. So promotion revokes their Student
+     Coordinator standing everywhere, not just on the club being assigned here —
+     "they can no longer access the Student Coordinator dashboard" — and, like a
+     brand-new account, issues a fresh temporary password rather than leaving
+     their old one in place. */
+  const isPromotion = !isNewUser && !!meta.promoteFrom && existing[0].role === meta.promoteFrom;
+  const issueNewCredentials = isNewUser || isPromotion;
+  let userId;
+  let tempPassword = null;
+
+  if (isPromotion) {
+    const { rows: priorClubs } = await pgPool.query(
+      `SELECT club_id FROM coordinator_club_assignments WHERE user_id = $1 AND is_active = true`,
+      [existing[0].id]
     );
-    if (!clubRows.length) return res.status(404).json({ message: 'Club not found.' });
-    const club = asClub(clubRows[0]);
-
-    /* Refuse to overwrite an admin account, or the club's other staff role */
-    const { rows: existing } = await pgPool.query(
-      `SELECT id, name, role FROM users WHERE email = $1`,
-      [emailLower]
-    );
-    if (existing.length && meta.blockedRoles[existing[0].role]) {
-      return res.status(409).json({ message: `This email belongs to a${meta.blockedRoles[existing[0].role] === 'admin' ? 'n' : ''} ${meta.blockedRoles[existing[0].role]} account and cannot be used as ${meta.label}.` });
-    }
-
-    const staffName = name?.trim() || (existing.length ? existing[0].name : null);
-    if (!staffName) {
-      return res.status(400).json({ message: `${meta.label} name is required for new accounts.` });
-    }
-
-    const isNewUser  = !existing.length;
-    /* Promotion: this email is currently the Student Coordinator of one or more
-       clubs and is being appointed Faculty Coordinator instead. Since a user has
-       exactly one role account-wide (assignment rows carry no role of their own —
-       it's inferred by joining users.role), they cannot remain SC anywhere once
-       promoted, or every one of those clubs would silently gain them as FC too the
-       next time anything queries by role. So promotion revokes their Student
-       Coordinator standing everywhere, not just on the club being assigned here —
-       "they can no longer access the Student Coordinator dashboard" — and, like a
-       brand-new account, issues a fresh temporary password rather than leaving
-       their old one in place. */
-    const isPromotion = !isNewUser && !!meta.promoteFrom && existing[0].role === meta.promoteFrom;
-    const issueNewCredentials = isNewUser || isPromotion;
-    let userId;
-    let tempPassword = null;
-
-    if (isPromotion) {
-      const { rows: priorClubs } = await pgPool.query(
-        `SELECT club_id FROM coordinator_club_assignments WHERE user_id = $1 AND is_active = true`,
+    if (priorClubs.length) {
+      await pgPool.query(
+        `UPDATE clubs SET coordinator = '' WHERE id = ANY($1::bigint[])`,
+        [priorClubs.map(r => r.club_id)]
+      );
+      await pgPool.query(
+        `UPDATE coordinator_club_assignments SET is_active = false, updated_at = NOW() WHERE user_id = $1`,
         [existing[0].id]
       );
-      if (priorClubs.length) {
-        await pgPool.query(
-          `UPDATE clubs SET coordinator = '' WHERE id = ANY($1::bigint[])`,
-          [priorClubs.map(r => r.club_id)]
-        );
-        await pgPool.query(
-          `UPDATE coordinator_club_assignments SET is_active = false, updated_at = NOW() WHERE user_id = $1`,
-          [existing[0].id]
-        );
-      }
     }
+  }
 
-    if (isNewUser) {
-      /* ── Brand-new account: generate temp password, create user ── */
-      tempPassword = crypto.randomBytes(5).toString('hex').toUpperCase();
-      const hash   = await bcrypt.hash(tempPassword, 12);
-      const { rows: newUser } = await pgPool.query(
-        `INSERT INTO users (email, name, role, password_hash, must_change_password, created_by)
-         VALUES ($1, $2, $3, $4, true, $5)
-         RETURNING id`,
-        [emailLower, staffName, role, hash, req.user.id]
-      );
-      userId = newUser[0].id;
-    } else if (isPromotion) {
-      /* ── Promoted existing account: new role AND a fresh temp password ── */
-      tempPassword = crypto.randomBytes(5).toString('hex').toUpperCase();
-      const hash   = await bcrypt.hash(tempPassword, 12);
-      userId = existing[0].id;
-      await pgPool.query(
-        `UPDATE users SET name = $1, role = $2, is_active = true, password_hash = $3, must_change_password = true WHERE id = $4`,
-        [staffName, role, hash, userId]
-      );
+  if (isNewUser) {
+    /* ── Brand-new account: generate temp password, create user ── */
+    tempPassword = crypto.randomBytes(5).toString('hex').toUpperCase();
+    const hash   = await bcrypt.hash(tempPassword, 12);
+    const { rows: newUser } = await pgPool.query(
+      `INSERT INTO users (email, name, role, password_hash, must_change_password, created_by)
+       VALUES ($1, $2, $3, $4, true, $5)
+       RETURNING id`,
+      [emailLower, staffName, role, hash, actorUserId]
+    );
+    userId = newUser[0].id;
+  } else if (isPromotion) {
+    /* ── Promoted existing account: new role AND a fresh temp password ── */
+    tempPassword = crypto.randomBytes(5).toString('hex').toUpperCase();
+    const hash   = await bcrypt.hash(tempPassword, 12);
+    userId = existing[0].id;
+    await pgPool.query(
+      `UPDATE users SET name = $1, role = $2, is_active = true, password_hash = $3, must_change_password = true WHERE id = $4`,
+      [staffName, role, hash, userId]
+    );
+  } else {
+    /* ── Existing user: activate this role WITHOUT touching their password ── */
+    userId = existing[0].id;
+    await pgPool.query(
+      `UPDATE users SET name = $1, role = $2, is_active = true WHERE id = $3`,
+      [staffName, role, userId]
+    );
+  }
+
+  /* Deactivate any OTHER user of this SAME role currently assigned to this club */
+  await pgPool.query(
+    `UPDATE coordinator_club_assignments cca
+     SET is_active = false, updated_at = NOW()
+     FROM users u
+     WHERE cca.user_id = u.id AND cca.club_id = $1 AND cca.user_id != $2 AND u.role = $3`,
+    [clubId, userId, role]
+  );
+
+  /* Upsert assignment: this person → this club */
+  await pgPool.query(
+    `INSERT INTO coordinator_club_assignments (user_id, club_id, is_active)
+     VALUES ($1, $2, true)
+     ON CONFLICT (user_id, club_id) DO UPDATE
+       SET is_active = true, updated_at = NOW()`,
+    [userId, clubId]
+  );
+
+  /* Legacy FK + frontend fallback: primary club on user row */
+  await pgPool.query(
+    `UPDATE users SET managed_club_id = $1 WHERE id = $2`,
+    [clubId, userId]
+  );
+
+  /* Keep the club's display name for this role in sync */
+  await pgPool.query(`UPDATE clubs SET ${meta.clubNameCol} = $1 WHERE id = $2`, [staffName, clubId]);
+
+  await logAudit(actorUserId, actorName, meta.auditAction, 'club', clubId, {
+    staffName, email: emailLower, clubName: club.name, isNewUser, isPromotion,
+  });
+
+  await Promise.all([
+    cache.del(`clubs:${clubId}`),
+    cache.del(`session:user:${userId}`),
+    cache.delPattern('clubs:*'),
+  ]);
+
+  /* Send email — await so we can report success/failure to the caller */
+  let emailSent = false;
+  let emailError = null;
+  try {
+    if (issueNewCredentials) {
+      await sendCoordinatorCredentials({
+        toEmail: emailLower, toName: staffName,
+        password: tempPassword, clubName: club.name, roleLabel: meta.roleLabel,
+      });
     } else {
-      /* ── Existing user: activate this role WITHOUT touching their password ── */
-      userId = existing[0].id;
-      await pgPool.query(
-        `UPDATE users SET name = $1, role = $2, is_active = true WHERE id = $3`,
-        [staffName, role, userId]
-      );
+      await sendCoordinatorAssignment({
+        toEmail: emailLower, toName: staffName, clubName: club.name, roleLabel: meta.roleLabel,
+      });
     }
+    emailSent = true;
+  } catch (err) {
+    emailError = err.message;
+    console.warn(`${meta.label} email failed:`, err.message);
+  }
 
-    /* Deactivate any OTHER user of this SAME role currently assigned to this club */
-    await pgPool.query(
-      `UPDATE coordinator_club_assignments cca
-       SET is_active = false, updated_at = NOW()
-       FROM users u
-       WHERE cca.user_id = u.id AND cca.club_id = $1 AND cca.user_id != $2 AND u.role = $3`,
-      [clubId, userId, role]
-    );
+  return {
+    ok: true,
+    isNewUser,
+    isPromotion,
+    emailSent,
+    emailError: emailError || undefined,
+    staffName,
+    credentials: {
+      name:      staffName,
+      email:     emailLower,
+      password:  tempPassword,
+      clubName:  club.name,
+    },
+    message: isPromotion
+      ? `${staffName} was promoted to Faculty Coordinator of ${club.name} — their Student Coordinator access has been revoked${emailSent ? ` and new login credentials were sent to ${emailLower}` : ', but the credentials email could not be sent — share the new password manually'}.`
+      : isNewUser
+      ? `${meta.label} account created${emailSent ? `. Credentials sent to ${emailLower}` : ' — email could not be sent, share credentials manually'}.`
+      : `${staffName} added as ${meta.label.toLowerCase()} of ${club.name}${emailSent ? `. Confirmation sent to ${emailLower}` : ' — email could not be sent'}.`,
+  };
+};
 
-    /* Upsert assignment: this person → this club */
-    await pgPool.query(
-      `INSERT INTO coordinator_club_assignments (user_id, club_id, is_active)
-       VALUES ($1, $2, true)
-       ON CONFLICT (user_id, club_id) DO UPDATE
-         SET is_active = true, updated_at = NOW()`,
-      [userId, clubId]
-    );
-
-    /* Legacy FK + frontend fallback: primary club on user row */
-    await pgPool.query(
-      `UPDATE users SET managed_club_id = $1 WHERE id = $2`,
-      [clubId, userId]
-    );
-
-    /* Keep the club's display name for this role in sync */
-    await pgPool.query(`UPDATE clubs SET ${meta.clubNameCol} = $1 WHERE id = $2`, [staffName, clubId]);
-
-    await logAudit(req.user.id, req.user.name, meta.auditAction, 'club', clubId, {
-      staffName, email: emailLower, clubName: club.name, isNewUser, isPromotion,
+const assignClubStaff = (role) => async (req, res, next) => {
+  try {
+    const { name, email } = req.body;
+    const result = await performStaffAssignment({
+      role, clubId: req.params.id, name, email,
+      actorUserId: req.user.id, actorName: req.user.name,
     });
+    if (!result.ok) return res.status(result.status).json({ message: result.message });
 
-    await Promise.all([
-      cache.del(`clubs:${clubId}`),
-      cache.del(`session:user:${userId}`),
-      cache.delPattern('clubs:*'),
-    ]);
-
-    /* Send email — await so we can report success/failure to the caller */
-    let emailSent = false;
-    let emailError = null;
-    try {
-      if (issueNewCredentials) {
-        await sendCoordinatorCredentials({
-          toEmail: emailLower, toName: staffName,
-          password: tempPassword, clubName: club.name, roleLabel: meta.roleLabel,
-        });
-      } else {
-        await sendCoordinatorAssignment({
-          toEmail: emailLower, toName: staffName, clubName: club.name, roleLabel: meta.roleLabel,
-        });
-      }
-      emailSent = true;
-    } catch (err) {
-      emailError = err.message;
-      console.warn(`${meta.label} email failed:`, err.message);
-    }
-
-    res.json({
-      isNewUser,
-      isPromotion,
-      emailSent,
-      emailError: emailError || undefined,
-      credentials: {
-        name:      staffName,
-        email:     emailLower,
-        password:  tempPassword,
-        clubName:  club.name,
-      },
-      message: isPromotion
-        ? `${staffName} was promoted to Faculty Coordinator of ${club.name} — their Student Coordinator access has been revoked${emailSent ? ` and new login credentials were sent to ${emailLower}` : ', but the credentials email could not be sent — share the new password manually'}.`
-        : isNewUser
-        ? `${meta.label} account created${emailSent ? `. Credentials sent to ${emailLower}` : ' — email could not be sent, share credentials manually'}.`
-        : `${staffName} added as ${meta.label.toLowerCase()} of ${club.name}${emailSent ? `. Confirmation sent to ${emailLower}` : ' — email could not be sent'}.`,
-    });
+    const { ok, status, staffName, ...responseBody } = result;
+    res.json(responseBody);
 
     /* Only ever fires for a Student Coordinator change made by that club's own
        Faculty Coordinator — admin assigning either role doesn't need to notify
        itself, and notifyAdminsOfClubChange already no-ops for an admin actor. */
     if (role === 'coordinator') {
-      notifyAdminsOfClubChange(req, clubId, `set ${staffName} as the Student Coordinator`).catch(() => {});
+      notifyAdminsOfClubChange(req, req.params.id, `set ${staffName} as the Student Coordinator`).catch(() => {});
     }
   } catch (err) {
     if (err.code === '23505') {
