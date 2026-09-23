@@ -307,6 +307,7 @@ const Events = () => {
   const { user } = useAuth();
   const [filter, setFilter] = useState('all');
   const [linkedEventMissing, setLinkedEventMissing] = useState(false);
+  const [linkedEventClosed, setLinkedEventClosed] = useState(null); // null | the event's title
   const [copiedEventKey, setCopiedEventKey] = useState(null);
   const linkHandledRef = useRef(false);
   /* Start empty (not the static demo array) so a real admin-uploaded image is the ONLY
@@ -633,6 +634,7 @@ const Events = () => {
     linkHandledRef.current = true;
     const target = events.find(e => String(e.id) === String(linkedEventId));
     if (!target) { setLinkedEventMissing(true); return; }
+    if (target.registrationClosed) { setLinkedEventClosed(target.title); return; }
     openReg(target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkedEventId, events, eventsLoading]);
@@ -750,6 +752,15 @@ const Events = () => {
         <div className="wrap" style={{ marginTop: 16 }}>
           <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', color: '#be123c', padding: '12px 16px', borderRadius: 10, fontSize: 14, fontWeight: 600 }}>
             ⚠️ That event link isn't valid — it may have been removed or the link was mistyped. Browse all events below instead.
+          </div>
+        </div>
+      )}
+
+      {/* ── LINKED EVENT'S REGISTRATION IS CLOSED ── */}
+      {linkedEventClosed && (
+        <div className="wrap" style={{ marginTop: 16 }}>
+          <div style={{ background: '#f3f4f6', border: '1px solid #e5e7eb', color: '#4b5563', padding: '12px 16px', borderRadius: 10, fontSize: 14, fontWeight: 600 }}>
+            Registration closed — "{linkedEventClosed}" is no longer accepting sign-ups.
           </div>
         </div>
       )}
