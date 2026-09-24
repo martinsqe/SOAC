@@ -370,9 +370,6 @@
   font-size: .72rem;
   color: #9ca3af;
   margin: 2px 0 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .sideBadge {
@@ -611,9 +608,6 @@
   font-size: .72rem;
   color: #9ca3af;
   max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* ── Empty state ─────────────────────────────────────────── */

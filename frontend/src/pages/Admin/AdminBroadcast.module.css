@@ -819,9 +819,6 @@
   font-size: .75rem;
   color: #9ca3af;
   max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* ── Modal overlay & container ───────────────────────────── */

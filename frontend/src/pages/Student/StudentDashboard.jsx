@@ -5,6 +5,35 @@ import api from '../../api/client';
 import { eventStatus } from '../MyActivity/activityUtils';
 import s from './StudentDashboard.module.css';
 
+/* Long description cut to `limit` characters with an inline "…read more"
+   that expands the full text in place (and "show less" to collapse it). */
+function ReadMore({ text, limit = 150, as = 'p', className, style }) {
+  const [open, setOpen] = useState(false);
+  const Tag = as;
+  if (!text) return null;
+  const full = String(text).trim();
+  const long = full.length > limit;
+  let preview = full.slice(0, limit);
+  const cut = preview.lastIndexOf(' ');
+  if (cut > limit * 0.6) preview = preview.slice(0, cut);
+  preview = preview.replace(/[\s.,;:!?-]+$/, '');
+  return (
+    <Tag className={className} style={{ whiteSpace: 'pre-line', overflowWrap: 'anywhere', ...style }}>
+      {open || !long ? full : preview + '…'}
+      {long && (
+        <>
+          {' '}
+          <button type="button" aria-expanded={open}
+            onClick={e => { e.preventDefault(); e.stopPropagation(); setOpen(o => !o); }}
+            style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontWeight: 700, color: '#635BFF', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            {open ? 'show less' : 'read more'}
+          </button>
+        </>
+      )}
+    </Tag>
+  );
+}
+
 /* ── College calendar type metadata ── */
 const CAL_TYPE_META = {
   event:    { label: 'Event',    color: '#635BFF', bg: '#f0f0ff' },
@@ -293,7 +322,7 @@ export default function StudentDashboard() {
                   </div>
                   <div className={s.calInfo}>
                     <div className={s.calTitle}>{ev.title}</div>
-                    {ev.description && <div className={s.calDesc}>{ev.description}</div>}
+                    <ReadMore as="div" className={s.calDesc} text={ev.description} limit={100} />
                   </div>
                   <span className={s.calTypeBadge}
                     style={{ background: meta.bg, color: meta.color }}>

@@ -8,6 +8,36 @@ import s from './CoordSubPage.module.css';
 import es from './CoordEvents.module.css';
 import TournamentBracket from '../../components/TournamentBracket/TournamentBracket';
 
+/* Long description cut to `limit` characters with an inline "…read more"
+   that expands the full text in place (and "show less" to collapse it). */
+function ReadMore({ text, limit = 150, as = 'p', className, style }) {
+  const [open, setOpen] = useState(false);
+  const Tag = as;
+  if (!text) return null;
+  const full = String(text).trim();
+  const long = full.length > limit;
+  let preview = full.slice(0, limit);
+  const cut = preview.lastIndexOf(' ');
+  if (cut > limit * 0.6) preview = preview.slice(0, cut);
+  preview = preview.replace(/[\s.,;:!?-]+$/, '');
+  return (
+    <Tag className={className} style={{ whiteSpace: 'pre-line', overflowWrap: 'anywhere', ...style }}>
+      {open || !long ? full : preview + '…'}
+      {long && (
+        <>
+          {' '}
+          <button type="button" aria-expanded={open}
+            onClick={e => { e.preventDefault(); e.stopPropagation(); setOpen(o => !o); }}
+            style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontWeight: 700, color: '#635BFF', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            {open ? 'show less' : 'read more'}
+          </button>
+        </>
+      )}
+    </Tag>
+  );
+}
+
+
 /* ── Status helpers ──
    A Student Coordinator's request goes to their club's Faculty Coordinator
    first ('pending_fc'); only once approved there does it reach admin
@@ -1358,7 +1388,7 @@ export default function CoordEvents() {
                       {st.label}
                     </span>
                   </div>
-                  <p className={es.reqDesc}>{req.description.slice(0, 140)}{req.description.length > 140 ? '…' : ''}</p>
+                  <ReadMore className={es.reqDesc} text={req.description} limit={140} />
                   <div className={es.reqMeta}>
                     <span>Submitted by: {req.coordinatorName}</span>
                     {req.startDate && <span>Date: {fmtDate(req.startDate)}</span>}
@@ -1486,7 +1516,7 @@ export default function CoordEvents() {
                       {st.label}
                     </span>
                   </div>
-                  <p className={es.reqDesc}>{req.description.slice(0, 140)}{req.description.length > 140 ? '…' : ''}</p>
+                  <ReadMore className={es.reqDesc} text={req.description} limit={140} />
                   <div className={es.reqMeta}>
                     {req.startDate && <span>Date: {fmtDate(req.startDate)}</span>}
                     {req.time      && <span>Time: {req.time}</span>}
@@ -1613,7 +1643,7 @@ export default function CoordEvents() {
                     </div>
                   </div>
                   {ev.description && (
-                    <p className={s.desc}>{ev.description.slice(0, 120)}{ev.description.length > 120 ? '…' : ''}</p>
+                    <ReadMore className={s.desc} text={ev.description} limit={120} />
                   )}
                   <div className={s.meta}>
                     <span>Date: {fmtDate(ev.startDate || ev.date)}</span>

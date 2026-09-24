@@ -2,6 +2,35 @@ import { useState, useEffect, useCallback } from 'react';
 import api from '../../api/client';
 import s from './AdminBroadcast.module.css';
 
+/* Long description cut to `limit` characters with an inline "…read more"
+   that expands the full text in place (and "show less" to collapse it). */
+function ReadMore({ text, limit = 150, as = 'p', className, style }) {
+  const [open, setOpen] = useState(false);
+  const Tag = as;
+  if (!text) return null;
+  const full = String(text).trim();
+  const long = full.length > limit;
+  let preview = full.slice(0, limit);
+  const cut = preview.lastIndexOf(' ');
+  if (cut > limit * 0.6) preview = preview.slice(0, cut);
+  preview = preview.replace(/[\s.,;:!?-]+$/, '');
+  return (
+    <Tag className={className} style={{ whiteSpace: 'pre-line', overflowWrap: 'anywhere', ...style }}>
+      {open || !long ? full : preview + '…'}
+      {long && (
+        <>
+          {' '}
+          <button type="button" aria-expanded={open}
+            onClick={e => { e.preventDefault(); e.stopPropagation(); setOpen(o => !o); }}
+            style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontWeight: 700, color: '#635BFF', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            {open ? 'show less' : 'read more'}
+          </button>
+        </>
+      )}
+    </Tag>
+  );
+}
+
 /* ── Shared constants ─────────────────────────────────────────────────── */
 const ANNOUNCE_TAGS  = ['Announcement','Event','Achievement','Update','Important','Deadline','Finance'];
 const TAG_COLOR = {
@@ -572,7 +601,7 @@ function PlannerTab({ showToast }) {
                           <span className={s.plannerItemDate}>
                             {fmtDate(ev.startDate)}{ev.endDate ? ` → ${fmtDate(ev.endDate)}` : ''}
                           </span>
-                          {ev.description && <span className={s.plannerItemDesc}>{ev.description}</span>}
+                          <ReadMore as="span" className={s.plannerItemDesc} text={ev.description} limit={70} />
                         </div>
                       </div>
                     );

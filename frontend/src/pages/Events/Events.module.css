@@ -480,10 +480,6 @@
   line-height: 1.5;
   color: var(--mid);
   margin: 0 0 12px;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 
 .upCardMeta {

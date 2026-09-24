@@ -4,6 +4,36 @@ import { fetchAllPages } from '../../utils/pagination';
 import CertTemplateEditor from '../../components/CertTemplateEditor/CertTemplateEditor';
 import s from './AdminEvents.module.css';
 
+/* Long description cut to `limit` characters with an inline "…read more"
+   that expands the full text in place (and "show less" to collapse it). */
+function ReadMore({ text, limit = 150, as = 'p', className, style }) {
+  const [open, setOpen] = useState(false);
+  const Tag = as;
+  if (!text) return null;
+  const full = String(text).trim();
+  const long = full.length > limit;
+  let preview = full.slice(0, limit);
+  const cut = preview.lastIndexOf(' ');
+  if (cut > limit * 0.6) preview = preview.slice(0, cut);
+  preview = preview.replace(/[\s.,;:!?-]+$/, '');
+  return (
+    <Tag className={className} style={{ whiteSpace: 'pre-line', overflowWrap: 'anywhere', ...style }}>
+      {open || !long ? full : preview + '…'}
+      {long && (
+        <>
+          {' '}
+          <button type="button" aria-expanded={open}
+            onClick={e => { e.preventDefault(); e.stopPropagation(); setOpen(o => !o); }}
+            style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontWeight: 700, color: '#635BFF', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            {open ? 'show less' : 'read more'}
+          </button>
+        </>
+      )}
+    </Tag>
+  );
+}
+
+
 const CATS   = ['tech','sports','cultural','annual-fest','health','leadership','community','general'];
 const STATUS = ['upcoming','past'];
 
@@ -104,6 +134,8 @@ function EventCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg }) {
       <div className={s.cardBody}>
         <div className={s.cardTitle}>{ev.title}</div>
         <div className={s.cardClub}>Organizer: {ev.club || 'No organizer'}</div>
+        <ReadMore as="div" text={ev.description} limit={100}
+          style={{ fontSize: '.8rem', color: '#6b7280', lineHeight: 1.45, margin: '4px 0 6px' }} />
         <div className={s.cardMeta}>
           {ev.date && <span>Date: {ev.date}</span>}
           {ev.venue && <span>Venue: {ev.venue}</span>}
@@ -169,6 +201,8 @@ function SportsFiestaCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg }) {
       <div className={s.cardBody}>
         <div className={s.cardTitle}>{ev.title}</div>
         <div className={s.cardClub}>Organizer: {ev.club || 'No organizer'}</div>
+        <ReadMore as="div" text={ev.description} limit={100}
+          style={{ fontSize: '.8rem', color: '#6b7280', lineHeight: 1.45, margin: '4px 0 6px' }} />
         <div className={s.cardMeta}>
           {ev.date && <span>Date: {ev.date}</span>}
           {ev.venue && <span>Venue: {ev.venue}</span>}
@@ -1283,6 +1317,8 @@ export default function AdminEvents() {
                     </div>
                     <div className={s.cardBody}>
                       <div className={s.cardTitle}>{ev.title}</div>
+                      <ReadMore as="div" text={ev.description} limit={100}
+                        style={{ fontSize: '.8rem', color: '#6b7280', lineHeight: 1.45, margin: '4px 0 6px' }} />
                       <div className={s.cardMeta}>
                         {ev.date && <span>Date: {ev.date}</span>}
                         {ev.venue && <span>Venue: {ev.venue}</span>}
@@ -1389,9 +1425,8 @@ export default function AdminEvents() {
                   </div>
 
                   {/* Description */}
-                  <p style={{ fontSize:'.83rem', color:'#4b5563', lineHeight:1.5, margin:'0 0 10px' }}>
-                    {req.description.slice(0, 200)}{req.description.length > 200 ? '…' : ''}
-                  </p>
+                  <ReadMore text={req.description} limit={200}
+                    style={{ fontSize:'.83rem', color:'#4b5563', lineHeight:1.5, margin:'0 0 10px' }} />
 
                   {/* Details row */}
                   <div style={{ display:'flex', flexWrap:'wrap', gap:'8px 18px', fontSize:'.78rem', color:'#6b7280' }}>

@@ -5,6 +5,35 @@ import { useCoordClub } from '../../context/CoordClubContext';
 import api from '../../api/client';
 import s from './CoordDashboard.module.css';
 
+/* Long description cut to `limit` characters with an inline "…read more"
+   that expands the full text in place (and "show less" to collapse it). */
+function ReadMore({ text, limit = 150, as = 'p', className, style }) {
+  const [open, setOpen] = useState(false);
+  const Tag = as;
+  if (!text) return null;
+  const full = String(text).trim();
+  const long = full.length > limit;
+  let preview = full.slice(0, limit);
+  const cut = preview.lastIndexOf(' ');
+  if (cut > limit * 0.6) preview = preview.slice(0, cut);
+  preview = preview.replace(/[\s.,;:!?-]+$/, '');
+  return (
+    <Tag className={className} style={{ whiteSpace: 'pre-line', overflowWrap: 'anywhere', ...style }}>
+      {open || !long ? full : preview + '…'}
+      {long && (
+        <>
+          {' '}
+          <button type="button" aria-expanded={open}
+            onClick={e => { e.preventDefault(); e.stopPropagation(); setOpen(o => !o); }}
+            style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontWeight: 700, color: '#635BFF', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            {open ? 'show less' : 'read more'}
+          </button>
+        </>
+      )}
+    </Tag>
+  );
+}
+
 const AVS = [
   'linear-gradient(135deg,#3DDC84,#635BFF)',
   'linear-gradient(135deg,#FF6B35,#FFD166)',
@@ -333,7 +362,7 @@ export default function CoordDashboard() {
                   </div>
                   <div className={s.calItemInfo}>
                     <div className={s.calItemTitle}>{ev.title}</div>
-                    {ev.description && <div className={s.calItemDesc}>{ev.description}</div>}
+                    <ReadMore as="div" className={s.calItemDesc} text={ev.description} limit={100} />
                   </div>
                   <span className={s.calItemBadge}
                     style={{ background: meta.bg, color: meta.color }}>{meta.label}</span>
