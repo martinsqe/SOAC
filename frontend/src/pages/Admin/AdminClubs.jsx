@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import api from '../../api/client';
+import ProposalDetails from './ProposalDetails';
+import { formatDate } from './proposalUtils';
 import s from './AdminClubs.module.css';
 
 const CATS = ['sports', 'cultural', 'social', 'academic'];
@@ -205,7 +208,64 @@ export default function AdminClubs() {
     setError('');
     setModal('edit');
   };
-  const closeModal = () => { setModal(false); setLogoFile(null); setLogoPreview(''); setError(''); };
+  /* ── Creating a club from a proposal (Approvals → "Review & Create") ──
+     /admin/clubs?proposal=<id> opens the Add form pre-filled from what the
+     proposer submitted, so admin can add the logo, verify and correct
+     everything, and create the club — which also approves the proposal. */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const proposalParam = searchParams.get('proposal');
+  const [proposal,     setProposal]     = useState(null);
+  const [showApp,      setShowApp]      = useState(true);
+  const [notice,       setNotice]       = useState('');
+
+  const clearProposal = () => {
+    setProposal(null);
+    if (searchParams.has('proposal')) {
+      searchParams.delete('proposal');
+      setSearchParams(searchParams, { replace: true });
+    }
+  };
+
+  useEffect(() => {
+    if (!proposalParam) return;
+    api.get(`/club-proposals/${proposalParam}`)
+      .then(({ proposal: p }) => {
+        if (p.status !== 'pending') {
+          setError(`The proposal for "${p.club_name}" was already ${p.status}.`);
+          clearProposal();
+          return;
+        }
+        const d = p.details || {};
+        setForm({
+          ...EMPTY,
+          name:        p.club_name || '',
+          category:    CATS.includes(p.category) ? p.category : 'academic',
+          color:       p.color || '#635BFF',
+          description: p.description || '',
+          foundedYear: p.founded_year || String(new Date().getFullYear()),
+          coordinator: d.advisor?.Name || '',
+          vision:      p.vision || '',
+          schedule:    p.schedule || '',
+          rules:       (p.rules || []).join('\n'),
+          tags:        JSON.stringify(p.tags || []),
+          fcName:      d.advisor?.Name || '',
+          fcEmail:     d.advisor?.Email || '',
+          scName:      d.coordinator?.Name || '',
+          scEmail:     d.coordinator?.Email || '',
+          proposalId:  String(p.id),
+        });
+        setProposal(p);
+        setShowApp(true);
+        setEditingId(null); setLogoFile(null); setLogoPreview(''); setError('');
+        setModal('add');
+      })
+      .catch(err => { setError(err.message); clearProposal(); });
+  }, [proposalParam]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const closeModal = () => {
+    setModal(false); setLogoFile(null); setLogoPreview(''); setError('');
+    if (proposal) clearProposal();
+  };
 
   const handleFile = (e) => {
     const f = e.target.files[0];
@@ -237,15 +297,30 @@ export default function AdminClubs() {
         if (failures.length) alert(`Club created, but: ${failures.join(' ')} You can assign this from the club's card.`);
         const queued = [res.fc, res.sc]
           .filter(r => r?.ok && r.credentials)
-          .map(r => ({ ...r.credentials, emailSent: r.emailSent, roleLabel: r === res.fc ? 'Faculty Coordinator' : 'Student Coordinator' }));
+          .map(r => ({ ...r.credentials, emailSent: r.emailSent, emailPending: r.emailPending, roleLabel: r === res.fc ? 'Faculty Coordinator' : 'Student Coordinator' }));
         if (queued.length) showCredsQueue(queued);
+        if (proposal) {
+          setNotice(`"${res.club?.name || form.name}" created and the proposal approved${proposal.proposed_by_id ? ` — ${proposal.proposed_by_name} has been notified` : ''}.`);
+          setTimeout(() => setNotice(''), 6000);
+          window.dispatchEvent(new Event('soac:approvals-changed'));
+        }
       } else {
         await api.putForm(`/clubs/${editingId}`, fd);
       }
       closeModal();
       load();
     } catch (err) {
-      setError(err.message);
+      /* The club already exists for this proposal (e.g. created in another tab
+         or by another admin) — nothing left to do here, so close and show it. */
+      if (proposal && /already approved/i.test(err.message)) {
+        closeModal();
+        load();
+        setNotice(err.message);
+        setTimeout(() => setNotice(''), 8000);
+        window.dispatchEvent(new Event('soac:approvals-changed'));
+      } else {
+        setError(err.message);
+      }
     } finally {
       setSaving(false);
     }
@@ -317,7 +392,7 @@ export default function AdminClubs() {
       });
       closeAssignCoord();
       load();
-      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, roleLabel: 'Student Coordinator' });
+      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, emailPending: res.emailPending, roleLabel: 'Student Coordinator' });
     } catch (err) {
       setCoordError(err.message || 'Failed to assign coordinator.');
     } finally {
@@ -366,7 +441,7 @@ export default function AdminClubs() {
       });
       closeAssignFC();
       load();
-      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, roleLabel: 'Faculty Coordinator', isPromotion: res.isPromotion });
+      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, emailPending: res.emailPending, roleLabel: 'Faculty Coordinator', isPromotion: res.isPromotion });
     } catch (err) {
       setFcError(err.message || 'Failed to assign Faculty Coordinator.');
     } finally {
@@ -551,7 +626,10 @@ export default function AdminClubs() {
                     borderRadius:4, padding:'10px 14px', marginBottom:18,
                     fontSize:12, color:'#92400e', lineHeight:1.6,
                   }}>
-                    A credentials email was sent to <strong>{creds.email}</strong>. They should change their password on first login.
+                    {creds.emailPending
+                      ? <>A credentials email is being sent to <strong>{creds.email}</strong> — this can take a minute. Note the password above in case it doesn't arrive.</>
+                      : <>A credentials email was sent to <strong>{creds.email}</strong>.</>}
+                    {' '}They should change their password on first login.
                   </div>
                 )}
               </>
@@ -583,7 +661,7 @@ export default function AdminClubs() {
                     borderRadius:4, padding:'10px 14px', marginBottom:18,
                     fontSize:12, color:'#1e40af', lineHeight:1.6,
                   }}>
-                    A confirmation email was sent to <strong>{creds.email}</strong> notifying them of the new club assignment.
+                    A confirmation email {creds.emailPending ? 'is being sent' : 'was sent'} to <strong>{creds.email}</strong> notifying them of the new club assignment.
                   </div>
                 )}
               </>
@@ -646,6 +724,11 @@ export default function AdminClubs() {
 
       {/* ── Content ── */}
       {error && !modal && <div className={s.errorBar}>{error}</div>}
+      {notice && (
+        <div className={s.errorBar} style={{ background:'#f0fdf4', borderColor:'#bbf7d0', color:'#15803d' }}>
+          ✓ {notice}
+        </div>
+      )}
 
       {loading ? (
         <div className={s.grid}>
@@ -894,22 +977,52 @@ export default function AdminClubs() {
       {/* ══ Add / Edit Modal ══ */}
       {modal && (
         <div className={s.overlay} onClick={closeModal}>
-          <div className={s.modal} onClick={e => e.stopPropagation()}>
+          <div className={s.modal} onClick={e => e.stopPropagation()} style={proposal ? { maxWidth: 760 } : undefined}>
             <div className={s.modalHeader}>
               <div>
-                <div className={s.modalTag}>{modal === 'add' ? 'New Club' : 'Edit Club'}</div>
-                <h2 className={s.modalTitle}>{modal === 'add' ? 'Add New Club' : form.name || 'Edit Club'}</h2>
+                <div className={s.modalTag}>{proposal ? 'Create Club from Proposal' : modal === 'add' ? 'New Club' : 'Edit Club'}</div>
+                <h2 className={s.modalTitle}>{modal === 'add' ? (proposal ? form.name || 'New Club' : 'Add New Club') : form.name || 'Edit Club'}</h2>
               </div>
               <button className={s.closeBtn} onClick={closeModal}>✕</button>
             </div>
 
             <form onSubmit={handleSave} className={s.form}>
+              {/* Proposal reference — what the proposer originally submitted */}
+              {proposal && (
+                <div style={{ border: '1px solid #ddd6fe', background: '#f8f7ff', borderRadius: 10, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#1f1a4d' }}>
+                        Proposed by {proposal.proposed_by_name}
+                        <span style={{ fontWeight: 400, color: '#6b7280' }}> · {proposal.proposed_by_email}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                        Submitted {formatDate(proposal.created_at)}. The form below is pre-filled from this application. Add the logo, check every field and fix anything that's wrong before creating.
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => setShowApp(v => !v)}
+                      style={{ border: '1.5px solid #c4b5fd', background: '#fff', color: '#5b21b6', fontWeight: 700,
+                        fontSize: 12, padding: '6px 12px', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      {showApp ? 'Hide application ▴' : 'Show application ▾'}
+                    </button>
+                  </div>
+                  {showApp && (
+                    <div style={{ maxHeight: 320, overflowY: 'auto', padding: '0 14px 14px' }}>
+                      <ProposalDetails p={proposal} />
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Logo upload */}
               <div className={s.logoSection}>
                 <div
                   className={s.logoBox}
                   onClick={() => fileRef.current.click()}
-                  style={{ borderColor: form.color + '60', background: form.color + '0a' }}
+                  style={{
+                    borderColor: form.color + '60', background: form.color + '0a',
+                    ...(proposal && !logoPreview ? { borderStyle: 'dashed', borderWidth: 2 } : {}),
+                  }}
                 >
                   {logoPreview
                     ? <img src={logoPreview} alt="preview" className={s.logoImg} />
@@ -919,7 +1032,11 @@ export default function AdminClubs() {
                   }
                 </div>
                 <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFile} />
-                <div className={s.logoHint}>JPG, PNG, WEBP · max 5 MB</div>
+                <div className={s.logoHint}>
+                  {proposal && !logoPreview
+                    ? <span style={{ color: '#b45309', fontWeight: 600 }}>Proposals don't include a logo, so upload one here · JPG, PNG, WEBP · max 5 MB</span>
+                    : 'JPG, PNG, WEBP · max 5 MB'}
+                </div>
               </div>
 
               <div className={s.row2}>
@@ -969,6 +1086,24 @@ export default function AdminClubs() {
                 <textarea rows={3} value={form.description} onChange={sf('description')} placeholder="Short description of the club…" />
               </div>
 
+              {/* Extra fields only a proposal carries — shown so admin can correct them too */}
+              {proposal && (<>
+                <div className={s.field}>
+                  <label>Vision / Objectives</label>
+                  <textarea rows={3} value={form.vision} onChange={sf('vision')} placeholder="What the club aims to achieve…" />
+                </div>
+                <div className={s.row2}>
+                  <div className={s.field}>
+                    <label>Meeting Schedule</label>
+                    <textarea rows={2} value={form.schedule} onChange={sf('schedule')} placeholder="e.g. Fridays 4pm, Lab 203" />
+                  </div>
+                  <div className={s.field}>
+                    <label>Rules <span style={{ fontWeight: 400, color: '#9ca3af' }}>(one per line)</span></label>
+                    <textarea rows={2} value={form.rules} onChange={sf('rules')} />
+                  </div>
+                </div>
+              </>)}
+
               {/* Assign real FC/SC accounts at creation time — optional. Same
                   account creation-or-reuse + credentials-email flow as the
                   Assign FC / Assign Coordinator actions on the club card;
@@ -983,6 +1118,11 @@ export default function AdminClubs() {
                     <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
                       Optional — leave blank to assign later from the club's card. Each gets a real account and a credentials email.
                     </div>
+                    {proposal && (
+                      <div style={{ fontSize: 11.5, color: '#92400e', background: '#fffbeb', borderRadius: 6, padding: '6px 10px', marginTop: 8 }}>
+                        Pre-filled with the faculty advisor and coordinator named in the proposal. Check that the names and @rku.ac.in emails are correct, or clear them to skip.
+                      </div>
+                    )}
                   </div>
 
                   <div className={s.row2}>
@@ -1014,7 +1154,11 @@ export default function AdminClubs() {
               <div className={s.modalFooter}>
                 <button type="button" className={s.cancelBtn} onClick={closeModal}>Cancel</button>
                 <button type="submit" className={s.saveBtn} disabled={saving}>
-                  {saving ? 'Saving…' : modal === 'add' ? 'Create Club' : 'Save Changes'}
+                  {saving
+                    ? (modal === 'add' && (logoFile || form.fcEmail?.trim() || form.scEmail?.trim())
+                        ? 'Creating — uploading logo & setting up accounts…'
+                        : 'Saving…')
+                    : proposal ? 'Create Club & Approve Proposal' : modal === 'add' ? 'Create Club' : 'Save Changes'}
                 </button>
               </div>
             </form>

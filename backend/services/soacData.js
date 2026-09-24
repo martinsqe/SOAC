@@ -739,6 +739,12 @@ const ensureSoacTables = async () => {
   `);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_club_proposals_status ON club_proposals(status)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_club_proposals_user   ON club_proposals(proposed_by_id)`);
+  /* Full application from the public 5-step form (applicant, faculty advisor,
+     coordinator, objectives, activity plan…) — kept as JSON so admin can review
+     everything submitted without a column per form field. */
+  await pgPool.query(`ALTER TABLE club_proposals ADD COLUMN IF NOT EXISTS details JSONB NOT NULL DEFAULT '{}'::jsonb`).catch(() => {});
+  /* The club an approved proposal became (set when admin creates it from the Clubs page) */
+  await pgPool.query(`ALTER TABLE club_proposals ADD COLUMN IF NOT EXISTS club_id BIGINT REFERENCES clubs(id) ON DELETE SET NULL`).catch(() => {});
 
   /* ── College events calendar & year planner ─────────────────────────────── */
   await pgPool.query(`

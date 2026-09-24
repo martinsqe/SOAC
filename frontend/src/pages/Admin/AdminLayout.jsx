@@ -75,6 +75,22 @@ export default function AdminLayout() {
     return () => clearInterval(t);
   }, []);
 
+  /* Pending approvals (club proposals + join requests) — polled every 20 s, and
+     refreshed instantly when AdminApprovals approves/rejects something. */
+  const [pendingApprovals, setPendingApprovals] = useState(0);
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const d = await api.get('/club-proposals/counts');
+        setPendingApprovals((d.proposals?.pending || 0) + (d.joinRequests?.pending || 0));
+      } catch (_) {}
+    };
+    load();
+    const t = setInterval(load, 20000);
+    window.addEventListener('soac:approvals-changed', load);
+    return () => { clearInterval(t); window.removeEventListener('soac:approvals-changed', load); };
+  }, []);
+
   /* Clear badge immediately when admin opens Notifications */
   useEffect(() => {
     if (location.pathname.startsWith('/admin/notifications')) setUnreadNotifs(0);
@@ -158,6 +174,11 @@ export default function AdminLayout() {
                 {to === '/admin/chats' && unreadDMs > 0 && (
                   <span className={styles.navBadge}>
                     {unreadDMs > 99 ? '99+' : unreadDMs}
+                  </span>
+                )}
+                {to === '/admin/approvals' && pendingApprovals > 0 && (
+                  <span className={styles.navBadge} title="Pending club proposals + join requests">
+                    {pendingApprovals > 99 ? '99+' : pendingApprovals}
                   </span>
                 )}
                 {to === '/admin/notifications' && unreadNotifs > 0 && (

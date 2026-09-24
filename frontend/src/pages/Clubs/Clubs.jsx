@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useStats } from '../../context/StatsContext';
 import styles from './Clubs.module.css';
 import JoinModal from '../../components/JoinModal/JoinModal';
+import api from '../../api/client';
 
 /* ── Club data (all 40 logos mapped) ─────────────────── */
 const ALL_CLUBS = [
@@ -141,7 +142,71 @@ const ProposeModal = ({ onClose }) => {
   );
   const g2 = (children) => <div className={styles.mg2}>{children}</div>;
 
-  const handleSubmit = () => setSubmitted(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    setStepError('');
+    const f = Object.fromEntries(Object.entries(form).map(([k, v]) => [k, v.trim()]));
+    try {
+      await api.post('/club-proposals', {
+        club_name:       f.clubName,
+        category:        f.clubCategory.toLowerCase(),
+        description:     f.clubDesc,
+        vision:          f.clubObjectives,
+        schedule:        f.meetingFreq,
+        applicant_name:  `${f.fname} ${f.lname}`,
+        applicant_email: f.email,
+        details: {
+          organization: {
+            'Type of Organization':  f.orgType,
+            'Nature of Affiliation': f.affiliation,
+            'Parent Organization':   f.extName,
+            'Parent Org Details':    f.extDetail,
+          },
+          applicant: {
+            'Name':              `${f.fname} ${f.lname}`,
+            'Enrollment Number': f.enroll,
+            'Academic Term':     f.term,
+            'School / Faculty':  f.school,
+            'Branch / Program':  f.branch,
+            'Email':             f.email,
+            'Contact Number':    f.phone,
+            'Co-Applicants':     f.otherApplicants,
+          },
+          advisor: {
+            'Name':             `${f.advFname} ${f.advLname}`,
+            'School':           f.advSchool,
+            'Department':       f.advDept,
+            'Specialization':   f.advSpec,
+            'Experience':       f.advExp,
+            'Email':            f.advEmail,
+            'Contact Number':   f.advPhone,
+            'Consent Letter':   f.advConsent,
+            'Other Advisors':   f.otherAdvisors,
+          },
+          coordinator: {
+            'Name':             `${f.coordFname} ${f.coordLname}`.trim(),
+            'School / Faculty': f.coordSchool,
+            'Branch / Program': f.coordBranch,
+            'Enrollment No':    f.coordEnroll,
+            'Email':            f.coordEmail,
+          },
+          plan: {
+            'Expected Membership':   f.clubSize,
+            'Meeting Frequency':     f.meetingFreq,
+            'First-Year Events':     f.eventPlan,
+            'Resource Requirements': f.resourceReq,
+          },
+        },
+      });
+      setSubmitted(true);
+    } catch (err) {
+      setStepError(err.message || 'Could not submit your application. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (submitted) return (
     <div className={styles.modalBackdrop} onClick={onClose}>
@@ -352,7 +417,7 @@ const ProposeModal = ({ onClose }) => {
               <div className={styles.mreview}>
                 {[
                   { label: 'Club Name', value: form.clubName },
-                  { label: 'Category', value: form.orgType },
+                  { label: 'Category', value: form.clubCategory },
                   { label: 'Applicant', value: `${form.fname} ${form.lname}` },
                   { label: 'Enrollment', value: form.enroll },
                   { label: 'School', value: form.school },
@@ -391,7 +456,9 @@ const ProposeModal = ({ onClose }) => {
                 setStepError('');
                 setStep(s => s + 1);
               }}>Continue →</button>
-            : <button className="btr" onClick={handleSubmit}>Submit Application</button>
+            : <button className="btr" onClick={handleSubmit} disabled={submitting}>
+                {submitting ? 'Submitting…' : 'Submit Application'}
+              </button>
           }
         </div>
       </div>

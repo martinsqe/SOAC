@@ -1,7 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { fetchAllPages } from '../../utils/pagination';
 import s from '../Coordinator/CoordSubPage.module.css';
+import ProposalDetails from './ProposalDetails';
+import { proposalAccent, formatDate } from './proposalUtils';
 
 /* ── shared helpers ── */
 const AVS = [
@@ -11,8 +14,6 @@ const AVS = [
   'linear-gradient(135deg,#FF6B9D,#FF9500)',
   'linear-gradient(135deg,#06D6A0,#00E5FF)',
 ];
-const CATS = ['sports', 'cultural', 'social', 'academic'];
-const CAT_COLORS = { sports:'#ff4757', cultural:'#ff6b9d', social:'#06d6a0', academic:'#635bff' };
 
 function initials(name = '') {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -29,12 +30,31 @@ function timeAgo(dateStr) {
 function statusColor(st) {
   return st === 'approved' ? '#16a34a' : st === 'declined' || st === 'rejected' ? '#ef4444' : '#635BFF';
 }
+/* Lets the sidebar badge (AdminLayout) and this page's tab counts refresh
+   right after an approve/reject instead of waiting for the next poll. */
+const approvalsChanged = () => window.dispatchEvent(new Event('soac:approvals-changed'));
+
+const countPill = (n) => n > 0 && (
+  <span style={{ marginLeft:6, fontSize:11, fontWeight:800, padding:'1px 7px', borderRadius:10,
+    background:'#ef4444', color:'#fff' }}>{n > 99 ? '99+' : n}</span>
+);
 
 /* ════════════════════════════════════════════════════════════
    MAIN PAGE
 ════════════════════════════════════════════════════════════ */
 export default function AdminApprovals() {
-  const [tab, setTab] = useState('join'); // 'join' | 'proposals'
+  /* ?tab=proposals — used by the "New club proposal" notification link */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = searchParams.get('tab') === 'proposals' ? 'proposals' : 'join';
+  const setTab = (t) => setSearchParams(t === 'proposals' ? { tab: 'proposals' } : {}, { replace: true });
+
+  const [counts, setCounts] = useState(null);
+  useEffect(() => {
+    const load = () => api.get('/club-proposals/counts').then(setCounts).catch(() => {});
+    load();
+    window.addEventListener('soac:approvals-changed', load);
+    return () => window.removeEventListener('soac:approvals-changed', load);
+  }, []);
 
   return (
     <div style={{ padding: '24px 28px' }}>
@@ -48,15 +68,15 @@ export default function AdminApprovals() {
       {/* Top-level tabs */}
       <div className={s.tabs} style={{ marginBottom: 28 }}>
         <button className={`${s.tab} ${tab === 'join' ? s.tabOn : ''}`} onClick={() => setTab('join')}>
-          Join Requests
+          Join Requests{countPill(counts?.joinRequests?.pending)}
         </button>
         <button className={`${s.tab} ${tab === 'proposals' ? s.tabOn : ''}`} onClick={() => setTab('proposals')}>
-          Club Proposals
+          Club Proposals{countPill(counts?.proposals?.pending)}
         </button>
       </div>
 
       {tab === 'join'      && <JoinRequestsPanel />}
-      {tab === 'proposals' && <ClubProposalsPanel />}
+      {tab === 'proposals' && <ClubProposalsPanel counts={counts?.proposals} />}
     </div>
   );
 }
@@ -125,6 +145,7 @@ function JoinRequestsPanel() {
       if (res.newAccount && res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent });
       else showToast(res.message || 'Request approved!');
       loadRequests();
+      approvalsChanged();
     } catch (err) { showToast(`Error: ${err.message}`); }
     finally { setActionId(null); }
   };
@@ -135,6 +156,7 @@ function JoinRequestsPanel() {
       await api.post(`/requests/${req._id}/decline`, {});
       showToast('Request declined.');
       loadRequests();
+      approvalsChanged();
     } catch (err) { showToast(`Error: ${err.message}`); }
     finally { setActionId(null); }
   };
@@ -327,17 +349,57 @@ function JoinRequestsPanel() {
 /* ════════════════════════════════════════════════════════════
    CLUB PROPOSALS PANEL
 ════════════════════════════════════════════════════════════ */
-function ClubProposalsPanel() {
+const STATUS_STYLE = {
+  pending:  { bg:'#ede9fe', fg:'#5b21b6', label:'Pending review' },
+  approved: { bg:'#dcfce7', fg:'#15803d', label:'Approved' },
+  rejected: { bg:'#fee2e2', fg:'#b91c1c', label:'Rejected' },
+};
+const StatusChip = ({ status }) => {
+  const st = STATUS_STYLE[status] || STATUS_STYLE.pending;
+  return (
+    <span style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:11, fontWeight:700,
+      padding:'3px 10px', borderRadius:20, background:st.bg, color:st.fg, whiteSpace:'nowrap' }}>
+      <span style={{ width:6, height:6, borderRadius:'50%', background:st.fg }} />{st.label}
+    </span>
+  );
+};
+
+const btnPrimary = (accent = '#635BFF') => ({
+  padding:'9px 14px', borderRadius:10, border:'none', background:accent, color:'#fff',
+  fontWeight:700, fontSize:13, cursor:'pointer', whiteSpace:'nowrap',
+});
+const btnGhost = {
+  padding:'9px 14px', borderRadius:10, border:'1.5px solid #e5e7eb', background:'#fff', color:'#374151',
+  fontWeight:700, fontSize:13, cursor:'pointer', whiteSpace:'nowrap',
+};
+const btnDanger = {
+  padding:'9px 14px', borderRadius:10, border:'1.5px solid #fecaca', background:'#fff', color:'#dc2626',
+  fontWeight:700, fontSize:13, cursor:'pointer', whiteSpace:'nowrap',
+};
+
+function ClubMark({ p, size = 44 }) {
+  const accent = proposalAccent(p);
+  return (
+    <div style={{ width:size, height:size, borderRadius:size * 0.3, flexShrink:0,
+      background:`linear-gradient(135deg, ${accent}, ${accent}aa)`, color:'#fff',
+      display:'flex', alignItems:'center', justifyContent:'center',
+      fontWeight:900, fontSize:size * 0.36, letterSpacing:'.02em' }}>
+      {initials(p.club_name)}
+    </div>
+  );
+}
+
+function ClubProposalsPanel({ counts }) {
+  const navigate = useNavigate();
   const [proposals,  setProposals]  = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [filter,     setFilter]     = useState('pending');
+  const [search,     setSearch]     = useState('');
   const [toast,      setToast]      = useState('');
   const [actionId,   setActionId]   = useState(null);
-
-  /* detail/accept modal */
-  const [acceptProp,  setAcceptProp]  = useState(null); // proposal being accepted
-  const [rejectProp,  setRejectProp]  = useState(null); // proposal being rejected
-  const [rejectNote,  setRejectNote]  = useState('');
+  const [viewProp,   setViewProp]   = useState(null); // proposal whose full application is open
+  const [rejectProp, setRejectProp] = useState(null);
+  const [rejectNote, setRejectNote] = useState('');
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
 
@@ -352,422 +414,256 @@ function ClubProposalsPanel() {
 
   useEffect(() => { load(); }, [load]);
 
+  /* Review & Create happens on the Clubs page — it has the full club form with
+     logo upload and FC/SC account assignment, pre-filled from this proposal. */
+  const reviewAndCreate = (p) => navigate(`/admin/clubs?proposal=${p.id}`);
+
   const handleReject = async () => {
     if (!rejectProp) return;
     setActionId(rejectProp.id);
     try {
       await api.post(`/club-proposals/${rejectProp.id}/reject`, { note: rejectNote });
-      showToast('Proposal rejected.');
+      showToast('Proposal rejected — the proposer has been notified.');
       setRejectProp(null);
       setRejectNote('');
       load();
+      approvalsChanged();
     } catch (err) { showToast(err.message); }
     finally { setActionId(null); }
   };
 
-  const badgeStyle = (status) => ({
-    display: 'inline-block',
-    fontSize: 11, fontWeight: 700,
-    padding: '3px 10px', borderRadius: 20,
-    background: status === 'approved' ? '#dcfce7' : status === 'rejected' ? '#fee2e2' : '#ede9fe',
-    color: statusColor(status),
-    textTransform: 'capitalize',
-  });
+  const q = search.trim().toLowerCase();
+  const shown = q
+    ? proposals.filter(p => [p.club_name, p.proposed_by_name, p.proposed_by_email]
+        .some(v => v?.toLowerCase().includes(q)))
+    : proposals;
 
   return (
     <>
       {toast && (
-        <div style={{ position:'fixed', top:72, right:24, zIndex:9999,
+        <div style={{ position:'fixed', top:72, right:24, zIndex:10001,
           background:'#1a1040', color:'#fff', padding:'12px 20px',
           borderRadius:10, boxShadow:'0 4px 20px rgba(0,0,0,.25)', fontSize:14, maxWidth:340 }}>
           {toast}
         </div>
       )}
 
-      <div className={s.tabs}>
-        {['pending', 'approved', 'rejected', 'all'].map(t => (
-          <button key={t} onClick={() => setFilter(t)}
-            className={`${s.tab} ${filter === t ? s.tabOn : ''}`}>
-            {t.charAt(0).toUpperCase() + t.slice(1)}
-          </button>
-        ))}
+      <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:18 }}>
+        <div className={s.tabs} style={{ marginBottom:0 }}>
+          {['pending', 'approved', 'rejected', 'all'].map(t => (
+            <button key={t} onClick={() => setFilter(t)}
+              className={`${s.tab} ${filter === t ? s.tabOn : ''}`}>
+              {t.charAt(0).toUpperCase() + t.slice(1)}{counts ? ` (${counts[t] ?? 0})` : ''}
+            </button>
+          ))}
+        </div>
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search club or proposer…"
+          style={{ padding:'9px 14px', borderRadius:10, border:'1.5px solid #e5e7eb', fontSize:13,
+            minWidth:220, flex:'0 1 280px', outline:'none', fontFamily:'inherit' }}
+        />
       </div>
 
       {loading ? (
         <div style={{ display:'grid', gap:12 }}>
-          {[1,2,3].map(i => <div key={i} className={s.shimmer} style={{ height:120, borderRadius:15 }} />)}
+          {[1,2,3].map(i => <div key={i} className={s.shimmer} style={{ height:150, borderRadius:16 }} />)}
         </div>
-      ) : proposals.length === 0 ? (
-        <div style={{ textAlign:'center', padding:60, background:'#f8f7ff', borderRadius:20 }}>
-          <p style={{ color:'#6b7280' }}>No {filter !== 'all' ? filter : ''} proposals found.</p>
+      ) : shown.length === 0 ? (
+        <div style={{ textAlign:'center', padding:'56px 20px', background:'#f8f7ff', borderRadius:20 }}>
+          <div style={{ fontSize:34, marginBottom:8 }}>📭</div>
+          <div style={{ fontWeight:800, color:'#0f0a2e', marginBottom:4 }}>
+            {q ? 'No proposals match your search' : `No ${filter !== 'all' ? filter : ''} proposals`}
+          </div>
+          <p style={{ color:'#6b7280', margin:0, fontSize:13 }}>
+            New club proposals from students and visitors will appear here.
+          </p>
         </div>
       ) : (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(360px, 1fr))', gap:16 }}>
-          {proposals.map((p, i) => {
-            const accent = p.color || CAT_COLORS[p.category] || '#635BFF';
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(min(100%, 380px), 1fr))', gap:16 }}>
+          {shown.map(p => {
+            const accent = proposalAccent(p);
+            const d = p.details || {};
+            const facts = [
+              d.advisor?.Name && ['Advisor', d.advisor.Name],
+              d.plan?.['Expected Membership'] && ['Members', d.plan['Expected Membership']],
+              (p.schedule || d.plan?.['Meeting Frequency']) && ['Meets', p.schedule || d.plan['Meeting Frequency']],
+            ].filter(Boolean);
             return (
-              <div key={p.id} className={s.card}
-                style={{ borderTop: `3px solid ${accent}` }}>
-                {/* Header */}
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:10 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                    <div className={s.av}
-                      style={{ background: AVS[i % AVS.length], width:38, height:38, fontSize:12 }}>
+              <div key={p.id} style={{ background:'#fff', borderRadius:16, border:'1px solid #ece9fb',
+                boxShadow:'0 2px 10px rgba(15,10,46,.05)', overflow:'hidden', display:'flex', flexDirection:'column' }}>
+                <div style={{ height:4, background:accent }} />
+                <div style={{ padding:'16px 18px', display:'flex', flexDirection:'column', gap:12, flex:1 }}>
+                  {/* Header */}
+                  <div style={{ display:'flex', gap:12, alignItems:'flex-start' }}>
+                    <ClubMark p={p} />
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:800, fontSize:15.5, color:'#0f0a2e', lineHeight:1.25 }}>{p.club_name}</div>
+                      <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:4, fontSize:12, color:'#6b7280' }}>
+                        <span style={{ fontWeight:700, color:accent, textTransform:'capitalize' }}>{p.category}</span>
+                        <span>·</span>
+                        <span title={formatDate(p.created_at)}>{timeAgo(p.created_at)}</span>
+                      </div>
+                    </div>
+                    <StatusChip status={p.status} />
+                  </div>
+
+                  {/* Description */}
+                  <div style={{ fontSize:13, color:'#374151', lineHeight:1.55,
+                    display:'-webkit-box', WebkitLineClamp:3, WebkitBoxOrient:'vertical', overflow:'hidden' }}>
+                    {p.description}
+                  </div>
+
+                  {/* Quick facts */}
+                  {facts.length > 0 && (
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                      {facts.map(([k, v]) => (
+                        <span key={k} style={{ fontSize:11.5, padding:'4px 9px', borderRadius:8, background:'#f5f3ff',
+                          color:'#4b5563', maxWidth:'100%', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                          <strong style={{ color:'#4c44d4' }}>{k}:</strong> {v}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {p.admin_note && (
+                    <div style={{ fontSize:12, padding:'7px 10px', background:'#fef9c3', borderRadius:8, color:'#854d0e' }}>
+                      <strong>Admin note:</strong> {p.admin_note}
+                    </div>
+                  )}
+
+                  {/* Proposer */}
+                  <div style={{ display:'flex', alignItems:'center', gap:10, paddingTop:12, borderTop:'1px solid #f3f4f6', marginTop:'auto' }}>
+                    <div className={s.av} style={{ background:AVS[p.id % AVS.length], width:30, height:30, fontSize:11 }}>
                       {initials(p.proposed_by_name)}
                     </div>
-                    <div>
-                      <div style={{ fontWeight:700, fontSize:14, color:'#0f0a2e' }}>{p.club_name}</div>
-                      <div style={{ fontSize:11, color:'#9ca3af' }}>
-                        by {p.proposed_by_name} · {p.proposed_by_role}
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:12.5, fontWeight:700, color:'#111827' }}>
+                        {p.proposed_by_name}
+                        <span style={{ marginLeft:6, fontSize:10, fontWeight:700, padding:'1px 6px', borderRadius:6,
+                          background:'#f3f4f6', color:'#6b7280', textTransform:'capitalize' }}>
+                          {p.proposed_by_role?.replace('_', ' ')}
+                        </span>
+                      </div>
+                      <div style={{ fontSize:11.5, color:'#9ca3af', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        {p.proposed_by_email}
                       </div>
                     </div>
                   </div>
-                  <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
-                    <span style={badgeStyle(p.status)}>{p.status}</span>
-                    <span style={{ fontSize:10, color:'#9ca3af' }}>{timeAgo(p.created_at)}</span>
+
+                  {/* Actions */}
+                  <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                    <button onClick={() => setViewProp(p)} style={{ ...btnGhost, flex:1 }}>View application</button>
+                    {p.status === 'pending' && (<>
+                      <button onClick={() => reviewAndCreate(p)} style={{ ...btnPrimary(), flex:1.4 }}>
+                        Review &amp; Create →
+                      </button>
+                      <button onClick={() => { setRejectProp(p); setRejectNote(''); }}
+                        disabled={actionId === p.id} style={btnDanger}>
+                        Reject
+                      </button>
+                    </>)}
+                    {p.status === 'approved' && p.club_id && (
+                      <button onClick={() => navigate('/admin/clubs')} style={{ ...btnGhost, flex:1 }}>Go to club</button>
+                    )}
                   </div>
                 </div>
-
-                {/* Category + color swatch */}
-                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
-                  <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:10,
-                    background: accent + '20', color: accent }}>
-                    {p.category?.toUpperCase()}
-                  </span>
-                  <span style={{ width:14, height:14, borderRadius:'50%', background: accent, flexShrink:0 }} />
-                  <span style={{ fontSize:11, color:'#9ca3af' }}>{p.color}</span>
-                </div>
-
-                {/* Description preview */}
-                <div style={{ fontSize:13, color:'#374151', lineHeight:1.45, marginBottom:8 }}>
-                  {p.description?.slice(0, 110)}{p.description?.length > 110 ? '…' : ''}
-                </div>
-
-                {/* Reason preview */}
-                {p.reason && (
-                  <div style={{ fontSize:12, color:'#6b7280', fontStyle:'italic', marginBottom:10 }}>
-                    Reason: "{p.reason?.slice(0, 80)}{p.reason?.length > 80 ? '…' : ''}"
-                  </div>
-                )}
-
-                {/* Proposer email */}
-                <div style={{ fontSize:11, color:'#9ca3af', marginBottom:12 }}>{p.proposed_by_email}</div>
-
-                {/* Admin note for reviewed */}
-                {p.admin_note && (
-                  <div style={{ fontSize:12, padding:'6px 10px', background:'#fef9c3',
-                    borderRadius:8, marginBottom:10, color:'#854d0e' }}>
-                    Admin note: {p.admin_note}
-                  </div>
-                )}
-
-                {/* Actions */}
-                {p.status === 'pending' && (
-                  <div style={{ display:'flex', gap:8, marginTop:'auto' }}>
-                    <button
-                      onClick={() => setAcceptProp(p)}
-                      style={{ flex:1, padding:'8px 12px', borderRadius:8, border:'none',
-                        background:'#635BFF', color:'#fff', fontWeight:700, fontSize:13, cursor:'pointer' }}>
-                      Review &amp; Accept
-                    </button>
-                    <button
-                      onClick={() => { setRejectProp(p); setRejectNote(''); }}
-                      disabled={actionId === p.id}
-                      style={{ flex:1, padding:'8px 12px', borderRadius:8,
-                        border:'1.5px solid #ef4444', background:'#fff',
-                        color:'#ef4444', fontWeight:700, fontSize:13, cursor:'pointer' }}>
-                      Reject
-                    </button>
-                  </div>
-                )}
               </div>
             );
           })}
         </div>
       )}
 
-      {/* ── Reject confirmation modal ── */}
+      {/* ── Full application ── */}
+      {viewProp && (
+        <div onClick={() => setViewProp(null)}
+          style={{ position:'fixed', inset:0, zIndex:10000,
+            background:'rgba(15,10,46,.6)', backdropFilter:'blur(6px)',
+            display:'flex', alignItems:'flex-start', justifyContent:'center',
+            padding:'24px 16px', overflowY:'auto' }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background:'#f8f7ff', borderRadius:20, width:'100%', maxWidth:780, overflow:'hidden',
+              boxShadow:'0 32px 80px rgba(0,0,0,.25)', display:'flex', flexDirection:'column' }}>
+            {/* Header band */}
+            <div style={{ padding:'22px 24px', color:'#fff',
+              background:`linear-gradient(135deg, ${proposalAccent(viewProp)}, #1a1040)` }}>
+              <div style={{ display:'flex', gap:14, alignItems:'flex-start' }}>
+                <div style={{ width:54, height:54, borderRadius:16, background:'rgba(255,255,255,.18)',
+                  display:'flex', alignItems:'center', justifyContent:'center', fontWeight:900, fontSize:19, flexShrink:0 }}>
+                  {initials(viewProp.club_name)}
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:11, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', opacity:.8 }}>
+                    Club Proposal
+                  </div>
+                  <div style={{ fontWeight:900, fontSize:21, lineHeight:1.2, marginTop:2 }}>{viewProp.club_name}</div>
+                  <div style={{ fontSize:12.5, opacity:.85, marginTop:6 }}>
+                    by <strong>{viewProp.proposed_by_name}</strong> ({viewProp.proposed_by_email}) · submitted {formatDate(viewProp.created_at)}
+                  </div>
+                </div>
+                <button onClick={() => setViewProp(null)} aria-label="Close"
+                  style={{ border:'none', background:'rgba(255,255,255,.15)', color:'#fff', width:32, height:32,
+                    borderRadius:10, fontSize:16, cursor:'pointer', flexShrink:0 }}>✕</button>
+              </div>
+              <div style={{ marginTop:14 }}><StatusChip status={viewProp.status} /></div>
+            </div>
+
+            <div style={{ padding:'18px 20px' }}>
+              <ProposalDetails p={viewProp} />
+            </div>
+
+            {viewProp.status === 'pending' && (
+              <div style={{ position:'sticky', bottom:0, display:'flex', gap:10, justifyContent:'flex-end', flexWrap:'wrap',
+                padding:'14px 20px', background:'#fff', borderTop:'1px solid #ece9fb' }}>
+                <button onClick={() => { setRejectProp(viewProp); setRejectNote(''); setViewProp(null); }} style={btnDanger}>
+                  Reject
+                </button>
+                <button onClick={() => reviewAndCreate(viewProp)} style={btnPrimary(proposalAccent(viewProp))}>
+                  Review &amp; Create Club →
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Reject confirmation ── */}
       {rejectProp && (
-        <div style={{ position:'fixed', inset:0, zIndex:10000,
-          background:'rgba(15,10,46,.55)', backdropFilter:'blur(4px)',
-          display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
-          <div style={{ background:'#fff', borderRadius:18, padding:28,
-            maxWidth:420, width:'100%', boxShadow:'0 24px 64px rgba(0,0,0,.2)' }}>
-            <h3 style={{ margin:'0 0 8px', fontWeight:900, color:'#0f0a2e' }}>Reject Proposal</h3>
-            <p style={{ margin:'0 0 16px', fontSize:13, color:'#6b7280' }}>
-              Rejecting: <strong>{rejectProp.club_name}</strong>
+        <div onClick={() => setRejectProp(null)}
+          style={{ position:'fixed', inset:0, zIndex:10000,
+            background:'rgba(15,10,46,.55)', backdropFilter:'blur(4px)',
+            display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background:'#fff', borderRadius:18, padding:26,
+              maxWidth:440, width:'100%', boxShadow:'0 24px 64px rgba(0,0,0,.2)' }}>
+            <h3 style={{ margin:'0 0 6px', fontWeight:900, color:'#0f0a2e' }}>Reject “{rejectProp.club_name}”?</h3>
+            <p style={{ margin:'0 0 16px', fontSize:13, color:'#6b7280', lineHeight:1.5 }}>
+              {rejectProp.proposed_by_id
+                ? <>{rejectProp.proposed_by_name} will be notified, including your note.</>
+                : <>{rejectProp.proposed_by_name} submitted as a guest, so there is no account to notify — your note is kept on the proposal.</>}
             </p>
             <label style={{ fontSize:12, fontWeight:700, color:'#374151', display:'block', marginBottom:6 }}>
-              Reason (optional)
+              Note to proposer (optional)
             </label>
             <textarea
               value={rejectNote}
               onChange={e => setRejectNote(e.target.value)}
               rows={3}
-              placeholder="Let the proposer know why this was rejected…"
+              placeholder="e.g. A similar club already exists — consider joining Webify Club."
               style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1.5px solid #e5e7eb',
-                fontSize:13, resize:'vertical', boxSizing:'border-box', outline:'none',
-                fontFamily:'inherit' }}
+                fontSize:13, resize:'vertical', boxSizing:'border-box', outline:'none', fontFamily:'inherit' }}
             />
             <div style={{ display:'flex', gap:10, marginTop:16 }}>
-              <button onClick={() => setRejectProp(null)}
-                style={{ flex:1, padding:10, borderRadius:10, border:'1.5px solid #e5e7eb',
-                  background:'#fff', fontWeight:700, cursor:'pointer', fontSize:13 }}>
-                Cancel
-              </button>
+              <button onClick={() => setRejectProp(null)} style={{ ...btnGhost, flex:1 }}>Cancel</button>
               <button onClick={handleReject} disabled={actionId === rejectProp.id}
-                style={{ flex:1, padding:10, borderRadius:10, border:'none',
-                  background:'#ef4444', color:'#fff', fontWeight:700, cursor:'pointer', fontSize:13 }}>
-                {actionId === rejectProp.id ? 'Rejecting…' : 'Confirm Reject'}
+                style={{ ...btnPrimary('#ef4444'), flex:1 }}>
+                {actionId === rejectProp.id ? 'Rejecting…' : 'Reject Proposal'}
               </button>
             </div>
           </div>
         </div>
-      )}
-
-      {/* ── Accept / Create Club modal ── */}
-      {acceptProp && (
-        <AcceptModal
-          proposal={acceptProp}
-          onClose={() => setAcceptProp(null)}
-          onCreated={(clubName) => {
-            setAcceptProp(null);
-            showToast(`Club "${clubName}" created successfully!`);
-            load();
-          }}
-        />
       )}
     </>
   );
 }
-
-/* ════════════════════════════════════════════════════════════
-   ACCEPT MODAL — pre-populated club creation form
-════════════════════════════════════════════════════════════ */
-function AcceptModal({ proposal: p, onClose, onCreated }) {
-  const fileRef = useRef();
-  const [form, setForm] = useState({
-    name:         p.club_name    || '',
-    category:     p.category     || 'academic',
-    color:        p.color        || '#635BFF',
-    description:  p.description  || '',
-    vision:       p.vision       || '',
-    schedule:     p.schedule     || '',
-    founded_year: p.founded_year || '',
-    tags:  (p.tags  || []).join(', '),
-    rules: (p.rules || []).join('\n'),
-  });
-  const [logoFile,    setLogoFile]    = useState(null);
-  const [logoPreview, setLogoPreview] = useState('');
-  const [saving,      setSaving]      = useState(false);
-  const [error,       setError]       = useState('');
-
-  const sf = (k) => (e) => setForm(prev => ({ ...prev, [k]: e.target.value }));
-
-  const handleFile = (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setLogoFile(f);
-    setLogoPreview(URL.createObjectURL(f));
-  };
-
-  const handleCreate = async (e) => {
-    e.preventDefault();
-    if (!form.name.trim())        return setError('Club name is required.');
-    if (!form.description.trim()) return setError('Description is required.');
-    setSaving(true); setError('');
-    try {
-      const fd = new FormData();
-      fd.append('name',         form.name.trim());
-      fd.append('category',     form.category);
-      fd.append('color',        form.color);
-      fd.append('description',  form.description.trim());
-      fd.append('vision',       form.vision.trim());
-      fd.append('schedule',     form.schedule.trim());
-      fd.append('founded_year', form.founded_year.trim());
-      fd.append('tags',  form.tags);
-      fd.append('rules', form.rules);
-      if (logoFile) fd.append('logo', logoFile);
-      const res = await api.postForm(`/club-proposals/${p.id}/approve`, fd);
-      onCreated(res.club?.name || form.name);
-    } catch (err) {
-      setError(err.message || 'Failed to create club.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const accent = form.color || '#635BFF';
-
-  return (
-    <div style={{ position:'fixed', inset:0, zIndex:10000,
-      background:'rgba(15,10,46,.6)', backdropFilter:'blur(6px)',
-      display:'flex', alignItems:'flex-start', justifyContent:'center',
-      padding:'24px 16px', overflowY:'auto' }}>
-      <div style={{ background:'#fff', borderRadius:20, width:'100%', maxWidth:620,
-        boxShadow:'0 32px 80px rgba(0,0,0,.25)', marginBottom:24 }}>
-
-        {/* Modal header */}
-        <div style={{ padding:'22px 28px 0', borderTop:`4px solid ${accent}`,
-          borderRadius:'20px 20px 0 0' }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-            <div>
-              <div style={{ fontWeight:900, fontSize:18, color:'#0f0a2e', marginBottom:4 }}>
-                Create Club from Proposal
-              </div>
-              <div style={{ fontSize:13, color:'#6b7280' }}>
-                Proposed by <strong>{p.proposed_by_name}</strong> ({p.proposed_by_email})
-              </div>
-            </div>
-            <button onClick={onClose} style={{ border:'none', background:'none',
-              fontSize:20, cursor:'pointer', color:'#9ca3af', lineHeight:1 }}>✕</button>
-          </div>
-
-          {/* Proposer's reason (read-only context) */}
-          {p.reason && (
-            <div style={{ margin:'14px 0 0', padding:'10px 14px', background:'#f8f7ff',
-              borderRadius:10, fontSize:13, color:'#374151', lineHeight:1.5 }}>
-              <strong style={{ color:'#635BFF' }}>Reason for proposal:</strong>{' '}{p.reason}
-            </div>
-          )}
-        </div>
-
-        <form onSubmit={handleCreate} style={{ padding:'20px 28px 28px' }}>
-          {/* Row: name + category */}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:14 }}>
-            <div>
-              <label style={labelSt}>Club Name *</label>
-              <input value={form.name} onChange={sf('name')} style={inputSt}
-                placeholder="Club name" />
-            </div>
-            <div>
-              <label style={labelSt}>Category *</label>
-              <select value={form.category} onChange={sf('category')} style={inputSt}>
-                {CATS.map(c => (
-                  <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Row: color + founded year */}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:14 }}>
-            <div>
-              <label style={labelSt}>Colour</label>
-              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                <input type="color" value={form.color} onChange={sf('color')}
-                  style={{ width:38, height:36, border:'1.5px solid #e5e7eb',
-                    borderRadius:8, cursor:'pointer', padding:2, flexShrink:0 }} />
-                <input value={form.color} onChange={sf('color')} style={{ ...inputSt, flex:1 }}
-                  placeholder="#635BFF" />
-              </div>
-            </div>
-            <div>
-              <label style={labelSt}>Founded Year</label>
-              <input value={form.founded_year} onChange={sf('founded_year')}
-                style={inputSt} placeholder="e.g. 2025" maxLength={4} />
-            </div>
-          </div>
-
-          {/* Logo upload */}
-          <div style={{ marginBottom:14 }}>
-            <label style={labelSt}>Club Logo</label>
-            <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-              {logoPreview ? (
-                <img src={logoPreview} alt="preview"
-                  style={{ width:52, height:52, borderRadius:10, objectFit:'cover',
-                    border:'1.5px solid #e5e7eb' }} />
-              ) : (
-                <div style={{ width:52, height:52, borderRadius:10, display:'flex',
-                  alignItems:'center', justifyContent:'center', fontSize:22,
-                  background: accent + '18', color: accent, border:`1.5px dashed ${accent}50` }}>
-                  {form.name.charAt(0) || '?'}
-                </div>
-              )}
-              <button type="button" onClick={() => fileRef.current?.click()}
-                style={{ padding:'7px 14px', borderRadius:8, border:'1.5px solid #e5e7eb',
-                  background:'#fafafa', fontSize:13, cursor:'pointer', fontWeight:600 }}>
-                {logoFile ? 'Change Logo' : 'Upload Logo'}
-              </button>
-              {logoFile && (
-                <span style={{ fontSize:12, color:'#6b7280' }}>{logoFile.name}</span>
-              )}
-              <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }}
-                onChange={handleFile} />
-            </div>
-          </div>
-
-          {/* Description */}
-          <div style={{ marginBottom:14 }}>
-            <label style={labelSt}>Description *</label>
-            <textarea value={form.description} onChange={sf('description')}
-              rows={3} style={{ ...inputSt, resize:'vertical' }}
-              placeholder="What is this club about?" />
-          </div>
-
-          {/* Vision */}
-          <div style={{ marginBottom:14 }}>
-            <label style={labelSt}>Vision / Mission</label>
-            <textarea value={form.vision} onChange={sf('vision')}
-              rows={2} style={{ ...inputSt, resize:'vertical' }}
-              placeholder="Long-term goals (optional)" />
-          </div>
-
-          {/* Tags + Schedule in 2 cols */}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:14 }}>
-            <div>
-              <label style={labelSt}>Tags <span style={{ fontWeight:400, color:'#9ca3af' }}>(comma-sep.)</span></label>
-              <input value={form.tags} onChange={sf('tags')} style={inputSt}
-                placeholder="e.g. coding, AI" />
-            </div>
-            <div>
-              <label style={labelSt}>Schedule</label>
-              <input value={form.schedule} onChange={sf('schedule')} style={inputSt}
-                placeholder="e.g. Every Saturday 10 AM" />
-            </div>
-          </div>
-
-          {/* Rules */}
-          <div style={{ marginBottom:20 }}>
-            <label style={labelSt}>Rules <span style={{ fontWeight:400, color:'#9ca3af' }}>(one per line)</span></label>
-            <textarea value={form.rules} onChange={sf('rules')}
-              rows={3} style={{ ...inputSt, resize:'vertical' }}
-              placeholder={"Attend 75% of sessions\nRespect others"} />
-          </div>
-
-          {error && (
-            <div style={{ padding:'10px 14px', background:'#fee2e2', borderRadius:10,
-              color:'#dc2626', fontSize:13, marginBottom:16 }}>
-              {error}
-            </div>
-          )}
-
-          <div style={{ display:'flex', gap:10 }}>
-            <button type="button" onClick={onClose}
-              style={{ flex:1, padding:12, borderRadius:10, border:'1.5px solid #e5e7eb',
-                background:'#fff', fontWeight:700, cursor:'pointer', fontSize:14 }}>
-              Cancel
-            </button>
-            <button type="submit" disabled={saving}
-              style={{ flex:2, padding:12, borderRadius:10, border:'none',
-                background: accent, color:'#fff', fontWeight:800,
-                cursor: saving ? 'not-allowed' : 'pointer', fontSize:14, opacity: saving ? .7 : 1 }}>
-              {saving ? 'Creating Club…' : 'Create Club'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-/* ── shared inline style helpers ── */
-const labelSt = {
-  display:'block', fontSize:12, fontWeight:700,
-  color:'#374151', marginBottom:5, letterSpacing:.02,
-};
-const inputSt = {
-  width:'100%', padding:'9px 12px', borderRadius:10,
-  border:'1.5px solid #e5e7eb', fontSize:13, outline:'none',
-  fontFamily:'inherit', boxSizing:'border-box', color:'#0f0a2e',
-};

@@ -9,6 +9,11 @@ const { destroyImage } = require('../config/cloudinary');
 const { getFileValue } = require('../config/multer');
 const cache = require('../services/cache');
 const { notifyAdminsOfClubChange } = require('./clubDetail.controller');
+const { markApprovedWithClub, notifyProposalApproved } = require('./clubProposals.controller');
+
+/* Longest a staff-assignment request waits on the credentials email before
+   responding and letting it finish in the background. */
+const STAFF_EMAIL_WAIT_MS = 8000;
 
 /* ── Column list (every column asClub() reads) ─────────────────────────────
    Avoids SELECT * so the result set is predictable regardless of future
@@ -156,27 +161,91 @@ const getOne = async (req, res, next) => {
    of rolling the whole club back — admin can always assign it afterward
    from the club card the ordinary way. */
 const create = async (req, res, next) => {
+  const {
+    name, category, color, coordinator, foundedYear, memberCount, eventCount, description, tags,
+    fcName, fcEmail, scName, scEmail,
+    /* Set when admin is creating this club from a submitted club proposal */
+    proposalId, vision, schedule, rules,
+  } = req.body;
+  const logo = getFileValue(req.file) ?? '';
+  /* Only when creating from a proposal: one transaction that locks the
+     proposal row, inserts the club and marks the proposal approved — so two
+     submits (double-click, two admins, a network retry) can never create two
+     clubs, and a failed insert never leaves the proposal marked approved. */
+  let tx = null;
+  let approvedProposal = null;
+
   try {
     await ensureSoacTables();
-    const {
-      name, category, color, coordinator, foundedYear, memberCount, eventCount, description, tags,
-      fcName, fcEmail, scName, scEmail,
-    } = req.body;
-    const logo = getFileValue(req.file) ?? '';
-    const { rows } = await pgPool.query(
+    if (!name?.trim()) {
+      if (logo) destroyImage(logo).catch(() => {});
+      return res.status(400).json({ message: 'Club name is required.' });
+    }
+
+    if (proposalId) {
+      tx = await pgPool.connect();
+      await tx.query('BEGIN');
+      const { rows: prop } = await tx.query(
+        `SELECT p.status, p.club_name, c.name AS created_club_name
+           FROM club_proposals p
+           LEFT JOIN clubs c ON c.id = p.club_id
+          WHERE p.id = $1::bigint
+          FOR UPDATE OF p`,
+        [proposalId],
+      );
+      if (prop[0]?.status !== 'pending') {
+        await tx.query('ROLLBACK');
+        tx.release();
+        tx = null;
+        if (logo) destroyImage(logo).catch(() => {});
+        const p = prop[0];
+        const message = !p
+          ? 'This proposal no longer exists.'
+          : p.status === 'approved'
+            ? `This proposal was already approved${p.created_club_name ? ` — the club "${p.created_club_name}" exists under All Clubs` : ''}.`
+            : 'This proposal was rejected, so a club can no longer be created from it.';
+        return res.status(409).json({ message, alreadyApproved: p?.status === 'approved' });
+      }
+    }
+    const db = tx || pgPool;
+
+    /* Unique slug — a proposed name can easily collide with an existing club */
+    const base = slugify(name, { lower: true, strict: true }) || 'club';
+    let slug = base;
+    for (let n = 1; ; n++) {
+      const { rows: taken } = await db.query(`SELECT 1 FROM clubs WHERE slug = $1`, [slug]);
+      if (!taken.length) break;
+      slug = `${base}-${n}`;
+    }
+
+    const { rows } = await db.query(
       `INSERT INTO clubs
-       (name, slug, category, color, coordinator, founded_year, member_count, event_count, description, tags, logo)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       (name, slug, category, color, coordinator, founded_year, member_count, event_count, description, tags, logo,
+        vision, schedule, rules)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING ${CLUB_COLS}`,
       [
-        name, slugify(name, { lower: true, strict: true }),
+        name.trim(), slug,
         category, color || '#635BFF', coordinator || '',
         foundedYear || '', Number(memberCount) || 0, Number(eventCount) || 0,
         description || '', tags ? JSON.parse(tags) : [], logo,
+        vision?.trim() || '', schedule?.trim() || '',
+        (rules || '').split('\n').map(r => r.trim()).filter(Boolean),
       ]
     );
     let club = asClub(rows[0]);
-    await logAudit(req.user.id, req.user.name, 'CREATE_CLUB', 'club', club.id, { name });
+
+    if (tx) {
+      approvedProposal = await markApprovedWithClub(tx, {
+        proposalId, clubId: club.id, reviewerId: req.user.id,
+      });
+      await tx.query('COMMIT');
+      tx.release();
+      tx = null;
+      notifyProposalApproved(approvedProposal, club.name);
+    }
+
+    await logAudit(req.user.id, req.user.name, 'CREATE_CLUB', 'club', club.id, { name, proposalId: proposalId || undefined });
     await Promise.all([cache.delPattern('clubs:*'), cache.del('stats:admin')]);
 
     const staff = {};
@@ -200,12 +269,24 @@ const create = async (req, res, next) => {
       club = asClub(freshRows[0]);
     }
 
+    const staffResult = (r) => r && {
+      ok: r.ok, message: r.message, credentials: r.credentials,
+      emailSent: r.emailSent, emailPending: r.emailPending,
+    };
     res.status(201).json({
       club: withLogoUrl(club),
-      fc: staff.fc && { ok: staff.fc.ok, message: staff.fc.message, credentials: staff.fc.credentials, emailSent: staff.fc.emailSent },
-      sc: staff.sc && { ok: staff.sc.ok, message: staff.sc.message, credentials: staff.sc.credentials, emailSent: staff.sc.emailSent },
+      proposalApproved: !!approvedProposal,
+      fc: staffResult(staff.fc),
+      sc: staffResult(staff.sc),
     });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (tx) {
+      await tx.query('ROLLBACK').catch(() => {});
+      tx.release();
+      if (logo) destroyImage(logo).catch(() => {});
+    }
+    next(err);
+  }
 };
 
 /* PUT /api/clubs/:id  (admin) */
@@ -846,31 +927,37 @@ const performStaffAssignment = async ({ role, clubId, name, email, actorUserId, 
     cache.delPattern('clubs:*'),
   ]);
 
-  /* Send email — await so we can report success/failure to the caller */
-  let emailSent = false;
+  /* Send email — wait a bounded time so we can usually report success/failure,
+     but never hold the response hostage to a slow mail provider (its own
+     retries/fallbacks can take minutes). If it isn't done in time it keeps
+     sending in the background and we report it as pending — the admin is
+     shown the credentials either way. */
   let emailError = null;
-  try {
-    if (issueNewCredentials) {
-      await sendCoordinatorCredentials({
+  const emailPromise = (issueNewCredentials
+    ? sendCoordinatorCredentials({
         toEmail: emailLower, toName: staffName,
         password: tempPassword, clubName: club.name, roleLabel: meta.roleLabel,
-      });
-    } else {
-      await sendCoordinatorAssignment({
+      })
+    : sendCoordinatorAssignment({
         toEmail: emailLower, toName: staffName, clubName: club.name, roleLabel: meta.roleLabel,
-      });
-    }
-    emailSent = true;
-  } catch (err) {
-    emailError = err.message;
-    console.warn(`${meta.label} email failed:`, err.message);
-  }
+      })
+  ).then(
+    () => true,
+    (err) => { emailError = err.message; console.warn(`${meta.label} email failed:`, err.message); return false; },
+  );
+  const emailResult = await Promise.race([
+    emailPromise,
+    new Promise(resolve => setTimeout(() => resolve('pending'), STAFF_EMAIL_WAIT_MS)),
+  ]);
+  const emailPending = emailResult === 'pending';
+  const emailSent    = emailPending ? null : emailResult;
 
   return {
     ok: true,
     isNewUser,
     isPromotion,
     emailSent,
+    emailPending,
     emailError: emailError || undefined,
     staffName,
     credentials: {
@@ -880,10 +967,10 @@ const performStaffAssignment = async ({ role, clubId, name, email, actorUserId, 
       clubName:  club.name,
     },
     message: isPromotion
-      ? `${staffName} was promoted to Faculty Coordinator of ${club.name} — their Student Coordinator access has been revoked${emailSent ? ` and new login credentials were sent to ${emailLower}` : ', but the credentials email could not be sent — share the new password manually'}.`
+      ? `${staffName} was promoted to Faculty Coordinator of ${club.name} — their Student Coordinator access has been revoked${emailSent ? ` and new login credentials were sent to ${emailLower}` : emailPending ? ` — new login credentials are being emailed to ${emailLower}` : ', but the credentials email could not be sent — share the new password manually'}.`
       : isNewUser
-      ? `${meta.label} account created${emailSent ? `. Credentials sent to ${emailLower}` : ' — email could not be sent, share credentials manually'}.`
-      : `${staffName} added as ${meta.label.toLowerCase()} of ${club.name}${emailSent ? `. Confirmation sent to ${emailLower}` : ' — email could not be sent'}.`,
+      ? `${meta.label} account created${emailSent ? `. Credentials sent to ${emailLower}` : emailPending ? `. Credentials are being emailed to ${emailLower}` : ' — email could not be sent, share credentials manually'}.`
+      : `${staffName} added as ${meta.label.toLowerCase()} of ${club.name}${emailSent ? `. Confirmation sent to ${emailLower}` : emailPending ? `. Confirmation is being emailed to ${emailLower}` : ' — email could not be sent'}.`,
   };
 };
 

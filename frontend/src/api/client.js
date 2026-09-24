@@ -10,6 +10,7 @@
 const BASE = '/api';
 const REQUEST_TIMEOUT = 30000; // 30 seconds
 const MAX_RETRIES = 3;
+const UPLOAD_TIMEOUT = 90000; // multipart uploads (logos, images) on slow connections
 
 const getToken = () => localStorage.getItem('soac_token');
 const setToken = (t) => localStorage.setItem('soac_token', t);
@@ -134,13 +135,19 @@ async function _performRequest(method, path, body, isFormData, attempt) {
     headers['Content-Type'] = 'application/json';
   }
 
+  /* Only idempotent methods are safe to auto-retry. A POST/PATCH that timed
+     out may already have been applied server-side (e.g. a club was created),
+     so re-sending it would duplicate the action or fail with a misleading
+     "already done" error. */
+  const retryable = method !== 'POST' && method !== 'PATCH';
+
   try {
     const res = await fetchWithTimeout(`${BASE}${path}`, {
       method,
       headers,
       credentials: 'include',
       body: isFormData ? body : body ? JSON.stringify(body) : undefined,
-    });
+    }, isFormData ? UPLOAD_TIMEOUT : REQUEST_TIMEOUT);
 
     // Handle 401 Unauthorized — try refresh
     if (res.status === 401 && path !== '/auth/login' && path !== '/auth/refresh') {
@@ -185,7 +192,7 @@ async function _performRequest(method, path, body, isFormData, attempt) {
     }
 
     // Handle 5xx errors with exponential backoff
-    if (res.status >= 500 && attempt < MAX_RETRIES) {
+    if (res.status >= 500 && retryable && attempt < MAX_RETRIES) {
       await exponentialBackoff(attempt);
       return _performRequest(method, path, body, isFormData, attempt + 1);
     }
@@ -207,9 +214,12 @@ async function _performRequest(method, path, body, isFormData, attempt) {
     return data;
   } catch (err) {
     // Don't retry network errors or timeouts on retry attempts that are already high
-    if (attempt < MAX_RETRIES && (err.message.includes('timeout') || err.name === 'TypeError')) {
+    if (retryable && attempt < MAX_RETRIES && (err.message.includes('timeout') || err.name === 'TypeError')) {
       await exponentialBackoff(attempt);
       return _performRequest(method, path, body, isFormData, attempt + 1);
+    }
+    if (!retryable && err.message === 'Request timeout') {
+      throw new Error('The server is taking longer than expected. Your request may still have gone through — refresh before trying again.');
     }
     throw err;
   }
