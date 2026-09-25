@@ -387,7 +387,9 @@ const ACTIVITY_BUCKET_LABEL = { sports: 'Sports', cultural: 'Cultural', social: 
    event_registrations rather than requiring a users account, since public event and
    team-roster registration never required one. Shared by the public lookup and the
    student's own dashboard so the two can never drift apart. */
-const buildActivity = async (email) => {
+/* includeAnswers — the student's own answers to an event's extra registration
+   questions; only for their own logged-in view, never the public email lookup. */
+const buildActivity = async (email, { includeAnswers = false } = {}) => {
   /* Club status for this email — returned whether or not they've registered for
      any events, since a student can have a pending/approved join request and no
      event history at all. Latest request per club wins (a declined request can
@@ -455,7 +457,7 @@ const buildActivity = async (email) => {
        `date` column — that one's a free-text label an admin can type anything
        into ("Feb 2-8, 2027", or nothing at all), so it can't be parsed or
        trusted to render correctly here. */
-    `SELECT er.id AS registration_id, er.event_id, er.event_title, er.registered_at,
+    `SELECT er.id AS registration_id, er.event_id, er.event_title, er.registered_at, er.extra_answers,
             e.start_date AS event_date, e.venue, e.category,
             c.name AS club_name
      FROM event_registrations er
@@ -552,6 +554,7 @@ const buildActivity = async (email) => {
       venue:        r.venue || '',
       eventDate:    r.event_date,
       registeredAt: r.registered_at,
+      ...(includeAnswers && { extraAnswers: r.extra_answers || [] }),
       attendance: total > 0 ? { totalSessions: total, presentSessions: present, percentage: Math.round((present / total) * 100) } : null,
       achievements: (certsByReg.get(r.registration_id) || []).map(c2 => ({
         category: c2.category, fileUrl: c2.file_url, status: c2.delivery_method,
@@ -645,7 +648,7 @@ const activityByEmail = async (req, res, next) => {
    public lookup but always for their own account email, never one supplied by the caller. */
 const myActivity = async (req, res, next) => {
   try {
-    res.json(await buildActivity(String(req.user.email).trim().toLowerCase()));
+    res.json(await buildActivity(String(req.user.email).trim().toLowerCase(), { includeAnswers: true }));
   } catch (err) { next(err); }
 };
 

@@ -189,6 +189,14 @@ const ensureSoacTables = async () => {
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_reg_email      ON event_registrations(email)`);
   // registrations(user_id/email, event_id) — lookup a student's specific registration
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_reg_email_evt  ON event_registrations(email, event_id)`);
+  /* Admin-defined extra registration questions for an Other Event, e.g.
+     [{ id, label, type: 'text'|'textarea'|'number'|'select'|'yesno'|'date', required, options }] —
+     asked on top of the standard fields (name, email, dept, …). */
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '[]'::jsonb`).catch(() => {});
+  /* A registrant's answers to those questions: [{ id, label, value }]. The
+     label is copied in so answers stay readable even if admin later renames
+     or removes the question. */
+  await pgPool.query(`ALTER TABLE event_registrations ADD COLUMN IF NOT EXISTS extra_answers JSONB NOT NULL DEFAULT '[]'::jsonb`).catch(() => {});
 
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS join_requests (
@@ -997,6 +1005,7 @@ const asEvent = (row) => ({
   teamSize: Number(row.team_size || 0),
   minTeamSize: Number(row.min_team_size || 0),
   parentEventId: row.parent_event_id ? String(row.parent_event_id) : null,
+  customFields: Array.isArray(row.custom_fields) ? row.custom_fields : [],
   objective: row.objective || '',
   expectedOutcome: row.expected_outcome || '',
   isSpecialDay: !!row.is_special_day,

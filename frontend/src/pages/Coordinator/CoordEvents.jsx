@@ -43,6 +43,19 @@ function ReadMore({ text, limit = 150, as = 'p', className, style }) {
    first ('pending_fc'); only once approved there does it reach admin
    ('pending') — the same status a Faculty Coordinator's own direct
    submission starts at, since they have no one above them to review it. */
+/* Extra registration questions admin added to an event — each answer is
+   stored with its label, so columns work even for questions since removed. */
+const answerColumns = (event, regs) => {
+  const cols = (event?.customFields || []).map(f => ({ id: f.id, label: f.label }));
+  const ids = new Set(cols.map(c => c.id));
+  regs.forEach(r => (r.extra_answers || []).forEach(a => {
+    if (!ids.has(a.id)) { ids.add(a.id); cols.push({ id: a.id, label: a.label }); }
+  }));
+  return cols;
+};
+const answerOf = (r, id) => (r.extra_answers || []).find(a => a.id === id)?.value || '';
+const csvCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+
 const REQ_STATUS = {
   pending_fc: { label: 'Pending Faculty Coordinator Review', color: '#7c3aed', bg: '#f5f3ff' },
   pending:    { label: 'Pending Admin Review',               color: '#d97706', bg: '#fffbeb' },
@@ -1277,7 +1290,9 @@ export default function CoordEvents() {
 
   const exportCSV = () => {
     if (!regs.length) return;
-    const headers = ['#', 'Name', 'Enrollment No', 'Department', 'Course', 'Gender', 'Mobile', 'Email', 'Registered At'];
+    const qCols = answerColumns(regEvent, regs);
+    const headers = ['#', 'Name', 'Enrollment No', 'Department', 'Course', 'Gender', 'Mobile', 'Email',
+      ...qCols.map(c => csvCell(c.label)), 'Registered At'];
     const rows2 = regs.map((r, i) => [
       i + 1,
       `"${r.name || ''}"`,
@@ -1287,7 +1302,8 @@ export default function CoordEvents() {
       r.gender || '',
       r.phone || '',
       r.email || '',
-      r.registered_at ? new Date(r.registered_at).toLocaleString('en-IN') : '',
+      ...qCols.map(c => csvCell(answerOf(r, c.id))),
+      `"${r.registered_at ? new Date(r.registered_at).toLocaleString('en-IN') : ''}"`,
     ]);
     const csv  = [headers, ...rows2].map(r => r.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -1298,6 +1314,8 @@ export default function CoordEvents() {
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  const regQCols = regEvent ? answerColumns(regEvent, regs) : [];
 
   const filteredRegs = regs.filter(r => {
     if (!regSearch) return true;
@@ -1799,7 +1817,9 @@ export default function CoordEvents() {
                       <tr>
                         <th>#</th><th>Name</th><th>Enrollment No.</th>
                         <th>Dept</th><th>Course</th><th>Gender</th><th>Mobile</th>
-                        <th>Email</th><th>Registered At</th>
+                        <th>Email</th>
+                        {regQCols.map(c => <th key={c.id} title={c.label} style={{ maxWidth: 200 }}>{c.label}</th>)}
+                        <th>Registered At</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1813,6 +1833,11 @@ export default function CoordEvents() {
                           <td>{r.gender || '—'}</td>
                           <td>{r.phone || '—'}</td>
                           <td className={es.regsEmail}>{r.email || '—'}</td>
+                          {regQCols.map(c => (
+                            <td key={c.id} style={{ maxWidth: 240, whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>
+                              {answerOf(r, c.id) || '—'}
+                            </td>
+                          ))}
                           <td className={es.regsDate}>
                             {r.registered_at
                               ? new Date(r.registered_at).toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })

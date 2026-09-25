@@ -44,6 +44,221 @@ const STATUS = ['upcoming','past'];
 const isPlaceholderEmail = (email) => /@roster\.internal$/i.test(email || '');
 const displayEmail = (email) => isPlaceholderEmail(email) ? '—' : (email || '—');
 
+/* ── Extra registration questions (Other Events) ──
+   Admin defines them on the event; each registrant's answers come back as
+   extra_answers [{ id, label, value }]. Columns = the event's current
+   questions plus any older ones still present in answers (label kept). */
+const QUESTION_TYPES = [
+  { value: 'text',     label: 'Short answer' },
+  { value: 'textarea', label: 'Paragraph' },
+  { value: 'number',   label: 'Number' },
+  { value: 'select',   label: 'Dropdown' },
+  { value: 'yesno',    label: 'Yes / No' },
+  { value: 'date',     label: 'Date' },
+];
+const STANDARD_REG_FIELDS = ['Name', 'Email', 'Enrollment No.', 'Department', 'Course', 'Mobile', 'Gender'];
+const MAX_QUESTIONS = 15;
+const QUESTION_PRESETS = [
+  { label: 'Year of study', type: 'select', options: ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'] },
+  { label: 'T-shirt size',  type: 'select', options: ['XS', 'S', 'M', 'L', 'XL', 'XXL'] },
+  { label: 'Team name',     type: 'text' },
+  { label: 'Will you bring your own laptop?', type: 'yesno' },
+  { label: 'Dietary preference', type: 'select', options: ['Vegetarian', 'Non-vegetarian', 'Jain', 'Vegan'] },
+  { label: 'Why do you want to participate?', type: 'textarea' },
+];
+const newQuestionId = () => `q${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+const answerColumns = (event, regs) => {
+  const cols = (event?.customFields || []).map(f => ({ id: f.id, label: f.label }));
+  const ids = new Set(cols.map(c => c.id));
+  regs.forEach(r => (r.extra_answers || []).forEach(a => {
+    if (!ids.has(a.id)) { ids.add(a.id); cols.push({ id: a.id, label: a.label }); }
+  }));
+  return cols;
+};
+const answerOf = (r, id) => (r.extra_answers || []).find(a => a.id === id)?.value || '';
+const csvCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+
+/* Admin's editor for an event's extra registration questions */
+function QuestionBuilder({ questions, onChange }) {
+  const [lastAdded, setLastAdded] = useState(null); // focus the label of a just-added question
+  const update = (i, patch) => onChange(questions.map((q, j) => (j === i ? { ...q, ...patch } : q)));
+  const remove = (i) => onChange(questions.filter((_, j) => j !== i));
+  const move = (i, dir) => {
+    const j = i + dir;
+    if (j < 0 || j >= questions.length) return;
+    const next = [...questions];
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+  };
+  const add = (preset) => {
+    const id = newQuestionId();
+    setLastAdded(preset ? null : id);
+    onChange([...questions, {
+      id, label: '', type: 'text', required: false, ...(preset || {}),
+      optionsText: preset?.options ? preset.options.join('\n') : '',
+    }]);
+  };
+  const used = new Set(questions.map(q => q.label.trim().toLowerCase()));
+  const full = questions.length >= MAX_QUESTIONS;
+  const optionsOf = (q) => (q.optionsText ?? (q.options || []).join('\n')).split('\n').map(o => o.trim()).filter(Boolean);
+
+  const iconBtn = (disabled) => ({
+    border: '1px solid #e5e7eb', background: '#fff', borderRadius: 8, width: 30, height: 30,
+    cursor: disabled ? 'default' : 'pointer', opacity: disabled ? .35 : 1, fontSize: '.85rem', color: '#374151',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  });
+  const inputSt = {
+    width: '100%', boxSizing: 'border-box', padding: '8px 11px', borderRadius: 8,
+    border: '1.5px solid #e5e7eb', fontSize: '.85rem', fontFamily: 'inherit', background: '#fff',
+  };
+
+  return (
+    <div style={{ background: '#fafaff', border: '1.5px solid #e6e3fb', borderRadius: 12, padding: '16px 16px 14px' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+        <div style={{ fontSize: '.78rem', fontWeight: 800, color: '#1f1a4d', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+          Additional Registration Questions
+        </div>
+        <span style={{ fontSize: '.72rem', fontWeight: 700, padding: '2px 9px', borderRadius: 20,
+          background: questions.length ? '#ede9fe' : '#f3f4f6', color: questions.length ? '#5b21b6' : '#9ca3af' }}>
+          {questions.length} / {MAX_QUESTIONS}
+        </span>
+      </div>
+
+      {/* What's already collected */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 5, margin: '8px 0 14px' }}>
+        <span style={{ fontSize: '.74rem', color: '#6b7280', marginRight: 2 }}>Already asked:</span>
+        {STANDARD_REG_FIELDS.map(f => (
+          <span key={f} style={{ fontSize: '.7rem', padding: '2px 8px', borderRadius: 6, background: '#f3f4f6', color: '#6b7280' }}>{f}</span>
+        ))}
+      </div>
+
+      {/* Questions */}
+      {questions.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '18px 12px', border: '1.5px dashed #d9d5f5', borderRadius: 10, background: '#fff' }}>
+          <div style={{ fontSize: '.85rem', fontWeight: 700, color: '#1f1a4d' }}>No extra questions yet</div>
+          <div style={{ fontSize: '.77rem', color: '#6b7280', marginTop: 2 }}>
+            Add one below if this event needs more from students, like a T-shirt size or team name.
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 10 }}>
+          {questions.map((q, i) => {
+            const opts = q.type === 'select' ? optionsOf(q) : [];
+            return (
+              <div key={q.id} style={{ background: '#fff', border: '1.5px solid #e5e7eb',
+                borderRadius: 10, padding: '12px 14px', boxShadow: '0 1px 3px rgba(15,10,46,.04)' }}>
+
+                {/* Row 1: number · question · type */}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ width: 24, height: 24, borderRadius: '50%', background: '#ede9fe', color: '#5b21b6',
+                    fontSize: '.72rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    {i + 1}
+                  </span>
+                  <input value={q.label} onChange={e => update(i, { label: e.target.value })}
+                    placeholder="Type your question, e.g. T-shirt size" maxLength={150}
+                    autoFocus={q.id === lastAdded}
+                    style={{ ...inputSt, flex: '1 1 220px', width: 'auto', minWidth: 0, fontWeight: 600,
+                      borderColor: q.label.trim() ? '#e5e7eb' : '#fcd34d' }} />
+                  <select value={q.type} onChange={e => update(i, { type: e.target.value })}
+                    style={{ ...inputSt, flex: '0 0 150px', width: 'auto' }}>
+                    {QUESTION_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+
+                {/* Row 2: type-specific settings */}
+                {q.type === 'select' && (
+                  <div style={{ marginTop: 8, marginLeft: 32 }}>
+                    <textarea rows={3} value={q.optionsText ?? (q.options || []).join('\n')}
+                      onChange={e => update(i, { optionsText: e.target.value })}
+                      placeholder={'One choice per line\nOption A\nOption B'}
+                      style={{ ...inputSt, resize: 'vertical' }} />
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                      {opts.length === 0
+                        ? <span style={{ fontSize: '.72rem', color: '#b45309' }}>Add at least one choice.</span>
+                        : opts.map(o => (
+                            <span key={o} style={{ fontSize: '.7rem', padding: '2px 8px', borderRadius: 20,
+                              background: '#f5f3ff', color: '#5b21b6', border: '1px solid #e6e3fb' }}>{o}</span>
+                          ))}
+                    </div>
+                  </div>
+                )}
+                {['text', 'textarea', 'number'].includes(q.type) && (
+                  <div style={{ marginTop: 8, marginLeft: 32 }}>
+                    <input value={q.placeholder || ''} onChange={e => update(i, { placeholder: e.target.value })}
+                      placeholder="Example answer shown to students (optional)" maxLength={150}
+                      style={{ ...inputSt, fontSize: '.8rem', color: '#4b5563' }} />
+                  </div>
+                )}
+
+                {/* Row 3: required toggle · reorder · delete */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, marginLeft: 32 }}>
+                  <button type="button" onClick={() => update(i, { required: !q.required })} aria-pressed={!!q.required}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px 4px 5px', borderRadius: 20,
+                      border: `1.5px solid ${q.required ? '#635BFF' : '#e5e7eb'}`, background: q.required ? '#f5f3ff' : '#fff',
+                      color: q.required ? '#5b21b6' : '#6b7280', fontSize: '.75rem', fontWeight: 700, cursor: 'pointer', marginRight: 'auto' }}>
+                    <span style={{ width: 26, height: 15, borderRadius: 10, background: q.required ? '#635BFF' : '#d1d5db',
+                      position: 'relative', transition: 'background .15s', flexShrink: 0 }}>
+                      <span style={{ position: 'absolute', top: 2, left: q.required ? 13 : 2, width: 11, height: 11,
+                        borderRadius: '50%', background: '#fff', transition: 'left .15s' }} />
+                    </span>
+                    {q.required ? 'Required' : 'Optional'}
+                  </button>
+                  <button type="button" title="Move up"   aria-label="Move up"   onClick={() => move(i, -1)} disabled={i === 0} style={iconBtn(i === 0)}>↑</button>
+                  <button type="button" title="Move down" aria-label="Move down" onClick={() => move(i, 1)} disabled={i === questions.length - 1} style={iconBtn(i === questions.length - 1)}>↓</button>
+                  <button type="button" title="Remove question" aria-label="Remove question" onClick={() => remove(i)}
+                    style={{ ...iconBtn(false), color: '#dc2626', borderColor: '#fecaca', background: '#fff5f5' }}>✕</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Add */}
+      <button type="button" onClick={() => add()} disabled={full}
+        style={{ width: '100%', marginTop: 12, padding: '9px 14px', borderRadius: 10, border: '1.5px dashed #a5a0f5',
+          background: full ? '#f9fafb' : '#f5f3ff', color: full ? '#9ca3af' : '#635BFF', fontWeight: 700, fontSize: '.83rem',
+          cursor: full ? 'default' : 'pointer' }}>
+        {full ? `Maximum of ${MAX_QUESTIONS} questions reached` : '+ Add a question'}
+      </button>
+      {!full && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: 10 }}>
+          <span style={{ fontSize: '.74rem', color: '#6b7280' }}>Quick add:</span>
+          {QUESTION_PRESETS.filter(p => !used.has(p.label.toLowerCase())).slice(0, 4).map(p => (
+            <button key={p.label} type="button" onClick={() => add(p)}
+              style={{ padding: '4px 10px', borderRadius: 20, border: '1px solid #e5e7eb', background: '#fff',
+                color: '#4b5563', fontSize: '.74rem', cursor: 'pointer' }}>
+              + {p.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Form state → what the API stores (options from the one-per-line box) */
+const serializeQuestions = (questions) => JSON.stringify(questions
+  .filter(q => q.label.trim())
+  .map(({ optionsText, ...q }) => ({
+    ...q,
+    label: q.label.trim(),
+    ...(q.type === 'select'
+      ? { options: (optionsText ?? (q.options || []).join('\n')).split('\n').map(o => o.trim()).filter(Boolean) }
+      : { options: undefined }),
+  })));
+const questionsError = (questions) => {
+  for (const [i, q] of questions.entries()) {
+    if (!q.label.trim()) return `Question ${i + 1} needs a label (or remove it).`;
+    if (q.type === 'select') {
+      const opts = (q.optionsText ?? (q.options || []).join('\n')).split('\n').map(o => o.trim()).filter(Boolean);
+      if (!opts.length) return `Add at least one option for "${q.label.trim()}".`;
+    }
+  }
+  return '';
+};
+
 const CAT_COLOR = {
   tech: '#635BFF', sports: '#FF4757', cultural: '#FF6B9D',
   'annual-fest': '#D32F2F', health: '#00C896', leadership: '#9B2335',
@@ -60,6 +275,7 @@ const EMPTY = {
   date: '', startDate: '', time: '', venue: '',
   description: '', seats: '', highlight: '', registrationUrl: '',
   isFree: true, feeAmount: '',
+  customFields: [], // extra registration questions — see QuestionBuilder
 };
 
 /* Sports Fiesta events collect the same core details as Other Events
@@ -400,6 +616,7 @@ export default function AdminEvents() {
       time: ev.time || '', venue: ev.venue || '', description: ev.description || '',
       seats: ev.seats || '', highlight: ev.highlight || '', registrationUrl: ev.registrationUrl || '',
       isFree: ev.isFree !== false, feeAmount: ev.feeAmount || '',
+      customFields: (ev.customFields || []).map(q => ({ ...q, optionsText: (q.options || []).join('\n') })),
     });
     setEditing(ev._id); setApprovingId(null);
     setImgPrev(ev.imageUrl || (ev.image ? `/images/${ev.image}` : ''));
@@ -427,6 +644,7 @@ export default function AdminEvents() {
       registrationUrl: req.registrationUrl || '',
       isFree:          req.isFree !== false,
       feeAmount:       req.feeAmount || '',
+      customFields:    [],
     });
     setTagsStr((req.tags || []).join(', '));
     setEditing(null);
@@ -450,11 +668,16 @@ export default function AdminEvents() {
   const handleSave = async (e) => {
     e.preventDefault();
     if (!form.title.trim()) return setError('Event title is required.');
+    if (modal !== 'approve') {
+      const qErr = questionsError(form.customFields);
+      if (qErr) return setError(qErr);
+    }
     setSaving(true); setError('');
     try {
       const fd = new FormData();
-      const { isFree, feeAmount, ...rest } = form;
+      const { isFree, feeAmount, customFields, ...rest } = form;
       Object.entries(rest).forEach(([k, v]) => fd.append(k, v));
+      fd.append('customFields', serializeQuestions(customFields));
       fd.append('isFree', isFree);
       fd.append('feeAmount', isFree ? 0 : Number(feeAmount) || 0);
       fd.append('tags', JSON.stringify(tagsStr.split(',').map(t => t.trim()).filter(Boolean)));
@@ -856,7 +1079,9 @@ export default function AdminEvents() {
 
   const exportCSV = () => {
     if (!regs.length) return;
-    const headers = ['#', 'Name', 'Enrollment No', 'Department', 'Course', 'Gender', 'Mobile', 'Email', 'Registered At'];
+    const qCols = answerColumns(regEvent, regs);
+    const headers = ['#', 'Name', 'Enrollment No', 'Department', 'Course', 'Gender', 'Mobile', 'Email',
+      ...qCols.map(c => csvCell(c.label)), 'Registered At'];
     const rows = regs.map((r, i) => [
       i + 1,
       `"${r.name || ''}"`,
@@ -866,7 +1091,8 @@ export default function AdminEvents() {
       r.gender || '',
       r.phone || '',
       isPlaceholderEmail(r.email) ? '' : (r.email || ''),
-      r.registered_at ? new Date(r.registered_at).toLocaleString('en-IN') : '',
+      ...qCols.map(c => csvCell(answerOf(r, c.id))),
+      `"${r.registered_at ? new Date(r.registered_at).toLocaleString('en-IN') : ''}"`,
     ]);
     const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -877,6 +1103,9 @@ export default function AdminEvents() {
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  /* One column per extra registration question in the registrations table */
+  const regQCols = regEvent ? answerColumns(regEvent, regs) : [];
 
   const filteredRegs = regs.filter(r => {
     if (!regSearch) return true;
@@ -1628,6 +1857,16 @@ export default function AdminEvents() {
                 </div>
               </div>
 
+              {modal === 'approve' ? (
+                <div style={{ fontSize:'.78rem', color:'#6b7280', background:'#f9fafb', border:'1.5px dashed #e5e7eb', borderRadius:10, padding:'10px 14px' }}>
+                  Need extra registration questions for this event? Approve it first — the edit form opens straight after, where you can add them.
+                </div>
+              ) : (
+                <QuestionBuilder
+                  questions={form.customFields}
+                  onChange={(qs) => setForm(p => ({ ...p, customFields: qs }))} />
+              )}
+
               {editing && (
                 <div style={{ background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:10, padding:'14px 16px' }}>
                   <div style={{ fontSize:'.78rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:10 }}>
@@ -2052,7 +2291,11 @@ export default function AdminEvents() {
               ) : (
                 <table className={s.regsTable}>
                   <thead>
-                    <tr><th>#</th><th>Name</th><th>Enrollment No.</th><th>Dept</th><th>Course</th><th>Gender</th><th>Mobile</th><th>Email</th><th>Registered At</th><th>Actions</th></tr>
+                    <tr>
+                      <th>#</th><th>Name</th><th>Enrollment No.</th><th>Dept</th><th>Course</th><th>Gender</th><th>Mobile</th><th>Email</th>
+                      {regQCols.map(c => <th key={c.id} title={c.label} style={{ maxWidth: 200 }}>{c.label}</th>)}
+                      <th>Registered At</th><th>Actions</th>
+                    </tr>
                   </thead>
                   <tbody>
                     {filteredRegs.map((r, i) => {
@@ -2092,6 +2335,11 @@ export default function AdminEvents() {
                             </>
                           )}
                           <td className={s.regsEmail}>{displayEmail(r.email)}</td>
+                          {regQCols.map(c => (
+                            <td key={c.id} style={{ maxWidth: 240, whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>
+                              {answerOf(r, c.id) || '—'}
+                            </td>
+                          ))}
                           <td className={s.regsDate}>
                             {r.registered_at
                               ? new Date(r.registered_at).toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })

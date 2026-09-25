@@ -855,6 +855,48 @@
   background: #fff;
 }
 
+/* Extra questions admin added to this event */
+.regField textarea {
+  min-height: 84px;
+  border: 1.5px solid #e0d9f7;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 14px;
+  color: #1a1040;
+  background: #faf8ff;
+  outline: none;
+  transition: border-color .2s, box-shadow .2s;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+}
+.regField textarea:focus {
+  border-color: #635bff;
+  box-shadow: 0 0 0 3px rgba(99, 91, 255, .12);
+  background: #fff;
+}
+.regYesNo {
+  display: flex;
+  gap: 8px;
+}
+.regYesNo button {
+  flex: 1;
+  height: 42px;
+  border: 1.5px solid #e0d9f7;
+  border-radius: 10px;
+  background: #faf8ff;
+  color: #3d3068;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.regYesNo button[aria-pressed="true"] {
+  border-color: #635bff;
+  background: #635bff;
+  color: #fff;
+}
+
 .regInputErr { border-color: #f43f5e !important; }
 
 .regErrMsg {

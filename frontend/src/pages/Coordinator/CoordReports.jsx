@@ -183,6 +183,12 @@ function ReportDetail({ eventId }) {
 
   const nav = data.narrative || {};
   const isSports = data.event_category === 'sports';
+  /* One column per extra registration question the admin added to this event */
+  const qCols = [];
+  (data.participants || []).forEach(p => (p.extra_answers || []).forEach(a => {
+    if (!qCols.some(c => c.id === a.id)) qCols.push({ id: a.id, label: a.label });
+  }));
+  const answerOf = (p, id) => (p.extra_answers || []).find(a => a.id === id)?.value || '—';
 
   return (
     <div className={r.reportDetail}>
@@ -240,6 +246,7 @@ function ReportDetail({ eventId }) {
             <table className={r.table}>
               <thead>
                 <tr><th>#</th><th>Name</th><th>Enrollment</th><th>Gender</th><th>Dept</th><th>Course</th>
+                  {qCols.map(c => <th key={c.id}>{c.label}</th>)}
                   {isSports && (<><th>PTS</th><th>AST</th><th>REB</th><th>STL</th></>)}</tr>
               </thead>
               <tbody>
@@ -251,6 +258,9 @@ function ReportDetail({ eventId }) {
                       <td>{i + 1}</td><td>{p.name}</td>
                       <td>{p.enrollment_no || '—'}</td><td>{gLbl}</td>
                       <td>{p.dept || '—'}</td><td>{p.course || '—'}</td>
+                      {qCols.map(c => (
+                        <td key={c.id} style={{ whiteSpace: 'pre-line', overflowWrap: 'anywhere', maxWidth: 220 }}>{answerOf(p, c.id)}</td>
+                      ))}
                       {isSports && (<>
                         <td className={r.statCell}>{st.PTS || '—'}</td>
                         <td className={r.statCell}>{st.AST || '—'}</td>

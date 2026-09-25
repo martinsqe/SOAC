@@ -300,6 +300,61 @@ const CAT_COLOR = {
 };
 
 
+/* ── Extra registration questions ────────────────────── */
+/* Questions the admin added to this particular event, asked after the
+   standard fields. Answers are sent as extraAnswers { [questionId]: value }. */
+const validateExtraAnswers = (fields, answers) => {
+  const errs = {};
+  (fields || []).forEach(f => {
+    const v = String(answers?.[f.id] ?? '').trim();
+    if (!v) { if (f.required) errs[f.id] = 'This field is required.'; return; }
+    if (f.type === 'number' && !/^-?\d+(\.\d+)?$/.test(v)) errs[f.id] = 'Enter a number.';
+  });
+  return errs;
+};
+
+function ExtraQuestions({ fields, answers, errors, onChange }) {
+  if (!fields?.length) return null;
+  return (
+    <>
+      {fields.map(f => {
+        const id = `reg-q-${f.id}`;
+        const v = answers?.[f.id] ?? '';
+        const err = errors?.[f.id];
+        const set = (val) => onChange(f.id, val);
+        const cls = err ? styles.regInputErr : '';
+        return (
+          <div key={f.id} className={styles.regField}>
+            <label htmlFor={id}>
+              {f.label} {f.required ? <span className={styles.req}>*</span> : <span className={styles.opt}>(optional)</span>}
+            </label>
+            {f.type === 'textarea' ? (
+              <textarea id={id} value={v} onChange={e => set(e.target.value)} placeholder={f.placeholder || ''} className={cls} maxLength={2000} />
+            ) : f.type === 'select' ? (
+              <select id={id} value={v} onChange={e => set(e.target.value)} className={cls}>
+                <option value="">Select an option</option>
+                {(f.options || []).map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            ) : f.type === 'yesno' ? (
+              <div className={styles.regYesNo} role="group" aria-labelledby={id}>
+                {['Yes', 'No'].map(o => (
+                  <button key={o} type="button" aria-pressed={v === o} onClick={() => set(v === o ? '' : o)}
+                    className={cls}>{o}</button>
+                ))}
+              </div>
+            ) : (
+              <input id={id} value={v} onChange={e => set(e.target.value)} className={cls}
+                type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}
+                placeholder={f.placeholder || ''} maxLength={f.type === 'text' ? 300 : undefined} />
+            )}
+            {err && <span className={styles.regErrMsg}>{err}</span>}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 /* ── Main Events Page ────────────────────────────────── */
 /* Normalise API event to match existing component shape */
 const normaliseEvent = (e) => ({
@@ -326,6 +381,7 @@ const normaliseEvent = (e) => ({
   paymentLink: e.paymentLink || '',
   parentEventId: e.parentEventId || null, // set → this is a Galore activity (department + division apply)
   registrationClosed: !!e.registrationClosed,
+  customFields: e.customFields || [], // extra registration questions admin added
 });
 
 const DEPTS = ['ACH', 'AI/ML', 'FOT', 'SOE', 'SOM', 'SOP', 'SPT', 'SDS', 'SOS'];
@@ -500,10 +556,10 @@ const Events = () => {
   const openReg = (ev) => {
     if (ev.eventFormat === 'galore' && !ev.parentEventId) { openGaloreReg(ev); return; }
     if (ev.eventFormat === 'sports_fiesta') { openRoster(ev); return; }
-    setRegModal({ id: ev.id, title: ev.title });
+    setRegModal({ id: ev.id, title: ev.title, customFields: ev.customFields || [] });
     setRegForm(user
-      ? { ...EMPTY_FORM, name: user.name || '', email: user.email || '' }
-      : EMPTY_FORM
+      ? { ...EMPTY_FORM, name: user.name || '', email: user.email || '', extraAnswers: {} }
+      : { ...EMPTY_FORM, extraAnswers: {} }
     );
     setRegErr({});
     setRegApi('');
@@ -619,6 +675,8 @@ const Events = () => {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(regForm.email)) e.email = 'Enter a valid email.';
     else if (!regForm.email.trim().toLowerCase().endsWith('@rku.ac.in')) e.email = 'Only @rku.ac.in emails are allowed.';
     if (!regForm.gender) e.gender = 'Gender is required.';
+    const extra = validateExtraAnswers(regModal?.customFields, regForm.extraAnswers);
+    if (Object.keys(extra).length) e.extra = extra;
     setRegErr(e);
     return Object.keys(e).length === 0;
   };
@@ -1267,6 +1325,13 @@ const Events = () => {
                       {regErr.gender && <span className={styles.regErrMsg}>{regErr.gender}</span>}
                     </div>
                   </div>
+
+                  {/* Questions the admin added for this specific event */}
+                  <ExtraQuestions
+                    fields={regModal.customFields}
+                    answers={regForm.extraAnswers}
+                    errors={regErr.extra}
+                    onChange={(qid, val) => setRegForm(p => ({ ...p, extraAnswers: { ...p.extraAnswers, [qid]: val } }))} />
 
                   {regApi && <div className={styles.regApiErr}>{regApi}</div>}
 

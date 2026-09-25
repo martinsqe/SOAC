@@ -97,7 +97,8 @@ const regenerateReport = async (eventId, clubId, userId) => {
 
     /* ── Participants ── */
     const { rows: participants } = await pgPool.query(
-      `SELECT id, name, enrollment_no, dept, course, phone, email, gender, registered_at
+      `SELECT id, name, enrollment_no, dept, course, phone, email, gender, registered_at,
+              extra_answers   -- answers to the event's admin-added registration questions
        FROM event_registrations WHERE event_id = $1::bigint ORDER BY registered_at`,
       [eventId]
     );

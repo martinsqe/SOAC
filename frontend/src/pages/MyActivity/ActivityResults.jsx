@@ -58,6 +58,24 @@ function EventRow({ ev, open, onToggle, showCertificates }) {
             ))}
           </div>
 
+          {/* What they answered to the event's extra registration questions
+              (only present on their own logged-in view) */}
+          {ev.extraAnswers?.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: '.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>
+                Your registration details
+              </div>
+              <div className={s.actAccGrid}>
+                {ev.extraAnswers.map(a => (
+                  <div key={a.id} className={s.actAccField}>
+                    <span className={s.actAccLabel}>{a.label}</span>
+                    <span style={{ whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{a.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {ev.attendance ? (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>

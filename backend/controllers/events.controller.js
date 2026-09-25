@@ -18,8 +18,68 @@ const EVENT_COLS = [
   'certificates_finalized_at',
   'event_format', 'captain_name', 'captain_email', 'captain_phone',
   'team_members', 'payment_link', 'team_size', 'min_team_size',
-  'parent_event_id',
+  'parent_event_id', 'custom_fields',
 ].join(', ');
+
+/* ── Admin-defined extra registration questions (Other Events) ──────────────
+   Stored on events.custom_fields; answers land in
+   event_registrations.extra_answers as [{ id, label, value }]. */
+const CUSTOM_FIELD_TYPES = ['text', 'textarea', 'number', 'select', 'yesno', 'date'];
+const MAX_CUSTOM_FIELDS  = 15;
+
+/* Accepts a JSON string or array from the admin form and returns a clean,
+   bounded list — unknown types, blank labels and dropdowns with no options
+   are dropped; ids are kept stable so existing answers still line up. */
+const sanitizeCustomFields = (raw) => {
+  let list = raw;
+  if (typeof raw === 'string') {
+    try { list = JSON.parse(raw || '[]'); } catch { list = []; }
+  }
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const f of list.slice(0, MAX_CUSTOM_FIELDS)) {
+    if (!f || typeof f !== 'object') continue;
+    const label = String(f.label || '').trim().slice(0, 150);
+    const type  = CUSTOM_FIELD_TYPES.includes(f.type) ? f.type : 'text';
+    if (!label) continue;
+    let id = String(f.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
+    if (!id || seen.has(id)) id = `q${Date.now().toString(36)}${out.length}`;
+    seen.add(id);
+    const field = { id, label, type, required: !!f.required };
+    const placeholder = String(f.placeholder || '').trim().slice(0, 150);
+    if (placeholder && ['text', 'textarea', 'number'].includes(type)) field.placeholder = placeholder;
+    if (type === 'select') {
+      const opts = (Array.isArray(f.options) ? f.options : String(f.options || '').split(/\r?\n|,/))
+        .map(o => String(o).trim().slice(0, 100)).filter(Boolean);
+      field.options = [...new Set(opts)].slice(0, 30);
+      if (!field.options.length) continue;
+    }
+    out.push(field);
+  }
+  return out;
+};
+
+/* Checks a registrant's answers against the event's questions. Returns
+   { error } or { answers: [{ id, label, value }] }. */
+const validateCustomAnswers = (fields, raw) => {
+  const given = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const answers = [];
+  for (const f of fields || []) {
+    let v = given[f.id];
+    v = v === undefined || v === null ? '' : String(v).trim();
+    if (!v) {
+      if (f.required) return { error: `"${f.label}" is required.` };
+      continue;
+    }
+    if (f.type === 'number' && !/^-?\d+(\.\d+)?$/.test(v)) return { error: `"${f.label}" must be a number.` };
+    if (f.type === 'select' && !(f.options || []).includes(v)) return { error: `Choose a valid option for "${f.label}".` };
+    if (f.type === 'yesno' && !['Yes', 'No'].includes(v)) return { error: `Answer Yes or No for "${f.label}".` };
+    if (f.type === 'date' && Number.isNaN(Date.parse(v))) return { error: `"${f.label}" must be a valid date.` };
+    answers.push({ id: f.id, label: f.label, value: v.slice(0, f.type === 'textarea' ? 2000 : 300) });
+  }
+  return { answers };
+};
 
 /* Galore: every department competing this year. Matches the DEPTS list already
    duplicated in frontend/src/pages/Events/Events.jsx, StudentEvents.jsx, and
@@ -136,7 +196,7 @@ function normalizePaymentLink(raw) {
 
 const REG_COLS = [
   'id', 'event_id', 'event_title', 'name', 'enrollment_no',
-  'dept', 'course', 'phone', 'email', 'gender', 'registered_at',
+  'dept', 'course', 'phone', 'email', 'gender', 'registered_at', 'extra_answers',
 ].join(', ');
 
 const RKU_DOMAIN = '@rku.ac.in';
@@ -432,6 +492,7 @@ const create = async (req, res, next) => {
       description, tags, seats, highlight, registrationUrl,
       isFree, feeAmount,
       eventFormat, teamSize, minTeamSize, paymentLink, parentEventId,
+      customFields,
     } = req.body;
 
     const format = ['sports_fiesta', 'galore'].includes(eventFormat) ? eventFormat : 'other';
@@ -484,8 +545,8 @@ const create = async (req, res, next) => {
        (title, club, club_id, category, status, date, start_date, time, venue,
         description, image, tags, seats, highlight, registration_url, is_free, fee_amount,
         event_format, captain_name, captain_email, captain_phone, team_members, payment_link, team_size, min_team_size,
-        parent_event_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+        parent_event_id, custom_fields)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
        RETURNING ${EVENT_COLS}`,
       [
         title, clubName, resolvedClubId, resolvedCategory, status || 'upcoming', date || '',
@@ -498,6 +559,9 @@ const create = async (req, res, next) => {
         format, '', '', '',
         '[]', normalizePaymentLink(paymentLink), maxSize, minSize,
         resolvedParentEventId,
+        /* Extra registration questions only apply to Other Events — Sports
+           Fiesta and Galore have their own registration flows. */
+        JSON.stringify(format === 'other' && !resolvedParentEventId ? sanitizeCustomFields(customFields) : []),
       ]
     );
     const event = asEvent(rows[0]);
@@ -549,7 +613,7 @@ const create = async (req, res, next) => {
 const update = async (req, res, next) => {
   try {
     const { rows: cur } = await pgPool.query(
-      `SELECT id, image, title, club, category, status, date, time, venue, description, seats, highlight, is_free, fee_amount FROM events WHERE id = $1`,
+      `SELECT id, image, title, club, category, status, date, time, venue, description, seats, highlight, is_free, fee_amount, custom_fields FROM events WHERE id = $1`,
       [req.params.id]
     );
     if (!cur.length) return res.status(404).json({ message: 'Event not found.' });
@@ -613,6 +677,7 @@ const update = async (req, res, next) => {
            payment_link     = COALESCE($23, payment_link),
            team_size        = COALESCE($24, team_size),
            min_team_size    = COALESCE($25, min_team_size),
+           custom_fields    = COALESCE($27::jsonb, custom_fields),
            updated_at       = NOW()
        WHERE id = $26
        RETURNING ${EVENT_COLS}`,
@@ -643,6 +708,7 @@ const update = async (req, res, next) => {
         req.body.teamSize !== undefined ? Number(req.body.teamSize) || 0 : null,  // $24
         req.body.minTeamSize !== undefined ? Number(req.body.minTeamSize) || 0 : null,  // $25
         req.params.id,                   // $26
+        req.body.customFields !== undefined ? JSON.stringify(sanitizeCustomFields(req.body.customFields)) : null,  // $27
       ]
     );
     const event = asEvent(rows[0]);
@@ -675,6 +741,13 @@ const update = async (req, res, next) => {
       if (oldStr !== newStr) evChanges.push({ field: evLabels[key] || key, from: oldStr, to: newStr });
     }
     if (req.file) evChanges.push({ field: 'Image', from: null, to: 'updated' });
+    if (req.body.customFields !== undefined) {
+      const labels = (list) => (list || []).map(q => q.label).join(', ');
+      const before = labels(cur[0].custom_fields), after = labels(event.customFields);
+      if (JSON.stringify(cur[0].custom_fields || []) !== JSON.stringify(event.customFields)) {
+        evChanges.push({ field: 'Registration Questions', from: before, to: after });
+      }
+    }
 
     await logAudit(req.user.id, req.user.name, 'UPDATE_EVENT', 'event', event.id, { title: event.title, changes: evChanges });
     await Promise.all([cache.del(`events:${req.params.id}`), cache.delPattern('events:*')]);
@@ -905,7 +978,7 @@ const register = async (req, res, next) => {
   try {
     /* Only fetch what we need: id, title, status, category, event_format + parent_event_id */
     const { rows: eventRows } = await pgPool.query(
-      `SELECT id, title, status, category, event_format, parent_event_id, registration_closed FROM events WHERE id = $1 AND is_active = true`,
+      `SELECT id, title, status, category, event_format, parent_event_id, registration_closed, custom_fields FROM events WHERE id = $1 AND is_active = true`,
       [req.params.id]
     );
     if (!eventRows.length) return res.status(404).json({ message: 'Event not found.' });
@@ -939,10 +1012,14 @@ const register = async (req, res, next) => {
     const capError = await assertGaloreCategoryCap(email.trim(), event);
     if (capError) return res.status(400).json({ message: capError });
 
+    /* The event's own extra questions, on top of the standard fields above */
+    const custom = validateCustomAnswers(event.custom_fields, req.body.extraAnswers);
+    if (custom.error) return res.status(400).json({ message: custom.error });
+
     const { rows } = await pgPool.query(
       `INSERT INTO event_registrations
-       (event_id, event_title, name, enrollment_no, dept, course, phone, email, gender)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       (event_id, event_title, name, enrollment_no, dept, course, phone, email, gender, extra_answers)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING ${REG_COLS}`,
       [
         event.id, event.title, name.trim(),
@@ -951,11 +1028,14 @@ const register = async (req, res, next) => {
         phone ? phone.trim() : '',
         email.trim().toLowerCase(),
         gender.toUpperCase(),
+        JSON.stringify(custom.answers),
       ]
     );
     await cache.del(`events:${req.params.id}`);
     const regEmail = email.trim().toLowerCase();
     notifyRegistrationConfirmed(event, regEmail).catch(() => {});
+    /* Keep a draft event report's participant list (with their answers) current */
+    autoRefreshReportIfExists(event.id).catch(() => {});
     res.status(201).json({ message: 'Registration successful!', registration: rows[0] });
   } catch (err) {
     if (err.code === '23505') {

@@ -56,6 +56,57 @@ function fmtDate(raw) {
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+/* ── Extra registration questions admin added to a specific event ── */
+const validateExtraAnswers = (fields, answers) => {
+  const errs = {};
+  (fields || []).forEach(f => {
+    const v = String(answers?.[f.id] ?? '').trim();
+    if (!v) { if (f.required) errs[f.id] = 'This field is required.'; return; }
+    if (f.type === 'number' && !/^-?\d+(\.\d+)?$/.test(v)) errs[f.id] = 'Enter a number.';
+  });
+  return errs;
+};
+
+function ExtraQuestions({ fields, answers, errors, onChange }) {
+  if (!fields?.length) return null;
+  return (
+    <>
+      {fields.map(f => {
+        const v = answers?.[f.id] ?? '';
+        const err = errors?.[f.id];
+        const set = (val) => onChange(f.id, val);
+        const cls = err ? s.inputErr : '';
+        return (
+          <div key={f.id} className={`${s.field} ${s.extraField}`}>
+            <label>
+              {f.label} {f.required ? <span className={s.req}>*</span> : <span className={s.optTag}>(optional)</span>}
+            </label>
+            {f.type === 'textarea' ? (
+              <textarea value={v} onChange={e => set(e.target.value)} placeholder={f.placeholder || ''} className={cls} maxLength={2000} />
+            ) : f.type === 'select' ? (
+              <select value={v} onChange={e => set(e.target.value)} className={cls}>
+                <option value="">Select an option</option>
+                {(f.options || []).map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            ) : f.type === 'yesno' ? (
+              <div className={s.yesNo} role="group" aria-label={f.label}>
+                {['Yes', 'No'].map(o => (
+                  <button key={o} type="button" aria-pressed={v === o} onClick={() => set(v === o ? '' : o)} className={cls}>{o}</button>
+                ))}
+              </div>
+            ) : (
+              <input value={v} onChange={e => set(e.target.value)} className={cls}
+                type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}
+                placeholder={f.placeholder || ''} maxLength={f.type === 'text' ? 300 : undefined} />
+            )}
+            {err && <span className={s.errMsg}>{err}</span>}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 export default function StudentEvents() {
   const { user } = useAuth();
   const [events,  setEvents]  = useState([]);
@@ -204,8 +255,8 @@ export default function StudentEvents() {
   );
 
   const openReg = (ev) => {
-    setRegModal({ id: ev._id, title: ev.title, category: ev.category });
-    setRegForm(EMPTY_FORM);
+    setRegModal({ id: ev._id, title: ev.title, category: ev.category, customFields: ev.customFields || [] });
+    setRegForm({ ...EMPTY_FORM, extraAnswers: {} });
     setRegErr({});
     setRegApi('');
     setRegDone(false);
@@ -225,6 +276,8 @@ export default function StudentEvents() {
       if (!/^\d{10}$/.test(digits)) e.phone = 'Enter a valid 10-digit number.';
     }
     if (!regForm.gender)             e.gender        = 'Gender is required.';
+    const extra = validateExtraAnswers(regModal?.customFields, regForm.extraAnswers);
+    if (Object.keys(extra).length) e.extra = extra;
     setRegErr(e);
     return Object.keys(e).length === 0;
   };
@@ -244,6 +297,7 @@ export default function StudentEvents() {
         course:       regForm.course,
         phone:        regForm.phone,
         gender:       regForm.gender,
+        extraAnswers: regForm.extraAnswers || {},
       });
       setRegDone(true);
       markRegistered(regModal.id);
@@ -559,6 +613,13 @@ export default function StudentEvents() {
                       {regErr.gender && <span className={s.errMsg}>{regErr.gender}</span>}
                     </div>
                   </div>
+
+                  {/* Questions the admin added for this specific event */}
+                  <ExtraQuestions
+                    fields={regModal.customFields}
+                    answers={regForm.extraAnswers}
+                    errors={regErr.extra}
+                    onChange={(qid, val) => setRegForm(p => ({ ...p, extraAnswers: { ...p.extraAnswers, [qid]: val } }))} />
 
                   {regApi && <div className={s.apiErr}>{regApi}</div>}
 
