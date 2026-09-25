@@ -2293,7 +2293,15 @@ export default function AdminEvents() {
                   <thead>
                     <tr>
                       <th>#</th><th>Name</th><th>Enrollment No.</th><th>Dept</th><th>Course</th><th>Gender</th><th>Mobile</th><th>Email</th>
-                      {regQCols.map(c => <th key={c.id} title={c.label} style={{ maxWidth: 200 }}>{c.label}</th>)}
+                      {regQCols.map(c => (
+                        /* Question text can be long — wrap it inside its own column
+                           instead of the header row's usual nowrap spilling it over
+                           the next column. */
+                        <th key={c.id} title={c.label}
+                          style={{ whiteSpace: 'normal', minWidth: 160, maxWidth: 240, overflowWrap: 'anywhere', lineHeight: 1.35, verticalAlign: 'bottom' }}>
+                          {c.label}
+                        </th>
+                      ))}
                       <th>Registered At</th><th>Actions</th>
                     </tr>
                   </thead>
@@ -2336,7 +2344,7 @@ export default function AdminEvents() {
                           )}
                           <td className={s.regsEmail}>{displayEmail(r.email)}</td>
                           {regQCols.map(c => (
-                            <td key={c.id} style={{ maxWidth: 240, whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>
+                            <td key={c.id} style={{ minWidth: 160, maxWidth: 240, whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>
                               {answerOf(r, c.id) || '—'}
                             </td>
                           ))}

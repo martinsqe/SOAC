@@ -159,7 +159,9 @@ function ReportDetail({ eventId }) {
             <table className={r.table}>
               <thead>
                 <tr><th>#</th><th>Name</th><th>Enrollment</th><th>Gender</th><th>Dept</th>
-                  {qCols.map(c => <th key={c.id}>{c.label}</th>)}
+                  {qCols.map(c => (
+                    <th key={c.id} style={{ whiteSpace: 'normal', minWidth: 140, maxWidth: 220, overflowWrap: 'anywhere', verticalAlign: 'bottom' }}>{c.label}</th>
+                  ))}
                   {isSports && (<><th>PTS</th><th>AST</th><th>REB</th><th>STL</th></>)}</tr>
               </thead>
               <tbody>
