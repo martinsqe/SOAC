@@ -56,4 +56,7 @@ export default defineConfig({
       },
     },
   },
+  preview: {
+    allowedHosts: ['soac.rku.ac.in']
+  },
 })

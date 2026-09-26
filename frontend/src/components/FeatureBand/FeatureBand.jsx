@@ -38,13 +38,6 @@ const FeatureBand = () => {
             </div>
           </div>
           <div className={styles.fbrow}>
-            <div className={styles.fbic}>💬</div>
-            <div className={styles.fbtx}>
-              <h4>Club Chat &amp; DMs</h4>
-              <p>Group chats and direct messages with coordinators.</p>
-            </div>
-          </div>
-          <div className={styles.fbrow}>
             <div className={styles.fbic}>🏆</div>
             <div className={styles.fbtx}>
               <h4>Wall of Fame</h4>
