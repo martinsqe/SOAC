@@ -32,14 +32,12 @@ const validateEnv = () => {
   }
 
   // ── Email (optional — app works without it, features degrade gracefully) ──
-  // Resend (RESEND_API_KEY) takes priority over Gmail SMTP — see config/email.js.
-  const hasResend = !!process.env.RESEND_API_KEY;
-  const smtpVars = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS'];
-  const missingSMTP = smtpVars.filter(v => !process.env[v]);
-  if (!hasResend && missingSMTP.length > 0) {
-    warnings.push(`⚠️  Email not configured (set RESEND_API_KEY, or ${smtpVars.join(', ')}) — email features disabled`);
-  } else if (hasResend && !process.env.EMAIL_FROM) {
-    warnings.push('⚠️  RESEND_API_KEY set but EMAIL_FROM missing — falling back to a default sender address');
+  // Gmail API (GMAIL_*) takes priority over SMTP — see config/email.js.
+  const gmailVars = ['GMAIL_USER', 'GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN'];
+  const hasGmailApi = gmailVars.every(v => process.env[v]);
+  const hasSmtp = !!(process.env.SMTP_USER && process.env.SMTP_PASS);
+  if (!hasGmailApi && !hasSmtp) {
+    warnings.push(`⚠️  Email not configured (set ${gmailVars.join(', ')}) — email features disabled`);
   }
 
   // ── Production-specific ───────────────────────────────────────────────────

@@ -1,97 +1,119 @@
-const nodemailer = require('nodemailer');
+const nodemailer   = require('nodemailer');
+const MailComposer = require('nodemailer/lib/mail-composer');
 
 const APP_URL   = process.env.CLIENT_URL || 'https://soac.info';
 const APP_LOGIN = `${APP_URL}/login`;
 
-/* Every email this app sends is transactional/no-reply. Resend already sends FROM this
-   address, so a reply naturally routes (and bounces, since nothing receives mail here) here
-   already. Gmail SMTP can't send AS this address without a verified "Send mail as" alias
-   (Google rejects/rewrites an unverified From) — but it CAN set Reply-To independently of
-   the authenticated From address, so hitting "Reply" on a Gmail-relayed email routes here
-   too, bouncing the same way Resend's does. Net effect: both providers behave identically
-   to the recipient for the one thing that matters — replying goes nowhere — even though
-   Gmail's raw From address still shows the real relay account. */
-const NO_REPLY_ADDRESS = process.env.EMAIL_REPLY_TO || 'noreply@soac.info';
+/* Optional Reply-To. Unset → replies go to the sending account itself. */
+const REPLY_TO = process.env.EMAIL_REPLY_TO || undefined;
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Priority 1 – Resend HTTP API  (set RESEND_API_KEY in Railway)
-     Uses HTTPS port 443 — never blocked by any cloud provider.
-     Free tier: 3 000 emails / month.
-     Sign up at https://resend.com → API Keys → Create API Key
-   Priority 2 – Gmail SMTP fallback
+   Priority 1 – Gmail API (Google Workspace account, e.g. soac@rku.ac.in)
+     Sends over HTTPS port 443, so it works on hosts that block SMTP (Railway).
+     Needs GMAIL_USER, GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN —
+     run `node scripts/gmail-auth.js` once to get the refresh token.
+   Priority 2 – SMTP fallback (only if SMTP_USER + SMTP_PASS are set)
 ────────────────────────────────────────────────────────────────────────── */
+const GMAIL_USER = process.env.GMAIL_USER || process.env.SMTP_USER;
+const FROM = process.env.EMAIL_FROM || `SOAC RKU <${GMAIL_USER}>`;
 
-/* ── Resend HTTP sender ──────────────────────────────────────────────────── */
-async function sendViaResend({ to, subject, html }) {
-  const from = process.env.EMAIL_FROM || 'SOAC <noreply@soac.info>';
-  const res  = await fetch('https://api.resend.com/emails', {
+const hasGmailApi = !!(process.env.GMAIL_CLIENT_ID && process.env.GMAIL_CLIENT_SECRET
+  && process.env.GMAIL_REFRESH_TOKEN && GMAIL_USER);
+const hasSmtp = !!(process.env.SMTP_USER && process.env.SMTP_PASS);
+
+/* ── Gmail API sender ────────────────────────────────────────────────────── */
+let _gmailAccessToken = null;
+let _gmailTokenExpiresAt = 0;
+
+async function getGmailAccessToken() {
+  if (_gmailAccessToken && Date.now() < _gmailTokenExpiresAt - 60_000) return _gmailAccessToken;
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id:     process.env.GMAIL_CLIENT_ID,
+      client_secret: process.env.GMAIL_CLIENT_SECRET,
+      refresh_token: process.env.GMAIL_REFRESH_TOKEN,
+      grant_type:    'refresh_token',
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`Gmail token refresh failed: ${data.error_description || data.error || res.status}`);
+  _gmailAccessToken   = data.access_token;
+  _gmailTokenExpiresAt = Date.now() + (data.expires_in || 3600) * 1000;
+  return _gmailAccessToken;
+}
+
+async function sendViaGmailApi({ to, subject, html }) {
+  const mime = await new MailComposer({ from: FROM, to, subject, html, replyTo: REPLY_TO }).compile().build();
+  const raw  = mime.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const res  = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method:  'POST',
     headers: {
-      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      'Authorization': `Bearer ${await getGmailAccessToken()}`,
       'Content-Type':  'application/json',
     },
-    body: JSON.stringify({ from, to, subject, html, reply_to: NO_REPLY_ADDRESS }),
+    body:   JSON.stringify({ raw }),
+    signal: AbortSignal.timeout(20000),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.message || `Resend API error ${res.status}`);
-  return data;
-}
-
-/* ── Gmail SMTP fallback ─────────────────────────────────────────────────── */
-let _gmailTransport = null;
-function getGmailTransport() {
-  if (!_gmailTransport) {
-    const gmailUser = process.env.SMTP_USER || 'mjjemba9@gmail.com';
-    const gmailPass = (process.env.SMTP_PASS || 'yhzx logi zuug sylj').replace(/\s+/g, '');
-    _gmailTransport = {
-      transport: nodemailer.createTransport({
-        host:   process.env.SMTP_HOST || 'smtp.gmail.com',
-        port:   465,
-        secure: true,
-        auth:   { user: gmailUser, pass: gmailPass },
-        tls:    { rejectUnauthorized: false },
-        connectionTimeout: 10000,
-        greetingTimeout:   10000,
-        socketTimeout:     15000,
-        /* Gmail rejects/drops connections once too many open at once from the
-           same account — pool + a conservative rate cap keeps bulk sends
-           (team-assignment emails, broadcasts) from tripping that limit. */
-        pool:          true,
-        maxConnections: 3,
-        maxMessages:    100,
-        rateDelta:      1000,
-        rateLimit:      3,
-      }),
-      from: process.env.EMAIL_FROM || `SOAC RKU <${gmailUser}>`,
-    };
+  if (res.status === 401) _gmailAccessToken = null; // force a fresh token on the retry
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(`Gmail API error ${res.status}: ${data.error?.message || 'unknown error'}`);
   }
-  return _gmailTransport;
 }
 
-async function sendViaGmail({ to, subject, html }) {
-  const { transport, from } = getGmailTransport();
-  await transport.sendMail({ from, to, subject, html, replyTo: NO_REPLY_ADDRESS });
+/* ── SMTP fallback ───────────────────────────────────────────────────────── */
+let _smtpTransport = null;
+function getSmtpTransport() {
+  if (!_smtpTransport) {
+    _smtpTransport = nodemailer.createTransport({
+      host:   process.env.SMTP_HOST || 'smtp.gmail.com',
+      port:   465,
+      secure: true,
+      auth:   { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS.replace(/\s+/g, '') },
+      connectionTimeout: 10000,
+      greetingTimeout:   10000,
+      socketTimeout:     15000,
+      /* Gmail rejects/drops connections once too many open at once from the
+         same account — pool + a conservative rate cap keeps bulk sends
+         (team-assignment emails, broadcasts) from tripping that limit. */
+      pool:          true,
+      maxConnections: 3,
+      maxMessages:    100,
+      rateDelta:      1000,
+      rateLimit:      3,
+    });
+  }
+  return _smtpTransport;
 }
 
-/* Provider chain, in priority order. Resend is skipped entirely if no API key is
-   configured — Gmail then becomes the sole provider, same as before failover existed. */
-const PROVIDER_CHAIN = process.env.RESEND_API_KEY
-  ? [{ name: 'resend', send: sendViaResend }, { name: 'gmail', send: sendViaGmail }]
-  : [{ name: 'gmail', send: sendViaGmail }];
+async function sendViaSmtp({ to, subject, html }) {
+  await getSmtpTransport().sendMail({ from: FROM, to, subject, html, replyTo: REPLY_TO });
+}
 
-console.log(`✉️  Email providers (in order): ${PROVIDER_CHAIN.map(p => p.name).join(' → ')}`);
+/* Provider chain, in priority order. */
+const PROVIDER_CHAIN = [
+  ...(hasGmailApi ? [{ name: 'gmail-api', send: sendViaGmailApi }] : []),
+  ...(hasSmtp     ? [{ name: 'smtp',      send: sendViaSmtp }]     : []),
+];
+
+console.log(PROVIDER_CHAIN.length
+  ? `✉️  Email providers (in order): ${PROVIDER_CHAIN.map(p => p.name).join(' → ')} · from ${FROM}`
+  : '✉️  Email not configured — set the GMAIL_* variables (see .env.example)');
 
 /* ── Concurrency-limited, retrying, failing-over send queue ─────────────────
-   Both providers reject/drop requests once too many go out at once (Resend's
-   free-tier rate limit; Gmail's per-account concurrent-connection limit).
+   Mail providers reject/drop requests once too many go out at once (Gmail's per-user
+   rate limit and per-account concurrent-connection limit).
    Without this, bulk sends (e.g. team-assignment emails to 50+ students at
    once) blast every request in parallel via Promise.allSettled — the first
    few succeed and the provider starts rejecting the rest outright. Capping
    concurrency and retrying transient failures keeps the whole batch delivering
    instead of silently failing past the first handful. */
-const MAX_CONCURRENT_SENDS = 2; // Resend's free tier is ~2 req/s; stay under it even when responses come back fast
+const MAX_CONCURRENT_SENDS = 2; // stay well under Gmail's per-user send rate
 const FALLBACK_RETRIES = 1; // non-final providers: one quick retry, then move on — a persistent
-                             // failure (e.g. Resend's daily quota) won't be fixed by hammering
+                             // failure (e.g. a daily quota) won't be fixed by hammering
                              // it with the same 500ms/1500ms/4500ms backoff used for a final leg
 const FINAL_RETRIES    = 3; // the last provider in the chain has nowhere left to fail over to,
                              // so it gets the full retry treatment (500ms, 1500ms, 4500ms)
@@ -130,6 +152,7 @@ async function _sendWithRetries(providerFn, payload, maxRetries) {
    whichever provider actually succeeded, so callers/diagnostics can tell
    when a send only went through because of the fallback. ── */
 async function send({ to, subject, html }) {
+  if (!PROVIDER_CHAIN.length) throw new Error('Email is not configured on the server.');
   await _acquireSendSlot();
   try {
     let lastErr;
