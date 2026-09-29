@@ -111,7 +111,7 @@ export default function Login() {
     setForgotSending(true);
     try {
       const res = await api.post('/auth/forgot-password', { email });
-      setForgotMsg(res.message || 'If this email exists, a reset link has been sent.');
+      setForgotMsg(res.message || 'A password reset link has been sent to your email.');
     } catch (err) {
       setForgotErr(err.message || 'Could not send reset link right now.');
     } finally {
@@ -233,6 +233,12 @@ export default function Login() {
               </label>
               <button type="button" className={styles.forgotBtn} onClick={openForgot}>Forgot password?</button>
             </div>
+
+            {location.state?.notice && !apiErr && (
+              <div style={{ background:'#f0fdf4', border:'1px solid #86efac', borderRadius:8, padding:'9px 12px', fontSize:13, color:'#15803d' }}>
+                {location.state.notice}
+              </div>
+            )}
 
             {apiErr && (
               <div style={{ background:'#fff1f1', border:'1px solid #fca5a5', borderRadius:8, padding:'9px 12px', fontSize:13, color:'#c0002e' }}>

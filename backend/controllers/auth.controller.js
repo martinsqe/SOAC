@@ -370,20 +370,20 @@ const forgotPassword = async (req, res, next) => {
       [email]
     );
 
-    const genericMessage = 'If this email exists, a password reset link has been sent.';
-    if (!rows.length || !rows[0].is_active) return res.json({ message: genericMessage });
+    // Only existing, active accounts can request a reset link
+    if (!rows.length || !rows[0].is_active) {
+      return res.status(404).json({ message: 'You are not a member of any club.' });
+    }
 
     const user  = rows[0];
     const token = signPasswordReset(user);
-    
-    try {
-      await sendPasswordReset({ toEmail: user.email, toName: user.name, token });
-    } catch (err) {
-      console.error(`Failed to send password reset email to ${user.email}:`, err.message);
-      // Don't leak that email send failed to user
-    }
 
-    return res.json({ message: genericMessage });
+    // Reply straight away — sending (with provider retries/failover) can take well over
+    // a minute when a mail provider is slow, long enough for the proxy to return a 502.
+    sendPasswordReset({ toEmail: user.email, toName: user.name, token })
+      .catch(err => console.error(`Failed to send password reset email to ${user.email}:`, err.message));
+
+    return res.json({ message: 'A password reset link has been sent to your email.' });
   } catch (err) { next(err); }
 };
 

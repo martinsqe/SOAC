@@ -39,8 +39,7 @@ const Footer = () => {
 
           <div className={styles.fcol}>
             <h4>Contact</h4>
-            <a href="https://soac.rku.ac.in" target="_blank" rel="noreferrer">soac.rku.ac.in</a>
-            <a href="tel:+919327606017">+91 93276 06017</a>
+            <a href="mailto:soac@rku.ac.in">soac@rku.ac.in</a>
           </div>
         </div>
         

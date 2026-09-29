@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../../api/client';
 import styles from './ResetPassword.module.css';
 
@@ -14,6 +14,7 @@ function passwordScore(pw) {
 
 export default function ResetPassword() {
   const [params] = useSearchParams();
+  const navigate = useNavigate();
   const token = params.get('token') || '';
 
   const [password, setPassword] = useState('');
@@ -37,9 +38,10 @@ export default function ResetPassword() {
     setSubmitting(true);
     try {
       const res = await api.post('/auth/reset-password', { token, newPassword: password });
-      setSuccess(res.message || 'Password reset successful. You can now log in.');
-      setPassword('');
-      setConfirmPassword('');
+      navigate('/login', {
+        replace: true,
+        state: { notice: res.message || 'Password reset successful. You can now log in.' },
+      });
     } catch (err) {
       setError(err.message || 'Unable to reset password. Please request a new reset link.');
     } finally {

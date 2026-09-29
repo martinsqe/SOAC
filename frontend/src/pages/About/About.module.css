@@ -655,6 +655,7 @@
 .hcardPurple { border: 1.5px solid rgba(99,91,255,.3); box-shadow: 0 6px 20px rgba(99,91,255,.1); }
 .hcardBlue  { border: 1.5px solid rgba(0,170,221,.3); box-shadow: 0 6px 20px rgba(0,170,221,.1); }
 .hcardDark  { border: 1.5px solid var(--border); box-shadow: 0 6px 20px rgba(0,0,0,.07); }
+.hcardAmber { border: 1.5px solid rgba(245,158,11,.4); box-shadow: 0 6px 20px rgba(245,158,11,.12); }
 
 .hav {
   width: 52px;
@@ -694,6 +695,7 @@
 .hrolePurple { color: #635BFF; }
 .hroleBlue   { color: #00AADD; }
 .hroleDark   { color: var(--muted); }
+.hroleAmber  { color: #F59E0B; }
 
 .hcardDesc {
   font-size: 12px;
@@ -737,6 +739,7 @@
 .htagPurple { color: var(--muted); }
 .htagBlue   { color: var(--muted); }
 .htagDark   { color: var(--muted); }
+.htagAmber  { color: var(--muted); }
 
 /* ── CTA BAND ── */
 .aboutCta {

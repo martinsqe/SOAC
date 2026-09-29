@@ -38,9 +38,9 @@ const orgAchievements = [
  * If a photo file is missing, the coloured initial circle shows instead.
  */
 const taskForce = [
-  { initial: 'D', name: 'Denish Patel', role: 'Executive Vice President', photo: '/images/denish.png' },
-  { initial: 'D', name: 'Dhaval Pipaliya', role: 'Director of Student Affairs', photo: '/images/dhaval.png' },
-  { initial: 'B', name: 'Bhavna Patel', role: 'Head-SOAC | CTO - NCC', photo: '/images/bhavna.png' },
+  { initial: 'D', name: 'Shree Denish Patel Sir', role: 'Executive Vice President', photo: '/images/denish.png' },
+  { initial: 'D', name: 'Dhaval Pipaliya Sir', role: 'Director of Student Affairs', photo: '/images/dhaval.png' },
+  { initial: 'B', name: 'Bhavna Patel Madam', role: 'Head-SOAC | CTO - NCC', photo: '/images/bhavna.png' },
 ];
 
 /* Combined sequence: org first, then students — carousel loops across both */
@@ -189,12 +189,6 @@ const About = () => {
           <div className="tag" style={{ color: 'rgba(255,120,120,.8)' }}>About SOAC</div>
           <h1 className={`${styles.aheroTitle} fade`}>Student Organizations<br />Advisory Council</h1>
           <p className={`${styles.aheroSub} fade`}>The official body governing all student-run organizations at RKU.</p>
-          <div className={`${styles.aheroBadges} fade`}>
-            <span className={styles.badge}>🏛️ University Recognised</span>
-            <span className={styles.badge}>📋 40 Active Clubs</span>
-            <span className={styles.badge}>🎓 Est. 2019</span>
-            <span className={styles.badge}>🏆 50+ Events / Year</span>
-          </div>
         </div>
       </div>
 
@@ -313,7 +307,7 @@ const About = () => {
             <div className={styles.hodImgStack}>
               <img src="/hod.png" alt="Head of SOAC" className={styles.hodImg} />
               <div className={styles.hodLabel}>
-                <span className={styles.hodLabelRole}>Bhavna Patel</span>
+                <span className={styles.hodLabelRole}>Bhavna Patel Madam</span>
                 <span className={styles.hodLabelDot}>·</span>
                 <span className={styles.hodLabelSub}>Head of SOAC</span>
               </div>
@@ -331,8 +325,21 @@ const About = () => {
             </div>
             <div className={styles.hconnector} />
             <div className={styles.hlevel}>
+              <div className={`${styles.hcard} ${styles.hcardAmber}`}>
+                <div className={styles.hcardTitle}>Faculty Advisor</div>
+                <div className={`${styles.hcardRole} ${styles.hroleAmber}`}>Club Mentor</div>
+                <p className={styles.hcardDesc}>Faculty member who guides the club, approves plans and events, and connects the club with SOAC and university departments.</p>
+                <div className={styles.hcardTags}>
+                  {['Guidance', 'Approvals', 'Mentorship'].map(t => (
+                    <span key={t} className={`${styles.htag} ${styles.htagAmber}`}>{t}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className={styles.hconnector} />
+            <div className={styles.hlevel}>
               <div className={`${styles.hcard} ${styles.hcardGreen}`}>
-                <div className={styles.hcardTitle}>Club Coordinator</div>
+                <div className={styles.hcardTitle}>Club Convener</div>
                 <div className={`${styles.hcardRole} ${styles.hroleGreen}`}>e.g. Android Development Club</div>
                 <p className={styles.hcardDesc}>Your primary contact for club activities, event planning, attendance, task assignments and day-to-day club operations.</p>
                 <div className={styles.hcardTags}>
@@ -344,6 +351,16 @@ const About = () => {
             </div>
             <div className={styles.hconnector} />
             <div className={styles.hlevel3}>
+              <div className={`${styles.hcard} ${styles.hcardBlue}`}>
+                <div className={styles.hcardTitle}>Coordinator</div>
+                <div className={`${styles.hcardRole} ${styles.hroleBlue}`}>Operations Support</div>
+                <p className={styles.hcardDesc}>Assists the convener with member management, event logistics and communication.</p>
+                <div className={styles.hcardTags}>
+                  {['Members', 'Logistics', 'Comms'].map(t => (
+                    <span key={t} className={`${styles.htag} ${styles.htagBlue}`}>{t}</span>
+                  ))}
+                </div>
+              </div>
               <div className={`${styles.hcard} ${styles.hcardPurple}`}>
                 <div className={styles.hcardTitle}>Club Treasurer</div>
                 <div className={`${styles.hcardRole} ${styles.hrolePurple}`}>Finance & Budget</div>
@@ -351,16 +368,6 @@ const About = () => {
                 <div className={styles.hcardTags}>
                   {['Fees', 'Budget', 'Records'].map(t => (
                     <span key={t} className={`${styles.htag} ${styles.htagPurple}`}>{t}</span>
-                  ))}
-                </div>
-              </div>
-              <div className={`${styles.hcard} ${styles.hcardBlue}`}>
-                <div className={styles.hcardTitle}>Co-coordinator</div>
-                <div className={`${styles.hcardRole} ${styles.hroleBlue}`}>Operations Support</div>
-                <p className={styles.hcardDesc}>Assists the coordinator with member management, event logistics and communication.</p>
-                <div className={styles.hcardTags}>
-                  {['Members', 'Logistics', 'Comms'].map(t => (
-                    <span key={t} className={`${styles.htag} ${styles.htagBlue}`}>{t}</span>
                   ))}
                 </div>
               </div>

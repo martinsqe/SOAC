@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import styles from './Events.module.css';
 import { useAuth } from '../../context/AuthContext';
+import { useStats } from '../../context/StatsContext';
 import api from '../../api/client';
 
 /* Long description cut to `limit` characters with an inline "…read more"
@@ -34,7 +35,7 @@ function ReadMore({ text, limit = 150, as = 'p', className, style }) {
 }
 
 import {
-  SPORT_CFG, SPORTS_LIST, winner, fmtDate, fetchPublicJson,
+  fetchPublicJson,
 } from '../../lib/sportsScores';
 
 /* ── Event data ──────────────────────────────────────── */
@@ -391,6 +392,7 @@ const Events = () => {
   const navigate = useNavigate();
   const { id: linkedEventId } = useParams(); // set when opened via a shared /events/:id link
   const { user } = useAuth();
+  const stats = useStats();
   const [filter, setFilter] = useState('all');
   const [linkedEventMissing, setLinkedEventMissing] = useState(false);
   const [linkedEventClosed, setLinkedEventClosed] = useState(null); // null | the event's title
@@ -402,17 +404,6 @@ const Events = () => {
   const [events, setEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [liveCount, setLiveCount]         = useState(0);
-
-  /* ── Past records (collapsed until opened) ── */
-  const [pastOpen, setPastOpen]           = useState(false);
-  const [pastScores, setPastScores]       = useState([]);
-  const [pastTotal, setPastTotal]         = useState(0);
-  const [pastPage, setPastPage]           = useState(1);
-  const [pastSearch, setPastSearch]       = useState('');
-  const [pastSport, setPastSport]         = useState('all');
-  const [pastLoading, setPastLoading]     = useState(false);
-  const [pastSearchInput, setPastSearchInput] = useState('');
-  const [statsModal, setStatsModal]       = useState(null);
 
   /* ── Registered events (persisted per user) ── */
   const [registeredIds, setRegisteredIds] = useState(() => {
@@ -750,40 +741,6 @@ const Events = () => {
     return () => clearInterval(t);
   }, []);
 
-  /* Past total for closed-state label */
-  useEffect(() => {
-    fetchPublicJson('/events/past-scores?limit=1')
-      .then((d) => setPastTotal(d.total || 0))
-      .catch(() => {});
-  }, []);
-
-  /* Load past scores only when dropdown is open */
-  useEffect(() => {
-    if (!pastOpen) return undefined;
-    const controller = new AbortController();
-    setPastLoading(true);
-    const params = new URLSearchParams({ page: pastPage, limit: 20 });
-    if (pastSearch) params.set('q', pastSearch);
-    if (pastSport !== 'all') params.set('sport', pastSport);
-    fetch(`/api/events/past-scores?${params}`, { signal: controller.signal })
-      .then((r) => r.json())
-      .then((d) => {
-        if (!controller.signal.aborted) {
-          setPastScores(d.pastScores || []);
-          setPastTotal(d.total || 0);
-        }
-      })
-      .catch(() => {})
-      .finally(() => { if (!controller.signal.aborted) setPastLoading(false); });
-    return () => controller.abort();
-  }, [pastOpen, pastSearch, pastSport, pastPage]);
-
-  /* Debounce search input → pastSearch */
-  useEffect(() => {
-    const t = setTimeout(() => { setPastSearch(pastSearchInput); setPastPage(1); }, 400);
-    return () => clearTimeout(t);
-  }, [pastSearchInput]);
-
   const upcoming = events.filter(e =>
     e.status === 'upcoming' && (filter === 'all' || e.cat === filter)
   );
@@ -822,7 +779,7 @@ const Events = () => {
           <div className={`${styles.evStats} fade`}>
             {[
               { n: '50+', l: 'Events / Year' },
-              { n: '40', l: 'Clubs Involved' },
+              { n: String(stats.clubs), l: 'Clubs Involved' },
               { n: '1,400+', l: 'Participants' },
               { n: '7', l: 'Days of Galore' },
             ].map((s, i) => (
@@ -1022,133 +979,6 @@ const Events = () => {
               <span className={styles.sportsPanelChevron} aria-hidden="true">→</span>
             </div>
           </Link>
-        </div>
-      </div>
-
-      {/* ══════════════════════════════════════════
-          PAST SPORTS RECORDS — collapsible dropdown
-      ══════════════════════════════════════════ */}
-      <div className={`${styles.section} ${styles.sportsPanelSection}`}>
-        <div className="wrap">
-          <button
-            type="button"
-            className={`${styles.sportsPanelTrigger} ${styles.sportsPanelTriggerPast} ${pastOpen ? styles.sportsPanelTriggerOpen : ''}`}
-            onClick={() => setPastOpen((o) => !o)}
-            aria-expanded={pastOpen}
-          >
-            <div className={styles.sportsPanelTriggerMain}>
-              <div className={styles.sectionPill} style={{ background: '#eff6ff', color: '#1d4ed8' }}>
-                📊 Sports History
-              </div>
-              <h2 className={styles.sportsPanelTitle}>Past Sports Records</h2>
-              <p className={styles.sportsPanelHint}>
-                {pastTotal > 0
-                  ? `${pastTotal} completed match${pastTotal !== 1 ? 'es' : ''} — tap to browse`
-                  : 'Search results & match history'}
-              </p>
-            </div>
-            <div className={styles.sportsPanelTriggerEnd}>
-              {pastTotal > 0 && !pastOpen && (
-                <span className={styles.sportsPanelBadgePast}>{pastTotal}</span>
-              )}
-              <span className={styles.sportsPanelChevron} aria-hidden="true">{pastOpen ? '▲' : '▼'}</span>
-            </div>
-          </button>
-
-          {pastOpen && (
-            <div className={styles.sportsDropdown}>
-              <div className={styles.pastFilterBar}>
-                <div className={styles.pastSearchWrap}>
-                  <span className={styles.pastSearchIcon}>🔍</span>
-                  <input
-                    className={styles.pastSearchInput}
-                    placeholder="Search by team or match…"
-                    value={pastSearchInput}
-                    onChange={(e) => setPastSearchInput(e.target.value)}
-                  />
-                  {pastSearchInput && (
-                    <button type="button" className={styles.pastSearchClear} onClick={() => { setPastSearchInput(''); setPastPage(1); }}>✕</button>
-                  )}
-                </div>
-                <div className={styles.pastSportPills}>
-                  {SPORTS_LIST.map((sp) => (
-                    <button
-                      key={sp}
-                      type="button"
-                      className={`${styles.pastSportPill} ${pastSport === sp ? styles.pastSportPillOn : ''}`}
-                      onClick={() => { setPastSport(sp); setPastPage(1); }}
-                      style={pastSport === sp && sp !== 'all' ? { background: (SPORT_CFG[sp] || {}).color || '#1d4ed8', color: '#fff', borderColor: 'transparent' } : {}}
-                    >
-                      {sp === 'all' ? 'All' : sp.charAt(0).toUpperCase() + sp.slice(1)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {pastLoading ? (
-                <div className={styles.sportsDropdownEmpty}>Loading records…</div>
-              ) : pastScores.length === 0 ? (
-                <div className={styles.sportsDropdownEmpty}>
-                  {pastSearch || pastSport !== 'all' ? 'No games match your search.' : 'No completed games yet.'}
-                </div>
-              ) : (
-                <div className={styles.pastAccordion}>
-                  {pastScores.map((g) => {
-                    const cfg = SPORT_CFG[g.sport] || { color: '#6b7280', bg: '#f3f4f6', label: g.sport };
-                    const w = winner(g);
-                    const homeName = g.homeTeam || g.clubName || 'Home';
-                    const hasStats = (g.homePlayers?.length > 0) || (g.awayPlayers?.length > 0);
-                    
-                    let homeDisp = g.teamScore;
-                    let awayDisp = g.opponentScore;
-                    if (g.sport === 'volleyball') {
-                      homeDisp = g.scoreData?.home?.setsWon ?? g.teamScore;
-                      awayDisp = g.scoreData?.away?.setsWon ?? g.opponentScore;
-                    } else if (g.sport === 'badminton') {
-                      homeDisp = g.scoreData?.home?.gamesWon ?? g.teamScore;
-                      awayDisp = g.scoreData?.away?.gamesWon ?? g.opponentScore;
-                    }
-
-                    return (
-                      <details key={g.id} className={styles.pastAccordionItem} style={{ borderLeftColor: cfg.color }}>
-                        <summary className={styles.pastAccordionSummary}>
-                          <span className={styles.pastAccSport} style={{ background: cfg.bg, color: cfg.color }}>{cfg.label}</span>
-                          <span className={styles.pastAccTitle}>{g.matchTitle || `${homeName} vs ${g.opponentName || 'Away'}`}</span>
-                          <span className={styles.pastAccScore}>
-                            <strong>{homeDisp}</strong> – <strong>{awayDisp}</strong>
-                          </span>
-                          <span className={styles.pastAccDate}>{fmtDate(g.endedAt || g.updatedAt)}</span>
-                        </summary>
-                        <div className={styles.pastAccordionBody}>
-                          {g.venue && <p className={styles.pastAccVenue}>📍 {g.venue}</p>}
-                          {g.clubName && <p className={styles.pastAccClub}>Club: {g.clubName}</p>}
-                          <div className={styles.pastAccTeams}>
-                            <span className={w === 'home' ? styles.pastAccWin : ''}>{homeName}: {homeDisp}{w === 'home' ? ' 🏆' : ''}</span>
-                            <span>vs</span>
-                            <span className={w === 'away' ? styles.pastAccWin : ''}>{g.opponentName || 'Away'}: {awayDisp}{w === 'away' ? ' 🏆' : ''}</span>
-                          </div>
-                          {w === 'draw' && <span className={styles.srDrawTag}>Draw</span>}
-                          {hasStats && (
-                            <button type="button" className={styles.srStatsBtn} onClick={() => setStatsModal(g)}>
-                              View player stats →
-                            </button>
-                          )}
-                        </div>
-                      </details>
-                    );
-                  })}
-                </div>
-              )}
-
-              {pastTotal > 20 && (
-                <div className={styles.pastPagination}>
-                  <button type="button" className={styles.pastPageBtn} disabled={pastPage === 1} onClick={() => setPastPage((p) => p - 1)}>← Prev</button>
-                  <span className={styles.pastPageInfo}>Page {pastPage} of {Math.ceil(pastTotal / 20)}</span>
-                  <button type="button" className={styles.pastPageBtn} disabled={pastPage >= Math.ceil(pastTotal / 20)} onClick={() => setPastPage((p) => p + 1)}>Next →</button>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
 
@@ -1658,79 +1488,6 @@ const Events = () => {
                 </form>
               </>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════
-          GAME STATS MODAL
-      ══════════════════════════════════════════ */}
-      {statsModal && (
-        <div className={styles.modalOv} onClick={() => setStatsModal(null)}>
-          <div className={styles.statsModalBox} onClick={e => e.stopPropagation()}>
-            <button className={styles.modalClose} onClick={() => setStatsModal(null)}>✕</button>
-
-            {/* Header */}
-            <div className={styles.smHead}>
-              <div className={styles.smSportPill} style={{ background: (SPORT_CFG[statsModal.sport] || {}).bg || '#f3f4f6', color: (SPORT_CFG[statsModal.sport] || {}).color || '#6b7280' }}>
-                {(SPORT_CFG[statsModal.sport] || { label: statsModal.sport }).label}
-              </div>
-              <h2 className={styles.smTitle}>{statsModal.matchTitle || `${statsModal.homeTeam || statsModal.clubName || 'Home'} vs ${statsModal.opponentName || 'Away'}`}</h2>
-              <p className={styles.smMeta}>{statsModal.venue && `📍 ${statsModal.venue}  ·  `}{fmtDate(statsModal.endedAt)}</p>
-            </div>
-
-            {/* Final score */}
-            {(() => {
-              const w = winner(statsModal);
-              const cfg = SPORT_CFG[statsModal.sport] || { color: '#6b7280' };
-              const homeName = statsModal.homeTeam || statsModal.clubName || 'Home';
-              return (
-                <div className={styles.smScoreBlock}>
-                  <div className={`${styles.smTeamScore} ${w === 'home' ? styles.smWinner : w !== 'draw' ? styles.smLoser : ''}`}>
-                    <div className={styles.smTeamName}>{homeName}</div>
-                    <div className={styles.smBigScore} style={{ color: w === 'home' ? cfg.color : undefined }}>{statsModal.teamScore}</div>
-                    {w === 'home' && <div className={styles.smTrophy}>🏆 Winner</div>}
-                  </div>
-                  <div className={styles.smVsDivider}>
-                    <span>{w === 'draw' ? 'DRAW' : 'VS'}</span>
-                    <span className={styles.smFinalLabel}>FINAL</span>
-                  </div>
-                  <div className={`${styles.smTeamScore} ${w === 'away' ? styles.smWinner : w !== 'draw' ? styles.smLoser : ''}`}>
-                    <div className={styles.smTeamName}>{statsModal.opponentName || 'Away'}</div>
-                    <div className={styles.smBigScore} style={{ color: w === 'away' ? cfg.color : undefined }}>{statsModal.opponentScore}</div>
-                    {w === 'away' && <div className={styles.smTrophy}>🏆 Winner</div>}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Player stats tables */}
-            {[(
-              { side: 'home', label: statsModal.homeTeam || statsModal.clubName || 'Home', players: statsModal.homePlayers || [] }
-            ), (
-              { side: 'away', label: statsModal.opponentName || 'Away', players: statsModal.awayPlayers || [] }
-            )].map(({ side, label, players }) => players.length > 0 && (
-              <div key={side} className={styles.smRoster}>
-                <div className={styles.smRosterHead}>
-                  <span className={styles.smRosterTeam}>{label}</span>
-                  <div className={styles.smRosterCols}><span>PTS</span><span>STL</span><span>BLK</span></div>
-                </div>
-                {players.map((p, i) => (
-                  <div key={i} className={styles.smRosterRow}>
-                    <div className={styles.smPlayerName}>
-                      {p.number && <span className={styles.smJersey}>#{p.number}</span>}
-                      {p.name || '—'}
-                    </div>
-                    <div className={styles.smRosterCols}>
-                      <span className={styles.smStat}>{p.stats?.points ?? 0}</span>
-                      <span className={styles.smStat}>{p.stats?.steals ?? 0}</span>
-                      <span className={styles.smStat}>{p.stats?.blocks ?? 0}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ))}
-
           </div>
         </div>
       )}

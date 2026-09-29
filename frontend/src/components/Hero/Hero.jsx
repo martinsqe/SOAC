@@ -58,12 +58,12 @@ const Hero = () => {
             <div className={styles.hsl}>Clubs</div>
           </div>
           <div className={styles.hs}>
-            <div className={styles.hsn}>{stats.members?.toLocaleString()}+</div>
-            <div className={styles.hsl}>Members</div>
+            <div className={styles.hsn}>30+</div>
+            <div className={styles.hsl}>Members / Club</div>
           </div>
           <div className={styles.hs}>
-            <div className={styles.hsn}>{stats.events}+</div>
-            <div className={styles.hsl}>Events</div>
+            <div className={styles.hsn}>50+</div>
+            <div className={styles.hsl}>Events / Year</div>
           </div>
           <div className={styles.hs}>
             <div className={styles.hsn}>{new Date().getFullYear() - 2019}+</div>
