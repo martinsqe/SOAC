@@ -96,6 +96,8 @@ function JoinRequestsPanel() {
   const [creds,     setCreds]     = useState(null);
   const [resendId,  setResendId]  = useState(null);
   const [resendMsg, setResendMsg] = useState({});
+  const [bulkConfirm, setBulkConfirm] = useState(null); // 'approve' | 'delete'
+  const [bulkBusy,  setBulkBusy]  = useState(null);     // { kind, done, total }
 
   /* Fetch the FULL request list once (not scoped to the active status tab) so status counts
      are always accurate regardless of which tab is selected, and so name search can filter
@@ -142,7 +144,8 @@ function JoinRequestsPanel() {
     setActionId(req._id);
     try {
       const res = await api.post(`/requests/${req._id}/approve`, {});
-      if (res.newAccount && res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent });
+      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent,
+        title: res.newAccount ? 'Account Created!' : 'Request Approved!' });
       else showToast(res.message || 'Request approved!');
       loadRequests();
       approvalsChanged();
@@ -161,11 +164,46 @@ function JoinRequestsPanel() {
     finally { setActionId(null); }
   };
 
+  /* Bulk actions act on exactly what's on screen in the Pending tab — so the club
+     filter and name search narrow what "Approve all" / "Delete all" touch. */
+  const bulkTargets = filter === 'pending' ? requests.filter(r => r.status === 'pending') : [];
+
+  const runBulk = async (kind) => {
+    const ids = bulkTargets.map(r => r._id);
+    setBulkConfirm(null);
+    setBulkBusy({ kind, done: 0, total: ids.length });
+    try {
+      if (kind === 'delete') {
+        const res = await api.post('/requests/bulk-delete', { ids });
+        showToast(`Deleted ${res.deleted} request${res.deleted === 1 ? '' : 's'} — students have been emailed.`);
+      } else {
+        /* Approvals create accounts (bcrypt) one by one, so send them in small batches
+           to keep each call well inside request timeouts and show progress. */
+        let approved = 0, newAccounts = 0;
+        const skipped = [];
+        for (let i = 0; i < ids.length; i += 25) {
+          const res = await api.post('/requests/bulk-approve', { ids: ids.slice(i, i + 25) });
+          approved += res.approved; newAccounts += res.newAccounts; skipped.push(...res.skipped);
+          setBulkBusy({ kind, done: Math.min(i + 25, ids.length), total: ids.length });
+        }
+        showToast(`Approved ${approved}${newAccounts ? ` (${newAccounts} new accounts)` : ''}.` +
+          (skipped.length ? ` Skipped ${skipped.length} — e.g. ${skipped[0].message}` : ''));
+      }
+    } catch (err) { showToast(`Error: ${err.message}`); }
+    finally {
+      setBulkBusy(null);
+      loadRequests();
+      approvalsChanged();
+    }
+  };
+
   const handleResend = async (req) => {
+    if (!window.confirm(`Give ${req.name} a new temporary password and email it? Their current password will stop working.`)) return;
     setResendId(req._id);
     try {
       const res = await api.post(`/requests/${req._id}/resend-email`, {});
       setResendMsg(prev => ({ ...prev, [req._id]: { ok: res.emailSent, text: res.message } }));
+      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, title: 'New Login Details' });
     } catch (err) {
       setResendMsg(prev => ({ ...prev, [req._id]: { ok: false, text: err.message } }));
     } finally {
@@ -189,7 +227,7 @@ function JoinRequestsPanel() {
           background:'rgba(15,10,46,0.5)', backdropFilter:'blur(4px)',
           display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
           <div style={{ background:'#fff', borderRadius:20, padding:30, maxWidth:450, width:'100%' }}>
-            <h2 style={{ margin:'0 0 16px', fontWeight:900 }}>Account Created!</h2>
+            <h2 style={{ margin:'0 0 16px', fontWeight:900 }}>{creds.title || 'Account Created!'}</h2>
             <div style={{ background:'#f4f4f8', padding:16, borderRadius:12, marginBottom:20 }}>
               <p style={{ margin:'0 0 8px', fontSize:13 }}>Email: <strong>{creds.email}</strong></p>
               <p style={{ margin:0, fontSize:13 }}>Temp Password:{' '}
@@ -260,7 +298,58 @@ function JoinRequestsPanel() {
             <option key={id} value={id}>{name} ({count})</option>
           ))}
         </select>
+        {bulkTargets.length > 0 && (
+          <div style={{ display:'flex', gap:10, marginLeft:'auto' }}>
+            <button onClick={() => setBulkConfirm('approve')} disabled={!!bulkBusy}
+              style={{ padding:'9px 16px', borderRadius:9, border:'none', background:'#16a34a',
+                color:'#fff', fontWeight:700, fontSize:'.85rem', cursor: bulkBusy ? 'not-allowed' : 'pointer' }}>
+              {bulkBusy?.kind === 'approve' ? `Approving ${bulkBusy.done}/${bulkBusy.total}…` : `Approve all (${bulkTargets.length})`}
+            </button>
+            <button onClick={() => setBulkConfirm('delete')} disabled={!!bulkBusy}
+              style={{ padding:'9px 16px', borderRadius:9, border:'1.5px solid #ef4444', background:'#fff',
+                color:'#ef4444', fontWeight:700, fontSize:'.85rem', cursor: bulkBusy ? 'not-allowed' : 'pointer' }}>
+              {bulkBusy?.kind === 'delete' ? 'Deleting…' : `Delete all (${bulkTargets.length})`}
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Bulk action confirmation */}
+      {bulkConfirm && (
+        <div onClick={() => setBulkConfirm(null)}
+          style={{ position:'fixed', inset:0, zIndex:10000,
+            background:'rgba(15,10,46,.55)', backdropFilter:'blur(4px)',
+            display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background:'#fff', borderRadius:18, padding:26,
+              maxWidth:440, width:'100%', boxShadow:'0 24px 64px rgba(0,0,0,.2)' }}>
+            <h3 style={{ margin:'0 0 8px', fontWeight:900, color:'#0f0a2e' }}>
+              {bulkConfirm === 'approve' ? 'Approve' : 'Delete'} {bulkTargets.length} pending request{bulkTargets.length === 1 ? '' : 's'}?
+            </h3>
+            <p style={{ margin:'0 0 18px', fontSize:13, color:'#6b7280', lineHeight:1.55 }}>
+              {clubFilter || q
+                ? <>Only the requests currently shown (matching your club filter / search) are included. </>
+                : <>This includes every pending request across all clubs. </>}
+              {bulkConfirm === 'approve'
+                ? <>Each student is added to the club and emailed. Requests that can't be approved (e.g. the student is already in 3 clubs) are skipped.</>
+                : <>The requests are permanently removed and each student is emailed that their request was removed, so they can contact the coordinator or request to join again.</>}
+            </p>
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={() => setBulkConfirm(null)}
+                style={{ flex:1, padding:'9px 14px', borderRadius:10, border:'1.5px solid #e5e7eb', background:'#fff',
+                  color:'#374151', fontWeight:700, fontSize:13, cursor:'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={() => runBulk(bulkConfirm)}
+                style={{ flex:1, padding:'9px 14px', borderRadius:10, border:'none',
+                  background: bulkConfirm === 'approve' ? '#16a34a' : '#ef4444',
+                  color:'#fff', fontWeight:700, fontSize:13, cursor:'pointer' }}>
+                {bulkConfirm === 'approve' ? 'Approve all' : 'Delete all'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && <div style={{ color:'red', marginBottom:20 }}>{error}</div>}
 

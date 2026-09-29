@@ -1,6 +1,6 @@
 const bcrypt   = require('bcryptjs');
 const { pgPool } = require('../config/db');
-const { sendCredentials, sendApproval } = require('../config/email');
+const { sendCredentials, sendApproval, sendRequestsRemoved } = require('../config/email');
 const { ensureSoacTables } = require('../services/soacData');
 const { getCoordClubIds, assertCoordOwnsClub, getClubCoordinatorIds } = require('../services/coordAuth');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
@@ -260,29 +260,35 @@ const create = async (req, res, next) => {
   }
 };
 
-/* POST /api/requests/:id/approve  (coordinator/admin)
-   Runs inside a transaction; no N+1 — all reads are targeted. */
-const approve = async (req, res, next) => {
+const isCoord = (user) => user?.role === 'coordinator' || user?.role === 'faculty_coordinator';
+
+/* Core of approving one pending request, shared by the single and bulk endpoints.
+   Returns { ok: false, status, message } when the request can't be approved, or
+   { ok: true, jr, userId, isNewUser, tempPassword } once membership is committed.
+   Cache busting and the email are left to the caller, so bulk approve can bust
+   caches once per batch and send emails after it has responded. */
+const approveOne = async (id, user) => {
   const pgClient = await pgPool.connect();
   try {
-    await ensureSoacTables();
+    await pgClient.query('BEGIN');
 
     /* Lock the specific request row — only fetch what we need */
     const { rows: jrRows } = await pgClient.query(
       `SELECT id, club_id, club_name, name, email, status
        FROM join_requests WHERE id = $1 FOR UPDATE`,
-      [req.params.id]
+      [id]
     );
     const jr = jrRows[0];
-    if (!jr)                    return res.status(404).json({ message: 'Request not found.' });
-    if (jr.status !== 'pending') return res.status(400).json({ message: `Request is already ${jr.status}.` });
+    const fail = async (status, message) => {
+      await pgClient.query('ROLLBACK');
+      return { ok: false, status, message };
+    };
+    if (!jr)                     return fail(404, 'Request not found.');
+    if (jr.status !== 'pending') return fail(400, `Request is already ${jr.status}.`);
 
-    if (req.user?.role === 'coordinator' || req.user?.role === 'faculty_coordinator') {
-      const ok = await assertCoordOwnsClub(req.user.id, jr.club_id);
-      if (!ok) return res.status(403).json({ message: 'You can only approve requests for your assigned club.' });
+    if (isCoord(user) && !(await assertCoordOwnsClub(user.id, jr.club_id))) {
+      return fail(403, 'You can only approve requests for your assigned club.');
     }
-
-    await pgClient.query('BEGIN');
 
     /* 1. Count clubs already enrolled — deactivated memberships don't count against the cap */
     const { rows: cntRows } = await pgClient.query(
@@ -292,10 +298,7 @@ const approve = async (req, res, next) => {
        WHERE u.email = $1 AND sc.is_active = true`,
       [jr.email]
     );
-    if (cntRows[0].cnt >= 3) {
-      await pgClient.query('ROLLBACK');
-      return res.status(400).json({ message: 'Student has already joined the maximum of 3 clubs.' });
-    }
+    if (cntRows[0].cnt >= 3) return fail(400, 'Student has already joined the maximum of 3 clubs.');
 
     /* 2. Upsert student account — only select id (avoid pulling password_hash) */
     let userId;
@@ -303,11 +306,20 @@ const approve = async (req, res, next) => {
     let isNewUser    = false;
 
     const { rows: userRows } = await pgClient.query(
-      `SELECT id FROM users WHERE email = $1`,
+      `SELECT id, must_change_password FROM users WHERE email = $1`,
       [jr.email]
     );
     if (userRows.length) {
       userId = userRows[0].id;
+      /* Account exists but the student never set their own password — issue a fresh
+         temp password so it can be shown to the approver and emailed again. */
+      if (userRows[0].must_change_password) {
+        tempPassword = generatePassword();
+        await pgClient.query(
+          `UPDATE users SET password_hash = $1 WHERE id = $2`,
+          [await bcrypt.hash(tempPassword, 12), userId]
+        );
+      }
     } else {
       isNewUser    = true;
       tempPassword = generatePassword();
@@ -344,25 +356,12 @@ const approve = async (req, res, next) => {
     );
     await pgClient.query(
       `UPDATE join_requests SET status = 'approved', updated_at = NOW() WHERE id = $1`,
-      [req.params.id]
+      [id]
     );
     await pgClient.query('COMMIT');
 
-    /* 4. Invalidate caches — bust club object, all list pages, member list, student profile */
-    await Promise.all([
-      cache.del('stats:admin'),
-      cache.del(`clubs:${jr.club_id}`),
-      cache.del(`student:${userId}`),
-      cache.delPattern(`clubs:${jr.club_id}:members*`),
-      cache.delPattern('clubs:*'),
-    ]);
-
-    /* Fire the push the moment membership is actually committed — deliberately
-       BEFORE the awaited email send below, not after. notifyUser() is already
-       fire-and-forget, but it still can't run until the interpreter reaches
-       this line, and an SMTP round trip (500ms-plus, sometimes multi-second)
-       sitting ahead of it in source order was silently delaying "instant"
-       delivery by however long that email took. */
+    /* Fire the push the moment membership is actually committed — before any email
+       send, so an SMTP round trip never delays "instant" delivery. */
     notifyUser({
       userId: userId,
       clubId: jr.club_id,
@@ -372,15 +371,43 @@ const approve = async (req, res, next) => {
       url:    `/student/clubs/${jr.club_id}`,
     }).catch(() => {});
 
-    /* 5. Email — attempt send, capture failure so UI can warn */
+    return { ok: true, jr, userId, isNewUser, tempPassword };
+  } catch (err) {
+    await pgClient.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    pgClient.release();
+  }
+};
+
+/* Bust club object, member lists, list pages and the student profiles touched by approvals */
+const bustApprovalCaches = (clubIds, userIds) => Promise.all([
+  cache.del('stats:admin'),
+  ...clubIds.map(id => cache.del(`clubs:${id}`)),
+  ...userIds.map(id => cache.del(`student:${id}`)),
+  ...clubIds.map(id => cache.delPattern(`clubs:${id}:members*`)),
+  cache.delPattern('clubs:*'),
+]);
+
+const sendApprovalEmail = ({ jr, tempPassword }) => (tempPassword
+  ? sendCredentials({ toEmail: jr.email, toName: jr.name, password: tempPassword, clubName: jr.club_name })
+  : sendApproval({ toEmail: jr.email, toName: jr.name, clubName: jr.club_name }));
+
+/* POST /api/requests/:id/approve  (coordinator/admin) */
+const approve = async (req, res, next) => {
+  try {
+    await ensureSoacTables();
+    const result = await approveOne(req.params.id, req.user);
+    if (!result.ok) return res.status(result.status).json({ message: result.message });
+    const { jr, userId, isNewUser, tempPassword } = result;
+
+    await bustApprovalCaches([jr.club_id], [userId]);
+
+    /* Email — attempt send, capture failure so UI can warn */
     let emailSent = false;
     let emailError = null;
     try {
-      if (isNewUser) {
-        await sendCredentials({ toEmail: jr.email, toName: jr.name, password: tempPassword, clubName: jr.club_name });
-      } else {
-        await sendApproval({ toEmail: jr.email, toName: jr.name, clubName: jr.club_name });
-      }
+      await sendApprovalEmail(result);
       emailSent = true;
     } catch (emailErr) {
       emailError = emailErr.message;
@@ -390,16 +417,120 @@ const approve = async (req, res, next) => {
     res.json({
       message:     isNewUser ? 'Approved — new account created.' : 'Approved — student added to club.',
       newAccount:  isNewUser,
-      credentials: isNewUser ? { email: jr.email, password: tempPassword, name: jr.name } : null,
+      credentials: tempPassword ? { email: jr.email, password: tempPassword, name: jr.name } : null,
       emailSent,
       emailError:  emailError || undefined,
     });
-  } catch (err) {
-    await pgClient.query('ROLLBACK').catch(() => {});
-    next(err);
-  } finally {
-    pgClient.release();
-  }
+  } catch (err) { next(err); }
+};
+
+const BULK_APPROVE_MAX = 50;
+const BULK_DELETE_MAX  = 5000;
+
+const parseIds = (body, max) => {
+  const ids = Array.isArray(body?.ids) ? [...new Set(body.ids.map(String).filter(v => /^\d+$/.test(v)))] : [];
+  if (!ids.length)       return { error: 'ids must be a non-empty array of request ids.' };
+  if (ids.length > max)  return { error: `At most ${max} requests per call.` };
+  return { ids };
+};
+
+/* POST /api/requests/bulk-approve  (coordinator/admin)   body: { ids: [] }
+   Approves each request with the same rules as the single endpoint, one transaction
+   each, so one bad request (already 3 clubs, not your club…) doesn't sink the rest.
+   Emails go out after responding — the shared send queue paces them — and a student
+   whose email fails can still get a login link via "Resend Login Email". */
+const bulkApprove = async (req, res, next) => {
+  try {
+    await ensureSoacTables();
+    const { ids, error } = parseIds(req.body, BULK_APPROVE_MAX);
+    if (error) return res.status(400).json({ message: error });
+
+    const approved = [];
+    const skipped  = [];
+    for (const id of ids) {
+      const result = await approveOne(id, req.user);
+      if (result.ok) approved.push(result);
+      else skipped.push({ id, message: result.message });
+    }
+
+    if (approved.length) {
+      await bustApprovalCaches(
+        [...new Set(approved.map(a => String(a.jr.club_id)))],
+        [...new Set(approved.map(a => a.userId))],
+      );
+    }
+
+    res.json({
+      approved:    approved.length,
+      newAccounts: approved.filter(a => a.isNewUser).length,
+      skipped,
+    });
+
+    for (const a of approved) {
+      sendApprovalEmail(a).catch(err =>
+        console.error(`[requests] bulk-approve email failed for ${a.jr.email}:`, err.message));
+    }
+  } catch (err) { next(err); }
+};
+
+/* POST /api/requests/bulk-delete  (coordinator/admin)   body: { ids: [] }
+   Permanently removes PENDING requests (approved/declined history is left alone).
+   Deleting frees the student's club slot and the per-club pending check, so they can
+   request the same clubs again. Each affected student gets one email listing every
+   club whose request was removed. */
+const bulkDelete = async (req, res, next) => {
+  try {
+    const { ids, error } = parseIds(req.body, BULK_DELETE_MAX);
+    if (error) return res.status(400).json({ message: error });
+
+    const values  = [ids];
+    let clubScope = '';
+    if (isCoord(req.user)) {
+      const coordClubIds = await getCoordClubIds(req.user.id);
+      if (!coordClubIds.length) return res.status(403).json({ message: 'No club assigned to this coordinator account.' });
+      values.push(coordClubIds);
+      clubScope = 'AND club_id = ANY($2::bigint[])';
+    }
+
+    const { rows } = await pgPool.query(
+      `DELETE FROM join_requests
+       WHERE id = ANY($1::bigint[]) AND status = 'pending' ${clubScope}
+       RETURNING id, club_id, club_name, name, email`,
+      values
+    );
+    await cache.del('stats:admin');
+    res.json({ deleted: rows.length, skipped: ids.length - rows.length });
+
+    /* Group per student so each gets a single email, then notify / email in the background */
+    const byEmail = new Map();
+    for (const r of rows) {
+      const key = r.email.toLowerCase();
+      if (!byEmail.has(key)) byEmail.set(key, { email: r.email, name: r.name, clubs: [] });
+      byEmail.get(key).clubs.push({ id: r.club_id, name: r.club_name });
+    }
+
+    const students = [...byEmail.values()];
+    pgPool.query(`SELECT id, LOWER(email) AS email FROM users WHERE LOWER(email) = ANY($1::text[])`, [[...byEmail.keys()]])
+      .then(({ rows: uRows }) => {
+        for (const u of uRows) {
+          const s = byEmail.get(u.email);
+          const names = s.clubs.map(c => c.name).join(', ');
+          notifyUser({
+            userId: u.id,
+            clubId: s.clubs[0].id,
+            title:  'Join request removed',
+            body:   `Your request to join ${names} was removed. You can request to join again.`,
+            type:   'join_request',
+            url:    '/student/clubs',
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+
+    for (const s of students) {
+      sendRequestsRemoved({ toEmail: s.email, toName: s.name, clubNames: s.clubs.map(c => c.name) })
+        .catch(err => console.error(`[requests] bulk-delete email failed for ${s.email}:`, err.message));
+    }
+  } catch (err) { next(err); }
 };
 
 /* POST /api/requests/:id/decline  (coordinator/admin) */
@@ -443,8 +574,9 @@ const decline = async (req, res, next) => {
 };
 
 /* POST /api/requests/:id/resend-email  (coordinator/admin)
-   Re-sends a password-setup link to the student for an already-approved request.
-   Uses the same JWT mechanism as /api/auth/forgot-password. */
+   Issues the student of an already-approved request a fresh temporary password,
+   emails it, and returns it so the admin / coordinator can share it directly if the
+   email doesn't arrive. The student must change it on next login. */
 const resendEmail = async (req, res, next) => {
   try {
     const { rows } = await pgPool.query(
@@ -464,25 +596,22 @@ const resendEmail = async (req, res, next) => {
       if (!ok) return res.status(403).json({ message: 'Not your club.' });
     }
 
-    if (!jr.user_id || !jr.password_hash) {
+    if (!jr.user_id) {
       return res.status(404).json({ message: 'Student account not found. Please contact admin.' });
     }
 
-    /* Generate a JWT reset token — same mechanism as /api/auth/forgot-password */
-    const crypto = require('crypto');
-    const jwt    = require('jsonwebtoken');
-    const pv     = crypto.createHash('sha256').update(jr.password_hash).digest('hex').slice(0, 16);
-    const token  = jwt.sign(
-      { id: jr.user_id, pv, purpose: 'password-reset' },
-      process.env.RESET_PASSWORD_SECRET,
-      { expiresIn: process.env.RESET_PASSWORD_EXPIRES_IN || '30m' }
+    /* Changing password_hash also invalidates any outstanding reset links, since
+       those are bound to a fingerprint of the old hash. */
+    const tempPassword = generatePassword();
+    await pgPool.query(
+      `UPDATE users SET password_hash = $1, must_change_password = true WHERE id = $2`,
+      [await bcrypt.hash(tempPassword, 12), jr.user_id]
     );
 
-    const { sendPasswordReset } = require('../config/email');
     let emailSent = false;
     let emailError = null;
     try {
-      await sendPasswordReset({ toEmail: jr.email, toName: jr.name, token });
+      await sendCredentials({ toEmail: jr.email, toName: jr.name, password: tempPassword });
       emailSent = true;
     } catch (err) {
       emailError = err.message;
@@ -491,12 +620,13 @@ const resendEmail = async (req, res, next) => {
 
     res.json({
       emailSent,
-      emailError: emailError || undefined,
+      emailError:  emailError || undefined,
+      credentials: { email: jr.email, password: tempPassword, name: jr.name },
       message: emailSent
-        ? `Password-setup email sent to ${jr.email}`
-        : `Email failed: ${emailError}`,
+        ? `New login details sent to ${jr.email}`
+        : `Email failed: ${emailError} — share the password shown with the student.`,
     });
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, create, checkClubLimit, approve, decline, resendEmail };
+module.exports = { getAll, create, checkClubLimit, approve, bulkApprove, bulkDelete, decline, resendEmail };

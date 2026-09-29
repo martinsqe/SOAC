@@ -63,8 +63,9 @@ export default function CoordRequests() {
     setActionId(req._id);
     try {
       const res = await api.post(`/requests/${req._id}/approve`, {});
-      if (res.newAccount && res.credentials) {
-        setCreds({ ...res.credentials, emailSent: res.emailSent });
+      if (res.credentials) {
+        setCreds({ ...res.credentials, emailSent: res.emailSent,
+          title: res.newAccount ? 'Account Created!' : 'Request Approved!' });
       } else {
         showToast(res.message || 'Request approved!');
       }
@@ -77,10 +78,12 @@ export default function CoordRequests() {
   };
 
   const handleResend = async (req) => {
+    if (!window.confirm(`Give ${req.name} a new temporary password and email it? Their current password will stop working.`)) return;
     setResendId(req._id);
     try {
       const res = await api.post(`/requests/${req._id}/resend-email`, {});
       setResendMsg(prev => ({ ...prev, [req._id]: { ok: res.emailSent, text: res.message } }));
+      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, title: 'New Login Details', resend: true });
     } catch (err) {
       setResendMsg(prev => ({ ...prev, [req._id]: { ok: false, text: err.message } }));
     } finally {
@@ -142,7 +145,7 @@ export default function CoordRequests() {
               }}>✓</div>
               <div>
                 <div style={{ fontFamily:'Plus Jakarta Sans,sans-serif', fontWeight:900, fontSize:16, color:'#0f0a2e' }}>
-                  Account Created!
+                  {creds.title || 'Account Created!'}
                 </div>
                 <div style={{ fontSize:13, color:'#6b7280', marginTop:2 }}>
                   Credentials were generated for <strong>{creds.name}</strong>
@@ -206,7 +209,7 @@ export default function CoordRequests() {
             )}
 
             <button
-              onClick={() => { setCreds(null); showToast('Approved — student can now log in.'); }}
+              onClick={() => { setCreds(null); if (!creds.resend) showToast('Approved — student can now log in.'); }}
               style={{
                 width:'100%', padding:'11px', borderRadius:10, border:'none',
                 background:'#635BFF', color:'#fff', fontWeight:800,

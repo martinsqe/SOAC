@@ -77,6 +77,7 @@ export default function CoordDashboard() {
   const [events,    setEvents]    = useState([]);
   const [loading,   setLoading]   = useState(false);
   const [actionId,  setActionId]  = useState(null);
+  const [creds,     setCreds]     = useState(null);
   const [calEvents, setCalEvents] = useState([]);
 
   const CAL_TYPE_META = {
@@ -155,7 +156,8 @@ export default function CoordDashboard() {
   const handleApprove = async (req) => {
     setActionId(req._id);
     try {
-      await api.post(`/requests/${req._id}/approve`, {});
+      const res = await api.post(`/requests/${req._id}/approve`, {});
+      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent });
       setRequests(p => p.filter(r => r._id !== req._id));
       setRequestsTotal(t => Math.max(0, t - 1));
       setMembers(p => [...p, { name: req.name, email: req.email, dept: req.dept, year: req.year, joined_at: new Date().toISOString() }]);
@@ -173,6 +175,32 @@ export default function CoordDashboard() {
 
   return (
     <div className={s.page}>
+      {/* Login details for an approved student, so they can be shared directly */}
+      {creds && (
+        <div style={{ position:'fixed', inset:0, zIndex:10000,
+          background:'rgba(15,10,46,0.5)', backdropFilter:'blur(4px)',
+          display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div style={{ background:'#fff', borderRadius:18, padding:28, maxWidth:440, width:'100%' }}>
+            <h2 style={{ margin:'0 0 16px', fontWeight:900, fontSize:18, color:'#0f0a2e' }}>Login details for {creds.name}</h2>
+            <div style={{ background:'#f8f7ff', padding:16, borderRadius:12, marginBottom:16 }}>
+              <p style={{ margin:'0 0 8px', fontSize:13 }}>Email: <strong>{creds.email}</strong></p>
+              <p style={{ margin:0, fontSize:13 }}>Temp Password:{' '}
+                <strong style={{ color:'#D32F2F', fontSize:18, letterSpacing:2, fontFamily:'monospace' }}>{creds.password}</strong>
+              </p>
+            </div>
+            <p style={{ fontSize:12, color: creds.emailSent === false ? '#9a3412' : '#6b7280', marginBottom:18, lineHeight:1.6 }}>
+              {creds.emailSent === false
+                ? <><strong>Email could not be sent.</strong> Share these credentials with the student directly.</>
+                : 'An email was sent to the student.'} They must change their password on first login.
+            </p>
+            <button onClick={() => setCreds(null)}
+              style={{ width:'100%', padding:11, borderRadius:10, border:'none',
+                background:'#635BFF', color:'#fff', fontWeight:800, cursor:'pointer' }}>
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ══ HERO ══ */}
       <div className={s.hero}>

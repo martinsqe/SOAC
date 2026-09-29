@@ -231,6 +231,33 @@ const sendApproval = async ({ toEmail, toName, clubName }) => {
   });
 };
 
+/* Sent when a coordinator/admin clears pending join requests in bulk. One email per
+   student, listing every club whose request was removed, since the student is free to
+   request those same clubs again. */
+const sendRequestsRemoved = async ({ toEmail, toName, clubNames = [] }) => {
+  const list = clubNames.map(n =>
+    `<li style="margin:4px 0;font-weight:700;color:#1a1040">${n}</li>`).join('');
+  await send({
+    to:      toEmail,
+    subject: clubNames.length === 1
+      ? `Your request to join ${clubNames[0]} was removed — SOAC RKU`
+      : 'Your club join requests were removed — SOAC RKU',
+    html: wrap(`
+      ${header()}
+      <h2 style="color:#1a1040;margin-bottom:8px">Hi ${toName},</h2>
+      <p style="color:#555;line-height:1.6">Your pending request to join the following ${clubNames.length === 1 ? 'club has' : 'clubs have'} been removed by the club coordinator:</p>
+      <div style="background:#fff7ed;border:1.5px solid #fdba74;border-radius:12px;padding:16px 24px;margin:24px 0">
+        <ul style="margin:0;padding-left:18px">${list}</ul>
+      </div>
+      <p style="color:#555;line-height:1.6">This doesn't stop you from joining. Please contact the club coordinator, or send a new request to join the ${clubNames.length === 1 ? 'club' : 'clubs'} again.</p>
+      <div style="text-align:center;margin:28px 0">
+        <a href="${APP_URL}/clubs" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:10px">Request to Join Again</a>
+      </div>
+      ${footer()}
+    `),
+  });
+};
+
 /* roleLabel lets the exact same template serve both club staff roles — the
    (Student) Coordinator and, one tier up, the Faculty Coordinator — so a
    role assigned from either the admin dashboard or a Faculty Coordinator's
@@ -469,6 +496,7 @@ const sendTestEmail = async (toEmail) => {
 module.exports = {
   sendCredentials,
   sendApproval,
+  sendRequestsRemoved,
   sendCoordinatorCredentials,
   sendCoordinatorAssignment,
   sendPasswordReset,
