@@ -304,7 +304,7 @@ const getFCQueue = async (req, res, next) => {
   try {
     await ensureSoacTables();
     if (req.user.role !== 'faculty_coordinator' && req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Faculty Coordinator or admin access required.' });
+      return res.status(403).json({ message: 'Faculty Advisor or admin access required.' });
     }
     const clubIds = req.user.role === 'admin' ? null : await getCoordClubIds(req.user.id);
     if (clubIds && !clubIds.length) return res.json({ requests: [] });
@@ -341,13 +341,13 @@ const fcApproveRequest = async (req, res, next) => {
     if (!rows.length) return res.status(404).json({ message: 'Request not found.' });
     const r = rows[0];
     if (r.status !== 'pending_fc') {
-      return res.status(409).json({ message: 'This request is not awaiting Faculty Coordinator review.' });
+      return res.status(409).json({ message: 'This request is not awaiting Faculty Advisor review.' });
     }
     if (req.user.role === 'faculty_coordinator') {
       const ok = await assertCoordOwnsClub(req.user.id, r.club_id);
       if (!ok) return res.status(403).json({ message: 'You can only review requests for your own club.' });
     } else if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Faculty Coordinator or admin access required.' });
+      return res.status(403).json({ message: 'Faculty Advisor or admin access required.' });
     }
 
     const { rows: updated } = await pgPool.query(
@@ -362,7 +362,7 @@ const fcApproveRequest = async (req, res, next) => {
     notifyUser({
       userId: r.coordinator_id,
       clubId: r.club_id,
-      title:  'Your event request was approved by your Faculty Coordinator',
+      title:  'Your event request was approved by your Faculty Advisor',
       body:   `"${r.title}" was forwarded to Admin for final review.`,
       type:   'event_request',
       url:    '/coordinator/events',
@@ -375,7 +375,7 @@ const fcApproveRequest = async (req, res, next) => {
           userIds: admins.map(a => a.id),
           clubId:  r.club_id,
           title:   'New event request',
-          body:    `${req.user.name} (Faculty Coordinator) approved and forwarded "${r.title}" from ${r.coordinator_name || r.club_name}.`,
+          body:    `${req.user.name} (Faculty Advisor) approved and forwarded "${r.title}" from ${r.coordinator_name || r.club_name}.`,
           type:    'event_request',
           url:     '/admin/events',
         });
@@ -392,13 +392,13 @@ const fcRejectRequest = async (req, res, next) => {
     if (!rows.length) return res.status(404).json({ message: 'Request not found.' });
     const r = rows[0];
     if (r.status !== 'pending_fc') {
-      return res.status(409).json({ message: 'This request is not awaiting Faculty Coordinator review.' });
+      return res.status(409).json({ message: 'This request is not awaiting Faculty Advisor review.' });
     }
     if (req.user.role === 'faculty_coordinator') {
       const ok = await assertCoordOwnsClub(req.user.id, r.club_id);
       if (!ok) return res.status(403).json({ message: 'You can only review requests for your own club.' });
     } else if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Faculty Coordinator or admin access required.' });
+      return res.status(403).json({ message: 'Faculty Advisor or admin access required.' });
     }
 
     const { rows: updated } = await pgPool.query(
@@ -413,7 +413,7 @@ const fcRejectRequest = async (req, res, next) => {
     notifyUser({
       userId: r.coordinator_id,
       clubId: r.club_id,
-      title:  'Event request rejected by your Faculty Coordinator',
+      title:  'Event request rejected by your Faculty Advisor',
       body:   fc_note.trim()
         ? `"${r.title}" was rejected: ${fc_note.trim()}`
         : `"${r.title}" was rejected.`,
@@ -433,7 +433,7 @@ const approveRequest = async (req, res, next) => {
     if (!reqRow.rows.length)
       return res.status(404).json({ message: 'Request not found.' });
     if (reqRow.rows[0].status === 'pending_fc')
-      return res.status(409).json({ message: 'This request is still awaiting Faculty Coordinator review.' });
+      return res.status(409).json({ message: 'This request is still awaiting Faculty Advisor review.' });
     if (reqRow.rows[0].status !== 'pending')
       return res.status(409).json({ message: 'This request has already been reviewed.' });
 

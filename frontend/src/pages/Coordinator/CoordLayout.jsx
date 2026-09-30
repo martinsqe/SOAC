@@ -112,7 +112,7 @@ function CoordLayoutInner() {
      (Student) Coordinator — same dashboard for now (identical portal), with
      one extra capability: assigning that club's own Student Coordinator. */
   const isFC = user?.role === 'faculty_coordinator';
-  const portalLabel = isFC ? 'Faculty Coordinator' : 'Coordinator';
+  const portalLabel = isFC ? 'Faculty Advisor' : 'Coordinator';
 
   const unreadMsgs = unreadGroup + unreadDMs;
 
@@ -242,7 +242,7 @@ function CoordLayoutInner() {
     <div className={s.sidebarInner}>
       {/* Brand */}
       <div className={s.brand}>
-        <div className={s.brandBadge}>{isFC ? 'FC' : 'C'}</div>
+        <div className={s.brandBadge}>{isFC ? 'FA' : 'C'}</div>
         <div>
           <div className={s.brandName}>{portalLabel}</div>
           <div className={s.brandSub}>SOAC · RK University</div>
@@ -320,7 +320,7 @@ function CoordLayoutInner() {
           )}
           <div className={s.userInfo}>
             <div className={s.userName}>{user?.name || 'Coordinator'}</div>
-            <div className={s.userRole}>{isFC ? 'Faculty Coordinator' : 'Club Coordinator'}</div>
+            <div className={s.userRole}>{isFC ? 'Faculty Advisor' : 'Club Coordinator'}</div>
           </div>
         </div>
         <button className={s.logoutBtn} onClick={handleLogout}>

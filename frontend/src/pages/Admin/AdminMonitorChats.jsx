@@ -526,7 +526,7 @@ export default function AdminMonitorChats() {
                             })}>
                             {senderName(msg)}
                             {msg.user_role === 'coordinator' && <span className={s.roleBadge}>Coordinator</span>}
-                            {msg.user_role === 'faculty_coordinator' && <span className={s.roleBadge}>Faculty Coordinator</span>}
+                            {msg.user_role === 'faculty_coordinator' && <span className={s.roleBadge}>Faculty Advisor</span>}
                             {msg.user_role === 'admin'       && <span className={s.roleBadge} style={{ background:'#fef3c7', color:'#d97706' }}>Admin</span>}
                           </div>
                         )}

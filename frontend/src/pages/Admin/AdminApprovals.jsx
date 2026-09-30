@@ -6,6 +6,7 @@ import s from '../Coordinator/CoordSubPage.module.css';
 import a from './AdminApprovals.module.css';
 import ProposalDetails from './ProposalDetails';
 import { proposalAccent, formatDate } from './proposalUtils';
+import { useJoinStatus, refreshJoinStatus, formatOpensOn } from '../../utils/joinStatus';
 
 /* ── shared helpers ── */
 const AVS = [
@@ -67,19 +68,124 @@ export default function AdminApprovals() {
       </div>
 
       {/* Top-level tabs */}
-      <div className={s.tabsWrap} style={{ marginBottom: 28 }}>
-        <div className={s.tabs}>
-          <button className={`${s.tab} ${tab === 'join' ? s.tabOn : ''}`} onClick={() => setTab('join')}>
-            Join Requests{countPill(counts?.joinRequests?.pending)}
-          </button>
-          <button className={`${s.tab} ${tab === 'proposals' ? s.tabOn : ''}`} onClick={() => setTab('proposals')}>
-            Club Proposals{countPill(counts?.proposals?.pending)}
-          </button>
+      <div className={a.topBar}>
+        <div className={s.tabsWrap} style={{ marginBottom: 0 }}>
+          <div className={s.tabs}>
+            <button className={`${s.tab} ${tab === 'join' ? s.tabOn : ''}`} onClick={() => setTab('join')}>
+              Join Requests{countPill(counts?.joinRequests?.pending)}
+            </button>
+            <button className={`${s.tab} ${tab === 'proposals' ? s.tabOn : ''}`} onClick={() => setTab('proposals')}>
+              Club Proposals{countPill(counts?.proposals?.pending)}
+            </button>
+          </div>
         </div>
+        <JoinRequestsSwitch />
       </div>
 
       {tab === 'join'      && <JoinRequestsPanel />}
       {tab === 'proposals' && <ClubProposalsPanel counts={counts?.proposals} />}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════
+   JOIN REQUESTS OPEN / CLOSED SWITCH
+   Stops (or allows) students sending join requests to every club, on both
+   campuses. When stopping, admin may name the date requests reopen — the Join
+   Club buttons then read "You can start sending requests on <date>", and
+   requests open again automatically on that date.
+════════════════════════════════════════════════════════════ */
+const todayPlus = (days) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+function JoinRequestsSwitch() {
+  const status = useJoinStatus();
+  const [modal,  setModal]  = useState(false);
+  const [date,   setDate]   = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error,  setError]  = useState('');
+  const [toast,  setToast]  = useState('');
+
+  const save = async (open, opensOn = null) => {
+    setSaving(true); setError('');
+    try {
+      const res = await api.put('/requests/join-status', { open, opensOn });
+      await refreshJoinStatus();
+      setModal(false);
+      setToast(res.message);
+      setTimeout(() => setToast(''), 5000);
+    } catch (err) { setError(err.message); }
+    finally { setSaving(false); }
+  };
+
+  if (!status.loaded) return null;
+  return (
+    <div className={a.joinSwitch}>
+      {toast && (
+        <div style={{ position:'fixed', top:72, right:24, zIndex:10001, background:'#1a1040', color:'#fff',
+          padding:'12px 20px', borderRadius:10, boxShadow:'0 4px 20px rgba(0,0,0,.25)', fontSize:14, maxWidth:340 }}>
+          {toast}
+        </div>
+      )}
+      {status.open ? (
+        <>
+          <span className={a.joinChip} style={{ background:'#dcfce7', color:'#15803d' }}>● Join requests open</span>
+          <button className={a.joinBtn} style={{ border:'1.5px solid #ef4444', color:'#ef4444', background:'#fff' }}
+            onClick={() => { setDate(''); setError(''); setModal(true); }}>
+            Stop requests
+          </button>
+        </>
+      ) : (
+        <>
+          <span className={a.joinChip} style={{ background:'#fee2e2', color:'#b91c1c' }}>
+            ● Closed{status.opensOn ? ` · reopens ${formatOpensOn(status.opensOn)}` : ''}
+          </span>
+          <button className={a.joinBtn} style={{ border:'none', color:'#fff', background:'#16a34a' }}
+            disabled={saving} onClick={() => save(true)}>
+            {saving ? 'Opening…' : 'Allow requests'}
+          </button>
+        </>
+      )}
+
+      {modal && (
+        <div onClick={() => setModal(false)}
+          style={{ position:'fixed', inset:0, zIndex:10000, background:'rgba(15,10,46,.55)', backdropFilter:'blur(4px)',
+            display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background:'#fff', borderRadius:18, padding:26, maxWidth:440, width:'100%', boxShadow:'0 24px 64px rgba(0,0,0,.2)' }}>
+            <h3 style={{ margin:'0 0 8px', fontWeight:900, color:'#0f0a2e' }}>Stop join requests?</h3>
+            <p style={{ margin:'0 0 16px', fontSize:13, color:'#6b7280', lineHeight:1.55 }}>
+              Students won't be able to send join requests to any club, at either campus. They can still open and fill
+              the join form, but sending it shows a message instead. Requests already sent stay in your list.
+            </p>
+            <label style={{ fontSize:12, fontWeight:700, color:'#374151', display:'block', marginBottom:6 }}>
+              Students can start sending requests on (optional)
+            </label>
+            <input type="date" value={date} min={todayPlus(1)} onChange={e => setDate(e.target.value)}
+              style={{ width:'100%', padding:'9px 12px', borderRadius:10, border:'1.5px solid #e5e7eb', fontSize:14,
+                boxSizing:'border-box', fontFamily:'inherit' }} />
+            <div style={{ fontSize:12, color:'#6b7280', marginTop:6, lineHeight:1.5 }}>
+              {date
+                ? <>Students who send a request will see “You can send requests from <strong>{formatOpensOn(date)}</strong> onwards.”, and
+                    requests open automatically that day. Students removed with “Delete all students” are emailed this date so
+                    they can renew their membership.</>
+                : <>Leave empty to keep requests closed until you allow them again. Students removed with “Delete all students”
+                    are emailed once you set a date or allow requests.</>}
+            </div>
+            {error && <div style={{ marginTop:12, padding:'9px 12px', borderRadius:8, background:'#fff0f0',
+              border:'1px solid #fca5a5', color:'#b91c1c', fontSize:13 }}>{error}</div>}
+            <div style={{ display:'flex', gap:10, marginTop:18 }}>
+              <button onClick={() => setModal(false)} style={{ ...btnGhost, flex:1 }}>Cancel</button>
+              <button onClick={() => save(false, date || null)} disabled={saving} style={{ ...btnPrimary('#ef4444'), flex:1 }}>
+                {saving ? 'Stopping…' : 'Stop requests'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

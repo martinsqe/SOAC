@@ -134,6 +134,15 @@ app.use(cookieParser());
 /* ── Static uploads ── */
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+/* ── API responses are never cached by browsers/proxies — admin data differs per
+      campus (X-Campus header) at the same URL, so a cached Main Campus response
+      must never be reused for City Campus (or for another user). ── */
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  res.vary('X-Campus');
+  next();
+});
+
 /* ── Routes ── */
 app.use('/api/auth',          authLimiter, require('./routes/auth.routes'));
 app.use('/api/clubs',         require('./routes/clubs.routes'));

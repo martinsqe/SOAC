@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import api from '../../api/client';
+import { plainName } from '../../utils/names';
 import s from './AssignStudentCoordinatorModal.module.css';
 
 /* A Faculty Coordinator's own "Assign Student Coordinator" action — same
@@ -9,7 +10,9 @@ import s from './AssignStudentCoordinatorModal.module.css';
    emailed on save), scoped to the club the Faculty Coordinator already
    manages rather than a club picker. */
 export default function AssignStudentCoordinatorModal({ club, onClose, onAssigned }) {
-  const [name,   setName]   = useState(club.coordinator || '');
+  /* Starts empty and is filled from the email lookup (without titles), so a new
+     Student Coordinator never inherits the current one's name */
+  const [name,   setName]   = useState('');
   const [email,  setEmail]  = useState('');
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState('');
@@ -23,9 +26,9 @@ export default function AssignStudentCoordinatorModal({ club, onClose, onAssigne
     if (!e.endsWith('@rku.ac.in')) { setAssignments([]); return; }
     setLookingUp(true);
     try {
-      const d = await api.get(`/clubs/coordinator-assignments?email=${encodeURIComponent(e)}`);
+      const d = await api.get(`/clubs/coordinator-assignments?email=${encodeURIComponent(e)}&clubId=${encodeURIComponent(club.id || club._id)}`);
       setAssignments(d.assignments || []);
-      if (d.user?.name && !name) setName(d.user.name);
+      if (d.user?.name && !name) setName(plainName(d.user.name));
     } catch {
       setAssignments([]);
     } finally {

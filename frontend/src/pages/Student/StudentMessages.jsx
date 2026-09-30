@@ -506,7 +506,7 @@ export default function StudentMessages() {
                             {senderName(msg)}
                             {(msg.user_role === 'coordinator' || msg.user_role === 'faculty_coordinator' || msg.user_role === 'admin') && (
                               <span className={s.coordBadge}>
-                                {msg.user_role === 'admin' ? 'Admin' : msg.user_role === 'faculty_coordinator' ? 'Faculty Coordinator' : 'Coordinator'}
+                                {msg.user_role === 'admin' ? 'Admin' : msg.user_role === 'faculty_coordinator' ? 'Faculty Advisor' : 'Coordinator'}
                               </span>
                             )}
                           </div>
@@ -576,7 +576,7 @@ function MemberRow({ member, onSelect, UserAv, avatarUrl, coordBadgeClass,
           <span className={convNameClass}>{member.name}</span>
           {(member.role === 'coordinator' || member.role === 'faculty_coordinator' || member.role === 'admin') && (
             <span className={coordBadgeClass} style={{ fontSize: 9 }}>
-              {member.role === 'admin' ? 'Admin' : member.role === 'faculty_coordinator' ? 'FC' : 'Coord'}
+              {member.role === 'admin' ? 'Admin' : member.role === 'faculty_coordinator' ? 'FA' : 'Coord'}
             </span>
           )}
         </div>

@@ -34,4 +34,20 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
-module.exports = { verifyToken };
+/* For public routes whose answer depends on who's asking (e.g. the admin's
+   campus-scoped club / event lists): sets req.user when a valid, unrevoked token
+   is sent, and otherwise carries on as a guest — never rejects the request. */
+const optionalAuth = async (req, res, next) => {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith('Bearer ')) return next();
+  const token = header.split(' ')[1];
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (await tokenBlacklist.isRevoked(token)) return next();
+    if (await tokenBlacklist.wasRevokedByUser(decoded.id, decoded.iat)) return next();
+    req.user = decoded;
+  } catch { /* invalid or expired token — treat as a guest */ }
+  next();
+};
+
+module.exports = { verifyToken, optionalAuth };

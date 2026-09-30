@@ -10,6 +10,10 @@ router.post('/', ctrl.create);
 /* Public — pre-submit check so the join form can block+alert before sending a request */
 router.get('/check-club-limit', ctrl.checkClubLimit);
 
+/* Join requests open/closed — anyone can read it; only admin can change it */
+router.get('/join-status', ctrl.getJoinStatus);
+router.put('/join-status', verifyToken, requireAdmin, ctrl.setJoinStatus);
+
 /* Protected — coordinator / admin views requests */
 router.get('/', verifyToken, ctrl.getAll);
 

@@ -31,6 +31,11 @@ export default function JoinModal({ club, onClose }) {
       try {
         const limitRes  = await fetch(`/api/requests/check-club-limit?email=${encodeURIComponent(form.email.trim().toLowerCase())}&clubId=${encodeURIComponent(club._id)}&campus=${encodeURIComponent(form.campus)}`);
         const limitData = await limitRes.json();
+        if (limitRes.ok && limitData.joinClosed) {
+          alert(limitData.message);
+          setSubmitting(false);
+          return;
+        }
         if (limitRes.ok && limitData.wrongCampus) {
           alert(limitData.campusMessage);
           setSubmitting(false);
@@ -71,6 +76,7 @@ export default function JoinModal({ club, onClose }) {
         }),
       });
       const data = await res.json();
+      if (res.status === 403 && data.joinClosed) { alert(data.message); return; }
       if (!res.ok) throw new Error(data.message || 'Submission failed.');
       setDone(true);
     } catch (ex) {

@@ -258,6 +258,33 @@ const sendRequestsRemoved = async ({ toEmail, toName, clubNames = [] }) => {
   });
 };
 
+/* Sent to students whose accounts were cleared by admin ("Delete all students")
+   when admin announces the date club join requests open again — or that they're
+   open right now (opensOnLabel null) — so they can request to join and renew
+   their membership. */
+const sendJoinRequestsReopening = async ({ toEmail, toName, opensOnLabel = null }) => {
+  await send({
+    to:      toEmail,
+    subject: opensOnLabel
+      ? `Club join requests open on ${opensOnLabel} — SOAC RKU`
+      : 'Club join requests are open — SOAC RKU',
+    html: wrap(`
+      ${header()}
+      <h2 style="color:#1a1040;margin-bottom:8px">Hi ${toName || 'there'},</h2>
+      <p style="color:#555;line-height:1.6">Club memberships have been reset for the new session, so your previous club membership and account have ended.</p>
+      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:12px;padding:16px 24px;margin:24px 0;text-align:center">
+        <p style="margin:0;font-size:13px;color:#15803d">${opensOnLabel ? 'You can start sending join requests on' : 'Join requests are'}</p>
+        <p style="margin:6px 0 0;font-size:20px;font-weight:800;color:#15803d">${opensOnLabel || 'open now'}</p>
+      </div>
+      <p style="color:#555;line-height:1.6">To renew your membership, send a new request to join your club${opensOnLabel ? ' from that date' : ''}. Once it's approved you'll receive a fresh account with new login details by email.</p>
+      <div style="text-align:center;margin:28px 0">
+        <a href="${APP_URL}/clubs" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:10px">View Clubs</a>
+      </div>
+      ${footer()}
+    `),
+  });
+};
+
 /* roleLabel lets the exact same template serve both club staff roles — the
    (Student) Coordinator and, one tier up, the Faculty Coordinator — so a
    role assigned from either the admin dashboard or a Faculty Coordinator's
@@ -497,6 +524,7 @@ module.exports = {
   sendCredentials,
   sendApproval,
   sendRequestsRemoved,
+  sendJoinRequestsReopening,
   sendCoordinatorCredentials,
   sendCoordinatorAssignment,
   sendPasswordReset,

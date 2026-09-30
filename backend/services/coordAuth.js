@@ -17,18 +17,25 @@
 const { pgPool } = require('../config/db');
 
 /**
- * Auto-repair helper: insert a coordinator_club_assignments row.
+ * Auto-repair helper: insert a MISSING coordinator_club_assignments row.
+ * Never reactivates an existing row — an inactive row means an admin (or the
+ * club's Faculty Advisor) replaced this person, and the legacy fallbacks below
+ * must not quietly give them the club back.
  * Fire-and-forget; errors are logged but not propagated.
  */
 function autoRepair(userId, clubId) {
   pgPool.query(
     `INSERT INTO coordinator_club_assignments (user_id, club_id, is_active)
      VALUES ($1, $2, true)
-     ON CONFLICT (user_id, club_id)
-     DO UPDATE SET is_active = true, updated_at = NOW()`,
+     ON CONFLICT (user_id, club_id) DO NOTHING`,
     [userId, clubId]
   ).catch(err => console.warn('[coordAuth] auto-repair failed:', err.message));
 }
+
+/* SQL: this user has no assignment row at all for this club (active or not) —
+   the only case the legacy fallbacks are allowed to rescue. */
+const NO_ROW = (userExpr, clubExpr) =>
+  `NOT EXISTS (SELECT 1 FROM coordinator_club_assignments x WHERE x.user_id = ${userExpr} AND x.club_id = ${clubExpr})`;
 
 /**
  * Returns all club IDs this coordinator is authorized to manage.
@@ -60,7 +67,7 @@ async function getCoordClubIds(userId) {
 
   if (legacyId) {
     const { rows: check } = await pgPool.query(
-      `SELECT id FROM clubs WHERE id = $1 AND is_active = true`, [legacyId]
+      `SELECT id FROM clubs WHERE id = $1 AND is_active = true AND ${NO_ROW('$2', 'clubs.id')}`, [legacyId, userId]
     );
     if (check.length) {
       autoRepair(userId, legacyId);
@@ -81,12 +88,13 @@ async function getCoordClubIds(userId) {
     const { rows: nameMatch } = await pgPool.query(
       `SELECT id FROM clubs
        WHERE is_active = true AND campus = 'Main Campus'
+         AND ${NO_ROW('$2', 'clubs.id')}
          AND (
            trim(coordinator) ILIKE trim($1)
            OR coordinator ILIKE '%' || trim($1) || '%'
          )
        ORDER BY created_at ASC`,
-      [coordName]
+      [coordName, userId]
     );
     if (nameMatch.length) {
       const ids = nameMatch.map(r => String(r.id));
@@ -108,8 +116,8 @@ async function getCoordClubIds(userId) {
       for (const row of legacyAccts) {
         const clubId = row.managed_club_id;
         const { rows: check } = await pgPool.query(
-          `SELECT id FROM clubs WHERE id::text = $1::text AND is_active = true`,
-          [String(clubId)]
+          `SELECT id FROM clubs WHERE id::text = $1::text AND is_active = true AND ${NO_ROW('$2', 'clubs.id')}`,
+          [String(clubId), userId]
         );
         if (check.length) {
           ids.push(String(check[0].id));
@@ -144,6 +152,14 @@ async function assertCoordOwnsClub(userId, clubId) {
     [userId, clubId]
   );
   if (rows.length) return true;
+
+  /* Fallbacks only apply when there's no assignment row at all — an inactive
+     row means this person was replaced on this club */
+  const { rows: anyRow } = await pgPool.query(
+    `SELECT 1 FROM coordinator_club_assignments WHERE user_id = $1 AND club_id = $2`,
+    [userId, clubId]
+  );
+  if (anyRow.length) return false;
 
   // Fallback 1: legacy managed_club_id
   const { rows: uRows } = await pgPool.query(
@@ -213,7 +229,9 @@ async function getClubCoordinatorIds(clubId) {
 
   // ── Legacy managed_club_id ──
   const { rows: legacy } = await pgPool.query(
-    `SELECT id FROM users WHERE managed_club_id = $1 AND role = 'coordinator' AND is_active = true`,
+    `SELECT id FROM users
+     WHERE managed_club_id = $1 AND role = 'coordinator' AND is_active = true
+       AND ${NO_ROW('users.id', '$1')}`,
     [clubId]
   );
   legacy.forEach(u => {
@@ -239,8 +257,9 @@ async function getClubCoordinatorIds(clubId) {
          AND NOT EXISTS (
            SELECT 1 FROM coordinator_club_assignments a JOIN clubs c ON c.id = a.club_id
            WHERE a.user_id = users.id AND c.campus <> 'Main Campus'
-         )`,
-      [coordName]
+         )
+         AND ${NO_ROW('users.id', '$2')}`,
+      [coordName, clubId]
     );
     nameMatch.forEach(u => {
       if (!ids.has(u.id)) autoRepair(u.id, clubId);

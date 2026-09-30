@@ -237,6 +237,7 @@ export default function StudentClubs() {
       const limit = await api.get(
         `/requests/check-club-limit?email=${encodeURIComponent(form.email.trim().toLowerCase())}&clubId=${encodeURIComponent(joinClub._id)}&campus=${encodeURIComponent(form.campus)}`
       ).catch(() => null);
+      if (limit?.joinClosed) { alert(limit.message); return; }
       if (limit?.wrongCampus) { alert(limit.campusMessage); return; }
       if (limit?.alreadyMember) { alert("You're already a member of this club."); return; }
       if (limit?.alreadyPending) { alert('You already have a pending request for this club.'); return; }

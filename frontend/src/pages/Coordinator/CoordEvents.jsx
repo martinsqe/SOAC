@@ -57,7 +57,7 @@ const answerOf = (r, id) => (r.extra_answers || []).find(a => a.id === id)?.valu
 const csvCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
 
 const REQ_STATUS = {
-  pending_fc: { label: 'Pending Faculty Coordinator Review', color: '#7c3aed', bg: '#f5f3ff' },
+  pending_fc: { label: 'Pending Faculty Advisor Review', color: '#7c3aed', bg: '#f5f3ff' },
   pending:    { label: 'Pending Admin Review',               color: '#d97706', bg: '#fffbeb' },
   approved:   { label: 'Approved',                           color: '#059669', bg: '#ecfdf5' },
   rejected:   { label: 'Rejected',                           color: '#dc2626', bg: '#fef2f2' },
@@ -415,7 +415,7 @@ export default function CoordEvents() {
         const { request } = await api.postForm('/event-requests', fd);
         setReqs(p => [request, ...p]);
         showToast(request.status === 'pending_fc'
-          ? 'Event request submitted! Awaiting your Faculty Coordinator’s review.'
+          ? 'Event request submitted! Awaiting your Faculty Advisor’s review.'
           : 'Event request submitted! Awaiting admin approval.');
       }
       setTab('requests');
@@ -1516,7 +1516,7 @@ export default function CoordEvents() {
           <div className={s.empty}>
             <div className={s.emptyIcon}>📋</div>
             <p>No event requests yet</p>
-            <span>Submit a request{!isFC ? " — your Faculty Coordinator reviews it first, then" : ' and'} the admin will review and broadcast it.</span>
+            <span>Submit a request{!isFC ? " — your Faculty Advisor reviews it first, then" : ' and'} the admin will review and broadcast it.</span>
           </div>
         ) : (
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
@@ -1571,13 +1571,13 @@ export default function CoordEvents() {
                   {req.fcReviewedByName && (
                     <div style={{ fontSize:'.76rem', color:'#6b21a8', background:'#f5f3ff', border:'1px solid #ddd6fe',
                       borderRadius:8, padding:'6px 10px', marginBottom:8 }}>
-                      Reviewed by your Faculty Coordinator, <strong>{req.fcReviewedByName}</strong>
+                      Reviewed by your Faculty Advisor, <strong>{req.fcReviewedByName}</strong>
                       {req.status === 'pending' ? ' — approved and forwarded to Admin.' : req.status === 'rejected' ? '.' : ''}
                     </div>
                   )}
                   {req.status === 'rejected' && req.fcNote && (
                     <div className={es.rejectNote}>
-                      <strong>Faculty Coordinator note:</strong> {req.fcNote}
+                      <strong>Faculty Advisor note:</strong> {req.fcNote}
                     </div>
                   )}
                   {req.status === 'rejected' && req.adminNote && (
@@ -1591,7 +1591,7 @@ export default function CoordEvents() {
                       <div style={{ display:'flex', alignItems:'center', gap:12 }}>
                         <span className={es.pendingHint}>
                           {req.status === 'pending_fc'
-                            ? 'Your Faculty Coordinator will review this request shortly.'
+                            ? 'Your Faculty Advisor will review this request shortly.'
                             : 'Admin will review this request shortly.'}
                         </span>
                         <button className={es.reqEditBtn} onClick={() => openEditRequest(req)}>Edit</button>

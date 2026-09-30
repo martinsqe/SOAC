@@ -553,7 +553,7 @@ export default function CoordMessages() {
                             <span className={s.gmSender} style={{ color: clubColor }}>{msg.user_name}</span>
                             {(msg.user_role === 'coordinator' || msg.user_role === 'faculty_coordinator' || msg.user_role === 'admin') && (
                               <span className={s.roleBadge}>
-                                {msg.user_role === 'admin' ? 'Admin' : msg.user_role === 'faculty_coordinator' ? 'Faculty Coordinator' : 'Coordinator'}
+                                {msg.user_role === 'admin' ? 'Admin' : msg.user_role === 'faculty_coordinator' ? 'Faculty Advisor' : 'Coordinator'}
                               </span>
                             )}
                           </div>
@@ -688,7 +688,7 @@ function MemberRow({ member, onClick }) {
           {member.name}
           {(member.role === 'coordinator' || member.role === 'faculty_coordinator' || member.role === 'admin') && (
             <span className={s.roleBadge} style={{ marginLeft: 5 }}>
-              {member.role === 'admin' ? 'Admin' : member.role === 'faculty_coordinator' ? 'FC' : 'Coord'}
+              {member.role === 'admin' ? 'Admin' : member.role === 'faculty_coordinator' ? 'FA' : 'Coord'}
             </span>
           )}
         </div>

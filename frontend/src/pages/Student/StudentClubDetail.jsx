@@ -421,7 +421,7 @@ export default function StudentClubDetail() {
             <div className={s.card}>
               <div className={s.cardHead}>
                 <span className={s.cardIcon} style={{ background: color + '18', color }}>👔</span>
-                <span className={s.cardTitle}>Faculty Coordinator</span>
+                <span className={s.cardTitle}>Faculty Advisor</span>
               </div>
               <div className={s.coordCard}>
                 <div className={s.coordAv} style={{ background: color }}>
@@ -429,7 +429,7 @@ export default function StudentClubDetail() {
                 </div>
                 <div>
                   <div className={s.coordName}>{club.facultyCoordinator || 'TBA'}</div>
-                  <div className={s.coordRole}>Faculty Coordinator</div>
+                  <div className={s.coordRole}>Faculty Advisor</div>
                   <div className={s.coordBadge} style={{ background: color + '18', color }}>Active</div>
                 </div>
               </div>
@@ -693,7 +693,7 @@ export default function StudentClubDetail() {
                         <div className={s.leaderAv} style={{ padding: 0 }}>
                           <img
                             src={fcAvatar}
-                            alt={club.facultyCoordinator || 'Faculty Coordinator'}
+                            alt={club.facultyCoordinator || 'Faculty Advisor'}
                             style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center', display: 'block', borderRadius: '50%' }}
                           />
                         </div>
@@ -704,7 +704,7 @@ export default function StudentClubDetail() {
                         </div>
                       )}
                       <div className={s.leaderRole} style={{ color, background: color + '14' }}>
-                        Faculty Coordinator
+                        Faculty Advisor
                       </div>
                       <div className={s.leaderName}>{club.facultyCoordinator || 'TBA'}</div>
                       <div className={s.leaderDesc}>Oversees the club on behalf of the university.</div>

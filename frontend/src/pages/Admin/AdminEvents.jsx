@@ -304,7 +304,7 @@ const EMPTY_GALORE = {
 const GALORE_CATEGORY_LABEL = { sports: 'Sports', cultural: 'Cultural', academic: 'Academic' };
 
 const REQ_STATUS_META = {
-  pending_fc: { label: 'Pending Faculty Coordinator Review', color: '#7c3aed', bg: '#f5f3ff' },
+  pending_fc: { label: 'Pending Faculty Advisor Review', color: '#7c3aed', bg: '#f5f3ff' },
   pending:    { label: 'Pending',                            color: '#d97706', bg: '#fffbeb' },
   approved:   { label: 'Approved',                           color: '#059669', bg: '#ecfdf5' },
   rejected:   { label: 'Rejected',                           color: '#dc2626', bg: '#fef2f2' },
@@ -315,13 +315,13 @@ const REQ_STATUS_META = {
    there's no Faculty Coordinator stage (an FC's own request, or a club with
    no FC assigned when it was submitted). */
 const requestChain = (req) => {
-  const steps = [req.submittedByRole === 'faculty_coordinator' ? 'Faculty Coordinator' : 'Student Coordinator'];
+  const steps = [req.submittedByRole === 'faculty_coordinator' ? 'Faculty Advisor' : 'Student Coordinator'];
   /* Went (or is still going) through the Faculty Coordinator stage if it's
      currently sitting there, or already has an FC reviewer recorded. An SC
      request with neither means no FC was assigned to that club when it was
      submitted, so it skipped straight to Admin. */
   const wentThroughFC = req.submittedByRole === 'coordinator' && (req.status === 'pending_fc' || !!req.fcReviewedByName);
-  if (wentThroughFC) steps.push('Faculty Coordinator');
+  if (wentThroughFC) steps.push('Faculty Advisor');
   steps.push('Admin');
   return steps;
 };
@@ -1580,7 +1580,7 @@ export default function AdminEvents() {
       {pageTab === 'requests' && (<>
         {/* Filter strip */}
         <div className={s.statusTabs} style={{ marginBottom:20 }}>
-          {[['all','All'],['pending','Pending'],['pending_fc','With Faculty Coordinator'],['approved','Approved'],['rejected','Rejected']].map(([val, label]) => (
+          {[['all','All'],['pending','Pending'],['pending_fc','With Faculty Advisor'],['approved','Approved'],['rejected','Rejected']].map(([val, label]) => (
             <button key={val}
               className={`${s.statusTab} ${reqFilter === val ? s.statusTabOn : ''}`}
               onClick={() => setReqFilter(val)}>
@@ -1697,13 +1697,13 @@ export default function AdminEvents() {
                   {req.status === 'rejected' && !req.adminNote && req.fcNote && (
                     <div style={{ marginTop:10, background:'#f5f3ff', border:'1px solid #ddd6fe',
                       borderRadius:8, padding:'8px 12px', fontSize:'.8rem', color:'#4c1d95' }}>
-                      <strong>Rejected by Faculty Coordinator{req.fcReviewedByName ? ` (${req.fcReviewedByName})` : ''}:</strong> {req.fcNote}
+                      <strong>Rejected by Faculty Advisor{req.fcReviewedByName ? ` (${req.fcReviewedByName})` : ''}:</strong> {req.fcNote}
                     </div>
                   )}
                   {req.status === 'rejected' && !req.adminNote && !req.fcNote && req.fcReviewedByName && (
                     <div style={{ marginTop:10, background:'#f5f3ff', border:'1px solid #ddd6fe',
                       borderRadius:8, padding:'8px 12px', fontSize:'.8rem', color:'#4c1d95' }}>
-                      Rejected by Faculty Coordinator <strong>{req.fcReviewedByName}</strong>.
+                      Rejected by Faculty Advisor <strong>{req.fcReviewedByName}</strong>.
                     </div>
                   )}
                 </div>

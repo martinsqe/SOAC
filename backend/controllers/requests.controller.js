@@ -6,6 +6,7 @@ const { getCoordClubIds, assertCoordOwnsClub, getClubCoordinatorIds } = require(
 const { notifyUser, notifyManyUsers } = require('../services/notify');
 const cache = require('../services/cache');
 const { CAMPUSES, adminCampus, clubOnCampus } = require('../services/campus');
+const { JOIN_KEY, ensureJoinWindowSchema, getJoinState, joinClosedMessage, notifyRenewalContacts, forgetRenewalContact } = require('../services/joinWindow');
 
 const RKU_DOMAIN = '@rku.ac.in';
 
@@ -19,11 +20,55 @@ const JR_COLS = [
 (async () => {
   try {
     await pgPool.query(`ALTER TABLE join_requests ADD COLUMN IF NOT EXISTS gender CHAR(1) DEFAULT NULL`);
+    await ensureJoinWindowSchema();
     console.log('[requests] migrations ready');
   } catch (err) {
     console.error('[requests] migration failed:', err.message);
   }
 })();
+
+/* ── Join requests open / closed (see services/joinWindow.js) ──────────────── */
+/* GET /api/requests/join-status  (public) */
+const getJoinStatus = async (req, res, next) => {
+  try { res.json(await getJoinState()); } catch (err) { next(err); }
+};
+
+/* PUT /api/requests/join-status  (admin)   body: { open: boolean, opensOn?: 'YYYY-MM-DD' }
+   Setting a reopening date (or reopening) emails the students cleared by
+   "Delete all students" so they can renew their membership. */
+const setJoinStatus = async (req, res, next) => {
+  try {
+    const open = req.body?.open !== false;
+    let opensOn = null;
+    if (!open && req.body?.opensOn) {
+      opensOn = String(req.body.opensOn);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(opensOn) || Number.isNaN(Date.parse(opensOn))) {
+        return res.status(400).json({ message: 'Choose a valid date for when requests reopen.' });
+      }
+      const { rows } = await pgPool.query(`SELECT to_char((NOW() AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') AS today`);
+      if (opensOn <= rows[0].today) {
+        return res.status(400).json({ message: 'The reopening date must be in the future.' });
+      }
+    }
+    await pgPool.query(
+      `INSERT INTO app_settings (key, value, updated_by, updated_at) VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+      [JOIN_KEY, JSON.stringify({ open, opensOn }), req.user.id]
+    );
+    await pgPool.query(
+      `INSERT INTO audit_log (user_id, user_name, action, entity_type, entity_id, meta)
+       VALUES ($1, $2, $3, 'setting', $4, $5)`,
+      [req.user.id, req.user.name, open ? 'OPEN_JOIN_REQUESTS' : 'CLOSE_JOIN_REQUESTS', JOIN_KEY, JSON.stringify({ opensOn })]
+    ).catch(() => {});
+    const state  = await getJoinState();
+    const emailed = await notifyRenewalContacts(state);
+    const base = state.open ? 'Students can send join requests again.' : `Join requests stopped. ${joinClosedMessage(state)}`;
+    res.json({
+      ...state, emailed,
+      message: emailed ? `${base} ${emailed} former member${emailed === 1 ? ' is' : 's are'} being emailed.` : base,
+    });
+  } catch (err) { next(err); }
+};
 
 /* ── Pagination helper ──────────────────────────────────────────────────────*/
 const parsePage = (query) => {
@@ -203,6 +248,8 @@ const checkClubLimit = async (req, res, next) => {
   try {
     const email = String(req.query.email || '').trim();
     if (!email) return res.status(400).json({ message: 'email is required.' });
+    const joinState = await getJoinState();
+    if (!joinState.open) return res.json({ joinClosed: true, message: joinClosedMessage(joinState) });
     let clubId = req.query.clubId ? String(req.query.clubId) : null;
     /* The form lists each club once — check the copy on the campus they picked */
     if (clubId && CAMPUSES.includes(req.query.campus)) {
@@ -237,6 +284,9 @@ const create = async (req, res, next) => {
     if (!CAMPUSES.includes(campus)) {
       return res.status(400).json({ message: 'Campus is required. Please select Main Campus or City Campus.' });
     }
+
+    const joinState = await getJoinState();
+    if (!joinState.open) return res.status(403).json({ message: joinClosedMessage(joinState), joinClosed: true });
 
     /* The form lists each club once; the request goes to that club's copy on the
        chosen campus, so it lands with that campus's coordinators. */
@@ -292,6 +342,7 @@ const create = async (req, res, next) => {
     await Promise.all([
       cache.del('stats:admin', 'stats:admin:city'),
       resetActivityReportLimit([emailLc]),
+      forgetRenewalContact(emailLc),   // they've renewed — no more reopening emails
     ]);
     res.status(201).json({ request: toJR(created) });
 
@@ -719,4 +770,4 @@ const resendEmail = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, create, checkClubLimit, approve, bulkApprove, bulkDelete, decline, resendEmail };
+module.exports = { getJoinStatus, setJoinStatus, getAll, create, checkClubLimit, approve, bulkApprove, bulkDelete, decline, resendEmail };

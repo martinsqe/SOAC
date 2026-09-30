@@ -22,6 +22,7 @@ router.put('/me/profile', verifyToken, uploadAvatar.single('avatar'), ctrl.updat
 
 router.get('/meta/stats', verifyToken, requireAdmin, ctrl.stats);
 router.get('/meta/audit', verifyToken, requireAdmin, ctrl.auditLog);
+router.post('/students/delete-all', verifyToken, requireAdmin, ctrl.deleteAllStudents);
 
 // Dynamic :id routes last
 router.put('/:id',             verifyToken, requireAdmin, ctrl.update);

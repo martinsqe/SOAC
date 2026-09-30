@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, Fragment } from 'react';
 import api from '../../api/client';
 import { fetchAllPages } from '../../utils/pagination';
 import { useAuth } from '../../context/AuthContext';
+import { getAdminCampus } from '../../utils/adminCampus';
 import s from './AdminMembers.module.css';
 
 /* ── constants ── */
@@ -9,7 +10,7 @@ const ROLE_COLOR = { admin: '#635bff', student: '#00c896', coordinator: '#ff9500
 const ROLE_BG    = { admin: '#635bff18', student: '#00c89618', coordinator: '#ff950018', faculty_coordinator: '#4c44e018' };
 /* Coordinator role names shown as SC/FC everywhere in this table — the role
    value itself stays 'coordinator'/'faculty_coordinator' in the database. */
-const ROLE_LABEL       = { admin: 'Admin', student: 'Student', coordinator: 'SC', faculty_coordinator: 'FC' };
+const ROLE_LABEL       = { admin: 'Admin', student: 'Student', coordinator: 'SC', faculty_coordinator: 'FA' };
 const ROLE_LABEL_PLURAL = { admin: 'Admins', student: 'Students', coordinator: 'SCs', faculty_coordinator: 'FCs' };
 const GRADS = [
   'linear-gradient(135deg,#3DDC84,#635BFF)', 'linear-gradient(135deg,#FF6B35,#FFD166)',
@@ -211,7 +212,7 @@ function UsersTab({ clubs }) {
             { n: users.length, l: 'Total', c: '#0f0a2e' },
             { n: active,       l: 'Active',      c: '#00c896' },
             { n: admins,       l: 'Admins',      c: '#635bff' },
-            { n: facultyCoords.length, l: 'Faculty Coordinators', c: '#4c44e0' },
+            { n: facultyCoords.length, l: 'Faculty Advisors', c: '#4c44e0' },
             { n: coordinators.length, l: 'Student Coordinators', c: '#ff9500' },
             { n: students,     l: 'Students',    c: '#06b6d4' },
             { n: users.length - active, l: 'Inactive', c: '#ef4444' },
@@ -715,9 +716,92 @@ function ClubMembersTab({ clubs }) {
 /* ═══════════════════════════════════════════════════════════════════════════
    ROOT — tab switcher
 ═══════════════════════════════════════════════════════════════════════════ */
+/* "Delete all students" — fresh start for a new intake on the campus being
+   managed. Coordinators, Faculty Advisors and admins are kept; students who ask
+   to join again get new accounts and passwords when approved. */
+function DeleteAllStudents({ onDone }) {
+  const campus = getAdminCampus();
+  const [open,    setOpen]    = useState(false);
+  const [typed,   setTyped]   = useState('');
+  const [busy,    setBusy]    = useState(false);
+  const [error,   setError]   = useState('');
+  const [result,  setResult]  = useState('');
+
+  const run = async () => {
+    setBusy(true); setError('');
+    try {
+      const res = await api.post('/users/students/delete-all', { confirm: 'DELETE' });
+      setOpen(false); setTyped('');
+      setResult(res.message);
+      setTimeout(() => setResult(''), 5000);
+      onDone();
+    } catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <>
+      <button onClick={() => { setOpen(true); setTyped(''); setError(''); }}
+        style={{ padding:'9px 16px', borderRadius:9, border:'1.5px solid #ef4444', background:'#fff',
+          color:'#ef4444', fontWeight:700, fontSize:'.85rem', cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap' }}>
+        Delete all students
+      </button>
+      {result && (
+        <div style={{ position:'fixed', top:72, right:24, zIndex:10001, background:'#1a1040', color:'#fff',
+          padding:'12px 20px', borderRadius:10, boxShadow:'0 4px 20px rgba(0,0,0,.25)', fontSize:14, maxWidth:360 }}>
+          {result}
+        </div>
+      )}
+      {open && (
+        <div onClick={() => !busy && setOpen(false)}
+          style={{ position:'fixed', inset:0, zIndex:10000, background:'rgba(15,10,46,.55)', backdropFilter:'blur(4px)',
+            display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background:'#fff', borderRadius:18, padding:26, maxWidth:460, width:'100%', boxShadow:'0 24px 64px rgba(0,0,0,.2)' }}>
+            <h3 style={{ margin:'0 0 8px', fontWeight:900, color:'#0f0a2e' }}>Delete all students at {campus}?</h3>
+            <div style={{ fontSize:13, color:'#374151', lineHeight:1.6, marginBottom:14 }}>
+              This permanently deletes:
+              <ul style={{ margin:'6px 0 8px 18px', padding:0 }}>
+                <li>every <strong>student account</strong> at {campus}, and their club memberships</li>
+                <li>every <strong>join request</strong> (pending, approved and declined) to {campus} clubs</li>
+              </ul>
+              Coordinators, Faculty Advisors, admins, clubs and events are kept. Students who request to join again
+              get a fresh account with a new password once approved. Removed students are emailed the date join
+              requests reopen (set it in Approvals → Stop requests) so they can renew their membership.
+              <strong> This cannot be undone.</strong>
+            </div>
+            <label style={{ fontSize:12, fontWeight:700, color:'#374151', display:'block', marginBottom:6 }}>
+              Type DELETE to confirm
+            </label>
+            <input value={typed} onChange={e => setTyped(e.target.value)} placeholder="DELETE" autoFocus
+              style={{ width:'100%', padding:'9px 12px', borderRadius:10, border:'1.5px solid #e5e7eb', fontSize:14,
+                boxSizing:'border-box', fontFamily:'inherit' }} />
+            {error && <div style={{ marginTop:12, padding:'9px 12px', borderRadius:8, background:'#fff0f0',
+              border:'1px solid #fca5a5', color:'#b91c1c', fontSize:13 }}>{error}</div>}
+            <div style={{ display:'flex', gap:10, marginTop:18 }}>
+              <button onClick={() => setOpen(false)} disabled={busy}
+                style={{ flex:1, padding:'9px 14px', borderRadius:10, border:'1.5px solid #e5e7eb', background:'#fff',
+                  color:'#374151', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>
+                Cancel
+              </button>
+              <button onClick={run} disabled={busy || typed !== 'DELETE'}
+                style={{ flex:1, padding:'9px 14px', borderRadius:10, border:'none', background:'#ef4444', color:'#fff',
+                  fontWeight:700, fontSize:13, fontFamily:'inherit',
+                  cursor: busy || typed !== 'DELETE' ? 'not-allowed' : 'pointer', opacity: typed !== 'DELETE' ? .5 : 1 }}>
+                {busy ? 'Deleting…' : 'Delete all students'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function AdminMembers() {
   const [tab,   setTab]   = useState('users');
   const [clubs, setClubs] = useState([]);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     api.get('/clubs?limit=200').then(d => setClubs(d.clubs || [])).catch(() => {});
@@ -746,6 +830,7 @@ export default function AdminMembers() {
             {tab === 'users' ? 'All system accounts — admins, coordinators, students' : 'All student club memberships with full registration info'}
           </p>
         </div>
+        <DeleteAllStudents onDone={() => setReloadKey(k => k + 1)} />
       </div>
 
       {/* Tab bar */}
@@ -759,8 +844,8 @@ export default function AdminMembers() {
       </div>
 
       {tab === 'users'
-        ? <UsersTab clubs={clubs} />
-        : <ClubMembersTab clubs={clubs} />
+        ? <UsersTab key={reloadKey} clubs={clubs} />
+        : <ClubMembersTab key={reloadKey} clubs={clubs} />
       }
     </div>
   );

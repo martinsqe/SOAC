@@ -10,6 +10,8 @@ const { notifyUser } = require('../services/notify');
 const cache = require('../services/cache');
 const { syncPastEvents } = require('../services/eventStatus');
 const { MAIN_CAMPUS, adminCampus, studentOnCampusSql } = require('../services/campus');
+const tokenBlacklist = require('../services/tokenBlacklist');
+const { getJoinState, recordRenewalContacts, notifyRenewalContacts } = require('../services/joinWindow');
 
 const AVATAR_ALLOWED = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
 
@@ -179,7 +181,8 @@ const update = async (req, res, next) => {
    whatever unrelated request reuses it next. Each column is detached inside
    its own SAVEPOINT so one unexpectedly NOT NULL or already-removed column
    can't take the rest of the deletion down with it. */
-const detachUserReferences = async (client, userId) => {
+const detachUserReferences = async (client, userIdOrIds) => {
+  const ids = (Array.isArray(userIdOrIds) ? userIdOrIds : [userIdOrIds]).map(Number);
   const { rows: fkCols } = await client.query(`
     SELECT tc.table_name, kcu.column_name
     FROM information_schema.table_constraints tc
@@ -197,7 +200,7 @@ const detachUserReferences = async (client, userId) => {
   for (const { table_name: table, column_name: column } of fkCols) {
     await client.query('SAVEPOINT detach_step');
     try {
-      await client.query(`UPDATE "${table}" SET "${column}" = NULL WHERE "${column}" = $1`, [userId]);
+      await client.query(`UPDATE "${table}" SET "${column}" = NULL WHERE "${column}" = ANY($1::int[])`, [ids]);
       await client.query('RELEASE SAVEPOINT detach_step');
     } catch (e) {
       /* Column turned out to be NOT NULL (or something else went wrong on this one
@@ -205,7 +208,7 @@ const detachUserReferences = async (client, userId) => {
          leaving the deletion blocked on data that's about to lose its owner anyway. */
       await client.query('ROLLBACK TO SAVEPOINT detach_step');
       await client.query('RELEASE SAVEPOINT detach_step');
-      await client.query(`DELETE FROM "${table}" WHERE "${column}" = $1`, [userId]);
+      await client.query(`DELETE FROM "${table}" WHERE "${column}" = ANY($1::int[])`, [ids]);
     }
   }
 };
@@ -252,6 +255,79 @@ const remove = async (req, res, next) => {
       dbOk = false;
       console.error('[users.remove] rollback failed, discarding connection:', rollbackErr.message);
     }
+    next(err);
+  } finally {
+    client.release(!dbOk);
+  }
+};
+
+/* POST /api/users/students/delete-all  (admin)   body: { confirm: 'DELETE' }
+   Fresh start for a new intake, on the campus the admin is managing: permanently
+   deletes that campus's student accounts (memberships go with them) and every
+   join request to that campus's clubs. Coordinators, Faculty Advisors, admins,
+   clubs, events and event history are kept. Students who ask to join again get
+   brand-new accounts and passwords when approved. */
+const deleteAllStudents = async (req, res, next) => {
+  if (req.body?.confirm !== 'DELETE') {
+    return res.status(400).json({ message: 'Type DELETE to confirm.' });
+  }
+  const campus = adminCampus(req) || MAIN_CAMPUS;
+  const client = await pgPool.connect();
+  let dbOk = true;
+  try {
+    await client.query('BEGIN');
+    const { rows: students } = await client.query(
+      `SELECT u.id, LOWER(u.email) AS email, u.name FROM users u
+       WHERE u.role = 'student' AND ${studentOnCampusSql('u', '$1')}`,
+      [campus]
+    );
+    const ids    = students.map(s => s.id);
+    const emails = students.map(s => s.email);
+    /* Keep their contact details so they can be emailed when join requests reopen */
+    await recordRenewalContacts(client, students, campus);
+
+    const { rowCount: requestsDeleted } = await client.query(
+      `DELETE FROM join_requests WHERE club_id IN (SELECT id FROM clubs WHERE campus = $1)`,
+      [campus]
+    );
+    if (ids.length) {
+      await detachUserReferences(client, ids);
+      await client.query(`DELETE FROM users WHERE id = ANY($1::int[])`, [ids]);
+      await client.query(`DELETE FROM activity_email_requests WHERE email = ANY($1::text[])`, [emails]);
+    }
+    await client.query(
+      `UPDATE clubs SET member_count = (SELECT COUNT(*)::int FROM student_clubs sc WHERE sc.club_id = clubs.id AND sc.is_active = true)
+       WHERE campus = $1`,
+      [campus]
+    );
+    await client.query('COMMIT');
+
+    await pgPool.query(
+      `INSERT INTO audit_log (user_id, user_name, action, entity_type, entity_id, meta)
+       VALUES ($1, $2, 'DELETE_ALL_STUDENTS', 'user', $3, $4)`,
+      [req.user.id, req.user.name, campus, JSON.stringify({ campus, students: ids.length, requests: requestsDeleted })]
+    );
+    await Promise.all([
+      cache.del('stats:admin', 'stats:admin:city'),
+      cache.delPattern('clubs:*'),
+      ...ids.flatMap(id => [
+        cache.del(`session:user:${id}`, `session:tokens:${id}`, `student:${id}`),
+        tokenBlacklist.revokeAllUserTokens(id),   // sign out anyone still logged in
+      ]),
+    ]);
+    /* A reopening date already announced? Tell them now. Otherwise they're emailed
+       as soon as admin sets one (Approvals → Stop requests). */
+    const joinState = await getJoinState();
+    const emailed = !joinState.open && joinState.opensOn ? await notifyRenewalContacts(joinState) : 0;
+    res.json({
+      students: ids.length, requests: requestsDeleted, emailed,
+      message: `Deleted ${ids.length} student account${ids.length === 1 ? '' : 's'} and ${requestsDeleted} join request${requestsDeleted === 1 ? '' : 's'} at ${campus}.`
+        + (emailed
+          ? ` ${emailed} student${emailed === 1 ? ' is' : 's are'} being emailed the date join requests reopen.`
+          : ' They\'ll be emailed when you set a date for join requests to reopen.'),
+    });
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch { dbOk = false; }
     next(err);
   } finally {
     client.release(!dbOk);
@@ -1054,4 +1130,4 @@ const assignClub = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, create, update, remove, stats, auditLog, myClubs, updateProfile, assignClub, myEventRegistrations, weeklyEvaluation, getNotifications, unreadNotificationCount, markNotificationRead, getAllNotifications, markAllNotificationsRead, myActivity, activityByEmail };
+module.exports = { getAll, create, update, remove, deleteAllStudents, stats, auditLog, myClubs, updateProfile, assignClub, myEventRegistrations, weeklyEvaluation, getNotifications, unreadNotificationCount, markNotificationRead, getAllNotifications, markAllNotificationsRead, myActivity, activityByEmail };

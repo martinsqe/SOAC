@@ -5,7 +5,7 @@ const groupCtrl   = require('../controllers/eventGroups.controller');
 const certCtrl    = require('../controllers/certificates.controller');
 const attendCtrl  = require('../controllers/eventAttendance.controller');
 const cd          = require('../controllers/clubDetail.controller');
-const { verifyToken }  = require('../middleware/auth');
+const { verifyToken, optionalAuth } = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/requireAdmin');
 const { uploadEvent, uploadEventMemory, uploadCertTemplate } = require('../config/multer');
 
@@ -16,7 +16,8 @@ const requireCoordOrAdmin = (req, res, next) => {
   next();
 };
 
-router.get('/',                  ctrl.getAll);
+/* Public, but reads the token when sent so an admin gets their campus's events */
+router.get('/',                  optionalAuth, ctrl.getAll);
 router.get('/live-scores',       ctrl.getLiveScores);
 router.get('/past-scores',       ctrl.getPastScores);
 router.get('/galore/departments',   ctrl.getGaloreDepartments); /* public */

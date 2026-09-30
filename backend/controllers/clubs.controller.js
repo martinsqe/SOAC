@@ -8,7 +8,7 @@ const { assertCoordOwnsClub, getCoordClubIds } = require('../services/coordAuth'
 const { destroyImage } = require('../config/cloudinary');
 const { getFileValue } = require('../config/multer');
 const cache = require('../services/cache');
-const { MAIN_CAMPUS, CITY_CAMPUS, adminCampus, ensureCityCampusClubs, campusSlug } = require('../services/campus');
+const { MAIN_CAMPUS, CITY_CAMPUS, adminCampus, ensureCityCampusClubs, campusSlug, campusOfClub } = require('../services/campus');
 const { notifyAdminsOfClubChange } = require('./clubDetail.controller');
 const { markApprovedWithClub, notifyProposalApproved } = require('./clubProposals.controller');
 
@@ -24,6 +24,29 @@ const CLUB_COLS = [
   'founded_year', 'description', 'tags', 'vision', 'rules', 'schedule',
   'is_active', 'created_at', 'updated_at', 'campus', 'main_club_id',
 ].join(', ');
+
+/* Names shown for the club's staff — the Student Coordinator and Faculty Advisor
+   actually assigned right now (coordinator_club_assignments), rather than the
+   free-text clubs.coordinator / faculty_coordinator columns, which can hold stale
+   or hand-typed names. Blank when a role isn't assigned. */
+const staffNameSql = (role) => `(SELECT u.name FROM coordinator_club_assignments cca
+   JOIN users u ON u.id = cca.user_id AND u.is_active = true AND u.role = '${role}'
+   WHERE cca.club_id = clubs.id AND cca.is_active = true
+   ORDER BY cca.updated_at DESC NULLS LAST, cca.id DESC LIMIT 1)`;
+const STAFF_NAMES_SQL = `${staffNameSql('coordinator')} AS sc_name, ${staffNameSql('faculty_coordinator')} AS fc_name`;
+const withStaffNames = (club, row) => {
+  club.coordinator        = row.sc_name || '';
+  club.facultyCoordinator = row.fc_name || '';
+  return club;
+};
+
+/* One club with live counts and staff names — for responses after a write */
+const loadClub = async (id) => {
+  const { rows } = await pgPool.query(
+    `SELECT ${CLUB_COLS}, ${STAFF_NAMES_SQL} FROM clubs WHERE id = $1`, [id]
+  );
+  return rows[0] ? withStaffNames(asClub(rows[0]), rows[0]) : null;
+};
 
 /* Live event count for a club copy — by club_id, falling back to the display
    name (scoped to the same campus) for legacy events saved without one. */
@@ -98,6 +121,7 @@ const getAll = async (req, res, next) => {
       `SELECT ${CLUB_COLS},
               (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = clubs.id AND is_active = true) AS real_member_count,
               ${EVENT_COUNT_SQL} AS real_event_count,
+              ${STAFF_NAMES_SQL},
               COUNT(*) OVER() AS total_count
        FROM clubs
        WHERE ${clauses.join(' AND ')}
@@ -109,7 +133,7 @@ const getAll = async (req, res, next) => {
     const total  = Number(rows[0]?.total_count ?? 0);
     const result = {
       clubs:      rows.map((r) => {
-        const club = asClub(r);
+        const club = withStaffNames(asClub(r), r);
         club.memberCount = r.real_member_count;   // live count
         club.eventCount  = r.real_event_count;    // live count
         return withLogoUrl(club);
@@ -135,20 +159,21 @@ const getOne = async (req, res, next) => {
       `SELECT ${CLUB_COLS},
               (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = clubs.id AND is_active = true) AS real_member_count,
               ${EVENT_COUNT_SQL} AS real_event_count,
+              ${STAFF_NAMES_SQL},
               (SELECT u.avatar FROM coordinator_club_assignments cca
-               JOIN users u ON u.id = cca.user_id AND u.role = 'coordinator'
+               JOIN users u ON u.id = cca.user_id AND u.is_active = true AND u.role = 'coordinator'
                WHERE cca.club_id = clubs.id AND cca.is_active = true
-               ORDER BY cca.id ASC LIMIT 1) AS coordinator_avatar,
+               ORDER BY cca.updated_at DESC NULLS LAST, cca.id DESC LIMIT 1) AS coordinator_avatar,
               (SELECT u.avatar FROM coordinator_club_assignments cca
-               JOIN users u ON u.id = cca.user_id AND u.role = 'faculty_coordinator'
+               JOIN users u ON u.id = cca.user_id AND u.is_active = true AND u.role = 'faculty_coordinator'
                WHERE cca.club_id = clubs.id AND cca.is_active = true
-               ORDER BY cca.id ASC LIMIT 1) AS faculty_coordinator_avatar
+               ORDER BY cca.updated_at DESC NULLS LAST, cca.id DESC LIMIT 1) AS faculty_coordinator_avatar
        FROM clubs WHERE id = $1`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Club not found.' });
 
-    const club = asClub(rows[0]);
+    const club = withStaffNames(asClub(rows[0]), rows[0]);
     club.memberCount            = rows[0].real_member_count;
     club.eventCount             = rows[0].real_event_count;
     club.coordinatorAvatar      = rows[0].coordinator_avatar || null;
@@ -283,12 +308,8 @@ const create = async (req, res, next) => {
       });
     }
 
-    /* Re-read the club if either assignment touched its coordinator/
-       faculty_coordinator display columns, so the response reflects them. */
-    if (staff.fc?.ok || staff.sc?.ok) {
-      const { rows: freshRows } = await pgPool.query(`SELECT ${CLUB_COLS} FROM clubs WHERE id = $1`, [club.id]);
-      club = asClub(freshRows[0]);
-    }
+    /* Re-read so the response carries the staff actually assigned above */
+    club = await loadClub(club.id);
 
     const staffResult = (r) => r && {
       ok: r.ok, message: r.message, credentials: r.credentials,
@@ -430,7 +451,7 @@ const update = async (req, res, next) => {
       ...twinRows.map(r => cache.del(`clubs:${r.id}`)),
       cache.delPattern('clubs:*'),
     ]);
-    res.json({ club: withLogoUrl(club) });
+    res.json({ club: withLogoUrl(await loadClub(club.id)) });
   } catch (err) { next(err); }
 };
 
@@ -562,7 +583,8 @@ const mine = async (req, res, next) => {
 
     const MINE_COLS = `${CLUB_COLS},
       (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = clubs.id AND is_active = true) AS real_member_count,
-      ${EVENT_COUNT_SQL} AS real_event_count`;
+      ${EVENT_COUNT_SQL} AS real_event_count,
+      ${STAFF_NAMES_SQL}`;
 
     const { rows } = await pgPool.query(
       `SELECT ${MINE_COLS}
@@ -577,7 +599,7 @@ const mine = async (req, res, next) => {
     }
 
     const clubs = rows.map(r => {
-      const c = asClub(r);
+      const c = withStaffNames(asClub(r), r);
       c.memberCount = r.real_member_count;
       c.eventCount  = r.real_event_count;
       return withLogoUrl(c);
@@ -840,8 +862,11 @@ const toggleMemberActive = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* GET /api/clubs/coordinator-assignments?email=X  (admin, or a Faculty Coordinator
-   looking up an email before assigning them as their club's Student Coordinator) */
+/* GET /api/clubs/coordinator-assignments?email=X&clubId=Y  (admin, or a Faculty
+   Advisor looking up an email before assigning them as their club's Student
+   Coordinator). Lists only the person's clubs on the same campus as the club
+   being assigned (?clubId), or the campus the admin is managing — each campus's
+   staff are managed separately. */
 const getCoordinatorAssignments = async (req, res, next) => {
   try {
     const email = String(req.query.email || '').trim().toLowerCase();
@@ -854,13 +879,14 @@ const getCoordinatorAssignments = async (req, res, next) => {
     if (!userRows.length) return res.json({ assignments: [], user: null });
 
     const user = userRows[0];
+    const campus = (req.query.clubId && await campusOfClub(req.query.clubId)) || adminCampus(req) || MAIN_CAMPUS;
     const { rows } = await pgPool.query(
-      `SELECT cca.id, cca.club_id, cca.is_active, c.name AS club_name, c.category, c.color
+      `SELECT cca.id, cca.club_id, cca.is_active, c.name AS club_name, c.category, c.color, c.campus
        FROM coordinator_club_assignments cca
        JOIN clubs c ON c.id = cca.club_id
-       WHERE cca.user_id = $1
+       WHERE cca.user_id = $1 AND c.campus = $2
        ORDER BY cca.created_at DESC`,
-      [user.id]
+      [user.id, campus]
     );
     res.json({ assignments: rows, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
   } catch (err) { next(err); }
@@ -882,10 +908,10 @@ const ROLE_META = {
   coordinator: {
     label: 'Coordinator', roleLabel: 'Student Coordinator',
     auditAction: 'ASSIGN_COORDINATOR', clubNameCol: 'coordinator',
-    blockedRoles: { admin: 'admin', faculty_coordinator: 'Faculty Coordinator' },
+    blockedRoles: { admin: 'admin', faculty_coordinator: 'Faculty Advisor' },
   },
   faculty_coordinator: {
-    label: 'Faculty Coordinator', roleLabel: 'Faculty Coordinator',
+    label: 'Faculty Advisor', roleLabel: 'Faculty Advisor',
     auditAction: 'ASSIGN_FACULTY_COORDINATOR', clubNameCol: 'faculty_coordinator',
     /* An existing Student Coordinator is NOT blocked here — see promoteRole
        below. Only admin accounts are refused outright. */
@@ -931,7 +957,10 @@ const performStaffAssignment = async ({ role, clubId, name, email, actorUserId, 
     };
   }
 
-  const staffName = name?.trim() || (existing.length ? existing[0].name : null);
+  /* A name typed by the admin is kept exactly (titles included); one taken
+     from the existing account drops leading titles like "Prof." / "Dr." */
+  const staffName = name?.trim()
+    || (existing.length ? existing[0].name.replace(/^\s*(?:(?:prof(?:essor)?|dr|mr|mrs|ms|miss)\.?\s+)+/i, '').trim() : null);
   if (!staffName) {
     return { ok: false, status: 400, message: `${meta.label} name is required for new accounts.` };
   }
@@ -951,82 +980,107 @@ const performStaffAssignment = async ({ role, clubId, name, email, actorUserId, 
   const issueNewCredentials = isNewUser || isPromotion;
   let userId;
   let tempPassword = null;
+  const hash = issueNewCredentials
+    ? await bcrypt.hash(tempPassword = crypto.randomBytes(5).toString('hex').toUpperCase(), 12)
+    : null;
 
-  if (isPromotion) {
-    const { rows: priorClubs } = await pgPool.query(
-      `SELECT club_id FROM coordinator_club_assignments WHERE user_id = $1 AND is_active = true`,
-      [existing[0].id]
-    );
-    if (priorClubs.length) {
-      await pgPool.query(
-        `UPDATE clubs SET coordinator = '' WHERE id = ANY($1::bigint[])`,
-        [priorClubs.map(r => r.club_id)]
-      );
-      await pgPool.query(
-        `UPDATE coordinator_club_assignments SET is_active = false, updated_at = NOW() WHERE user_id = $1`,
+  /* All writes in one transaction — an assignment is saved completely or not at all */
+  const db = await pgPool.connect();
+  try {
+    await db.query('BEGIN');
+
+    if (isPromotion) {
+      const { rows: priorClubs } = await db.query(
+        `SELECT club_id FROM coordinator_club_assignments WHERE user_id = $1 AND is_active = true`,
         [existing[0].id]
       );
+      if (priorClubs.length) {
+        await db.query(
+          `UPDATE clubs SET coordinator = '' WHERE id = ANY($1::bigint[])`,
+          [priorClubs.map(r => r.club_id)]
+        );
+        await db.query(
+          `UPDATE coordinator_club_assignments SET is_active = false, updated_at = NOW() WHERE user_id = $1`,
+          [existing[0].id]
+        );
+      }
     }
+
+    if (isNewUser) {
+      /* ── Brand-new account: temp password, create user ── */
+      const { rows: newUser } = await db.query(
+        `INSERT INTO users (email, name, role, password_hash, must_change_password, created_by)
+         VALUES ($1, $2, $3, $4, true, $5)
+         RETURNING id`,
+        [emailLower, staffName, role, hash, actorUserId]
+      );
+      userId = newUser[0].id;
+    } else if (isPromotion) {
+      /* ── Promoted existing account: new role AND a fresh temp password ── */
+      userId = existing[0].id;
+      await db.query(
+        `UPDATE users SET name = $1, role = $2, is_active = true, password_hash = $3, must_change_password = true WHERE id = $4`,
+        [staffName, role, hash, userId]
+      );
+    } else {
+      /* ── Existing user: activate this role WITHOUT touching their password ── */
+      userId = existing[0].id;
+      await db.query(
+        `UPDATE users SET name = $1, role = $2, is_active = true WHERE id = $3`,
+        [staffName, role, userId]
+      );
+    }
+
+    /* Replace any OTHER user of this SAME role on this club — and clear their
+       legacy managed_club_id pointer to it, so no fallback can hand it back. */
+    const { rows: replaced } = await db.query(
+      `UPDATE coordinator_club_assignments cca
+       SET is_active = false, updated_at = NOW()
+       FROM users u
+       WHERE cca.user_id = u.id AND cca.club_id = $1 AND cca.user_id != $2 AND u.role = $3 AND cca.is_active = true
+       RETURNING cca.user_id`,
+      [clubId, userId, role]
+    );
+    if (replaced.length) {
+      await db.query(
+        `UPDATE users u
+         SET managed_club_id = (SELECT a.club_id FROM coordinator_club_assignments a
+                                WHERE a.user_id = u.id AND a.is_active = true
+                                ORDER BY a.updated_at DESC NULLS LAST LIMIT 1)
+         WHERE u.id = ANY($1::int[]) AND u.managed_club_id = $2`,
+        [replaced.map(r => r.user_id), clubId]
+      );
+    }
+
+    /* Upsert assignment: this person → this club */
+    await db.query(
+      `INSERT INTO coordinator_club_assignments (user_id, club_id, is_active)
+       VALUES ($1, $2, true)
+       ON CONFLICT (user_id, club_id) DO UPDATE
+         SET is_active = true, updated_at = NOW()`,
+      [userId, clubId]
+    );
+
+    /* Legacy FK + frontend fallback: primary club on user row */
+    await db.query(`UPDATE users SET managed_club_id = $1 WHERE id = $2`, [clubId, userId]);
+
+    /* Keep the club's stored display name for this role in sync */
+    await db.query(`UPDATE clubs SET ${meta.clubNameCol} = $1 WHERE id = $2`, [staffName, clubId]);
+
+    await db.query('COMMIT');
+  } catch (txErr) {
+    await db.query('ROLLBACK').catch(() => {});
+    throw txErr;
+  } finally {
+    db.release();
   }
 
-  if (isNewUser) {
-    /* ── Brand-new account: generate temp password, create user ── */
-    tempPassword = crypto.randomBytes(5).toString('hex').toUpperCase();
-    const hash   = await bcrypt.hash(tempPassword, 12);
-    const { rows: newUser } = await pgPool.query(
-      `INSERT INTO users (email, name, role, password_hash, must_change_password, created_by)
-       VALUES ($1, $2, $3, $4, true, $5)
-       RETURNING id`,
-      [emailLower, staffName, role, hash, actorUserId]
-    );
-    userId = newUser[0].id;
-  } else if (isPromotion) {
-    /* ── Promoted existing account: new role AND a fresh temp password ── */
-    tempPassword = crypto.randomBytes(5).toString('hex').toUpperCase();
-    const hash   = await bcrypt.hash(tempPassword, 12);
-    userId = existing[0].id;
-    await pgPool.query(
-      `UPDATE users SET name = $1, role = $2, is_active = true, password_hash = $3, must_change_password = true WHERE id = $4`,
-      [staffName, role, hash, userId]
-    );
-  } else {
-    /* ── Existing user: activate this role WITHOUT touching their password ── */
-    userId = existing[0].id;
-    await pgPool.query(
-      `UPDATE users SET name = $1, role = $2, is_active = true WHERE id = $3`,
-      [staffName, role, userId]
-    );
-  }
-
-  /* Deactivate any OTHER user of this SAME role currently assigned to this club */
-  await pgPool.query(
-    `UPDATE coordinator_club_assignments cca
-     SET is_active = false, updated_at = NOW()
-     FROM users u
-     WHERE cca.user_id = u.id AND cca.club_id = $1 AND cca.user_id != $2 AND u.role = $3`,
-    [clubId, userId, role]
-  );
-
-  /* Upsert assignment: this person → this club */
-  await pgPool.query(
-    `INSERT INTO coordinator_club_assignments (user_id, club_id, is_active)
-     VALUES ($1, $2, true)
-     ON CONFLICT (user_id, club_id) DO UPDATE
-       SET is_active = true, updated_at = NOW()`,
-    [userId, clubId]
-  );
-
-  /* Legacy FK + frontend fallback: primary club on user row */
-  await pgPool.query(
-    `UPDATE users SET managed_club_id = $1 WHERE id = $2`,
-    [clubId, userId]
-  );
-
-  /* Keep the club's display name for this role in sync */
-  await pgPool.query(`UPDATE clubs SET ${meta.clubNameCol} = $1 WHERE id = $2`, [staffName, clubId]);
+  /* Each campus's copy is a separate club — name the campus so an email for the
+     City Campus copy is never mistaken for the Main Campus one. */
+  const clubLabel = `${club.name} (${club.campus})`;
 
   await logAudit(actorUserId, actorName, meta.auditAction, 'club', clubId, {
-    staffName, email: emailLower, clubName: club.name, isNewUser, isPromotion,
+    staffName, email: emailLower, clubName: clubLabel, isNewUser, isPromotion,
   });
 
   await Promise.all([
@@ -1044,10 +1098,10 @@ const performStaffAssignment = async ({ role, clubId, name, email, actorUserId, 
   const emailPromise = (issueNewCredentials
     ? sendCoordinatorCredentials({
         toEmail: emailLower, toName: staffName,
-        password: tempPassword, clubName: club.name, roleLabel: meta.roleLabel,
+        password: tempPassword, clubName: clubLabel, roleLabel: meta.roleLabel,
       })
     : sendCoordinatorAssignment({
-        toEmail: emailLower, toName: staffName, clubName: club.name, roleLabel: meta.roleLabel,
+        toEmail: emailLower, toName: staffName, clubName: clubLabel, roleLabel: meta.roleLabel,
       })
   ).then(
     () => true,
@@ -1072,13 +1126,13 @@ const performStaffAssignment = async ({ role, clubId, name, email, actorUserId, 
       name:      staffName,
       email:     emailLower,
       password:  tempPassword,
-      clubName:  club.name,
+      clubName:  clubLabel,
     },
     message: isPromotion
-      ? `${staffName} was promoted to Faculty Coordinator of ${club.name} — their Student Coordinator access has been revoked${emailSent ? ` and new login credentials were sent to ${emailLower}` : emailPending ? ` — new login credentials are being emailed to ${emailLower}` : ', but the credentials email could not be sent — share the new password manually'}.`
+      ? `${staffName} was promoted to Faculty Advisor of ${clubLabel} — their Student Coordinator access has been revoked${emailSent ? ` and new login credentials were sent to ${emailLower}` : emailPending ? ` — new login credentials are being emailed to ${emailLower}` : ', but the credentials email could not be sent — share the new password manually'}.`
       : isNewUser
       ? `${meta.label} account created${emailSent ? `. Credentials sent to ${emailLower}` : emailPending ? `. Credentials are being emailed to ${emailLower}` : ' — email could not be sent, share credentials manually'}.`
-      : `${staffName} added as ${meta.label.toLowerCase()} of ${club.name}${emailSent ? `. Confirmation sent to ${emailLower}` : emailPending ? `. Confirmation is being emailed to ${emailLower}` : ' — email could not be sent'}.`,
+      : `${staffName} added as ${meta.label.toLowerCase()} of ${clubLabel}${emailSent ? `. Confirmation sent to ${emailLower}` : emailPending ? `. Confirmation is being emailed to ${emailLower}` : ' — email could not be sent'}.`,
   };
 };
 

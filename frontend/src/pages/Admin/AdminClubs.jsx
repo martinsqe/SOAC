@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../../api/client';
+import { plainName } from '../../utils/names';
 import ProposalDetails from './ProposalDetails';
 import { formatDate } from './proposalUtils';
 import s from './AdminClubs.module.css';
@@ -11,8 +12,8 @@ const CAT_COLORS = { sports: '#ff4757', cultural: '#ff6b9d', social: '#06d6a0', 
 
 const EMPTY = {
   name: '', category: 'academic', color: '#635BFF',
-  coordinator: '', foundedYear: '', memberCount: 0, eventCount: 0, description: '',
-  /* Optional — assign the club's Faculty Coordinator and/or Student Coordinator
+  foundedYear: '', memberCount: 0, eventCount: 0, description: '',
+  /* Optional — assign the club's Faculty Advisor and/or Student Coordinator
      in the same step as creating the club, through the same account
      creation-or-reuse + credentials-email flow the dedicated Assign modals use.
      Only ever sent (and only ever shown) while adding a new club — editing an
@@ -59,22 +60,22 @@ function ClubCard({ club, onEdit, onDelete, onViewRequests, onViewMembers, onAss
         {/* Faculty Coordinator row — senior staff, assigned by admin only */}
         <div className={s.coordRow}>
           <div className={s.coordInfo}>
-            <span className={s.coordRoleTag}>FC</span>
+            <span className={s.coordRoleTag}>FA</span>
             <span className={club.facultyCoordinator ? s.coordName : s.coordEmpty}>
-              {club.facultyCoordinator || 'No Faculty Coordinator assigned'}
+              {club.facultyCoordinator || 'No Faculty Advisor assigned'}
             </span>
           </div>
           <button
             className={s.assignCoordBtn}
             onClick={() => onAssignFC(club)}
-            title={club.facultyCoordinator ? 'Change Faculty Coordinator' : 'Assign Faculty Coordinator'}
+            title={club.facultyCoordinator ? 'Change Faculty Advisor' : 'Assign Faculty Advisor'}
           >
             {club.facultyCoordinator ? 'Change' : '+ Assign'}
           </button>
         </div>
 
         {/* Student Coordinator row — day-to-day operations, assigned by admin
-            or by this club's own Faculty Coordinator */}
+            or by this club's own Faculty Advisor */}
         <div className={s.coordRow}>
           <div className={s.coordInfo}>
             <span className={s.coordRoleTag}>SC</span>
@@ -198,7 +199,7 @@ export default function AdminClubs() {
   const openEdit = (club) => {
     setForm({
       name: club.name, category: club.category, color: club.color || '#635BFF',
-      coordinator: club.coordinator || '', foundedYear: club.foundedYear || '',
+      foundedYear: club.foundedYear || '',
       memberCount: club.memberCount ?? 0, eventCount: club.eventCount ?? 0,
       description: club.description || '',
     });
@@ -243,14 +244,13 @@ export default function AdminClubs() {
           color:       p.color || '#635BFF',
           description: p.description || '',
           foundedYear: p.founded_year || String(new Date().getFullYear()),
-          coordinator: d.advisor?.Name || '',
           vision:      p.vision || '',
           schedule:    p.schedule || '',
           rules:       (p.rules || []).join('\n'),
           tags:        JSON.stringify(p.tags || []),
-          fcName:      d.advisor?.Name || '',
+          fcName:      plainName(d.advisor?.Name || ''),
           fcEmail:     d.advisor?.Email || '',
-          scName:      d.coordinator?.Name || '',
+          scName:      plainName(d.coordinator?.Name || ''),
           scEmail:     d.coordinator?.Email || '',
           proposalId:  String(p.id),
         });
@@ -278,9 +278,9 @@ export default function AdminClubs() {
     e.preventDefault();
     if (!form.name.trim()) return setError('Club name is required.');
     if (modal === 'add') {
-      if (form.fcEmail.trim() && !form.fcName.trim()) return setError('Faculty Coordinator name is required if an email is given.');
+      if (form.fcEmail.trim() && !form.fcName.trim()) return setError('Faculty Advisor name is required if an email is given.');
       if (form.scEmail.trim() && !form.scName.trim()) return setError('Student Coordinator name is required if an email is given.');
-      if (form.fcEmail.trim() && !form.fcEmail.toLowerCase().endsWith('@rku.ac.in')) return setError('Faculty Coordinator email must be an @rku.ac.in address.');
+      if (form.fcEmail.trim() && !form.fcEmail.toLowerCase().endsWith('@rku.ac.in')) return setError('Faculty Advisor email must be an @rku.ac.in address.');
       if (form.scEmail.trim() && !form.scEmail.toLowerCase().endsWith('@rku.ac.in')) return setError('Student Coordinator email must be an @rku.ac.in address.');
     }
     setSaving(true); setError('');
@@ -297,7 +297,7 @@ export default function AdminClubs() {
         if (failures.length) alert(`Club created, but: ${failures.join(' ')} You can assign this from the club's card.`);
         const queued = [res.fc, res.sc]
           .filter(r => r?.ok && r.credentials)
-          .map(r => ({ ...r.credentials, emailSent: r.emailSent, emailPending: r.emailPending, roleLabel: r === res.fc ? 'Faculty Coordinator' : 'Student Coordinator' }));
+          .map(r => ({ ...r.credentials, emailSent: r.emailSent, emailPending: r.emailPending, roleLabel: r === res.fc ? 'Faculty Advisor' : 'Student Coordinator' }));
         if (queued.length) showCredsQueue(queued);
         if (proposal) {
           setNotice(`"${res.club?.name || form.name}" created and the proposal approved${proposal.proposed_by_id ? ` — ${proposal.proposed_by_name} has been notified` : ''}.`);
@@ -352,7 +352,9 @@ export default function AdminClubs() {
   /* ── Assign Coordinator ── */
   const openAssignCoord = (club) => {
     setCoordClub(club);
-    setCoordName(club.coordinator || '');
+    /* Starts empty — it's filled from the email lookup (without titles), never
+       from the current holder, so a new person never inherits the old name */
+    setCoordName('');
     setCoordEmail('');
     setCoordError('');
     setCoordAssignments([]);
@@ -369,10 +371,10 @@ export default function AdminClubs() {
     if (!e.endsWith('@rku.ac.in')) { setCoordAssignments([]); setCoordLookupUser(null); return; }
     setCoordLookingUp(true);
     try {
-      const d = await api.get(`/clubs/coordinator-assignments?email=${encodeURIComponent(e)}`);
+      const d = await api.get(`/clubs/coordinator-assignments?email=${encodeURIComponent(e)}&clubId=${encodeURIComponent(coordClub._id)}`);
       setCoordAssignments(d.assignments || []);
       setCoordLookupUser(d.user || null);
-      if (d.user?.name && !coordName) setCoordName(d.user.name);
+      if (d.user?.name && !coordName) setCoordName(plainName(d.user.name));
     } catch (_) {
       setCoordAssignments([]); setCoordLookupUser(null);
     } finally {
@@ -404,7 +406,7 @@ export default function AdminClubs() {
      to /clubs/:id/assign-fc instead, one tier above the Student Coordinator. ── */
   const openAssignFC = (club) => {
     setFcClub(club);
-    setFcName(club.facultyCoordinator || '');
+    setFcName('');
     setFcEmail('');
     setFcError('');
     setFcAssignments([]);
@@ -419,9 +421,9 @@ export default function AdminClubs() {
     if (!e.endsWith('@rku.ac.in')) { setFcAssignments([]); return; }
     setFcLookingUp(true);
     try {
-      const d = await api.get(`/clubs/coordinator-assignments?email=${encodeURIComponent(e)}`);
+      const d = await api.get(`/clubs/coordinator-assignments?email=${encodeURIComponent(e)}&clubId=${encodeURIComponent(fcClub._id)}`);
       setFcAssignments(d.assignments || []);
-      if (d.user?.name && !fcName) setFcName(d.user.name);
+      if (d.user?.name && !fcName) setFcName(plainName(d.user.name));
     } catch {
       setFcAssignments([]);
     } finally {
@@ -431,7 +433,7 @@ export default function AdminClubs() {
 
   const handleAssignFC = async (e) => {
     e.preventDefault();
-    if (!fcName.trim()) return setFcError('Faculty Coordinator name is required.');
+    if (!fcName.trim()) return setFcError('Faculty Advisor name is required.');
     if (!fcEmail.trim()) return setFcError('RKU email is required.');
     if (!fcEmail.toLowerCase().endsWith('@rku.ac.in')) return setFcError('Only @rku.ac.in emails are allowed.');
     setFcSaving(true); setFcError('');
@@ -441,9 +443,9 @@ export default function AdminClubs() {
       });
       closeAssignFC();
       load();
-      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, emailPending: res.emailPending, roleLabel: 'Faculty Coordinator', isPromotion: res.isPromotion });
+      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, emailPending: res.emailPending, roleLabel: 'Faculty Advisor', isPromotion: res.isPromotion });
     } catch (err) {
-      setFcError(err.message || 'Failed to assign Faculty Coordinator.');
+      setFcError(err.message || 'Failed to assign Faculty Advisor.');
     } finally {
       setFcSaving(false);
     }
@@ -569,11 +571,11 @@ export default function AdminClubs() {
             <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:20 }}>
               <div>
                 <div style={{ fontFamily:'Plus Jakarta Sans,sans-serif', fontWeight:900, fontSize:16, color:'#0f0a2e' }}>
-                  {creds.isPromotion ? 'Promoted to Faculty Coordinator!' : creds.password ? 'Account Created!' : `${creds.roleLabel || 'Coordinator'} Assigned!`}
+                  {creds.isPromotion ? 'Promoted to Faculty Advisor!' : creds.password ? 'Account Created!' : `${creds.roleLabel || 'Coordinator'} Assigned!`}
                 </div>
                 <div style={{ fontSize:13, color:'#6b7280', marginTop:2 }}>
                   {creds.isPromotion
-                    ? <><strong>{creds.name}</strong> is now Faculty Coordinator of <strong>{creds.clubName}</strong> — their Student Coordinator access (on every club) has been revoked, and a new password was issued below.</>
+                    ? <><strong>{creds.name}</strong> is now Faculty Advisor of <strong>{creds.clubName}</strong> — their Student Coordinator access (on every club) has been revoked, and a new password was issued below.</>
                     : creds.password
                     ? <>Credentials for <strong>{creds.name}</strong> — send them this or they'll receive an email.</>
                     : <><strong>{creds.name}</strong> has been added as {(creds.roleLabel || "Coordinator").toLowerCase()} of <strong>{creds.clubName}</strong>.</>}
@@ -792,7 +794,7 @@ export default function AdminClubs() {
                 <input
                   value={coordName}
                   onChange={e => setCoordName(e.target.value)}
-                  placeholder="e.g. Prof. Anita Mehta"
+                  placeholder="e.g. Anita Mehta"
                   required
                 />
               </div>
@@ -874,7 +876,7 @@ export default function AdminClubs() {
           <div className={s.modal} style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
             <div className={s.modalHeader}>
               <div>
-                <div className={s.modalTag}>Faculty Coordinator Assignment</div>
+                <div className={s.modalTag}>Faculty Advisor Assignment</div>
                 <h2 className={s.modalTitle}>{fcClub.name}</h2>
               </div>
               <button className={s.closeBtn} onClick={closeAssignFC}>✕</button>
@@ -894,12 +896,12 @@ export default function AdminClubs() {
             <form onSubmit={handleAssignFC} className={s.form}>
               <div className={s.field}>
                 <label>
-                  Faculty Coordinator Full Name <span className={s.req}>*</span>
+                  Faculty Advisor Full Name <span className={s.req}>*</span>
                 </label>
                 <input
                   value={fcName}
                   onChange={e => setFcName(e.target.value)}
-                  placeholder="e.g. Prof. Anita Mehta"
+                  placeholder="e.g. Anita Mehta"
                   required
                 />
               </div>
@@ -966,7 +968,7 @@ export default function AdminClubs() {
               <div className={s.modalFooter}>
                 <button type="button" className={s.cancelBtn} onClick={closeAssignFC}>Cancel</button>
                 <button type="submit" className={s.saveBtn} disabled={fcSaving}>
-                  {fcSaving ? 'Assigning…' : 'Assign Faculty Coordinator'}
+                  {fcSaving ? 'Assigning…' : 'Assign Faculty Advisor'}
                 </button>
               </div>
             </form>
@@ -1052,11 +1054,8 @@ export default function AdminClubs() {
                 </div>
               </div>
 
+              {/* Staff names come from the assigned FA / SC accounts — no free-text field */}
               <div className={s.row2}>
-                <div className={s.field}>
-                  <label>Coordinator</label>
-                  <input value={form.coordinator} onChange={sf('coordinator')} placeholder="e.g. Prof. Anita Mehta" />
-                </div>
                 <div className={s.field}>
                   <label>Accent Color</label>
                   <div className={s.colorRow}>
@@ -1127,11 +1126,11 @@ export default function AdminClubs() {
 
                   <div className={s.row2}>
                     <div className={s.field}>
-                      <label>Faculty Coordinator Name</label>
-                      <input value={form.fcName} onChange={sf('fcName')} placeholder="e.g. Prof. Anita Mehta" />
+                      <label>Faculty Advisor Name</label>
+                      <input value={form.fcName} onChange={sf('fcName')} placeholder="e.g. Anita Mehta" />
                     </div>
                     <div className={s.field}>
-                      <label>Faculty Coordinator Email</label>
+                      <label>Faculty Advisor Email</label>
                       <input type="email" value={form.fcEmail} onChange={sf('fcEmail')} placeholder="faculty.coordinator@rku.ac.in" />
                     </div>
                   </div>

@@ -332,7 +332,7 @@ export default function CoordMyClub() {
           <p className={s.bannerSub}>{club.category} · {club.realMemberCount ?? club.memberCount ?? 0} members</p>
         </div>
         <span className={s.bannerBadge} style={{ background: color + '18', color }}>
-          {isFC ? 'Faculty Coordinator' : 'Coordinator'}
+          {isFC ? 'Faculty Advisor' : 'Coordinator'}
         </span>
       </div>
 

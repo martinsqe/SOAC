@@ -15,7 +15,7 @@ const { notifyUser, notifyManyUsers } = require('../services/notify');
    or (from clubs.controller.js's assignClubStaff) who the club's Student
    Coordinator is. Never fires for an admin's own changes — they don't need to
    be told about their own actions. Fire-and-forget; never throws. */
-const CLUB_STAFF_ROLE_LABEL = { coordinator: 'Student Coordinator', faculty_coordinator: 'Faculty Coordinator' };
+const CLUB_STAFF_ROLE_LABEL = { coordinator: 'Student Coordinator', faculty_coordinator: 'Faculty Advisor' };
 const notifyAdminsOfClubChange = async (req, clubId, changeDescription) => {
   const roleLabel = CLUB_STAFF_ROLE_LABEL[req.user?.role];
   if (!roleLabel) return; // only ever notify for an SC/FC's own action, never admin's

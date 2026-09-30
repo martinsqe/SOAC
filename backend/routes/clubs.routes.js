@@ -2,7 +2,7 @@ const router = require('express').Router();
 const ctrl   = require('../controllers/clubs.controller');
 const cd     = require('../controllers/clubDetail.controller');
 const perf   = require('../controllers/clubPerformance.controller');
-const { verifyToken }  = require('../middleware/auth');
+const { verifyToken, optionalAuth } = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/requireAdmin');
 const { requireCoordinatorOwnership } = require('../middleware/requireCoordinatorOwnership');
 const { uploadLogo, uploadLeadership, uploadMvpPhoto } = require('../config/multer');
@@ -28,11 +28,13 @@ const requireAdminOrOwningFC = async (req, res, next) => {
     if (ok) return next();
     return res.status(403).json({ message: 'You can only assign a Student Coordinator for your own club.' });
   }
-  return res.status(403).json({ message: 'Admin or Faculty Coordinator access required.' });
+  return res.status(403).json({ message: 'Admin or Faculty Advisor access required.' });
 };
 
 /* ── Static-path routes must come before /:id ── */
-router.get('/',         ctrl.getAll);
+/* Public, but reads the token when sent: an admin gets the clubs of the campus
+   they're managing (X-Campus); everyone else gets each club once */
+router.get('/',         optionalAuth, ctrl.getAll);
 router.get('/public/stats', ctrl.publicStats);
 router.get('/stats',    verifyToken, requireAdmin, ctrl.stats);
 router.post('/seed',    verifyToken, requireAdmin, ctrl.seed);

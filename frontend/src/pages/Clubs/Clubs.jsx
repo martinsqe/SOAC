@@ -686,7 +686,10 @@ const Clubs = () => {
                     </div>
                     <div className={styles.cardBody}>
                       <div className={styles.cardName}>{club.name}</div>
-                      <div className={styles.cardCoord}>Coordinator: {club.coord} · Est. {club.yr}</div>
+                      {/* Coordinator shown only once one is assigned */}
+                      <div className={styles.cardCoord}>
+                        {[club.coord && `Coordinator: ${club.coord}`, club.yr && `Est. ${club.yr}`].filter(Boolean).join(' · ')}
+                      </div>
                       {club.desc ? (
                         <div className={styles.cardDescWrap}>
                           <span className={`${styles.cardDesc} ${isExpanded ? styles.cardDescOpen : ''}`}>

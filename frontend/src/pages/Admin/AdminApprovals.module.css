@@ -5,6 +5,29 @@
   margin: 0 auto;
 }
 
+/* Top tabs with the join-requests switch on the right */
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+.topBar > :first-child { min-width: 0; max-width: 100%; }
+.joinSwitch { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.joinChip {
+  font-size: 12px; font-weight: 700;
+  padding: 5px 11px; border-radius: 20px;
+  white-space: nowrap;
+}
+.joinBtn {
+  padding: 9px 16px; border-radius: 9px;
+  font-weight: 700; font-size: .85rem; font-family: inherit;
+  cursor: pointer; white-space: nowrap;
+}
+.joinBtn:disabled { opacity: .6; cursor: not-allowed; }
+
 /* A row that scrolls sideways when it doesn't fit (like the Clubs page tabs),
    instead of being clipped by the layout */
 .scrollRow {
