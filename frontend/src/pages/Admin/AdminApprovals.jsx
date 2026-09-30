@@ -164,9 +164,9 @@ function JoinRequestsPanel() {
     finally { setActionId(null); }
   };
 
-  /* Bulk actions act on exactly what's on screen in the Pending tab — so the club
+  /* Bulk actions act on exactly the pending requests on screen — so the tab, club
      filter and name search narrow what "Approve all" / "Delete all" touch. */
-  const bulkTargets = filter === 'pending' ? requests.filter(r => r.status === 'pending') : [];
+  const bulkTargets = requests.filter(r => r.status === 'pending');
 
   const runBulk = async (kind) => {
     const ids = bulkTargets.map(r => r._id);
@@ -298,20 +298,26 @@ function JoinRequestsPanel() {
             <option key={id} value={id}>{name} ({count})</option>
           ))}
         </select>
-        {bulkTargets.length > 0 && (
-          <div style={{ display:'flex', gap:10, marginLeft:'auto' }}>
-            <button onClick={() => setBulkConfirm('approve')} disabled={!!bulkBusy}
-              style={{ padding:'9px 16px', borderRadius:9, border:'none', background:'#16a34a',
-                color:'#fff', fontWeight:700, fontSize:'.85rem', cursor: bulkBusy ? 'not-allowed' : 'pointer' }}>
-              {bulkBusy?.kind === 'approve' ? `Approving ${bulkBusy.done}/${bulkBusy.total}…` : `Approve all (${bulkTargets.length})`}
-            </button>
-            <button onClick={() => setBulkConfirm('delete')} disabled={!!bulkBusy}
-              style={{ padding:'9px 16px', borderRadius:9, border:'1.5px solid #ef4444', background:'#fff',
-                color:'#ef4444', fontWeight:700, fontSize:'.85rem', cursor: bulkBusy ? 'not-allowed' : 'pointer' }}>
-              {bulkBusy?.kind === 'delete' ? 'Deleting…' : `Delete all (${bulkTargets.length})`}
-            </button>
-          </div>
-        )}
+        {/* Always shown so the controls don't jump around; disabled when nothing pending is on screen */}
+        {(() => {
+          const off = !!bulkBusy || loading || bulkTargets.length === 0;
+          return (
+            <div style={{ display:'flex', gap:10, marginLeft:'auto' }}>
+              <button onClick={() => setBulkConfirm('approve')} disabled={off}
+                style={{ padding:'9px 16px', borderRadius:9, border:'none', background:'#16a34a',
+                  color:'#fff', fontWeight:700, fontSize:'.85rem', opacity: off && !bulkBusy ? .45 : 1,
+                  cursor: off ? 'not-allowed' : 'pointer' }}>
+                {bulkBusy?.kind === 'approve' ? `Approving ${bulkBusy.done}/${bulkBusy.total}…` : `Approve all (${bulkTargets.length})`}
+              </button>
+              <button onClick={() => setBulkConfirm('delete')} disabled={off}
+                style={{ padding:'9px 16px', borderRadius:9, border:'1.5px solid #ef4444', background:'#fff',
+                  color:'#ef4444', fontWeight:700, fontSize:'.85rem', opacity: off && !bulkBusy ? .45 : 1,
+                  cursor: off ? 'not-allowed' : 'pointer' }}>
+                {bulkBusy?.kind === 'delete' ? 'Deleting…' : `Delete all (${bulkTargets.length})`}
+              </button>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Bulk action confirmation */}
