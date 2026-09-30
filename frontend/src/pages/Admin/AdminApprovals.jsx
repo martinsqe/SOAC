@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { fetchAllPages } from '../../utils/pagination';
 import s from '../Coordinator/CoordSubPage.module.css';
+import a from './AdminApprovals.module.css';
 import ProposalDetails from './ProposalDetails';
 import { proposalAccent, formatDate } from './proposalUtils';
 
@@ -57,7 +58,7 @@ export default function AdminApprovals() {
   }, []);
 
   return (
-    <div style={{ padding: '24px 28px' }}>
+    <div className={a.page}>
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ margin: 0, fontWeight: 900, fontSize: '1.5rem', color: '#0f0a2e' }}>Approvals</h1>
         <p style={{ margin: '6px 0 0', color: '#6b7280', fontSize: '.9rem' }}>
@@ -66,13 +67,15 @@ export default function AdminApprovals() {
       </div>
 
       {/* Top-level tabs */}
-      <div className={s.tabs} style={{ marginBottom: 28 }}>
-        <button className={`${s.tab} ${tab === 'join' ? s.tabOn : ''}`} onClick={() => setTab('join')}>
-          Join Requests{countPill(counts?.joinRequests?.pending)}
-        </button>
-        <button className={`${s.tab} ${tab === 'proposals' ? s.tabOn : ''}`} onClick={() => setTab('proposals')}>
-          Club Proposals{countPill(counts?.proposals?.pending)}
-        </button>
+      <div className={s.tabsWrap} style={{ marginBottom: 28 }}>
+        <div className={s.tabs}>
+          <button className={`${s.tab} ${tab === 'join' ? s.tabOn : ''}`} onClick={() => setTab('join')}>
+            Join Requests{countPill(counts?.joinRequests?.pending)}
+          </button>
+          <button className={`${s.tab} ${tab === 'proposals' ? s.tabOn : ''}`} onClick={() => setTab('proposals')}>
+            Club Proposals{countPill(counts?.proposals?.pending)}
+          </button>
+        </div>
       </div>
 
       {tab === 'join'      && <JoinRequestsPanel />}
@@ -256,22 +259,26 @@ function JoinRequestsPanel() {
         </div>
       )}
 
-      <div className={s.tabs}>
-        {[
-          { key: 'pending',  label: `Pending (${pendingCount})` },
-          { key: 'approved', label: `Approved (${approvedCount})` },
-          { key: 'declined', label: `Declined (${declinedCount})` },
-          { key: 'all',      label: `All (${clubScoped.length})` },
-        ].map(t => (
-          <button key={t.key} onClick={() => setFilter(t.key)}
-            className={`${s.tab} ${filter === t.key ? s.tabOn : ''}`}>
-            {t.label}
-          </button>
-        ))}
+      <div className={s.tabsWrap} style={{ marginBottom: 0 }}>
+        <div className={s.tabs}>
+          {[
+            { key: 'pending',  label: `Pending (${pendingCount})` },
+            { key: 'approved', label: `Approved (${approvedCount})` },
+            { key: 'declined', label: `Declined (${declinedCount})` },
+            { key: 'all',      label: `All (${clubScoped.length})` },
+          ].map(t => (
+            <button key={t.key} onClick={() => setFilter(t.key)}
+              className={`${s.tab} ${filter === t.key ? s.tabOn : ''}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div style={{ display:'flex', gap:10, flexWrap:'wrap', margin:'16px 0' }}>
-        <div style={{ position:'relative', flex:'1', minWidth:220, maxWidth:320 }}>
+      {/* Scrolls sideways on narrow screens so the bulk buttons stay reachable */}
+      <div className={a.scrollRow}>
+      <div className={a.toolbar}>
+        <div className={a.searchBox}>
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
@@ -292,7 +299,7 @@ function JoinRequestsPanel() {
           onChange={e => setClubFilter(e.target.value)}
           style={{ padding:'9px 12px', border:'1.5px solid #e5e7eb', borderRadius:9,
             fontSize:'.85rem', outline:'none', background:'#fff', cursor:'pointer',
-            fontFamily:'inherit', minWidth:180 }}>
+            fontFamily:'inherit', minWidth:180, maxWidth:260 }}>
           <option value="">All Clubs ({allRequests.length})</option>
           {clubOptions.map(([id, { name, count }]) => (
             <option key={id} value={id}>{name} ({count})</option>
@@ -302,7 +309,7 @@ function JoinRequestsPanel() {
         {(() => {
           const off = !!bulkBusy || loading || bulkTargets.length === 0;
           return (
-            <div style={{ display:'flex', gap:10, marginLeft:'auto' }}>
+            <div className={a.bulkBtns}>
               <button onClick={() => setBulkConfirm('approve')} disabled={off}
                 style={{ padding:'9px 16px', borderRadius:9, border:'none', background:'#16a34a',
                   color:'#fff', fontWeight:700, fontSize:'.85rem', opacity: off && !bulkBusy ? .45 : 1,
@@ -318,6 +325,7 @@ function JoinRequestsPanel() {
             </div>
           );
         })()}
+      </div>
       </div>
 
       {/* Bulk action confirmation */}
@@ -368,19 +376,19 @@ function JoinRequestsPanel() {
           <p style={{ color:'#6b7280' }}>No {filter !== 'all' ? filter : ''} requests found.</p>
         </div>
       ) : (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(340px, 1fr))', gap:16 }}>
+        <div className={a.grid}>
           {requests.map((r, i) => (
             <div key={r._id} className={s.card}>
               <div className={s.cardHead}>
-                <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-                  <div className={s.av} style={{ background:AVS[i%AVS.length] }}>{initials(r.name)}</div>
-                  <div>
+                <div style={{ display:'flex', alignItems:'center', gap:12, minWidth:0 }}>
+                  <div className={s.av} style={{ background:AVS[i%AVS.length], flexShrink:0 }}>{initials(r.name)}</div>
+                  <div className={a.who}>
                     <div className={s.mName}>{r.name}</div>
                     <div className={s.mMeta}>{r.club_name}</div>
                     <div style={{ fontSize:11, color:'#9ca3af' }}>{r.email}</div>
                   </div>
                 </div>
-                <div style={{ textAlign:'right' }}>
+                <div style={{ textAlign:'right', flexShrink:0 }}>
                   <div className={s.tag} style={{ background:'#f0fdf4', color:'#16a34a' }}>{timeAgo(r.createdAt)}</div>
                   <div style={{ fontSize:11, fontWeight:700, color: statusColor(r.status), textTransform:'capitalize' }}>{r.status}</div>
                 </div>
@@ -543,21 +551,24 @@ function ClubProposalsPanel({ counts }) {
         </div>
       )}
 
-      <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:18 }}>
-        <div className={s.tabs} style={{ marginBottom:0 }}>
-          {['pending', 'approved', 'rejected', 'all'].map(t => (
-            <button key={t} onClick={() => setFilter(t)}
-              className={`${s.tab} ${filter === t ? s.tabOn : ''}`}>
-              {t.charAt(0).toUpperCase() + t.slice(1)}{counts ? ` (${counts[t] ?? 0})` : ''}
-            </button>
-          ))}
+      <div className={a.proposalsBar}>
+        <div className={s.tabsWrap} style={{ marginBottom:0 }}>
+          <div className={s.tabs}>
+            {['pending', 'approved', 'rejected', 'all'].map(t => (
+              <button key={t} onClick={() => setFilter(t)}
+                className={`${s.tab} ${filter === t ? s.tabOn : ''}`}>
+                {t.charAt(0).toUpperCase() + t.slice(1)}{counts ? ` (${counts[t] ?? 0})` : ''}
+              </button>
+            ))}
+          </div>
         </div>
         <input
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Search club or proposer…"
+          className={a.proposalSearch}
           style={{ padding:'9px 14px', borderRadius:10, border:'1.5px solid #e5e7eb', fontSize:13,
-            minWidth:220, flex:'0 1 280px', outline:'none', fontFamily:'inherit' }}
+            outline:'none', fontFamily:'inherit', boxSizing:'border-box' }}
         />
       </div>
 
@@ -576,7 +587,7 @@ function ClubProposalsPanel({ counts }) {
           </p>
         </div>
       ) : (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(min(100%, 380px), 1fr))', gap:16 }}>
+        <div className={a.proposalGrid}>
           {shown.map(p => {
             const accent = proposalAccent(p);
             const d = p.details || {};

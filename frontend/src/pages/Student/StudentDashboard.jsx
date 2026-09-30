@@ -106,8 +106,12 @@ export default function StudentDashboard() {
       setTotalClubs(all.length);
 
       const enriched = joined.map(jc => {
-        const full = all.find(c => String(c._id || c.id) === String(jc.club_id));
-        return full ? { ...full, joined_at: jc.joined_at } : { name: jc.club_name, _id: jc.club_id, joined_at: jc.joined_at };
+        /* The list has each club once (Main Campus copy); keep the id of the
+           copy the student actually belongs to so links open their campus's club. */
+        const full = all.find(c => String(c._id || c.id) === String(jc.listed_club_id ?? jc.club_id));
+        return full
+          ? { ...full, _id: String(jc.club_id), id: String(jc.club_id), joined_at: jc.joined_at }
+          : { name: jc.club_name, _id: jc.club_id, joined_at: jc.joined_at };
       });
       setJoinedFull(enriched);
 

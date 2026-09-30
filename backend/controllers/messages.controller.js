@@ -6,6 +6,7 @@ const { pgPool } = require('../config/db');
 const { ensureSoacTables } = require('../services/soacData');
 const { notifyUser } = require('../services/notify');
 const { getCoordClubIds, getClubCoordinatorIds } = require('../services/coordAuth');
+const { adminCampus } = require('../services/campus');
 
 /* Student Coordinator and Faculty Coordinator share coordinator_club_assignments
    and both count as "the coordinators of a club" for DM purposes below. */
@@ -47,7 +48,8 @@ const getConversations = async (req, res, next) => {
     await ensureSoacTables();
     const uid = req.user.id;
 
-    /* 1. Group chats — admin sees ALL clubs; others see only their joined clubs */
+    /* 1. Group chats — admin sees every club of the campus they're managing;
+          others see only their joined clubs */
     let groups;
     if (req.user.role === 'admin') {
       const { rows } = await pgPool.query(
@@ -67,8 +69,9 @@ const getConversations = async (req, res, next) => {
            ORDER  BY created_at DESC
            LIMIT  1
          ) lm ON true
-         WHERE c.is_active = true
-         ORDER BY lm.created_at DESC NULLS LAST, c.name ASC`
+         WHERE c.is_active = true AND c.campus = $1
+         ORDER BY lm.created_at DESC NULLS LAST, c.name ASC`,
+        [adminCampus(req)]
       );
       groups = rows;
     } else {
@@ -272,7 +275,7 @@ const getClubMembers = async (req, res, next) => {
 
     let rows;
     if (req.user.role === 'admin') {
-      /* Admin: every active user across all clubs, excluding themselves */
+      /* Admin: every active member of the campus's clubs, excluding themselves */
       ({ rows } = await pgPool.query(
         `SELECT DISTINCT ON (u.id)
            u.id, u.name, u.avatar, u.role,
@@ -280,6 +283,7 @@ const getClubMembers = async (req, res, next) => {
            COALESCE(jr.dept, '') AS dept,
            COALESCE(jr.year, '') AS year
          FROM student_clubs sc
+         JOIN clubs c ON c.id = sc.club_id AND c.campus = $2
          JOIN users u ON u.id = sc.user_id AND u.is_active = true AND u.id != $1
          LEFT JOIN LATERAL (
            SELECT dept, year FROM join_requests
@@ -288,7 +292,7 @@ const getClubMembers = async (req, res, next) => {
            LIMIT 1
          ) jr ON true
          ORDER BY u.id, u.name`,
-        [uid]
+        [uid, adminCampus(req)]
       ));
     } else if (isCoordLike(req.user.role)) {
       /* Coordinator: any admin/coordinator, plus only students in clubs THEY

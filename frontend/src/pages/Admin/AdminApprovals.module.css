@@ -1,0 +1,62 @@
+/* Approvals page — layout that stays usable on phones */
+.page {
+  padding: 24px 28px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* A row that scrolls sideways when it doesn't fit (like the Clubs page tabs),
+   instead of being clipped by the layout */
+.scrollRow {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin: 16px 0;
+}
+.scrollRow::-webkit-scrollbar { display: none; }
+
+.toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: max-content;
+}
+.toolbar > * { flex-shrink: 0; }
+.searchBox { position: relative; width: 280px; }
+.bulkBtns  { display: flex; gap: 10px; margin-left: auto; }
+
+.proposalsBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.proposalsBar > :first-child { min-width: 0; max-width: 100%; }
+.proposalSearch { flex: 0 1 280px; min-width: 220px; }
+
+/* Cards: never wider than the screen, and centred in the available space */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 16px;
+}
+.proposalGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr));
+  gap: 16px;
+}
+
+/* Long names / emails wrap inside the card instead of pushing it wider */
+.who { min-width: 0; }
+.who > div { overflow-wrap: anywhere; }
+
+@media (max-width: 768px) {
+  /* The admin layout already pads the content area — don't double it */
+  .page { padding: 4px 0 24px; }
+  .searchBox { width: 220px; }
+  .proposalSearch { flex: 1 1 100%; min-width: 0; }
+}

@@ -968,6 +968,8 @@ const asClub = (row) => ({
   isActive: !!row.is_active,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
+  campus: row.campus || 'Main Campus',
+  mainClubId: row.main_club_id ? String(row.main_club_id) : null,
 });
 
 const asEvent = (row) => ({
@@ -1012,6 +1014,7 @@ const asEvent = (row) => ({
   specialDayName: row.special_day_name || '',
   targetAudience: row.target_audience || '',
   universityExpectations: row.university_expectations || '',
+  campus: row.campus || 'Main Campus',
 });
 
 /**

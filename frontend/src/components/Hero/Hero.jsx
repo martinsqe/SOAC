@@ -39,7 +39,7 @@ const Hero = () => {
         </h1>
 
         <p className={`${styles.hsub} fade delay-2`}>
-          Join {stats.members?.toLocaleString()}+ students across {stats.clubs} clubs at RK University, Rajkot.
+          Discover our clubs and join the ones that match your passion.
           From robotics to dance, sports to entrepreneurship &mdash; find your stage today.
         </p>
 
@@ -58,8 +58,8 @@ const Hero = () => {
             <div className={styles.hsl}>Clubs</div>
           </div>
           <div className={styles.hs}>
-            <div className={styles.hsn}>30+</div>
-            <div className={styles.hsl}>Members / Club</div>
+            <div className={styles.hsn}>1000+</div>
+            <div className={styles.hsl}>Members / Year</div>
           </div>
           <div className={styles.hs}>
             <div className={styles.hsn}>50+</div>

@@ -133,7 +133,9 @@ function ClubCard({ club, clubId, enrolled, maxReached, onJoin }) {
 
 const CATS = ['sports', 'cultural', 'social', 'academic'];
 
-const EMPTY_FORM = { name: '', email: '', phone: '', enrollmentNo: '', dept: '', year: '', gender: '', message: '' };
+const CAMPUSES = ['Main Campus', 'City Campus'];
+
+const EMPTY_FORM = { name: '', email: '', phone: '', enrollmentNo: '', dept: '', year: '', gender: '', campus: '', message: '' };
 
 const EMPTY_PROPOSAL = {
   club_name: '', category: 'academic', color: '#635BFF',
@@ -178,7 +180,8 @@ export default function StudentClubs() {
       setAllClubs(cr.clubs?.length ? cr.clubs : STATIC_CLUBS);
       const raw = mr.clubs || [];
       setMyClubsRaw(raw);
-      setMyClubIds(new Set(raw.map(c => String(c.club_id))));
+      /* The list shows each club once (Main Campus copy) — match memberships by that id */
+      setMyClubIds(new Set(raw.map(c => String(c.listed_club_id ?? c.club_id))));
     }).catch(() => { setAllClubs(STATIC_CLUBS); setMyClubsRaw([]); })
       .finally(() => setLoading(false));
   };
@@ -187,6 +190,9 @@ export default function StudentClubs() {
 
   /* Resolve the real DB id for a club — works for both live (has _id) and static data */
   const resolveClubId = (club) => {
+    /* A member opens the copy of the club on their own campus */
+    const mine = club._id && myClubsRaw.find(c => String(c.listed_club_id ?? c.club_id) === String(club._id));
+    if (mine) return String(mine.club_id);
     if (club._id) return club._id;
     const mc = myClubsRaw.find(c => c.club_name === club.name);
     return mc ? String(mc.club_id) : null;
@@ -216,6 +222,7 @@ export default function StudentClubs() {
     if (!form.dept)         e.dept   = 'Required';
     if (!form.year)         e.year   = 'Required';
     if (!form.gender)       e.gender = 'Required';
+    if (!form.campus)       e.campus = 'Required';
     setFormErr(e);
     return Object.keys(e).length === 0;
   };
@@ -228,8 +235,9 @@ export default function StudentClubs() {
       /* Same pre-check the public join modal does — the email field is editable, so this
          runs against whatever is in the form. The server re-checks on the POST below. */
       const limit = await api.get(
-        `/requests/check-club-limit?email=${encodeURIComponent(form.email.trim().toLowerCase())}&clubId=${encodeURIComponent(joinClub._id)}`
+        `/requests/check-club-limit?email=${encodeURIComponent(form.email.trim().toLowerCase())}&clubId=${encodeURIComponent(joinClub._id)}&campus=${encodeURIComponent(form.campus)}`
       ).catch(() => null);
+      if (limit?.wrongCampus) { alert(limit.campusMessage); return; }
       if (limit?.alreadyMember) { alert("You're already a member of this club."); return; }
       if (limit?.alreadyPending) { alert('You already have a pending request for this club.'); return; }
       if (limit?.atLimit) { alert('You can only send request to 3 clubs.'); return; }
@@ -244,6 +252,7 @@ export default function StudentClubs() {
         dept:        form.dept,
         year:        form.year,
         gender:      form.gender,
+        campus:      form.campus,
         message:     form.message.trim(),
       });
       setJoinClub(null);
@@ -613,14 +622,24 @@ export default function StudentClubs() {
                   {formErr.year && <span className={s.mErr}>{formErr.year}</span>}
                 </div>
               </div>
-              <div className={s.mField}>
-                <label>Gender *</label>
-                <select value={form.gender} onChange={sf('gender')}>
-                  <option value="">Select gender…</option>
-                  <option value="M">Male (M)</option>
-                  <option value="F">Female (F)</option>
-                </select>
-                {formErr.gender && <span className={s.mErr}>{formErr.gender}</span>}
+              <div className={s.mGrid2}>
+                <div className={s.mField}>
+                  <label>Gender *</label>
+                  <select value={form.gender} onChange={sf('gender')}>
+                    <option value="">Select gender…</option>
+                    <option value="M">Male (M)</option>
+                    <option value="F">Female (F)</option>
+                  </select>
+                  {formErr.gender && <span className={s.mErr}>{formErr.gender}</span>}
+                </div>
+                <div className={s.mField}>
+                  <label>Campus *</label>
+                  <select value={form.campus} onChange={sf('campus')}>
+                    <option value="">Select campus…</option>
+                    {CAMPUSES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  {formErr.campus && <span className={s.mErr}>{formErr.campus}</span>}
+                </div>
               </div>
               <div className={s.mField}>
                 <label>Why do you want to join? (optional)</label>

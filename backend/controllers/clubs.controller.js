@@ -8,6 +8,7 @@ const { assertCoordOwnsClub, getCoordClubIds } = require('../services/coordAuth'
 const { destroyImage } = require('../config/cloudinary');
 const { getFileValue } = require('../config/multer');
 const cache = require('../services/cache');
+const { MAIN_CAMPUS, CITY_CAMPUS, adminCampus, ensureCityCampusClubs, campusSlug } = require('../services/campus');
 const { notifyAdminsOfClubChange } = require('./clubDetail.controller');
 const { markApprovedWithClub, notifyProposalApproved } = require('./clubProposals.controller');
 
@@ -21,8 +22,14 @@ const STAFF_EMAIL_WAIT_MS = 8000;
 const CLUB_COLS = [
   'id', 'name', 'slug', 'category', 'color', 'logo', 'coordinator', 'faculty_coordinator',
   'founded_year', 'description', 'tags', 'vision', 'rules', 'schedule',
-  'is_active', 'created_at', 'updated_at',
+  'is_active', 'created_at', 'updated_at', 'campus', 'main_club_id',
 ].join(', ');
+
+/* Live event count for a club copy — by club_id, falling back to the display
+   name (scoped to the same campus) for legacy events saved without one. */
+const EVENT_COUNT_SQL = `(SELECT COUNT(*)::int FROM events
+   WHERE is_active = true
+     AND (club_id = clubs.id OR (club_id IS NULL AND club = clubs.name AND campus = clubs.campus)))`;
 
 /* ── Pagination helper ──────────────────────────────────────────────────────
    Reads ?page= and ?limit= from query string.
@@ -60,6 +67,8 @@ const logAudit = async (userId, userName, action, entityType, entityId, meta = {
 
 /* GET /api/clubs  (public)
    Supports ?page=&limit=&category=&search=
+   Admin sees the clubs of the campus they're managing; everyone else sees the
+   Main Campus copies, i.e. each club once (joining routes by the chosen campus).
    COUNT(*) OVER() gives total in one query — no extra round-trip.
    Cache-aside: clubs:<hash> → 60 s */
 const getAll = async (req, res, next) => {
@@ -68,12 +77,13 @@ const getAll = async (req, res, next) => {
     const { category, search } = req.query;
     const { page, limit, offset } = parsePage(req.query);
 
-    const cacheKey = cache.hashKey('clubs', { category, search, page, limit });
+    const campus   = adminCampus(req) || MAIN_CAMPUS;
+    const cacheKey = cache.hashKey('clubs', { category, search, page, limit, campus });
     const cached   = await cache.get(cacheKey);
     if (cached) return res.json(cached);
 
-    const values  = [];
-    const clauses = ['is_active = true'];
+    const values  = [campus];
+    const clauses = ['is_active = true', 'campus = $1'];
     if (category && category !== 'all') {
       values.push(category);
       clauses.push(`category = $${values.length}`);
@@ -87,7 +97,7 @@ const getAll = async (req, res, next) => {
     const { rows } = await pgPool.query(
       `SELECT ${CLUB_COLS},
               (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = clubs.id AND is_active = true) AS real_member_count,
-              (SELECT COUNT(*)::int FROM events WHERE club = clubs.name AND is_active = true) AS real_event_count,
+              ${EVENT_COUNT_SQL} AS real_event_count,
               COUNT(*) OVER() AS total_count
        FROM clubs
        WHERE ${clauses.join(' AND ')}
@@ -124,7 +134,7 @@ const getOne = async (req, res, next) => {
     const { rows } = await pgPool.query(
       `SELECT ${CLUB_COLS},
               (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = clubs.id AND is_active = true) AS real_member_count,
-              (SELECT COUNT(*)::int FROM events WHERE club = clubs.name AND is_active = true) AS real_event_count,
+              ${EVENT_COUNT_SQL} AS real_event_count,
               (SELECT u.avatar FROM coordinator_club_assignments cca
                JOIN users u ON u.id = cca.user_id AND u.role = 'coordinator'
                WHERE cca.club_id = clubs.id AND cca.is_active = true
@@ -213,11 +223,14 @@ const create = async (req, res, next) => {
     const base = slugify(name, { lower: true, strict: true }) || 'club';
     let slug = base;
     for (let n = 1; ; n++) {
-      const { rows: taken } = await db.query(`SELECT 1 FROM clubs WHERE slug = $1`, [slug]);
+      const { rows: taken } = await db.query(`SELECT 1 FROM clubs WHERE slug = $1 OR slug = $2`, [slug, campusSlug(slug, CITY_CAMPUS)]);
       if (!taken.length) break;
       slug = `${base}-${n}`;
     }
 
+    /* Every club exists at both campuses: insert the Main Campus row, then its
+       City Campus copy below. Staff named in this form go to the copy on the
+       campus the admin is managing, which is also the club returned. */
     const { rows } = await db.query(
       `INSERT INTO clubs
        (name, slug, category, color, coordinator, founded_year, member_count, event_count, description, tags, logo,
@@ -233,11 +246,19 @@ const create = async (req, res, next) => {
         (rules || '').split('\n').map(r => r.trim()).filter(Boolean),
       ]
     );
-    let club = asClub(rows[0]);
+    const { rows: cityRows } = await db.query(
+      `INSERT INTO clubs
+       (name, slug, category, color, founded_year, description, tags, logo, vision, schedule, rules, campus, main_club_id)
+       SELECT name, $2, category, color, founded_year, description, tags, logo, vision, schedule, rules, $3, id
+       FROM clubs WHERE id = $1
+       RETURNING ${CLUB_COLS}`,
+      [rows[0].id, campusSlug(slug, CITY_CAMPUS), CITY_CAMPUS]
+    );
+    let club = asClub(adminCampus(req) === CITY_CAMPUS ? cityRows[0] : rows[0]);
 
     if (tx) {
       approvedProposal = await markApprovedWithClub(tx, {
-        proposalId, clubId: club.id, reviewerId: req.user.id,
+        proposalId, clubId: rows[0].id, reviewerId: req.user.id,
       });
       await tx.query('COMMIT');
       tx.release();
@@ -246,7 +267,7 @@ const create = async (req, res, next) => {
     }
 
     await logAudit(req.user.id, req.user.name, 'CREATE_CLUB', 'club', club.id, { name, proposalId: proposalId || undefined });
-    await Promise.all([cache.delPattern('clubs:*'), cache.del('stats:admin')]);
+    await Promise.all([cache.delPattern('clubs:*'), cache.del('stats:admin', 'stats:admin:city')]);
 
     const staff = {};
     if (fcEmail?.trim()) {
@@ -293,7 +314,7 @@ const create = async (req, res, next) => {
 const update = async (req, res, next) => {
   try {
     const { rows: cur } = await pgPool.query(
-      `SELECT id, name, logo, category, color, coordinator, founded_year, description, tags FROM clubs WHERE id = $1`,
+      `SELECT id, name, logo, category, color, coordinator, founded_year, description, tags, campus FROM clubs WHERE id = $1`,
       [req.params.id]
     );
     if (!cur.length) return res.status(404).json({ message: 'Club not found.' });
@@ -304,31 +325,79 @@ const update = async (req, res, next) => {
     if (req.file) await destroyImage(current.logo);
     const finalName = name || current.name;
 
-    const { rows } = await pgPool.query(
-      `UPDATE clubs
-       SET name         = $1,
-           slug         = $2,
-           category     = COALESCE($3, category),
-           color        = COALESCE($4, color),
-           coordinator  = COALESCE($5, coordinator),
-           founded_year = COALESCE($6, founded_year),
-           member_count = COALESCE($7, member_count),
-           event_count  = COALESCE($8, event_count),
-           description  = COALESCE($9, description),
-           tags         = COALESCE($10, tags),
-           logo         = $11
-       WHERE id = $12
-       RETURNING ${CLUB_COLS}`,
-      [
-        finalName, slugify(finalName, { lower: true, strict: true }),
-        category ?? null, color ?? null, coordinator ?? null,
-        foundedYear ?? null,
-        memberCount !== undefined ? Number(memberCount) : null,
-        eventCount  !== undefined ? Number(eventCount)  : null,
-        description ?? null, tags ? JSON.parse(tags) : null,
-        nextLogo, req.params.id,
-      ]
-    );
+    /* Both campus copies are updated together, in one transaction. Slugs only
+       change on a rename, and then to a base that's free for both copies. */
+    const client = await pgPool.connect();
+    let rows, twinRows;
+    try {
+      await client.query('BEGIN');
+      const { rows: pair } = await client.query(
+        `SELECT t.id FROM clubs c JOIN clubs t ON (t.id = c.id OR t.id = c.main_club_id OR t.main_club_id = c.id)
+         WHERE c.id = $1`,
+        [req.params.id]
+      );
+      const pairIds = pair.map(p => p.id);
+      let baseSlug = null;
+      if (finalName !== current.name) {
+        const root = slugify(finalName, { lower: true, strict: true }) || 'club';
+        baseSlug = root;
+        for (let n = 1; ; n++) {
+          const { rows: taken } = await client.query(
+            `SELECT 1 FROM clubs WHERE slug = ANY($1::text[]) AND NOT (id = ANY($2::bigint[]))`,
+            [[baseSlug, campusSlug(baseSlug, CITY_CAMPUS)], pairIds]
+          );
+          if (!taken.length) break;
+          baseSlug = `${root}-${n}`;
+        }
+      }
+
+      ({ rows } = await client.query(
+        `UPDATE clubs
+         SET name         = $1,
+             slug         = COALESCE($2, slug),
+             category     = COALESCE($3, category),
+             color        = COALESCE($4, color),
+             coordinator  = COALESCE($5, coordinator),
+             founded_year = COALESCE($6, founded_year),
+             member_count = COALESCE($7, member_count),
+             event_count  = COALESCE($8, event_count),
+             description  = COALESCE($9, description),
+             tags         = COALESCE($10, tags),
+             logo         = $11
+         WHERE id = $12
+         RETURNING ${CLUB_COLS}`,
+        [
+          finalName, baseSlug && campusSlug(baseSlug, current.campus),
+          category ?? null, color ?? null, coordinator ?? null,
+          foundedYear ?? null,
+          memberCount !== undefined ? Number(memberCount) : null,
+          eventCount  !== undefined ? Number(eventCount)  : null,
+          description ?? null, tags ? JSON.parse(tags) : null,
+          nextLogo, req.params.id,
+        ]
+      ));
+
+      /* Name, category, colour and logo are the club's shared identity — keep the
+         other campus's copy in step (the old logo file was just destroyed, too). */
+      ({ rows: twinRows } = await client.query(
+        `UPDATE clubs t
+         SET name = c.name, category = c.category, color = c.color, logo = c.logo,
+             slug = CASE WHEN $3::text IS NULL THEN t.slug
+                         WHEN t.campus = $2 THEN $3 || '${campusSlug('', CITY_CAMPUS)}'
+                         ELSE $3 END,
+             updated_at = NOW()
+         FROM clubs c
+         WHERE c.id = $1 AND (t.id = c.main_club_id OR t.main_club_id = c.id)
+         RETURNING t.id`,
+        [req.params.id, CITY_CAMPUS, baseSlug]
+      ));
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw txErr;
+    } finally {
+      client.release();
+    }
     const club = asClub(rows[0]);
 
     /* Build a before/after diff for the audit trail */
@@ -356,20 +425,25 @@ const update = async (req, res, next) => {
     if (req.file) changes.push({ field: 'Logo', from: null, to: 'updated' });
 
     await logAudit(req.user.id, req.user.name, 'UPDATE_CLUB', 'club', club.id, { name: club.name, changes });
-    await Promise.all([cache.del(`clubs:${req.params.id}`), cache.delPattern('clubs:*')]);
+    await Promise.all([
+      cache.del(`clubs:${req.params.id}`),
+      ...twinRows.map(r => cache.del(`clubs:${r.id}`)),
+      cache.delPattern('clubs:*'),
+    ]);
     res.json({ club: withLogoUrl(club) });
   } catch (err) { next(err); }
 };
 
-/* DELETE /api/clubs/:id  (admin — permanent cascading delete) */
+/* DELETE /api/clubs/:id  (admin — permanent cascading delete)
+   Removes the club at BOTH campuses — the two copies are one club. */
 const remove = async (req, res, next) => {
   const client = await pgPool.connect();
   try {
     await client.query('BEGIN');
 
-    /* 1. Fetch club before anything is deleted */
+    /* 1. Fetch club (and its other-campus copy) before anything is deleted */
     const { rows: clubRows } = await client.query(
-      `SELECT id, name, slug, logo FROM clubs WHERE id = $1`,
+      `SELECT id, name, slug, logo, main_club_id FROM clubs WHERE id = $1`,
       [req.params.id]
     );
     if (!clubRows.length) {
@@ -377,16 +451,26 @@ const remove = async (req, res, next) => {
       return res.status(404).json({ message: 'Club not found.' });
     }
     const club = clubRows[0];
-
-    /* 2. Delete events by club name (stored as plain text — no FK).
-          event_registrations cascade from events automatically. */
-    await client.query(`DELETE FROM events WHERE club ILIKE $1`, [club.name]);
-
-    /* 3. Record slug so autoSeed never re-creates this club on future deploys */
-    await client.query(
-      `INSERT INTO seed_exclusions (slug) VALUES ($1) ON CONFLICT DO NOTHING`,
-      [club.slug]
+    const { rows: copies } = await client.query(
+      `SELECT id, slug FROM clubs WHERE id = $1 OR main_club_id = $1`,
+      [club.main_club_id || club.id]
     );
+    const copyIds = copies.map(c => c.id);
+
+    /* 2. Delete the club's events — by club_id, plus legacy events that only
+          carry the club name. event_registrations cascade from events. */
+    await client.query(
+      `DELETE FROM events WHERE club_id = ANY($1::bigint[]) OR (club_id IS NULL AND club ILIKE $2)`,
+      [copyIds, club.name]
+    );
+
+    /* 3. Record slugs so autoSeed never re-creates this club on future deploys */
+    for (const c of copies) {
+      await client.query(
+        `INSERT INTO seed_exclusions (slug) VALUES ($1) ON CONFLICT DO NOTHING`,
+        [c.slug]
+      );
+    }
 
     /* 4. Hard-delete the club row.
           All tables with ON DELETE CASCADE FK clean up automatically:
@@ -394,7 +478,7 @@ const remove = async (req, res, next) => {
           club_leadership, club_messages, club_tasks,
           club_attendance_sessions (→ records cascade),
           member_progress, event_requests */
-    await client.query(`DELETE FROM clubs WHERE id = $1`, [req.params.id]);
+    await client.query(`DELETE FROM clubs WHERE id = ANY($1::bigint[])`, [copyIds]);
 
     await client.query('COMMIT');
 
@@ -404,13 +488,13 @@ const remove = async (req, res, next) => {
     /* 5. Audit log + cache bust */
     await logAudit(req.user.id, req.user.name, 'DELETE_CLUB', 'club', club.id, { name: club.name });
     await Promise.all([
-      cache.del(`clubs:${req.params.id}`),
-      cache.del(`clubs:${req.params.id}:members`),
+      ...copyIds.map(id => cache.del(`clubs:${id}`)),
+      ...copyIds.map(id => cache.del(`clubs:${id}:members`)),
       cache.delPattern('clubs:*'),
-      cache.del('stats:admin'),
+      cache.del('stats:admin', 'stats:admin:city'),
     ]);
 
-    res.json({ message: `"${club.name}" and all associated data have been permanently deleted.` });
+    res.json({ message: `"${club.name}" and all associated data have been permanently deleted from both campuses.` });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     next(err);
@@ -422,9 +506,10 @@ const remove = async (req, res, next) => {
 /* GET /api/clubs/stats  (admin) */
 const stats = async (req, res, next) => {
   try {
+    const campus = adminCampus(req) || MAIN_CAMPUS;
     const [{ rows: totalRows }, { rows: byCategory }] = await Promise.all([
-      pgPool.query(`SELECT COUNT(*)::int AS total FROM clubs WHERE is_active = true`),
-      pgPool.query(`SELECT category AS _id, COUNT(*)::int AS count FROM clubs WHERE is_active = true GROUP BY category`),
+      pgPool.query(`SELECT COUNT(*)::int AS total FROM clubs WHERE is_active = true AND campus = $1`, [campus]),
+      pgPool.query(`SELECT category AS _id, COUNT(*)::int AS count FROM clubs WHERE is_active = true AND campus = $1 GROUP BY category`, [campus]),
     ]);
     res.json({ total: totalRows[0].total, byCategory });
   } catch (err) { next(err); }
@@ -435,10 +520,11 @@ const stats = async (req, res, next) => {
 const publicStats = async (req, res, next) => {
   try {
     const [cRes, mRes, eRes, catRes] = await Promise.all([
-      pgPool.query(`SELECT COUNT(*)::int AS count FROM clubs WHERE is_active = true`),
+      /* Each club counted once (its Main Campus copy) */
+      pgPool.query(`SELECT COUNT(*)::int AS count FROM clubs WHERE is_active = true AND campus = $1`, [MAIN_CAMPUS]),
       pgPool.query(`SELECT COUNT(*)::int AS count FROM student_clubs WHERE is_active = true`),
       pgPool.query(`SELECT COUNT(*)::int AS count FROM events WHERE is_active = true`),
-      pgPool.query(`SELECT category, COUNT(*)::int AS count FROM clubs WHERE is_active = true GROUP BY category ORDER BY category`),
+      pgPool.query(`SELECT category, COUNT(*)::int AS count FROM clubs WHERE is_active = true AND campus = $1 GROUP BY category ORDER BY category`, [MAIN_CAMPUS]),
     ]);
     const byCategory = {};
     catRes.rows.forEach(r => { byCategory[r.category] = r.count; });
@@ -456,8 +542,9 @@ const seed = async (req, res, next) => {
   try {
     const autoSeed = require('../scripts/autoSeed');
     await autoSeed();
-    const { rows } = await pgPool.query('SELECT COUNT(*)::int AS count FROM clubs WHERE is_active = true');
-    await Promise.all([cache.delPattern('clubs:*'), cache.del('stats:admin')]);
+    await ensureCityCampusClubs();
+    const { rows } = await pgPool.query('SELECT COUNT(*)::int AS count FROM clubs WHERE is_active = true AND campus = $1', [MAIN_CAMPUS]);
+    await Promise.all([cache.delPattern('clubs:*'), cache.del('stats:admin', 'stats:admin:city')]);
     res.json({ message: `Seed complete. ${rows[0].count} clubs in database.`, count: rows[0].count });
   } catch (err) { next(err); }
 };
@@ -475,7 +562,7 @@ const mine = async (req, res, next) => {
 
     const MINE_COLS = `${CLUB_COLS},
       (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = clubs.id AND is_active = true) AS real_member_count,
-      (SELECT COUNT(*)::int FROM events WHERE club = clubs.name AND is_active = true) AS real_event_count`;
+      ${EVENT_COUNT_SQL} AS real_event_count`;
 
     const { rows } = await pgPool.query(
       `SELECT ${MINE_COLS}
@@ -597,6 +684,11 @@ const getAllMembers = async (req, res, next) => {
     const values        = [];
     const filterClauses = [];
 
+    const campus = adminCampus(req);
+    if (campus) {
+      values.push(campus);
+      filterClauses.push(`sc.club_id IN (SELECT id FROM clubs WHERE campus = $${values.length})`);
+    }
     if (clubId) {
       values.push(clubId);
       filterClauses.push(`sc.club_id = $${values.length}::bigint`);
@@ -690,6 +782,22 @@ const getAllMembers = async (req, res, next) => {
 const toggleMemberActive = async (req, res, next) => {
   try {
     await ensureSoacTables();
+
+    /* Reactivating must not leave the student in clubs at both campuses */
+    const { rows: otherCampus } = await pgPool.query(
+      `SELECT oc.campus
+       FROM student_clubs cur
+       JOIN clubs cc ON cc.id = cur.club_id
+       JOIN student_clubs o ON o.user_id = cur.user_id AND o.is_active = true AND o.club_id <> cur.club_id
+       JOIN clubs oc ON oc.id = o.club_id AND oc.campus <> cc.campus
+       WHERE cur.club_id = $1::bigint AND cur.user_id = $2::int AND cur.is_active = false
+       LIMIT 1`,
+      [req.params.id, req.params.userId]
+    );
+    if (otherCampus.length) {
+      return res.status(400).json({ message: `This student is now a member of a club at ${otherCampus[0].campus}, so they can't be reactivated here.` });
+    }
+
     const { rows } = await pgPool.query(
       `UPDATE student_clubs
        SET is_active      = NOT is_active,

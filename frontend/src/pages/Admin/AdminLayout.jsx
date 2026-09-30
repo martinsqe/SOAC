@@ -7,6 +7,7 @@ import PushOptInModal from '../../components/PushOptInModal/PushOptInModal';
 import { refreshAppBadge } from '../../utils/badge';
 import { syncFcmToken, onForegroundMessage, fcmSupported, registerFcmServiceWorker } from '../../firebaseMessaging';
 import api from '../../api/client';
+import { CAMPUSES, getAdminCampus, setAdminCampus } from '../../utils/adminCampus';
 import styles from './AdminLayout.module.css';
 
 const AVATAR_BASE = '/uploads/avatars/';
@@ -41,6 +42,16 @@ export default function AdminLayout() {
   const [profileOpen,   setProfileOpen]   = useState(false);
   const [unreadDMs,     setUnreadDMs]     = useState(0);
   const [unreadNotifs,  setUnreadNotifs]  = useState(0);
+  /* Campus being managed — every admin API call carries it (X-Campus), so
+     switching re-mounts the current page to reload it for that campus. */
+  const [campus,        setCampus]        = useState(getAdminCampus);
+
+  const switchCampus = (next) => {
+    if (next === campus) return;
+    setAdminCampus(next);
+    setCampus(next);
+    setMobileOpen(false);
+  };
 
   /* Poll unread DM count every 5 s */
   const refreshUnread = useCallback(async () => {
@@ -55,7 +66,7 @@ export default function AdminLayout() {
     refreshUnread();
     const t = setInterval(refreshUnread, 5000);
     return () => clearInterval(t);
-  }, [refreshUnread]);
+  }, [refreshUnread, campus]);
 
   /* Clear badge immediately when admin opens Monitor Chats */
   useEffect(() => {
@@ -89,7 +100,7 @@ export default function AdminLayout() {
     const t = setInterval(load, 20000);
     window.addEventListener('soac:approvals-changed', load);
     return () => { clearInterval(t); window.removeEventListener('soac:approvals-changed', load); };
-  }, []);
+  }, [campus]);
 
   /* Clear badge immediately when admin opens Notifications */
   useEffect(() => {
@@ -153,6 +164,21 @@ export default function AdminLayout() {
           <div className={styles.brandName}>SOAC Admin</div>
           <div className={styles.brandSub}>RK University</div>
         </div>
+      </div>
+
+      {/* Campus switcher */}
+      <div className={styles.campusSwitcher}>
+        <div className={styles.campusSwitcherLabel}>Managing</div>
+        {CAMPUSES.map(c => (
+          <button
+            key={c.value}
+            className={`${styles.campusSwitcherBtn} ${campus === c.value ? styles.campusSwitcherBtnActive : ''}`}
+            onClick={() => switchCampus(c.value)}
+          >
+            <span className={styles.campusSwitcherDot} style={{ background: c.color }} />
+            <span>{c.value}</span>
+          </button>
+        ))}
       </div>
 
       {/* Nav */}
@@ -241,7 +267,7 @@ export default function AdminLayout() {
               <span /><span /><span />
             </button>
             <div className={styles.pageId}>
-              SOAC · Admin
+              SOAC · Admin · {campus}
             </div>
           </div>
           <div className={styles.topbarRight}>
@@ -262,7 +288,7 @@ export default function AdminLayout() {
         </header>
 
         <main className={styles.content}>
-          <AnimatedOutlet />
+          <AnimatedOutlet key={campus} />
         </main>
       </div>
 

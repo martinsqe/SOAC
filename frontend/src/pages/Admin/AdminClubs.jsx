@@ -1389,7 +1389,7 @@ export default function AdminClubs() {
         <div className={s.overlay} onClick={() => setDeleteId(null)}>
           <div className={s.confirmBox} onClick={e => e.stopPropagation()}>
             <h3>Delete this club?</h3>
-            <p>It will be removed from the guest site immediately.</p>
+            <p>It will be removed from the guest site immediately, at both Main Campus and City Campus.</p>
             <div className={s.confirmBtns}>
               <button className={s.cancelBtn} onClick={() => setDeleteId(null)}>Cancel</button>
               <button className={s.delConfirmBtn} onClick={handleDelete}>Yes, Delete</button>

@@ -69,10 +69,18 @@ async function getCoordClubIds(userId) {
   }
 
   // ── Fallback 2: clubs.coordinator name match (trimmed / partial) ──
-  if (coordName) {
+  // Main Campus clubs only: this rescues pre-campus legacy data, and a loose name
+  // match must never hand a coordinator another campus's club (and its requests).
+  // City Campus staff are always assigned through coordinator_club_assignments.
+  const { rows: otherCampus } = await pgPool.query(
+    `SELECT 1 FROM coordinator_club_assignments a JOIN clubs c ON c.id = a.club_id
+     WHERE a.user_id = $1 AND c.campus <> 'Main Campus' LIMIT 1`,
+    [userId]
+  );
+  if (coordName && !otherCampus.length) {
     const { rows: nameMatch } = await pgPool.query(
       `SELECT id FROM clubs
-       WHERE is_active = true
+       WHERE is_active = true AND campus = 'Main Campus'
          AND (
            trim(coordinator) ILIKE trim($1)
            OR coordinator ILIKE '%' || trim($1) || '%'
@@ -146,17 +154,21 @@ async function assertCoordOwnsClub(userId, clubId) {
     return true;
   }
 
-  // Fallback 2: clubs.coordinator name match
+  // Fallback 2: clubs.coordinator name match — Main Campus (legacy) clubs only
   const coordName = (uRows[0]?.name || '').trim();
   if (coordName) {
     const { rows: nameMatch } = await pgPool.query(
       `SELECT id FROM clubs
-       WHERE id = $1 AND is_active = true
+       WHERE id = $1 AND is_active = true AND campus = 'Main Campus'
+         AND NOT EXISTS (
+           SELECT 1 FROM coordinator_club_assignments a JOIN clubs c ON c.id = a.club_id
+           WHERE a.user_id = $3 AND c.campus <> 'Main Campus'
+         )
          AND (
            trim(coordinator) ILIKE trim($2)
            OR coordinator ILIKE '%' || trim($2) || '%'
          )`,
-      [clubId, coordName]
+      [clubId, coordName, userId]
     );
     if (nameMatch.length) {
       autoRepair(userId, clubId);
@@ -210,8 +222,10 @@ async function getClubCoordinatorIds(clubId) {
   });
 
   // ── clubs.coordinator name match — the name actually shown as "the" coordinator ──
+  // Main Campus (legacy) clubs only, so a similarly named coordinator at the other
+  // campus is never notified of — or auto-assigned to — this club's requests.
   const { rows: clubRows } = await pgPool.query(
-    `SELECT coordinator FROM clubs WHERE id = $1 AND is_active = true`, [clubId]
+    `SELECT coordinator FROM clubs WHERE id = $1 AND is_active = true AND campus = 'Main Campus'`, [clubId]
   );
   const coordName = (clubRows[0]?.coordinator || '').trim();
   if (coordName) {
@@ -221,6 +235,10 @@ async function getClubCoordinatorIds(clubId) {
          AND (
            trim(name) ILIKE trim($1)
            OR $1 ILIKE '%' || trim(name) || '%'
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM coordinator_club_assignments a JOIN clubs c ON c.id = a.club_id
+           WHERE a.user_id = users.id AND c.campus <> 'Main Campus'
          )`,
       [coordName]
     );

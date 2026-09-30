@@ -3,9 +3,10 @@ import s from './JoinModal.module.css';
 
 const DEPTS = ['ACH','AI/ML','FOT','SDS','SOE','SPT','SOP','SOM','SOS',];
 const YEARS = ['1st Year','2nd Year','3rd Year','4th Year','5th Year', '6th Year'];
+const CAMPUSES = ['Main Campus','City Campus'];
 
 export default function JoinModal({ club, onClose }) {
-  const [form, setForm] = useState({ name:'', email:'', phone:'', enrollmentNo:'', dept:'', year:'', gender:'', message:'' });
+  const [form, setForm] = useState({ name:'', email:'', phone:'', enrollmentNo:'', dept:'', year:'', gender:'', campus:'', message:'' });
   const [submitting, setSubmitting] = useState(false);
   const [done,       setDone]       = useState(false);
   const [err,        setErr]        = useState('');
@@ -18,6 +19,7 @@ export default function JoinModal({ club, onClose }) {
     if (!form.name.trim() || !form.email.trim()) { setErr('Name and email are required.'); return; }
     if (!form.email.includes('@')) { setErr('Enter a valid email address.'); return; }
     if (!form.gender) { setErr('Please select your gender.'); return; }
+    if (!form.campus) { setErr('Please select your campus.'); return; }
     setSubmitting(true);
     try {
       /* Pre-check the 3-club request cap (active memberships + pending requests), existing
@@ -27,8 +29,13 @@ export default function JoinModal({ club, onClose }) {
          (authoritative), since this GET is only a best-effort UX shortcut, not something to
          trust alone. */
       try {
-        const limitRes  = await fetch(`/api/requests/check-club-limit?email=${encodeURIComponent(form.email.trim().toLowerCase())}&clubId=${encodeURIComponent(club._id)}`);
+        const limitRes  = await fetch(`/api/requests/check-club-limit?email=${encodeURIComponent(form.email.trim().toLowerCase())}&clubId=${encodeURIComponent(club._id)}&campus=${encodeURIComponent(form.campus)}`);
         const limitData = await limitRes.json();
+        if (limitRes.ok && limitData.wrongCampus) {
+          alert(limitData.campusMessage);
+          setSubmitting(false);
+          return;
+        }
         if (limitRes.ok && limitData.alreadyMember) {
           alert("You're already a member of this club.");
           setSubmitting(false);
@@ -59,6 +66,7 @@ export default function JoinModal({ club, onClose }) {
           dept:         form.dept,
           year:         form.year,
           gender:       form.gender,
+          campus:       form.campus,
           message:      form.message.trim(),
         }),
       });
@@ -141,6 +149,13 @@ export default function JoinModal({ club, onClose }) {
                   <option value="F">F</option>
                 </select>
               </div>
+            </div>
+            <div>
+              <label className={s.mlbl}>Campus <span className={s.mreq}>*</span></label>
+              <select className={s.minp} value={form.campus} onChange={e => set('campus', e.target.value)}>
+                <option value="">Select campus</option>
+                {CAMPUSES.map(c => <option key={c}>{c}</option>)}
+              </select>
             </div>
             <div>
               <label className={s.mlbl}>Why do you want to join?</label>

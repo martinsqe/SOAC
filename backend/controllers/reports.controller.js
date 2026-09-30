@@ -1,4 +1,5 @@
 const { pgPool }    = require('../config/db');
+const { adminCampus } = require('../services/campus');
 const { getFileValue } = require('../config/multer');
 const { getChampion } = require('../services/bracketMath');
 const { notifyManyUsers } = require('../services/notify');
@@ -682,7 +683,9 @@ const getSubmittedReports = async (req, res, next) => {
        LEFT JOIN clubs c ON c.id = er.club_id
        LEFT JOIN events ev ON ev.id = er.event_id
        WHERE er.submitted_at IS NOT NULL
-       ORDER BY er.submitted_at DESC`
+         AND ($1::text IS NULL OR COALESCE(c.campus, ev.campus) = $1)
+       ORDER BY er.submitted_at DESC`,
+      [adminCampus(req)]
     );
     res.json({ reports: rows });
   } catch (err) { next(err); }

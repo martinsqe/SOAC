@@ -4,6 +4,7 @@ const { destroyImage } = require('../config/cloudinary');
 const { getFileValue } = require('../config/multer');
 const cache      = require('../services/cache');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
+const { MAIN_CAMPUS, adminCampus, ensureCityCampusClubs } = require('../services/campus');
 
 /* ─── helpers ─────────────────────────────────────────────────────────────── */
 
@@ -199,7 +200,12 @@ const counts = async (req, res, next) => {
                 COUNT(*)::int AS "all"
            FROM club_proposals`,
       ),
-      pgPool.query(`SELECT COUNT(*)::int AS pending FROM join_requests WHERE status = 'pending'`),
+      /* Join requests of the campus the admin is managing */
+      pgPool.query(
+        `SELECT COUNT(*)::int AS pending FROM join_requests
+         WHERE status = 'pending' AND club_id IN (SELECT id FROM clubs WHERE campus = $1)`,
+        [adminCampus(req) || MAIN_CAMPUS],
+      ),
     ]);
     res.json({ proposals: p[0], joinRequests: { pending: j[0].pending } });
   } catch (err) { next(err); }
@@ -301,6 +307,9 @@ const approve = async (req, res, next) => {
        tags, rules, schedule, foundedYear],
     );
     const club = clubRows[0];
+
+    /* 4b. Every club exists at both campuses — create its City Campus copy */
+    await ensureCityCampusClubs(client);
 
     /* 5. Mark proposal approved */
     await client.query(

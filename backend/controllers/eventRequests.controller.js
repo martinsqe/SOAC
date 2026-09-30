@@ -1,5 +1,6 @@
 const { pgPool } = require('../config/db');
 const { ensureSoacTables } = require('../services/soacData');
+const { MAIN_CAMPUS, adminCampus } = require('../services/campus');
 const { getCoordClubIds, assertCoordOwnsClub } = require('../services/coordAuth');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
 const { getFileValue } = require('../config/multer');
@@ -258,11 +259,12 @@ const getRequests = async (req, res, next) => {
   try {
     await ensureSoacTables();
     const { status } = req.query;
-    const args  = [];
-    let   where = '';
+    /* Requests from the clubs of the campus the admin is managing */
+    const args  = [adminCampus(req) || MAIN_CAMPUS];
+    let   where = 'WHERE er.club_id IN (SELECT id FROM clubs WHERE campus = $1)';
     if (status && ['pending_fc','pending','approved','rejected'].includes(status)) {
       args.push(status);
-      where = `WHERE er.status = $1`;
+      where += ` AND er.status = $2`;
     }
     const { rows } = await pgPool.query(
       `SELECT er.*, u.name AS coordinator_name, fc.name AS fc_reviewer_name

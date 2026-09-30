@@ -7,6 +7,10 @@
 const { pgPool } = require('../config/db');
 const { ensureSoacTables } = require('../services/soacData');
 const { syncPastEvents } = require('../services/eventStatus');
+const { MAIN_CAMPUS, adminCampus, studentOnCampusSql } = require('../services/campus');
+
+/* Every view here is scoped to the campus the admin is managing */
+const campusOf = (req) => adminCampus(req) || MAIN_CAMPUS;
 
 /* Same 8 event categories -> 4 groups mapping the public "My Activity" page uses
    (see ACTIVITY_BUCKET in users.controller.js); anything unknown counts as academic. */
@@ -116,7 +120,7 @@ const getFilters = async (req, res, next) => {
          WHERE TRIM(COALESCE(course, '')) <> ''
          GROUP BY LOWER(TRIM(course)) ORDER BY 1`
       ),
-      pgPool.query(`SELECT id::text AS id, name FROM clubs WHERE is_active = true ORDER BY name`),
+      pgPool.query(`SELECT id::text AS id, name FROM clubs WHERE is_active = true AND campus = $1 ORDER BY name`, [campusOf(req)]),
     ]);
     res.json({
       departments: depts.rows.map(r => r.dept),
@@ -133,11 +137,16 @@ const getSummary = async (req, res, next) => {
     await syncPastEvents();
     const { rows } = await pgPool.query(
       `SELECT
-         (SELECT COUNT(*) FROM users WHERE role = 'student'     AND is_active = true)::int AS students,
-         (SELECT COUNT(*) FROM users WHERE role = 'coordinator' AND is_active = true)::int AS coordinators,
-         (SELECT COUNT(*) FROM clubs WHERE is_active = true)::int                          AS clubs,
-         (SELECT COUNT(*) FROM events WHERE is_active = true AND status = 'past')::int     AS events_conducted,
-         (SELECT COUNT(*) FROM event_reports)::int                                         AS reports_generated`
+         (SELECT COUNT(*) FROM users u WHERE u.role = 'student' AND u.is_active = true
+            AND ${studentOnCampusSql('u', '$1')})::int                                         AS students,
+         (SELECT COUNT(DISTINCT u.id) FROM users u
+            JOIN coordinator_club_assignments cca ON cca.user_id = u.id AND cca.is_active = true
+            JOIN clubs c ON c.id = cca.club_id AND c.campus = $1
+           WHERE u.role = 'coordinator' AND u.is_active = true)::int                           AS coordinators,
+         (SELECT COUNT(*) FROM clubs WHERE is_active = true AND campus = $1)::int             AS clubs,
+         (SELECT COUNT(*) FROM events WHERE is_active = true AND status = 'past' AND campus = $1)::int AS events_conducted,
+         (SELECT COUNT(*) FROM event_reports r JOIN clubs c ON c.id = r.club_id AND c.campus = $1)::int AS reports_generated`,
+      [campusOf(req)]
     );
     const r = rows[0];
     res.json({
@@ -249,8 +258,8 @@ const getMembers = async (req, res, next) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 25));
     const { search, dept, course, clubId } = req.query;
 
-    const values = [];
-    const where  = [];
+    const values = [campusOf(req)];
+    const where  = [studentOnCampusSql('m', '$1')];
     if (search?.trim()) { values.push(likeTerm(search)); where.push(`(m.name ILIKE $${values.length} OR m.email ILIKE $${values.length})`); }
     if (dept)           { values.push(dept);             where.push(`m.dept = $${values.length}`); }
     if (course)         { values.push(course);           where.push(`LOWER(m.course) = LOWER($${values.length})`); }
@@ -361,19 +370,19 @@ const getClubs = async (req, res, next) => {
   try {
     await ensureSoacTables();
     await syncPastEvents();
-    const values = [];
-    let where = 'c.is_active = true';
-    if (req.query.search?.trim()) { values.push(likeTerm(req.query.search)); where += ` AND c.name ILIKE $1`; }
+    const values = [campusOf(req)];
+    let where = 'c.is_active = true AND c.campus = $1';
+    if (req.query.search?.trim()) { values.push(likeTerm(req.query.search)); where += ` AND c.name ILIKE $2`; }
 
     const { rows } = await pgPool.query(
       `SELECT c.id::text AS id, c.name, c.category,
          (SELECT COUNT(*) FROM student_clubs sc WHERE sc.club_id = c.id AND sc.is_active = true)::int AS members,
          (SELECT COUNT(*) FROM events e
            WHERE e.is_active = true AND e.status = 'past'
-             AND (e.club_id = c.id OR (e.club_id IS NULL AND e.club = c.name)))::int AS events_conducted,
+             AND (e.club_id = c.id OR (e.club_id IS NULL AND e.club = c.name AND e.campus = c.campus)))::int AS events_conducted,
          (SELECT COUNT(*) FROM events e
            WHERE e.is_active = true AND e.status IN ('upcoming', 'ongoing')
-             AND (e.club_id = c.id OR (e.club_id IS NULL AND e.club = c.name)))::int AS events_upcoming,
+             AND (e.club_id = c.id OR (e.club_id IS NULL AND e.club = c.name AND e.campus = c.campus)))::int AS events_upcoming,
          (SELECT COUNT(*) FROM event_reports r WHERE r.club_id = c.id)::int AS reports_generated,
          (SELECT COUNT(*) FROM event_reports r WHERE r.club_id = c.id AND r.submitted_at IS NOT NULL)::int AS reports_submitted
        FROM clubs c
@@ -398,8 +407,14 @@ const getClubs = async (req, res, next) => {
 const getCoordinators = async (req, res, next) => {
   try {
     await ensureSoacTables();
-    const values = [];
-    const where  = [`u.role = 'coordinator'`, `u.is_active = true`];
+    /* Coordinators of the campus: assigned to one of its clubs (those with no
+       club at all are listed under Main Campus); only its clubs are shown. */
+    const values = [campusOf(req)];
+    const where  = [
+      `u.role = 'coordinator'`, `u.is_active = true`,
+      `(EXISTS (SELECT 1 FROM assigned a3 JOIN clubs c3 ON c3.id = a3.club_id WHERE a3.user_id = u.id AND c3.campus = $1)
+        OR ($1 = '${MAIN_CAMPUS}' AND NOT EXISTS (SELECT 1 FROM assigned a4 WHERE a4.user_id = u.id)))`,
+    ];
     if (req.query.search?.trim()) {
       values.push(likeTerm(req.query.search));
       where.push(`(u.name ILIKE $${values.length} OR u.email ILIKE $${values.length})`);
@@ -421,7 +436,7 @@ const getCoordinators = async (req, res, next) => {
                        FILTER (WHERE c.id IS NOT NULL), '[]') AS clubs
        FROM users u
        LEFT JOIN assigned a ON a.user_id = u.id
-       LEFT JOIN clubs c ON c.id = a.club_id AND c.is_active = true
+       LEFT JOIN clubs c ON c.id = a.club_id AND c.is_active = true AND c.campus = $1
        WHERE ${where.join(' AND ')}
        GROUP BY u.id, u.name, u.email
        ORDER BY u.name`,

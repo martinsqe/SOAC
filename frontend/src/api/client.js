@@ -7,6 +7,8 @@
  * - Content-Type validation
  */
 
+import { getAdminCampus } from '../utils/adminCampus';
+
 const BASE = '/api';
 const REQUEST_TIMEOUT = 30000; // 30 seconds
 const MAX_RETRIES = 3;
@@ -103,7 +105,7 @@ async function doRefresh() {
  */
 async function request(method, path, body, isFormData = false, attempt = 0) {
   // Deduplication: deduplicate GET requests only
-  const dedupeKey = method === 'GET' ? `${method}:${path}` : null;
+  const dedupeKey = method === 'GET' ? `${method}:${getAdminCampus()}:${path}` : null;
   if (dedupeKey && deduplicationCache.has(dedupeKey)) {
     return deduplicationCache.get(dedupeKey);
   }
@@ -134,6 +136,7 @@ async function _performRequest(method, path, body, isFormData, attempt) {
   if (!isFormData) {
     headers['Content-Type'] = 'application/json';
   }
+  headers['X-Campus'] = getAdminCampus();
 
   /* Only idempotent methods are safe to auto-retry. A POST/PATCH that timed
      out may already have been applied server-side (e.g. a club was created),

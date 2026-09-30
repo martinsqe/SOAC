@@ -22,6 +22,7 @@ const { connectPG, poolHealth } = require('./config/db');
 require('./config/redis');   // triggers auto-connect on startup; graceful quit on SIGTERM below
 const autoSeed = require('./scripts/autoSeed');
 const { ensureBaseIndexes } = require('./services/soacData');
+const { ensureCampusSchema } = require('./services/campus');
 const { errorHandler } = require('./middleware/errorHandler');
 
 const CLIENT_ORIGIN = process.env.CLIENT_URL || 'http://localhost:5173';
@@ -212,6 +213,7 @@ server.listen(PORT, () => {
   (async () => {
     await connectPG();
     await autoSeed();
+    await ensureCampusSchema();
     await ensureBaseIndexes();
     console.log('✅  DB initialisation complete');
   })().catch(err => {

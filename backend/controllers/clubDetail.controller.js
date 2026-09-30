@@ -452,6 +452,14 @@ const updateOverview = async (req, res, next) => {
       ]
     );
     if (!rows.length) return res.status(404).json({ message: 'Club not found.' });
+    /* Both campus copies share one logo file, and the old one was just destroyed */
+    if (req.file) {
+      await pgPool.query(
+        `UPDATE clubs SET logo = $1, updated_at = NOW()
+         WHERE id = (SELECT main_club_id FROM clubs WHERE id = $2::bigint) OR main_club_id = $2::bigint`,
+        [nextLogo, req.params.id]
+      );
+    }
     res.json({ club: rows[0] });
 
     /* Tell admin exactly which fields actually changed. */

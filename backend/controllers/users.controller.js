@@ -9,6 +9,7 @@ const { sendCredentials, sendActivityReport } = require('../config/email');
 const { notifyUser } = require('../services/notify');
 const cache = require('../services/cache');
 const { syncPastEvents } = require('../services/eventStatus');
+const { MAIN_CAMPUS, adminCampus, studentOnCampusSql } = require('../services/campus');
 
 const AVATAR_ALLOWED = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
 
@@ -67,6 +68,7 @@ const getAll = async (req, res, next) => {
               COUNT(*) OVER() AS total_count
        FROM users u
        LEFT JOIN student_clubs sc ON sc.user_id = u.id AND sc.is_active = true
+         AND sc.club_id IN (SELECT id FROM clubs WHERE campus = $3)
        /* Phone/gender as registered on any of this account's join requests —
           same "student profile fact, not membership fact" lookup used by
           GET /clubs/members, so the same values show here regardless of
@@ -80,10 +82,20 @@ const getAll = async (req, res, next) => {
          ORDER BY (status = 'approved') DESC, updated_at DESC
          LIMIT 1
        ) profile ON true
+       /* Accounts of the campus the admin is managing: its students and the
+          staff of its clubs (staff with no club yet show under Main Campus).
+          Admin accounts are shared by both campuses. */
+       WHERE u.role = 'admin'
+          OR (u.role = 'student' AND ${studentOnCampusSql('u', '$3')})
+          OR (u.role IN ('coordinator', 'faculty_coordinator') AND (
+                EXISTS (SELECT 1 FROM coordinator_club_assignments cca JOIN clubs c ON c.id = cca.club_id
+                        WHERE cca.user_id = u.id AND cca.is_active = true AND c.campus = $3)
+                OR ($3 = '${MAIN_CAMPUS}' AND NOT EXISTS (
+                      SELECT 1 FROM coordinator_club_assignments cca WHERE cca.user_id = u.id AND cca.is_active = true))))
        GROUP BY u.id, profile.phone, profile.gender
        ORDER BY u.created_at DESC
        LIMIT $1 OFFSET $2`,
-      [limit, offset]
+      [limit, offset, adminCampus(req) || MAIN_CAMPUS]
     );
     const total = Number(rows[0]?.total_count ?? 0);
     res.json({
@@ -120,7 +132,7 @@ const create = async (req, res, next) => {
     sendCredentials({ toEmail: email, toName: name, password: tempPassword })
       .catch(err => console.warn('Email send failed:', err.message));
 
-    await cache.del('stats:admin');
+    await cache.del('stats:admin', 'stats:admin:city');
     res.status(201).json({ user: newUser, tempPassword });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ message: 'A user with that email already exists.' });
@@ -222,7 +234,7 @@ const remove = async (req, res, next) => {
     );
 
     await Promise.all([
-      cache.del('stats:admin'),
+      cache.del('stats:admin', 'stats:admin:city'),
       cache.del(`session:user:${userId}`),
       cache.del(`session:tokens:${userId}`),
       cache.delPattern('clubs:*'),
@@ -254,19 +266,27 @@ const stats = async (req, res, next) => {
     await ensureSoacTables();
     await syncPastEvents();
 
-    const cached = await cache.get('stats:admin');
+    /* Counts are for the campus the admin is managing (see studentOnCampusSql
+       for which students count as that campus's). */
+    const campus   = adminCampus(req) || MAIN_CAMPUS;
+    const cacheKey = campus === MAIN_CAMPUS ? 'stats:admin' : 'stats:admin:city';
+    const cached = await cache.get(cacheKey);
     if (cached) return res.json(cached);
 
     const [usersRes, auditRes, clubsRes, eventsRes, upcomingRes, regsRes, pendingReqRes, studentsRes] = await Promise.all([
       pgPool.query(`SELECT COUNT(*)::int AS count FROM users        WHERE is_active = true`),
       pgPool.query(`SELECT user_name, action, entity_type, entity_id, meta, created_at
                     FROM audit_log ORDER BY created_at DESC LIMIT 10`),
-      pgPool.query(`SELECT COUNT(*)::int AS count FROM clubs        WHERE is_active = true`),
-      pgPool.query(`SELECT COUNT(*)::int AS count FROM events       WHERE is_active = true`),
-      pgPool.query(`SELECT COUNT(*)::int AS count FROM events       WHERE is_active = true AND status = 'upcoming'`),
-      pgPool.query(`SELECT COUNT(*)::int AS count FROM event_registrations`),
-      pgPool.query(`SELECT COUNT(*)::int AS count FROM join_requests WHERE status = 'pending'`),
-      pgPool.query(`SELECT COUNT(*)::int AS count FROM users        WHERE role = 'student' AND is_active = true`),
+      pgPool.query(`SELECT COUNT(*)::int AS count FROM clubs        WHERE is_active = true AND campus = $1`, [campus]),
+      pgPool.query(`SELECT COUNT(*)::int AS count FROM events       WHERE is_active = true AND campus = $1`, [campus]),
+      pgPool.query(`SELECT COUNT(*)::int AS count FROM events       WHERE is_active = true AND status = 'upcoming' AND campus = $1`, [campus]),
+      pgPool.query(`SELECT COUNT(*)::int AS count FROM event_registrations er
+                    JOIN events e ON e.id = er.event_id WHERE e.campus = $1`, [campus]),
+      pgPool.query(`SELECT COUNT(*)::int AS count FROM join_requests
+                    WHERE status = 'pending' AND club_id IN (SELECT id FROM clubs WHERE campus = $1)`, [campus]),
+      pgPool.query(`SELECT COUNT(*)::int AS count FROM users u
+                    WHERE u.role = 'student' AND u.is_active = true
+                      AND ${studentOnCampusSql('u', '$1')}`, [campus]),
     ]);
 
     const result = {
@@ -280,7 +300,7 @@ const stats = async (req, res, next) => {
       recentAudit:     auditRes.rows,
       mongoReady:      false,
     };
-    await cache.set('stats:admin', result, cache.TTL.STATS);
+    await cache.set(cacheKey, result, cache.TTL.STATS);
     res.json(result);
   } catch (err) { next(err); }
 };
@@ -320,7 +340,10 @@ const myClubs = async (req, res, next) => {
        (stale rows can outlive a re-created or removed club). Everything that shows
        "your clubs" reads this, so it has to match what really counts. */
     const { rows } = await pgPool.query(
-      `SELECT sc.club_id, c.name AS club_name, sc.joined_at
+      /* listed_club_id: the club's id in the public club list (its Main Campus
+         copy), so a City Campus membership still matches its listing. */
+      `SELECT sc.club_id, c.name AS club_name, sc.joined_at, c.campus,
+              COALESCE(c.main_club_id, c.id) AS listed_club_id
        FROM student_clubs sc
        JOIN clubs c ON c.id = sc.club_id AND c.is_active = true
        WHERE sc.user_id = $1 AND sc.is_active = true

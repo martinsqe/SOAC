@@ -31,7 +31,7 @@ const syncPastEvents = async () => {
     if (rows.length) {
       await Promise.all([
         cache.delPattern('events:*'),
-        cache.del('stats:admin'),
+        cache.del('stats:admin', 'stats:admin:city'),
         ...rows.map(r => cache.del(`events:${r.id}`)),
       ]);
     }

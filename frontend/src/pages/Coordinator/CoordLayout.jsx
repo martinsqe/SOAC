@@ -260,7 +260,7 @@ function CoordLayoutInner() {
               onClick={() => setSelectedClub(c)}
             >
               <span className={s.clubSwitcherDot} style={{ background: c.color || '#635bff' }} />
-              <span className={s.clubSwitcherName}>{c.name}</span>
+              <span className={s.clubSwitcherName}>{c.name}{c.campus === 'City Campus' ? ' · City Campus' : ''}</span>
             </button>
           ))}
         </div>

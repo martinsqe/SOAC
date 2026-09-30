@@ -5,13 +5,14 @@ const { ensureSoacTables } = require('../services/soacData');
 const { getCoordClubIds, assertCoordOwnsClub, getClubCoordinatorIds } = require('../services/coordAuth');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
 const cache = require('../services/cache');
+const { CAMPUSES, adminCampus, clubOnCampus } = require('../services/campus');
 
 const RKU_DOMAIN = '@rku.ac.in';
 
 /* ── Column lists ───────────────────────────────────────────────────────────*/
 const JR_COLS = [
   'id', 'club_id', 'club_name', 'name', 'email',
-  'phone', 'enrollment_no', 'dept', 'year', 'gender',
+  'phone', 'enrollment_no', 'dept', 'year', 'gender', 'campus',
   'message', 'status', 'created_at', 'updated_at',
 ].join(', ');
 
@@ -77,6 +78,13 @@ const getAll = async (req, res, next) => {
     } else if (clubId) {
       values.push(clubId);
       clauses.push(`club_id = $${values.length}::bigint`);
+    }
+
+    /* Admin sees the requests of the campus they're managing */
+    const campus = adminCampus(req);
+    if (campus) {
+      values.push(campus);
+      clauses.push(`club_id IN (SELECT id FROM clubs WHERE campus = $${values.length})`);
     }
 
     if (status) {
@@ -160,6 +168,30 @@ const hasPendingRequestForClub = async (email, clubId, db = pgPool) => {
   return rows.length > 0;
 };
 
+/* The campus this email is already committed to — the campus of a club they're an
+   active member of, or have a pending request for — or null if neither. A student
+   joins clubs at one campus only; a declined request doesn't commit them. */
+const committedCampus = async (email, db = pgPool) => {
+  const { rows } = await db.query(
+    `SELECT c.campus FROM (
+       SELECT sc.club_id, 0 AS pri FROM student_clubs sc
+       JOIN users u ON u.id = sc.user_id
+       WHERE LOWER(u.email) = $1 AND sc.is_active = true
+       UNION ALL
+       SELECT jr.club_id, 1 FROM join_requests jr
+       WHERE LOWER(jr.email) = $1 AND jr.status = 'pending'
+     ) x
+     JOIN clubs c ON c.id = x.club_id
+     ORDER BY x.pri
+     LIMIT 1`,
+    [String(email || '').toLowerCase()]
+  );
+  return rows[0]?.campus || null;
+};
+
+const wrongCampusMsg = (campus) =>
+  `You can only send requests to ${campus}. If you made wrong selection of campus, please contact your club coordinator.`;
+
 /* GET /api/requests/check-club-limit?email=X&clubId=Y  (public)
    Lets the join form ask "is this student already using all 3 club slots (active
    memberships + pending requests), already a member of THIS club, or already waiting
@@ -171,13 +203,22 @@ const checkClubLimit = async (req, res, next) => {
   try {
     const email = String(req.query.email || '').trim();
     if (!email) return res.status(400).json({ message: 'email is required.' });
-    const clubId = req.query.clubId ? String(req.query.clubId) : null;
-    const [cnt, alreadyMember, alreadyPending] = await Promise.all([
+    let clubId = req.query.clubId ? String(req.query.clubId) : null;
+    /* The form lists each club once — check the copy on the campus they picked */
+    if (clubId && CAMPUSES.includes(req.query.campus)) {
+      clubId = (await clubOnCampus(clubId, req.query.campus))?.id ?? clubId;
+    }
+    const [cnt, alreadyMember, alreadyPending, lockedCampus] = await Promise.all([
       countUsedClubSlots(email),
       isActiveMemberOfClub(email, clubId),
       hasPendingRequestForClub(email, clubId),
+      committedCampus(email),
     ]);
-    res.json({ count: cnt, atLimit: cnt >= MAX_CLUB_SLOTS, alreadyMember, alreadyPending });
+    const wrongCampus = !!lockedCampus && CAMPUSES.includes(req.query.campus) && lockedCampus !== req.query.campus;
+    res.json({
+      count: cnt, atLimit: cnt >= MAX_CLUB_SLOTS, alreadyMember, alreadyPending,
+      wrongCampus, campusMessage: wrongCampus ? wrongCampusMsg(lockedCampus) : undefined,
+    });
   } catch (err) { next(err); }
 };
 
@@ -185,14 +226,24 @@ const checkClubLimit = async (req, res, next) => {
 const create = async (req, res, next) => {
   try {
     await ensureSoacTables();
-    const { clubId, clubName, name, email, phone, enrollmentNo, dept, year, gender, message } = req.body;
-    if (!clubId || !name || !email) return res.status(400).json({ message: 'clubId, name and email are required.' });
+    const { clubId: listedClubId, name, email, phone, enrollmentNo, dept, year, gender, campus, message } = req.body;
+    if (!listedClubId || !name || !email) return res.status(400).json({ message: 'clubId, name and email are required.' });
     if (!email.toLowerCase().endsWith(RKU_DOMAIN)) {
       return res.status(400).json({ message: 'Only RKU institutional emails (@rku.ac.in) are allowed to join clubs.' });
     }
     if (!gender || !['M', 'F'].includes(gender.toUpperCase())) {
       return res.status(400).json({ message: 'Gender is required. Please select M or F.' });
     }
+    if (!CAMPUSES.includes(campus)) {
+      return res.status(400).json({ message: 'Campus is required. Please select Main Campus or City Campus.' });
+    }
+
+    /* The form lists each club once; the request goes to that club's copy on the
+       chosen campus, so it lands with that campus's coordinators. */
+    const club = await clubOnCampus(listedClubId, campus);
+    if (!club) return res.status(404).json({ message: 'Club not found.' });
+    const clubId   = String(club.id);
+    const clubName = club.name;
 
     /* Authoritative enforcement — block at submission time, not just at approval, so a
        student who is already a member of THIS club, already waiting on a request for it,
@@ -209,7 +260,10 @@ const create = async (req, res, next) => {
       await client.query('BEGIN');
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`join_request:${emailLc}`]);
 
-      if (await isActiveMemberOfClub(emailLc, clubId, client)) {
+      const lockedCampus = await committedCampus(emailLc, client);
+      if (lockedCampus && lockedCampus !== campus) {
+        blocked = { status: 409, message: wrongCampusMsg(lockedCampus) };
+      } else if (await isActiveMemberOfClub(emailLc, clubId, client)) {
         blocked = { status: 400, message: "You're already a member of this club." };
       } else if (await hasPendingRequestForClub(emailLc, clubId, client)) {
         blocked = { status: 409, message: 'You already have a pending request for this club.' };
@@ -218,11 +272,11 @@ const create = async (req, res, next) => {
       } else {
         const { rows: ins } = await client.query(
           `INSERT INTO join_requests
-           (club_id, club_name, name, email, phone, enrollment_no, dept, year, gender, message, status)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')
+           (club_id, club_name, name, email, phone, enrollment_no, dept, year, gender, campus, message, status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending')
            RETURNING ${JR_COLS}`,
           [clubId, clubName || '', name.trim(), emailLc,
-           phone || '', enrollmentNo || '', dept || '', year || '', gender.toUpperCase(), message || '']
+           phone || '', enrollmentNo || '', dept || '', year || '', gender.toUpperCase(), campus, message || '']
         );
         created = ins[0];
       }
@@ -235,7 +289,10 @@ const create = async (req, res, next) => {
     }
     if (blocked) return res.status(blocked.status).json({ message: blocked.message });
 
-    await cache.del('stats:admin');
+    await Promise.all([
+      cache.del('stats:admin', 'stats:admin:city'),
+      resetActivityReportLimit([emailLc]),
+    ]);
     res.status(201).json({ request: toJR(created) });
 
     /* Notify every coordinator assigned to this club — fire-and-forget.
@@ -261,6 +318,17 @@ const create = async (req, res, next) => {
 };
 
 const isCoord = (user) => user?.role === 'coordinator' || user?.role === 'faculty_coordinator';
+
+/* The public "My Activity" lookup emails a report at most once a day per email.
+   When a student's requests change (sent, approved, declined, deleted), lift that
+   limit so their next lookup sends a fresh report instead of "already sent" — the
+   earlier report no longer matches what's on record. */
+const resetActivityReportLimit = (emails, db = pgPool) => {
+  const list = [...new Set(emails.filter(Boolean).map(e => String(e).toLowerCase()))];
+  if (!list.length) return Promise.resolve();
+  return db.query(`DELETE FROM activity_email_requests WHERE email = ANY($1::text[])`, [list])
+    .catch(err => console.error('[requests] activity report reset failed:', err.message));
+};
 
 /* Core of approving one pending request, shared by the single and bulk endpoints.
    Returns { ok: false, status, message } when the request can't be approved, or
@@ -299,6 +367,21 @@ const approveOne = async (id, user) => {
       [jr.email]
     );
     if (cntRows[0].cnt >= 3) return fail(400, 'Student has already joined the maximum of 3 clubs.');
+
+    /* A student belongs to one campus — never approve into the other campus's club */
+    const { rows: campusRows } = await pgClient.query(
+      `SELECT mc.campus
+       FROM student_clubs sc
+       JOIN users u  ON u.id = sc.user_id
+       JOIN clubs mc ON mc.id = sc.club_id
+       JOIN clubs rc ON rc.id = $2
+       WHERE LOWER(u.email) = LOWER($1) AND sc.is_active = true AND mc.campus <> rc.campus
+       LIMIT 1`,
+      [jr.email, jr.club_id]
+    );
+    if (campusRows.length) {
+      return fail(400, `Student is already a member of a club at ${campusRows[0].campus}, so they can't join a club at another campus.`);
+    }
 
     /* 2. Upsert student account — only select id (avoid pulling password_hash) */
     let userId;
@@ -359,6 +442,7 @@ const approveOne = async (id, user) => {
       [id]
     );
     await pgClient.query('COMMIT');
+    await resetActivityReportLimit([jr.email]);
 
     /* Fire the push the moment membership is actually committed — before any email
        send, so an SMTP round trip never delays "instant" delivery. */
@@ -382,7 +466,7 @@ const approveOne = async (id, user) => {
 
 /* Bust club object, member lists, list pages and the student profiles touched by approvals */
 const bustApprovalCaches = (clubIds, userIds) => Promise.all([
-  cache.del('stats:admin'),
+  cache.del('stats:admin', 'stats:admin:city'),
   ...clubIds.map(id => cache.del(`clubs:${id}`)),
   ...userIds.map(id => cache.del(`student:${id}`)),
   ...clubIds.map(id => cache.delPattern(`clubs:${id}:members*`)),
@@ -498,7 +582,10 @@ const bulkDelete = async (req, res, next) => {
        RETURNING id, club_id, club_name, name, email`,
       values
     );
-    await cache.del('stats:admin');
+    await Promise.all([
+      cache.del('stats:admin', 'stats:admin:city'),
+      resetActivityReportLimit(rows.map(r => r.email)),
+    ]);
     res.json({ deleted: rows.length, skipped: ids.length - rows.length });
 
     /* Group per student so each gets a single email, then notify / email in the background */
@@ -553,7 +640,10 @@ const decline = async (req, res, next) => {
       `UPDATE join_requests SET status = 'declined', updated_at = NOW() WHERE id = $1`,
       [req.params.id]
     );
-    await cache.del('stats:admin');
+    await Promise.all([
+      cache.del('stats:admin', 'stats:admin:city'),
+      resetActivityReportLimit([jr.email]),
+    ]);
     res.json({ message: 'Request declined.' });
 
     /* Only notify if this email already has an account — a declined request

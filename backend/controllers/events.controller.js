@@ -8,6 +8,7 @@ const { notifyUser, notifyManyUsers } = require('../services/notify');
 const { sendGaloreActivityAssignment } = require('../config/email');
 const cache = require('../services/cache');
 const { syncPastEvents } = require('../services/eventStatus');
+const { MAIN_CAMPUS, adminCampus } = require('../services/campus');
 
 /* ── Column lists ───────────────────────────────────────────────────────────*/
 const EVENT_COLS = [
@@ -18,7 +19,7 @@ const EVENT_COLS = [
   'certificates_finalized_at',
   'event_format', 'captain_name', 'captain_email', 'captain_phone',
   'team_members', 'payment_link', 'team_size', 'min_team_size',
-  'parent_event_id', 'custom_fields',
+  'parent_event_id', 'custom_fields', 'campus',
 ].join(', ');
 
 /* ── Admin-defined extra registration questions (Other Events) ──────────────
@@ -250,7 +251,8 @@ const getAll = async (req, res, next) => {
     const { status, category, club, clubId } = req.query;
     const { page, limit, offset }            = parsePage(req.query);
 
-    const cacheKey = cache.hashKey('events', { status, category, club, clubId, page, limit });
+    const campus   = adminCampus(req);
+    const cacheKey = cache.hashKey('events', { status, category, club, clubId, page, limit, campus });
     const cached   = await cache.get(cacheKey);
     if (cached) return res.json(cached);
 
@@ -264,6 +266,8 @@ const getAll = async (req, res, next) => {
 
     if (status   && status   !== 'all') { values.push(status);        clauses.push(`e.status   = $${values.length}`); }
     if (category && category !== 'all') { values.push(category);      clauses.push(`e.category = $${values.length}`); }
+    /* Admin sees the events of the campus they're managing */
+    if (campus) { values.push(campus); clauses.push(`e.campus = $${values.length}`); }
 
     // clubId (preferred): filter directly by events.club_id FK
     if (clubId) {
@@ -545,8 +549,8 @@ const create = async (req, res, next) => {
        (title, club, club_id, category, status, date, start_date, time, venue,
         description, image, tags, seats, highlight, registration_url, is_free, fee_amount,
         event_format, captain_name, captain_email, captain_phone, team_members, payment_link, team_size, min_team_size,
-        parent_event_id, custom_fields)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
+        parent_event_id, custom_fields, campus)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
        RETURNING ${EVENT_COLS}`,
       [
         title, clubName, resolvedClubId, resolvedCategory, status || 'upcoming', date || '',
@@ -562,11 +566,14 @@ const create = async (req, res, next) => {
         /* Extra registration questions only apply to Other Events — Sports
            Fiesta and Galore have their own registration flows. */
         JSON.stringify(format === 'other' && !resolvedParentEventId ? sanitizeCustomFields(customFields) : []),
+        /* SOAC-wide events belong to the campus the admin is managing; a club
+           event's campus is set from its club by the events_set_campus trigger. */
+        adminCampus(req) || MAIN_CAMPUS,
       ]
     );
     const event = asEvent(rows[0]);
     await logAudit(req.user.id, req.user.name, 'CREATE_EVENT', 'event', event.id, { title });
-    await Promise.all([cache.delPattern('events:*'), cache.del('stats:admin')]);
+    await Promise.all([cache.delPattern('events:*'), cache.del('stats:admin', 'stats:admin:city')]);
     res.status(201).json({ event: withImageUrl(event) });
 
     /* Notify students a new event was posted — fire-and-forget, after the
@@ -805,7 +812,7 @@ const remove = async (req, res, next) => {
     await Promise.all([
       cache.del(`events:${req.params.id}`),
       cache.delPattern('events:*'),
-      cache.del('stats:admin'),
+      cache.del('stats:admin', 'stats:admin:city'),
     ]);
     res.json({ message: 'Event removed successfully.' });
   } catch (err) { next(err); }
@@ -1348,11 +1355,21 @@ const getGaloreDepartments = (req, res) => res.json({ departments: GALORE_DEPART
 const getGaloreCatalog = (req, res) => res.json({ activities: GALORE_ACTIVITIES_CATALOG });
 
 /* GET /api/events/galore/coordinators  (admin) — every active coordinator
-   account, for the per-activity assignment dropdowns. */
+   account of the campus being managed (assigned to one of its clubs, or to no
+   club at all), for the per-activity assignment dropdowns. */
 const getGaloreCoordinators = async (req, res, next) => {
   try {
     const { rows } = await pgPool.query(
-      `SELECT id, name, email FROM users WHERE role = 'coordinator' AND is_active = true ORDER BY name`
+      `SELECT u.id, u.name, u.email FROM users u
+       WHERE u.role = 'coordinator' AND u.is_active = true
+         AND (
+           EXISTS (SELECT 1 FROM coordinator_club_assignments cca JOIN clubs c ON c.id = cca.club_id
+                   WHERE cca.user_id = u.id AND cca.is_active = true AND c.campus = $1)
+           OR NOT EXISTS (SELECT 1 FROM coordinator_club_assignments cca
+                          WHERE cca.user_id = u.id AND cca.is_active = true)
+         )
+       ORDER BY u.name`,
+      [adminCampus(req) || MAIN_CAMPUS]
     );
     res.json({ coordinators: rows });
   } catch (err) { next(err); }
@@ -1412,10 +1429,11 @@ const createGaloreEvent = async (req, res, next) => {
       await pgClient.query('BEGIN');
 
       const { rows: umbrellaRows } = await pgClient.query(
-        `INSERT INTO events (title, category, status, date, start_date, time, venue, description, image, seats, highlight, event_format)
-         VALUES ($1, 'general', 'upcoming', $2, $3, $4, $5, $6, $7, $8, $9, 'galore')
+        `INSERT INTO events (title, category, status, date, start_date, time, venue, description, image, seats, highlight, event_format, campus)
+         VALUES ($1, 'general', 'upcoming', $2, $3, $4, $5, $6, $7, $8, $9, 'galore', $10)
          RETURNING ${EVENT_COLS}`,
-        [title.trim(), date || '', startDate ? new Date(startDate) : null, time || '', venue || '', description || '', image, seats || '', highlight || '']
+        [title.trim(), date || '', startDate ? new Date(startDate) : null, time || '', venue || '', description || '', image, seats || '', highlight || '',
+         adminCampus(req) || MAIN_CAMPUS]
       );
       const umbrella = umbrellaRows[0];
 
@@ -1449,7 +1467,7 @@ const createGaloreEvent = async (req, res, next) => {
       }
 
       await pgClient.query('COMMIT');
-      await Promise.all([cache.delPattern('events:*'), cache.del('stats:admin')]);
+      await Promise.all([cache.delPattern('events:*'), cache.del('stats:admin', 'stats:admin:city')]);
 
       /* Let every assigned coordinator know right away — email + in-app/push,
          each fire-and-forget so one slow/failed send never blocks the response
