@@ -188,7 +188,13 @@ const wrap = (body) => `<div style="font-family:sans-serif;max-width:520px;margi
    Public email functions
 ═══════════════════════════════════════════════════════════════════════════ */
 
-const sendCredentials = async ({ toEmail, toName, password, clubName = null }) => {
+/* Separate-account note, used when this email already has its other account */
+const otherAccountBox = (text) => text
+  ? `<div style="background:#fffbeb;border:1.5px solid #fcd34d;border-radius:12px;padding:14px 18px;margin:0 0 20px;font-size:13px;color:#92400e;line-height:1.6">${text}</div>`
+  : '';
+
+/* otherAccountNote — set when the student also has a coordinator / advisor account */
+const sendCredentials = async ({ toEmail, toName, password, clubName = null, otherAccountNote = null }) => {
   const intro = clubName
     ? `<p style="color:#555;line-height:1.6">Your request to join <strong style="color:#635BFF">${clubName}</strong> has been approved. Use the credentials below to sign in.</p>`
     : `<p style="color:#555;line-height:1.6">Your SOAC RKU account has been created. Use the credentials below to sign in.</p>`;
@@ -208,13 +214,16 @@ const sendCredentials = async ({ toEmail, toName, password, clubName = null }) =
         <p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Temporary Password</p>
         <p style="margin:0;font-weight:800;color:#D32F2F;font-size:20px;letter-spacing:3px;font-family:monospace">${password}</p>
       </div>
+      ${otherAccountBox(otherAccountNote)}
       <p style="color:#888;font-size:13px;line-height:1.6">Please change your password after your first login. Students can join up to <strong>3 clubs</strong>.</p>
       ${footer()}
     `),
   });
 };
 
-const sendApproval = async ({ toEmail, toName, clubName }) => {
+/* switchNote — set for someone who signs in as a coordinator / advisor, telling
+   them how to reach the student dashboard with that same login */
+const sendApproval = async ({ toEmail, toName, clubName, switchNote = null }) => {
   await send({
     to:      toEmail,
     subject: `You're approved! Welcome to ${clubName} — SOAC RKU`,
@@ -226,6 +235,7 @@ const sendApproval = async ({ toEmail, toName, clubName }) => {
         <p style="margin:0;font-size:16px;font-weight:800;color:#15803d">Member of ${clubName}</p>
         <p style="margin:6px 0 0;font-size:13px;color:#555">Log in to your SOAC dashboard to access your club and stay updated.</p>
       </div>
+      ${otherAccountBox(switchNote)}
       ${footer()}
     `),
   });
@@ -290,7 +300,7 @@ const sendJoinRequestsReopening = async ({ toEmail, toName, opensOnLabel = null 
    role assigned from either the admin dashboard or a Faculty Coordinator's
    own "Assign Student Coordinator" action gets an identical-looking email,
    just naming the correct role. */
-const sendCoordinatorCredentials = async ({ toEmail, toName, password, clubName, roleLabel = 'Coordinator' }) => {
+const sendCoordinatorCredentials = async ({ toEmail, toName, password, clubName, roleLabel = 'Coordinator', otherAccountNote = null }) => {
   await send({
     to:      toEmail,
     subject: `You've been appointed ${roleLabel} of ${clubName} — SOAC RKU`,
@@ -306,13 +316,16 @@ const sendCoordinatorCredentials = async ({ toEmail, toName, password, clubName,
         <p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Temporary Password</p>
         <p style="margin:0;font-weight:800;color:#D32F2F;font-size:20px;letter-spacing:3px;font-family:monospace">${password}</p>
       </div>
+      ${otherAccountBox(otherAccountNote)}
       <p style="color:#888;font-size:13px;line-height:1.6">Please change your password after your first login using Profile settings.</p>
       ${footer()}
     `),
   });
 };
 
-const sendCoordinatorAssignment = async ({ toEmail, toName, clubName, roleLabel = 'Coordinator' }) => {
+/* switchNote — set when the role was added to the person's member login:
+   explains they switch dashboards instead of using new credentials */
+const sendCoordinatorAssignment = async ({ toEmail, toName, clubName, roleLabel = 'Coordinator', switchNote = null }) => {
   await send({
     to:      toEmail,
     subject: `You've been assigned as ${roleLabel} of ${clubName} — SOAC RKU`,
@@ -324,21 +337,25 @@ const sendCoordinatorAssignment = async ({ toEmail, toName, clubName, roleLabel 
         <p style="margin:0;font-size:16px;font-weight:800;color:#15803d">${roleLabel} of ${clubName}</p>
         <p style="margin:6px 0 0;font-size:13px;color:#555">Log in to your SOAC Coordinator Portal to manage your club, members, and events.</p>
       </div>
+      ${otherAccountBox(switchNote)}
       <p style="color:#888;font-size:13px;line-height:1.6">Your existing credentials are unchanged. Visit <strong>${APP_LOGIN}</strong> to access your portal.</p>
       ${footer()}
     `),
   });
 };
 
-const sendPasswordReset = async ({ toEmail, toName, token }) => {
+/* accountLabel — set when this email has two accounts (member + coordinator /
+   advisor), so each reset link says which account it resets */
+const sendPasswordReset = async ({ toEmail, toName, token, accountLabel = null }) => {
   const resetUrl = `${APP_URL}/reset-password?token=${encodeURIComponent(token)}`;
   await send({
     to:      toEmail,
-    subject: 'Reset your SOAC RKU password',
+    subject: accountLabel ? `Reset your SOAC RKU password — ${accountLabel}` : 'Reset your SOAC RKU password',
     html: wrap(`
       ${header()}
       <h2 style="color:#1a1040;margin-bottom:8px">Password reset request</h2>
       <p style="color:#555;line-height:1.6">Hi ${toName || 'there'}, we received a request to reset your SOAC account password.</p>
+      ${accountLabel ? `<p style="color:#555;line-height:1.6">This link resets your <strong>${accountLabel}</strong>. Your other SOAC account has its own reset email, and the two accounts must have different passwords.</p>` : ''}
       <div style="background:#f8f7ff;border:1.5px solid #e8e5ff;border-radius:12px;padding:20px 24px;margin:24px 0;text-align:center">
         <a href="${resetUrl}" style="display:inline-block;padding:12px 20px;background:#635BFF;color:#fff;text-decoration:none;border-radius:10px;font-weight:700">Reset Password</a>
         <p style="margin:14px 0 0;font-size:12px;color:#6b7280;line-height:1.6">This link expires in 30 minutes. If the button does not work, copy and paste:</p>

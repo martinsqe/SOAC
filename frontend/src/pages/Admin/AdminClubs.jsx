@@ -394,7 +394,7 @@ export default function AdminClubs() {
       });
       closeAssignCoord();
       load();
-      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, emailPending: res.emailPending, roleLabel: 'Student Coordinator' });
+      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, emailPending: res.emailPending, roleLabel: 'Student Coordinator', linkedProfile: res.linkedProfile });
     } catch (err) {
       setCoordError(err.message || 'Failed to assign coordinator.');
     } finally {
@@ -443,7 +443,7 @@ export default function AdminClubs() {
       });
       closeAssignFC();
       load();
-      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, emailPending: res.emailPending, roleLabel: 'Faculty Advisor', isPromotion: res.isPromotion });
+      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, emailPending: res.emailPending, roleLabel: 'Faculty Advisor', isPromotion: res.isPromotion && !res.linkedProfile, linkedProfile: res.linkedProfile });
     } catch (err) {
       setFcError(err.message || 'Failed to assign Faculty Advisor.');
     } finally {
@@ -646,7 +646,9 @@ export default function AdminClubs() {
                   <div style={{ fontWeight:800, color:'#15803d', fontSize:15 }}>Club access granted</div>
                   <div style={{ fontSize:13, color:'#555', marginTop:6, lineHeight:1.6 }}>
                     <strong>{creds.name}</strong> can now manage <strong>{creds.clubName}</strong>.<br />
-                    Their existing credentials are unchanged — no password reset.
+                    {creds.linkedProfile
+                      ? <>They keep using their member login and tap “Switch to {creds.roleLabel || 'Coordinator'} dashboard” — no new password.</>
+                      : <>Their existing credentials are unchanged — no password reset.</>}
                   </div>
                 </div>
                 {creds.emailSent === false ? (

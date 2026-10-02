@@ -1051,6 +1051,9 @@ const ensureBaseIndexes = async () => {
         to_char(er.registered_at + interval '1 year', 'YY')
     FROM event_registrations er
     JOIN users u ON LOWER(u.email) = LOWER(er.email) AND u.is_active = true
+     /* coins go to the student account when the email also has a staff account */
+     AND (u.role = 'student' OR NOT EXISTS (
+       SELECT 1 FROM users s WHERE LOWER(s.email) = LOWER(er.email) AND s.role = 'student' AND s.is_active = true))
     WHERE NOT EXISTS (
       SELECT 1 FROM coin_transactions ct
       WHERE ct.user_id = u.id

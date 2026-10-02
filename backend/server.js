@@ -23,6 +23,8 @@ require('./config/redis');   // triggers auto-connect on startup; graceful quit 
 const autoSeed = require('./scripts/autoSeed');
 const { ensureBaseIndexes } = require('./services/soacData');
 const { ensureCampusSchema } = require('./services/campus');
+const { ensureDataIntegrity } = require('./services/dataIntegrity');
+const { ensureAccountsSchema } = require('./services/accounts');
 const { errorHandler } = require('./middleware/errorHandler');
 
 const CLIENT_ORIGIN = process.env.CLIENT_URL || 'http://localhost:5173';
@@ -223,6 +225,8 @@ server.listen(PORT, () => {
     await connectPG();
     await autoSeed();
     await ensureCampusSchema();
+    await ensureDataIntegrity();
+    await ensureAccountsSchema();
     await ensureBaseIndexes();
     console.log('✅  DB initialisation complete');
   })().catch(err => {

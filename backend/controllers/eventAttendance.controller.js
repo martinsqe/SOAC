@@ -121,7 +121,9 @@ const getAttendance = async (req, res, next) => {
     )];
     const { rows: matchedUsers } = regEmails.length
       ? await pgPool.query(
-          `SELECT id, LOWER(email) AS email FROM users WHERE is_active = true AND LOWER(email) = ANY($1::text[])`,
+          /* student account last, so it wins when an email also has a staff account */
+          `SELECT id, LOWER(email) AS email FROM users WHERE is_active = true AND LOWER(email) = ANY($1::text[])
+           ORDER BY (role = 'student')`,
           [regEmails]
         )
       : { rows: [] };

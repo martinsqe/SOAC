@@ -104,7 +104,7 @@ const create = async (req, res, next) => {
        before they got their confirmation back. */
     if (cleanEmail) {
       pgPool.query(
-        `SELECT id FROM users WHERE LOWER(email) = $1 AND is_active = true LIMIT 1`,
+        `SELECT id FROM users WHERE LOWER(email) = $1 AND is_active = true ORDER BY (role = 'student') DESC LIMIT 1`,
         [cleanEmail]
       ).then(({ rows: uRows }) => {
         if (!uRows.length) return;

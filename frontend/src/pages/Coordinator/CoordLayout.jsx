@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { CoordClubProvider, useCoordClub } from '../../context/CoordClubContext';
 import AnimatedOutlet from '../../components/AnimatedOutlet/AnimatedOutlet';
 import ProfileModal from '../../components/ProfileModal/ProfileModal';
+import ProfileSwitch from '../../components/ProfileSwitch/ProfileSwitch';
 import PushOptInModal from '../../components/PushOptInModal/PushOptInModal';
 import AssignStudentCoordinatorModal from '../../components/AssignStudentCoordinatorModal/AssignStudentCoordinatorModal';
 import { refreshAppBadge } from '../../utils/badge';
@@ -323,6 +324,7 @@ function CoordLayoutInner() {
             <div className={s.userRole}>{isFC ? 'Faculty Advisor' : 'Club Coordinator'}</div>
           </div>
         </div>
+        <ProfileSwitch className={s.switchBtn} />
         <button className={s.logoutBtn} onClick={handleLogout}>
           Logout
         </button>

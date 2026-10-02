@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = require('express-rate-limit');
-const { login, logout, me, changePassword, refresh, forgotPassword, resetPassword } = require('../controllers/auth.controller');
+const { login, logout, me, changePassword, refresh, forgotPassword, resetPassword, switchProfile } = require('../controllers/auth.controller');
 const { verifyToken } = require('../middleware/auth');
 
 /* ── Rate limiter for password reset endpoints (prevent spam) ── */
@@ -22,6 +22,8 @@ router.post('/logout',          verifyToken, logout);
 router.get('/me',               verifyToken, me);
 router.post('/refresh',         refresh);
 router.post('/change-password', verifyToken, changePassword);
+/* Student <-> coordinator / advisor dashboards on one login */
+router.post('/switch-profile',  verifyToken, switchProfile);
 router.post('/forgot-password', passwordResetLimiter, forgotPassword);
 router.post('/reset-password',  passwordResetLimiter, resetPassword);
 

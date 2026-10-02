@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
 import AnimatedOutlet from '../../components/AnimatedOutlet/AnimatedOutlet';
 import ProfileModal from '../../components/ProfileModal/ProfileModal';
+import ProfileSwitch from '../../components/ProfileSwitch/ProfileSwitch';
 import PushOptInModal from '../../components/PushOptInModal/PushOptInModal';
 import { refreshAppBadge } from '../../utils/badge';
 import { syncFcmToken, onForegroundMessage, fcmSupported, registerFcmServiceWorker } from '../../firebaseMessaging';
@@ -180,6 +181,7 @@ export default function StudentLayout() {
             <div className={s.userRole}>Profile & Settings</div>
           </div>
         </NavLink>
+        <ProfileSwitch className={s.switchBtn} />
         <button className={s.logoutBtn} onClick={handleLogout}>
           Logout
         </button>

@@ -6,6 +6,7 @@ const { getCoordClubIds, assertCoordOwnsClub, getClubCoordinatorIds } = require(
 const { notifyUser, notifyManyUsers } = require('../services/notify');
 const cache = require('../services/cache');
 const { CAMPUSES, adminCampus, clubOnCampus } = require('../services/campus');
+const { findStaffAccount, unusablePasswordHash, loginProfileFor } = require('../services/accounts');
 const { JOIN_KEY, ensureJoinWindowSchema, getJoinState, joinClosedMessage, notifyRenewalContacts, forgetRenewalContact } = require('../services/joinWindow');
 
 const RKU_DOMAIN = '@rku.ac.in';
@@ -159,7 +160,8 @@ const getAll = async (req, res, next) => {
 const MAX_CLUB_SLOTS = 3;
 const REQUEST_LIMIT_MSG = 'You can only send request to 3 clubs.';
 
-/* Club "slots" an email is currently using: active memberships PLUS pending join
+/* Club "slots" an email's STUDENT account is using (memberships live on the
+   student account; a person's coordinator / advisor account doesn't count): active memberships PLUS pending join
    requests for clubs they aren't already an active member of. A declined request
    frees its slot (so does a coordinator deactivating a membership), which is what
    lets a student send another request once one of their three is declined.
@@ -168,16 +170,18 @@ const REQUEST_LIMIT_MSG = 'You can only send request to 3 clubs.';
    client, so create() can run this inside its per-email locked transaction. */
 const countUsedClubSlots = async (email, db = pgPool) => {
   const { rows } = await db.query(
+    /* Only memberships of clubs that still exist and are active count */
     `SELECT (
        SELECT COUNT(*) FROM student_clubs sc
-       JOIN users u ON u.id = sc.user_id
+       JOIN users u ON u.id = sc.user_id AND u.role = 'student'
+       JOIN clubs c ON c.id = sc.club_id AND c.is_active = true
        WHERE LOWER(u.email) = $1 AND sc.is_active = true
      ) + (
        SELECT COUNT(DISTINCT jr.club_id) FROM join_requests jr
        WHERE LOWER(jr.email) = $1 AND jr.status = 'pending'
          AND NOT EXISTS (
            SELECT 1 FROM student_clubs sc2
-           JOIN users u2 ON u2.id = sc2.user_id
+           JOIN users u2 ON u2.id = sc2.user_id AND u2.role = 'student'
            WHERE LOWER(u2.email) = $1 AND sc2.club_id = jr.club_id AND sc2.is_active = true
          )
      ) AS cnt`,
@@ -193,7 +197,7 @@ const isActiveMemberOfClub = async (email, clubId, db = pgPool) => {
   const { rows } = await db.query(
     `SELECT 1
      FROM student_clubs sc
-     JOIN users u ON u.id = sc.user_id
+     JOIN users u ON u.id = sc.user_id AND u.role = 'student'
      WHERE LOWER(u.email) = $1 AND sc.club_id = $2::bigint AND sc.is_active = true
      LIMIT 1`,
     [String(email || '').toLowerCase(), clubId]
@@ -220,7 +224,7 @@ const committedCampus = async (email, db = pgPool) => {
   const { rows } = await db.query(
     `SELECT c.campus FROM (
        SELECT sc.club_id, 0 AS pri FROM student_clubs sc
-       JOIN users u ON u.id = sc.user_id
+       JOIN users u ON u.id = sc.user_id AND u.role = 'student'
        WHERE LOWER(u.email) = $1 AND sc.is_active = true
        UNION ALL
        SELECT jr.club_id, 1 FROM join_requests jr
@@ -414,6 +418,7 @@ const approveOne = async (id, user) => {
       `SELECT COUNT(sc.*)::int AS cnt
        FROM student_clubs sc
        JOIN users u ON u.id = sc.user_id
+       JOIN clubs c ON c.id = sc.club_id AND c.is_active = true
        WHERE u.email = $1 AND sc.is_active = true`,
       [jr.email]
     );
@@ -423,7 +428,7 @@ const approveOne = async (id, user) => {
     const { rows: campusRows } = await pgClient.query(
       `SELECT mc.campus
        FROM student_clubs sc
-       JOIN users u  ON u.id = sc.user_id
+       JOIN users u  ON u.id = sc.user_id AND u.role = 'student'
        JOIN clubs mc ON mc.id = sc.club_id
        JOIN clubs rc ON rc.id = $2
        WHERE LOWER(u.email) = LOWER($1) AND sc.is_active = true AND mc.campus <> rc.campus
@@ -440,20 +445,27 @@ const approveOne = async (id, user) => {
     let isNewUser    = false;
 
     const { rows: userRows } = await pgClient.query(
-      `SELECT id, must_change_password FROM users WHERE email = $1`,
+      /* Membership always lives on the STUDENT profile. Someone who is already a
+         coordinator / advisor gets a member profile linked to that login. */
+      `SELECT id, must_change_password FROM users WHERE LOWER(email) = LOWER($1) AND role = 'student'`,
       [jr.email]
     );
     if (userRows.length) {
+      /* Already has a member account — their existing login keeps working, so
+         this approval only sends the "accepted to <club>" email, never new
+         credentials. (A lost password is handled by Resend Login Email or
+         Forgot Password.) */
       userId = userRows[0].id;
-      /* Account exists but the student never set their own password — issue a fresh
-         temp password so it can be shown to the approver and emailed again. */
-      if (userRows[0].must_change_password) {
-        tempPassword = generatePassword();
-        await pgClient.query(
-          `UPDATE users SET password_hash = $1 WHERE id = $2`,
-          [await bcrypt.hash(tempPassword, 12), userId]
-        );
-      }
+    } else if (await findStaffAccount(jr.email, pgClient)) {
+      /* Already signs in as a coordinator / advisor — add a member profile linked
+         to that login: no new password, they switch to the student dashboard */
+      const { rows: ins } = await pgClient.query(
+        `INSERT INTO users (email, name, role, password_hash, is_active, must_change_password, linked_profile)
+         VALUES ($1, $2, 'student', $3, true, false, true)
+         RETURNING id`,
+        [jr.email, jr.name, await unusablePasswordHash()]
+      );
+      userId = ins[0].id;
     } else {
       isNewUser    = true;
       tempPassword = generatePassword();
@@ -524,9 +536,16 @@ const bustApprovalCaches = (clubIds, userIds) => Promise.all([
   cache.delPattern('clubs:*'),
 ]);
 
-const sendApprovalEmail = ({ jr, tempPassword }) => (tempPassword
+/* A coordinator / advisor who joins a club reaches the student dashboard from
+   the login they already use */
+const memberSwitchNote = async (email) => (await findStaffAccount(email))
+  ? 'Use your usual SOAC login — no new password is needed. After signing in, tap <strong>"Switch to Student dashboard"</strong> in the menu to see your clubs as a member, and switch back any time.'
+  : null;
+
+/* Credentials only when the member account is created; otherwise acceptance only */
+const sendApprovalEmail = async ({ jr, tempPassword }) => (tempPassword
   ? sendCredentials({ toEmail: jr.email, toName: jr.name, password: tempPassword, clubName: jr.club_name })
-  : sendApproval({ toEmail: jr.email, toName: jr.name, clubName: jr.club_name }));
+  : sendApproval({ toEmail: jr.email, toName: jr.name, clubName: jr.club_name, switchNote: await memberSwitchNote(jr.email) }));
 
 /* POST /api/requests/:id/approve  (coordinator/admin) */
 const approve = async (req, res, next) => {
@@ -648,7 +667,7 @@ const bulkDelete = async (req, res, next) => {
     }
 
     const students = [...byEmail.values()];
-    pgPool.query(`SELECT id, LOWER(email) AS email FROM users WHERE LOWER(email) = ANY($1::text[])`, [[...byEmail.keys()]])
+    pgPool.query(`SELECT id, LOWER(email) AS email FROM users WHERE LOWER(email) = ANY($1::text[]) AND role = 'student'`, [[...byEmail.keys()]])
       .then(({ rows: uRows }) => {
         for (const u of uRows) {
           const s = byEmail.get(u.email);
@@ -699,7 +718,7 @@ const decline = async (req, res, next) => {
 
     /* Only notify if this email already has an account — a declined request
        for someone who never got one has nowhere to deliver a notification. */
-    pgPool.query(`SELECT id FROM users WHERE email = $1`, [jr.email])
+    pgPool.query(`SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND role = 'student'`, [jr.email])
       .then(({ rows: uRows }) => {
         if (!uRows.length) return;
         notifyUser({
@@ -724,7 +743,7 @@ const resendEmail = async (req, res, next) => {
       `SELECT jr.id, jr.name, jr.email, jr.club_name, jr.club_id, jr.status,
               u.id AS user_id, u.password_hash
        FROM join_requests jr
-       LEFT JOIN users u ON lower(u.email) = lower(jr.email)
+       LEFT JOIN users u ON lower(u.email) = lower(jr.email) AND u.role = 'student'
        WHERE jr.id = $1`,
       [req.params.id]
     );
@@ -741,18 +760,26 @@ const resendEmail = async (req, res, next) => {
       return res.status(404).json({ message: 'Student account not found. Please contact admin.' });
     }
 
-    /* Changing password_hash also invalidates any outstanding reset links, since
-       those are bound to a fingerprint of the old hash. */
+    /* The new password goes on the profile that holds the person's login — for a
+       member profile linked to their coordinator login, that's the coordinator
+       login (one password opens both dashboards). Changing password_hash also
+       invalidates any outstanding reset links, which are bound to the old hash. */
+    const loginProfile = await loginProfileFor(jr.user_id);
     const tempPassword = generatePassword();
     await pgPool.query(
       `UPDATE users SET password_hash = $1, must_change_password = true WHERE id = $2`,
-      [await bcrypt.hash(tempPassword, 12), jr.user_id]
+      [await bcrypt.hash(tempPassword, 12), loginProfile.id]
     );
 
     let emailSent = false;
     let emailError = null;
     try {
-      await sendCredentials({ toEmail: jr.email, toName: jr.name, password: tempPassword });
+      await sendCredentials({
+        toEmail: jr.email, toName: jr.name, password: tempPassword,
+        otherAccountNote: loginProfile.id !== jr.user_id
+          ? 'This one password opens both of your dashboards — sign in, then use <strong>"Switch to Student dashboard"</strong> in the menu.'
+          : null,
+      });
       emailSent = true;
     } catch (err) {
       emailError = err.message;

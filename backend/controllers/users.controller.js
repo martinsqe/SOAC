@@ -12,6 +12,7 @@ const { syncPastEvents } = require('../services/eventStatus');
 const { MAIN_CAMPUS, adminCampus, studentOnCampusSql } = require('../services/campus');
 const tokenBlacklist = require('../services/tokenBlacklist');
 const { getJoinState, recordRenewalContacts, notifyRenewalContacts } = require('../services/joinWindow');
+const { handOverLogin } = require('../services/accounts');
 
 const AVATAR_ALLOWED = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
 
@@ -137,7 +138,7 @@ const create = async (req, res, next) => {
     await cache.del('stats:admin', 'stats:admin:city');
     res.status(201).json({ user: newUser, tempPassword });
   } catch (err) {
-    if (err.code === '23505') return res.status(409).json({ message: 'A user with that email already exists.' });
+    if (err.code === '23505') return res.status(409).json({ message: 'This email already has an account of that kind (student or staff).' });
     next(err);
   }
 };
@@ -161,7 +162,13 @@ const update = async (req, res, next) => {
     if (!rows.length) return res.status(404).json({ message: 'User not found.' });
     await cache.del(`session:user:${req.params.id}`);
     res.json({ user: rows[0] });
-  } catch (err) { next(err); }
+  } catch (err) {
+    /* An email can hold one student and one staff account — not two of a kind */
+    if (err.code === '23505') {
+      return res.status(409).json({ message: 'This person already has an account of that kind (student or staff) — each email can have one of each.' });
+    }
+    next(err);
+  }
 };
 
 /* DELETE /api/users/:id  (admin — permanently delete this account)
@@ -213,6 +220,90 @@ const detachUserReferences = async (client, userIdOrIds) => {
   }
 };
 
+/* ── Student accounts are erased completely ────────────────────────────────
+   On top of everything that cascades with the users row (memberships, chat and
+   direct messages, attendance, tasks, progress, feed posts, notifications…),
+   these rows are a student's own data but aren't removed by the database on its
+   own — they're keyed by email, or their foreign key only nulls the link. */
+const STUDENT_ROWS_BY_ACCOUNT = [
+  ['audit_log',                      'user_id'],
+  ['coin_transactions',              'user_id'],
+  ['memberships',                    'user_id'],
+  ['attendance_consistency_bonuses', 'user_id'],
+  ['club_leadership',                'user_id'],
+  ['club_proposals',                 'proposed_by_id'],
+];
+const STUDENT_ROWS_BY_EMAIL = [
+  ['join_requests',           'email'],
+  ['activity_email_requests', 'email'],
+  ['club_leadership',         'holder_email'],
+  ['club_proposals',          'proposed_by_email'],
+];
+
+/* Deletes rows, skipping a table/column this database doesn't have */
+const deleteWhere = async (client, sql, params) => {
+  await client.query('SAVEPOINT purge_step');
+  try {
+    const r = await client.query(sql, params);
+    await client.query('RELEASE SAVEPOINT purge_step');
+    return r.rowCount;
+  } catch (e) {
+    await client.query('ROLLBACK TO SAVEPOINT purge_step');
+    await client.query('RELEASE SAVEPOINT purge_step');
+    if (e.code === '42P01' || e.code === '42703') return 0;   // no such table / column
+    throw e;
+  }
+};
+
+/* Erase students' data (call inside a transaction, before deleting the users).
+   Returns the clubs whose member counts need refreshing. */
+const purgeStudentData = async (client, ids, emails) => {
+  const { rows: clubRows } = await client.query(
+    `SELECT DISTINCT club_id FROM student_clubs WHERE user_id = ANY($1::int[])`, [ids]
+  );
+  /* Event registrations — attendance marks and certificates cascade; team
+     roster places are only linked by id, so they're removed first */
+  const { rows: regs } = await client.query(
+    `SELECT id FROM event_registrations WHERE LOWER(email) = ANY($1::text[])`, [emails]
+  );
+  if (regs.length) {
+    const regIds = regs.map(r => r.id);
+    await deleteWhere(client, `DELETE FROM event_team_members WHERE registration_id = ANY($1::bigint[])`, [regIds]);
+    await client.query(`DELETE FROM event_registrations WHERE id = ANY($1::bigint[])`, [regIds]);
+  }
+  for (const [table, col] of STUDENT_ROWS_BY_ACCOUNT) {
+    await deleteWhere(client, `DELETE FROM "${table}" WHERE "${col}" = ANY($1::int[])`, [ids]);
+  }
+  for (const [table, col] of STUDENT_ROWS_BY_EMAIL) {
+    await deleteWhere(client, `DELETE FROM "${table}" WHERE LOWER("${col}") = ANY($1::text[])`, [emails]);
+  }
+  return clubRows.map(r => r.club_id);
+};
+
+/* Staff (Student Coordinator / Faculty Advisor) being deleted: clear their name
+   from the clubs they were assigned to (call before deleting the users row,
+   while their assignment rows still exist). Returns the affected clubs. */
+const releaseStaffClubs = async (client, userId) => {
+  const { rows } = await client.query(
+    `SELECT a.club_id, u.name, u.role FROM coordinator_club_assignments a
+     JOIN users u ON u.id = a.user_id WHERE a.user_id = $1`, [userId]
+  );
+  for (const { club_id: clubId, name, role } of rows) {
+    const col = role === 'faculty_coordinator' ? 'faculty_coordinator' : 'coordinator';
+    await client.query(`UPDATE clubs SET ${col} = '' WHERE id = $1 AND ${col} = $2`, [clubId, name]);
+  }
+  const { rows: memberOf } = await client.query(
+    `SELECT DISTINCT club_id FROM student_clubs WHERE user_id = $1`, [userId]
+  );
+  return [...new Set([...rows.map(r => r.club_id), ...memberOf.map(r => r.club_id)].map(String))];
+};
+
+const resyncMemberCounts = (client, clubIds) => clubIds.length && client.query(
+  `UPDATE clubs SET member_count = (SELECT COUNT(*)::int FROM student_clubs sc WHERE sc.club_id = clubs.id AND sc.is_active = true)
+   WHERE id = ANY($1::bigint[])`,
+  [clubIds]
+);
+
 const remove = async (req, res, next) => {
   const client = await pgPool.connect();
   let dbOk = true; // false once anything on this connection fails in a way ROLLBACK can't clear
@@ -226,8 +317,15 @@ const remove = async (req, res, next) => {
     const target = rows[0];
 
     await client.query('BEGIN');
+    /* A student's data is erased with them; staff are cleared from their clubs */
+    const touchedClubs = target.role === 'student'
+      ? await purgeStudentData(client, [userId], [String(target.email).toLowerCase()])
+      : await releaseStaffClubs(client, userId);
+    /* If this profile holds the person's login, their other profile keeps it */
+    await handOverLogin(client, [userId]);
     await detachUserReferences(client, userId);
     await client.query(`DELETE FROM users WHERE id = $1`, [userId]);
+    await resyncMemberCounts(client, touchedClubs);
     await client.query('COMMIT');
 
     await pgPool.query(
@@ -240,7 +338,10 @@ const remove = async (req, res, next) => {
       cache.del('stats:admin', 'stats:admin:city'),
       cache.del(`session:user:${userId}`),
       cache.del(`session:tokens:${userId}`),
+      cache.del(`student:${userId}`),
       cache.delPattern('clubs:*'),
+      cache.delPattern('events:*'),
+      tokenBlacklist.revokeAllUserTokens(userId),   // sign them out everywhere
     ]);
     res.json({ message: `${target.name} was permanently deleted.` });
   } catch (err) {
@@ -263,8 +364,8 @@ const remove = async (req, res, next) => {
 
 /* POST /api/users/students/delete-all  (admin)   body: { confirm: 'DELETE' }
    Fresh start for a new intake, on the campus the admin is managing: permanently
-   deletes that campus's student accounts (memberships go with them) and every
-   join request to that campus's clubs. Coordinators, Faculty Advisors, admins,
+   deletes that campus's student accounts with all their data (see
+   purgeStudentData) and every join request to that campus's clubs. Coordinators, Faculty Advisors, admins,
    clubs, events and event history are kept. Students who ask to join again get
    brand-new accounts and passwords when approved. */
 const deleteAllStudents = async (req, res, next) => {
@@ -291,9 +392,12 @@ const deleteAllStudents = async (req, res, next) => {
       [campus]
     );
     if (ids.length) {
+      /* Erase their data completely — registrations, history, messages… */
+      await purgeStudentData(client, ids, emails);
+      /* A member login that also opens a coordinator profile moves to that profile */
+      await handOverLogin(client, ids);
       await detachUserReferences(client, ids);
       await client.query(`DELETE FROM users WHERE id = ANY($1::int[])`, [ids]);
-      await client.query(`DELETE FROM activity_email_requests WHERE email = ANY($1::text[])`, [emails]);
     }
     await client.query(
       `UPDATE clubs SET member_count = (SELECT COUNT(*)::int FROM student_clubs sc WHERE sc.club_id = clubs.id AND sc.is_active = true)
@@ -310,6 +414,7 @@ const deleteAllStudents = async (req, res, next) => {
     await Promise.all([
       cache.del('stats:admin', 'stats:admin:city'),
       cache.delPattern('clubs:*'),
+      cache.delPattern('events:*'),
       ...ids.flatMap(id => [
         cache.del(`session:user:${id}`, `session:tokens:${id}`, `student:${id}`),
         tokenBlacklist.revokeAllUserTokens(id),   // sign out anyone still logged in
@@ -572,7 +677,7 @@ const buildActivity = async (email, { includeAnswers = false } = {}) => {
   }
 
   const { rows: uRows } = await pgPool.query(
-    `SELECT id, name FROM users WHERE LOWER(email) = $1 AND is_active = true LIMIT 1`,
+    `SELECT id, name FROM users WHERE LOWER(email) = $1 AND is_active = true ORDER BY (role = 'student') DESC LIMIT 1`,
     [email]
   );
   const userId  = uRows[0]?.id   || null;

@@ -421,7 +421,7 @@ const finalizeCertifications = async (req, res, next) => {
       if (deliveryMethod === 'dashboard' && prior?.delivery_method !== 'dashboard') {
         /* Only notify the first time this student's certificate becomes dashboard-available —
            avoids re-notifying on every harmless re-finalize where nothing changed for them. */
-        pgPool.query(`SELECT id FROM users WHERE LOWER(email) = $1 AND is_active = true`, [email])
+        pgPool.query(`SELECT id FROM users WHERE LOWER(email) = $1 AND is_active = true ORDER BY (role = 'student') DESC LIMIT 1`, [email])
           .then(({ rows: uRows }) => {
             if (!uRows.length) return;
             notifyUser({

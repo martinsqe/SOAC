@@ -6,6 +6,7 @@ const { sendPasswordReset } = require('../config/email');
 const cache = require('../services/cache');
 const tokenBlacklist = require('../services/tokenBlacklist');
 const { getCoordClubIds } = require('../services/coordAuth');
+const { ACCOUNT_LABEL, PROFILE_LABEL, matchesOtherAccount, SAME_PASSWORD_MESSAGE, otherProfile, loginProfileFor } = require('../services/accounts');
 
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MINUTES = 30;
@@ -72,6 +73,38 @@ const toUserResponse = (u) => ({
   lastLogin:          u.last_login || null,
 });
 
+/* Same shape, plus the person's other profile (student <-> coordinator / advisor)
+   they can switch to with one login — null when they only have one */
+const withProfiles = async (u) => {
+  const other = await otherProfile(u.id);
+  return {
+    ...toUserResponse(u),
+    switchTo: other ? { role: other.role, label: PROFILE_LABEL[other.role] || 'Other dashboard' } : null,
+  };
+};
+
+/* Issue access + refresh tokens for a user row and set the refresh cookie */
+const startSession = async (res, user) => {
+  const accessToken  = signAccess(user);
+  const refreshToken = signRefresh(user);
+  const tokenHash    = await bcrypt.hash(refreshToken, 10);
+  await pgPool.query(
+    `INSERT INTO auth_tokens (user_id, token_hash, expires_at)
+     VALUES ($1, $2, NOW() + INTERVAL '7 days')`,
+    [user.id, tokenHash]
+  );
+  // Session flag the refresh endpoint checks; drop any stale /me cache
+  await cache.set(`session:tokens:${user.id}`, 1, cache.TTL.SESSION_TOKEN);
+  await cache.del(`session:user:${user.id}`);
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    secure:   process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge:   7 * 24 * 60 * 60 * 1000,
+  });
+  return accessToken;
+};
+
 /* ─────────────────────────────────────────────────────────────────────────────
    POST /api/auth/login
    All users (admin, coordinator, student) authenticate through the users table.
@@ -94,23 +127,27 @@ const login = async (req, res, next) => {
       });
     }
 
+    /* A person may have a student and a coordinator / advisor profile. They sign
+       in with ONE login — the profile holding the password — and switch to the
+       other inside the app; linked profiles can't be signed into directly. */
     const { rows } = await pgPool.query(
       `SELECT id, email, name, role, password_hash, is_active,
               must_change_password, managed_club_id, avatar
-       FROM users WHERE email = $1 AND is_active = true`,
+       FROM users WHERE LOWER(email) = $1 AND is_active = true AND NOT linked_profile
+       ORDER BY last_login DESC NULLS LAST, id`,
       [normalizedEmail]
     );
-    
+
     if (!rows.length) {
       await recordFailedLogin(normalizedEmail);
       return res.status(401).json({ message: 'Invalid email or password.' });
     }
 
-    const user = rows[0];
-
-    // All users (admin, coordinator, student) — single password check on users table
-    const match = await bcrypt.compare(password, user.password_hash);
-    if (!match) {
+    let user = null;
+    for (const candidate of rows) {
+      if (await bcrypt.compare(password, candidate.password_hash)) { user = candidate; break; }
+    }
+    if (!user) {
       const attempts = await recordFailedLogin(normalizedEmail);
       const remaining = Math.max(0, MAX_LOGIN_ATTEMPTS - attempts);
       return res.status(401).json({ message: 'Invalid email or password.', attemptsRemaining: remaining });
@@ -132,29 +169,8 @@ const login = async (req, res, next) => {
       }
     }
 
-    const accessToken  = signAccess(user);
-    const refreshToken = signRefresh(user);
-    const tokenHash    = await bcrypt.hash(refreshToken, 10);
-
-    await pgPool.query(
-      `INSERT INTO auth_tokens (user_id, token_hash, expires_at)
-       VALUES ($1, $2, NOW() + INTERVAL '7 days')`,
-      [user.id, tokenHash]
-    );
-
-    // Cache session flag — refresh endpoint checks this before hitting auth_tokens
-    await cache.set(`session:tokens:${user.id}`, 1, cache.TTL.SESSION_TOKEN);
-    // Invalidate any stale profile cache so /me re-fetches fresh data
-    await cache.del(`session:user:${user.id}`);
-
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure:   process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge:   7 * 24 * 60 * 60 * 1000,
-    });
-
-    res.json({ accessToken, user: toUserResponse(user) });
+    const accessToken = await startSession(res, user);
+    res.json({ accessToken, user: await withProfiles(user) });
   } catch (err) { next(err); }
 };
 
@@ -224,7 +240,7 @@ const me = async (req, res, next) => {
       }
     }
 
-    const result = { user: toUserResponse(dbUser) };
+    const result = { user: await withProfiles(dbUser) };
     await cache.set(cacheKey, result, cache.TTL.SESSION);
     res.json(result);
   } catch (err) { next(err); }
@@ -241,12 +257,9 @@ const changePassword = async (req, res, next) => {
       return res.status(400).json({ message: 'New password must be at least 8 characters.' });
     }
 
-    // All users — always update users table
-    const { rows } = await pgPool.query(
-      `SELECT id, password_hash, is_active FROM users WHERE id = $1`,
-      [req.user.id]
-    );
-    const user = rows[0];
+    /* Always the profile that holds the login — on a linked profile (e.g. the
+       coordinator dashboard reached by switching) that's the profile it's linked to */
+    const user = await loginProfileFor(req.user.id);
     if (!user || !user.is_active) {
       return res.status(401).json({ message: 'User not found or inactive.' });
     }
@@ -254,22 +267,21 @@ const changePassword = async (req, res, next) => {
     if (!match) {
       return res.status(401).json({ message: 'Current password is incorrect.' });
     }
+    if (await matchesOtherAccount(user.id, newPassword)) {
+      return res.status(400).json({ message: SAME_PASSWORD_MESSAGE });
+    }
     const hash = await bcrypt.hash(String(newPassword), 12);
     await pgPool.query(
       'UPDATE users SET password_hash = $1, must_change_password = false WHERE id = $2',
       [hash, user.id]
     );
 
-    // Revoke only THIS user's tokens for this club (other club sessions unaffected for coordinators)
-    await tokenBlacklist.revokeAllUserTokens(req.user.id);
-    await pgPool.query(
-      'UPDATE auth_tokens SET revoked = true WHERE user_id = $1',
-      [req.user.id]
-    );
-    await cache.del(
-      `session:user:${req.user.id}`,
-      `session:tokens:${req.user.id}`
-    );
+    // Sign out every session of both profiles — the person signs in again with the new password
+    for (const id of [...new Set([req.user.id, user.id])]) {
+      await tokenBlacklist.revokeAllUserTokens(id);
+      await pgPool.query('UPDATE auth_tokens SET revoked = true WHERE user_id = $1', [id]);
+      await cache.del(`session:user:${id}`, `session:tokens:${id}`);
+    }
 
     res.json({ message: 'Password changed successfully. Please log in again.' });
   } catch (err) { next(err); }
@@ -351,7 +363,7 @@ const refresh = async (req, res, next) => {
       maxAge:   7 * 24 * 60 * 60 * 1000,
     });
 
-    res.json({ accessToken: newAccessToken, user: toUserResponse(user) });
+    res.json({ accessToken: newAccessToken, user: await withProfiles(user) });
   } catch (err) { next(err); }
 };
 
@@ -365,25 +377,34 @@ const forgotPassword = async (req, res, next) => {
       return res.status(400).json({ message: 'Enter a valid email address.' });
     }
 
+    /* Only profiles that hold a login get a reset link — a linked profile shares
+       its partner's password. (Two separately-created logins on one email each
+       get their own, labelled link.) */
     const { rows } = await pgPool.query(
-      'SELECT id, email, name, password_hash, is_active FROM users WHERE email = $1 LIMIT 1',
+      `SELECT id, email, name, role, password_hash FROM users
+       WHERE LOWER(email) = $1 AND is_active = true AND NOT linked_profile ORDER BY (role = 'student') DESC`,
       [email]
     );
 
     // Only existing, active accounts can request a reset link
-    if (!rows.length || !rows[0].is_active) {
+    if (!rows.length) {
       return res.status(404).json({ message: 'You are not a member of any club.' });
     }
 
-    const user  = rows[0];
-    const token = signPasswordReset(user);
-
     // Reply straight away — sending (with provider retries/failover) can take well over
     // a minute when a mail provider is slow, long enough for the proxy to return a 502.
-    sendPasswordReset({ toEmail: user.email, toName: user.name, token })
-      .catch(err => console.error(`Failed to send password reset email to ${user.email}:`, err.message));
+    for (const user of rows) {
+      sendPasswordReset({
+        toEmail: user.email, toName: user.name, token: signPasswordReset(user),
+        accountLabel: rows.length > 1 ? ACCOUNT_LABEL[user.role] : null,
+      }).catch(err => console.error(`Failed to send password reset email to ${user.email}:`, err.message));
+    }
 
-    return res.json({ message: 'A password reset link has been sent to your email.' });
+    return res.json({
+      message: rows.length > 1
+        ? 'Password reset links have been sent to your email — one for each of your accounts.'
+        : 'A password reset link has been sent to your email.',
+    });
   } catch (err) { next(err); }
 };
 
@@ -422,6 +443,9 @@ const resetPassword = async (req, res, next) => {
     if (payload.pv !== currentPv) {
       return res.status(400).json({ message: 'This reset link has already been used.' });
     }
+    if (await matchesOtherAccount(user.id, newPassword)) {
+      return res.status(400).json({ message: SAME_PASSWORD_MESSAGE });
+    }
 
     const hash = await bcrypt.hash(String(newPassword), 12);
     await pgPool.query(
@@ -438,4 +462,28 @@ const resetPassword = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { login, logout, me, changePassword, refresh, forgotPassword, resetPassword };
+/* ─────────────────────────────────────────────────────────────────────────────
+   POST /api/auth/switch-profile
+   One login, two profiles: a student who is also a Student Coordinator (or a
+   coordinator who is also a club member) switches between the student and the
+   coordinator dashboards without signing in again. Issues a session for the
+   person's other profile.
+───────────────────────────────────────────────────────────────────────────── */
+const switchProfile = async (req, res, next) => {
+  try {
+    const other = await otherProfile(req.user.id);
+    if (!other) return res.status(404).json({ message: 'You have no other profile to switch to.' });
+    if (other.role === 'coordinator' || other.role === 'faculty_coordinator') {
+      const clubIds = await getCoordClubIds(other.id);
+      if (clubIds.length && !other.managed_club_id) {
+        await pgPool.query(`UPDATE users SET managed_club_id = $1 WHERE id = $2`, [clubIds[0], other.id]);
+        other.managed_club_id = clubIds[0];
+      }
+    }
+    await pgPool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [other.id]);
+    const accessToken = await startSession(res, other);
+    res.json({ accessToken, user: await withProfiles(other) });
+  } catch (err) { next(err); }
+};
+
+module.exports = { login, logout, me, changePassword, refresh, forgotPassword, resetPassword, switchProfile };

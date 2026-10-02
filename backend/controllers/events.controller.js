@@ -824,7 +824,7 @@ const remove = async (req, res, next) => {
 async function notifyRegistrationConfirmed(event, email) {
   try {
     const { rows: userRows } = await pgPool.query(
-      `SELECT id FROM users WHERE LOWER(email) = $1 AND is_active = true LIMIT 1`, [email]
+      `SELECT id FROM users WHERE LOWER(email) = $1 AND is_active = true ORDER BY (role = 'student') DESC LIMIT 1`, [email]
     );
     if (!userRows.length) return;
     await notifyUser({

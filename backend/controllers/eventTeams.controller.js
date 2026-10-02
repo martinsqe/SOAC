@@ -40,7 +40,11 @@ async function notifyTeamAssignments(eventId, division) {
        LEFT JOIN event_groups g ON g.id = egt.group_id
        JOIN event_team_members tm ON tm.team_id = t.id
        JOIN event_registrations er ON er.id = tm.registration_id
-       LEFT JOIN users u ON u.email = er.email AND u.is_active = true
+       /* one account per registrant — the student account when the email has two */
+       LEFT JOIN LATERAL (
+         SELECT id FROM users WHERE LOWER(email) = LOWER(er.email) AND is_active = true
+         ORDER BY (role = 'student') DESC LIMIT 1
+       ) u ON true
        WHERE t.event_id = $1::bigint AND t.division = $2`,
       [eventId, division]
     );

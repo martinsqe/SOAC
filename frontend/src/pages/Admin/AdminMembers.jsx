@@ -128,7 +128,9 @@ function UsersTab({ clubs }) {
      created, event requests they submitted, etc.) goes with them. */
   const handleDeleteUser = async (u) => {
     if (!window.confirm(
-      `Permanently delete ${u.name}'s account?\n\nThis cannot be undone. Their messages, posts, and anything else they created will be deleted along with the account.`
+      u.role === 'student'
+        ? `Permanently delete ${u.name}'s account?\n\nThis cannot be undone. All of their data is erased: club memberships, join requests, event registrations, attendance, certificates, messages and posts.`
+        : `Permanently delete ${u.name}'s account?\n\nThis cannot be undone. They are removed from every club they manage, and their messages and posts are deleted along with the account.`
     )) return;
     setDeletingId(u.id);
     try {
@@ -762,7 +764,8 @@ function DeleteAllStudents({ onDone }) {
             <div style={{ fontSize:13, color:'#374151', lineHeight:1.6, marginBottom:14 }}>
               This permanently deletes:
               <ul style={{ margin:'6px 0 8px 18px', padding:0 }}>
-                <li>every <strong>student account</strong> at {campus}, and their club memberships</li>
+                <li>every <strong>student account</strong> at {campus}, with all their data — club memberships,
+                  event registrations, attendance, certificates, messages and posts</li>
                 <li>every <strong>join request</strong> (pending, approved and declined) to {campus} clubs</li>
               </ul>
               Coordinators, Faculty Advisors, admins, clubs and events are kept. Students who request to join again

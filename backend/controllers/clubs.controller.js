@@ -9,6 +9,7 @@ const { destroyImage } = require('../config/cloudinary');
 const { getFileValue } = require('../config/multer');
 const cache = require('../services/cache');
 const { MAIN_CAMPUS, CITY_CAMPUS, adminCampus, ensureCityCampusClubs, campusSlug, campusOfClub } = require('../services/campus');
+const { findStudentAccount, unusablePasswordHash } = require('../services/accounts');
 const { notifyAdminsOfClubChange } = require('./clubDetail.controller');
 const { markApprovedWithClub, notifyProposalApproved } = require('./clubProposals.controller');
 
@@ -498,7 +499,11 @@ const remove = async (req, res, next) => {
           join_requests, student_clubs, club_announcements,
           club_leadership, club_messages, club_tasks,
           club_attendance_sessions (→ records cascade),
-          member_progress, event_requests */
+          member_progress, event_requests.
+          Memberships are removed explicitly too — older databases lack the
+          student_clubs → clubs foreign key, and leftover rows would keep
+          counting toward students' 3-club limit. */
+    await client.query(`DELETE FROM student_clubs WHERE club_id = ANY($1::bigint[])`, [copyIds]);
     await client.query(`DELETE FROM clubs WHERE id = ANY($1::bigint[])`, [copyIds]);
 
     await client.query('COMMIT');
@@ -872,8 +877,11 @@ const getCoordinatorAssignments = async (req, res, next) => {
     const email = String(req.query.email || '').trim().toLowerCase();
     if (!email) return res.json({ assignments: [], user: null });
 
+    /* Staff account first (its assignments are what matter here); a student-only
+       email still returns the person so the name can be filled in */
     const { rows: userRows } = await pgPool.query(
-      `SELECT id, name, email, role FROM users WHERE email = $1 AND is_active = true`,
+      `SELECT id, name, email, role FROM users WHERE LOWER(email) = $1 AND is_active = true
+       ORDER BY (role <> 'student') DESC LIMIT 1`,
       [email]
     );
     if (!userRows.length) return res.json({ assignments: [], user: null });
@@ -945,11 +953,16 @@ const performStaffAssignment = async ({ role, clubId, name, email, actorUserId, 
   if (!clubRows.length) return { ok: false, status: 404, message: 'Club not found.' };
   const club = asClub(clubRows[0]);
 
-  /* Refuse to overwrite an admin account, or the club's other staff role */
+  /* Club staff use the person's STAFF profile — never their student (member)
+     profile. A student who is made a Student Coordinator gets a coordinator
+     profile LINKED to their member login: no new password, they switch between
+     the two dashboards with the account they already use. */
   const { rows: existing } = await pgPool.query(
-    `SELECT id, name, role FROM users WHERE email = $1`,
+    `SELECT id, name, role, linked_profile FROM users WHERE LOWER(email) = $1 AND role <> 'student'`,
     [emailLower]
   );
+  const studentAccount = await findStudentAccount(emailLower);
+  /* Refuse to overwrite an admin account, or the club's other staff role */
   if (existing.length && meta.blockedRoles[existing[0].role]) {
     return {
       ok: false, status: 409,
@@ -958,9 +971,10 @@ const performStaffAssignment = async ({ role, clubId, name, email, actorUserId, 
   }
 
   /* A name typed by the admin is kept exactly (titles included); one taken
-     from the existing account drops leading titles like "Prof." / "Dr." */
+     from an existing account drops leading titles like "Prof." / "Dr." */
+  const knownName = existing[0]?.name || studentAccount?.name || '';
   const staffName = name?.trim()
-    || (existing.length ? existing[0].name.replace(/^\s*(?:(?:prof(?:essor)?|dr|mr|mrs|ms|miss)\.?\s+)+/i, '').trim() : null);
+    || (knownName ? knownName.replace(/^\s*(?:(?:prof(?:essor)?|dr|mr|mrs|ms|miss)\.?\s+)+/i, '').trim() : null);
   if (!staffName) {
     return { ok: false, status: 400, message: `${meta.label} name is required for new accounts.` };
   }
@@ -977,7 +991,12 @@ const performStaffAssignment = async ({ role, clubId, name, email, actorUserId, 
      brand-new account, issues a fresh temporary password rather than leaving
      their old one in place. */
   const isPromotion = !isNewUser && !!meta.promoteFrom && existing[0].role === meta.promoteFrom;
-  const issueNewCredentials = isNewUser || isPromotion;
+  /* New staff profile for someone who already has a member login → linked to it */
+  const linkToMember = isNewUser && !!studentAccount;
+  /* A linked staff profile signs in through the member login, so it never gets
+     its own credentials — on creation or on promotion */
+  const isLinkedProfile = linkToMember || !!existing[0]?.linked_profile;
+  const issueNewCredentials = (isNewUser || isPromotion) && !isLinkedProfile;
   let userId;
   let tempPassword = null;
   const hash = issueNewCredentials
@@ -1006,7 +1025,16 @@ const performStaffAssignment = async ({ role, clubId, name, email, actorUserId, 
       }
     }
 
-    if (isNewUser) {
+    if (linkToMember) {
+      /* ── Coordinator profile linked to their member login (no password of its own) ── */
+      const { rows: newUser } = await db.query(
+        `INSERT INTO users (email, name, role, password_hash, must_change_password, created_by, linked_profile)
+         VALUES ($1, $2, $3, $4, false, $5, true)
+         RETURNING id`,
+        [emailLower, staffName, role, await unusablePasswordHash(), actorUserId]
+      );
+      userId = newUser[0].id;
+    } else if (isNewUser) {
       /* ── Brand-new account: temp password, create user ── */
       const { rows: newUser } = await db.query(
         `INSERT INTO users (email, name, role, password_hash, must_change_password, created_by)
@@ -1015,6 +1043,10 @@ const performStaffAssignment = async ({ role, clubId, name, email, actorUserId, 
         [emailLower, staffName, role, hash, actorUserId]
       );
       userId = newUser[0].id;
+    } else if (isPromotion && isLinkedProfile) {
+      /* ── Linked profile promoted: role changes, login stays the member login ── */
+      userId = existing[0].id;
+      await db.query(`UPDATE users SET name = $1, role = $2, is_active = true WHERE id = $3`, [staffName, role, userId]);
     } else if (isPromotion) {
       /* ── Promoted existing account: new role AND a fresh temp password ── */
       userId = existing[0].id;
@@ -1102,6 +1134,10 @@ const performStaffAssignment = async ({ role, clubId, name, email, actorUserId, 
       })
     : sendCoordinatorAssignment({
         toEmail: emailLower, toName: staffName, clubName: clubLabel, roleLabel: meta.roleLabel,
+        /* Confirmation only — they reach the new dashboard from their member login */
+        switchNote: isLinkedProfile
+          ? `Use your usual SOAC login (the one for your student dashboard) — no new password is needed. After signing in, tap <strong>"Switch to ${meta.roleLabel} dashboard"</strong> in the menu to manage ${club.name}, and switch back any time.`
+          : null,
       })
   ).then(
     () => true,
@@ -1128,7 +1164,10 @@ const performStaffAssignment = async ({ role, clubId, name, email, actorUserId, 
       password:  tempPassword,
       clubName:  clubLabel,
     },
-    message: isPromotion
+    linkedProfile: isLinkedProfile,
+    message: isLinkedProfile && (isNewUser || isPromotion)
+      ? `${staffName} is now ${meta.roleLabel} of ${clubLabel}. They use their existing member login and switch to the ${meta.roleLabel} dashboard${emailSent ? ` — a confirmation was sent to ${emailLower}` : emailPending ? ` — a confirmation is being emailed to ${emailLower}` : ' — the confirmation email could not be sent'}.`
+      : isPromotion
       ? `${staffName} was promoted to Faculty Advisor of ${clubLabel} — their Student Coordinator access has been revoked${emailSent ? ` and new login credentials were sent to ${emailLower}` : emailPending ? ` — new login credentials are being emailed to ${emailLower}` : ', but the credentials email could not be sent — share the new password manually'}.`
       : isNewUser
       ? `${meta.label} account created${emailSent ? `. Credentials sent to ${emailLower}` : emailPending ? `. Credentials are being emailed to ${emailLower}` : ' — email could not be sent, share credentials manually'}.`

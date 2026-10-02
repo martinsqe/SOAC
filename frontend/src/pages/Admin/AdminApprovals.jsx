@@ -262,6 +262,20 @@ function JoinRequestsPanel() {
     finally { setActionId(null); }
   };
 
+  const handleResend = async (req) => {
+    if (!window.confirm(`Give ${req.name} a new temporary password and email it? Their current password will stop working.`)) return;
+    setResendId(req._id);
+    try {
+      const res = await api.post(`/requests/${req._id}/resend-email`, {});
+      setResendMsg(prev => ({ ...prev, [req._id]: { ok: res.emailSent, text: res.message } }));
+      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, title: 'New Login Details' });
+    } catch (err) {
+      setResendMsg(prev => ({ ...prev, [req._id]: { ok: false, text: err.message } }));
+    } finally {
+      setResendId(null);
+    }
+  };
+
   const handleDecline = async (req) => {
     setActionId(req._id);
     try {
@@ -306,19 +320,6 @@ function JoinRequestsPanel() {
     }
   };
 
-  const handleResend = async (req) => {
-    if (!window.confirm(`Give ${req.name} a new temporary password and email it? Their current password will stop working.`)) return;
-    setResendId(req._id);
-    try {
-      const res = await api.post(`/requests/${req._id}/resend-email`, {});
-      setResendMsg(prev => ({ ...prev, [req._id]: { ok: res.emailSent, text: res.message } }));
-      if (res.credentials) setCreds({ ...res.credentials, emailSent: res.emailSent, title: 'New Login Details' });
-    } catch (err) {
-      setResendMsg(prev => ({ ...prev, [req._id]: { ok: false, text: err.message } }));
-    } finally {
-      setResendId(null);
-    }
-  };
 
   return (
     <>

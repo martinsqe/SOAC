@@ -51,6 +51,18 @@ export const AuthProvider = ({ children }) => {
     return data.user;
   }, []);
 
+  /* One login, two profiles: switch between the student (member) dashboard and
+     the Student Coordinator / Faculty Advisor dashboard (user.switchTo). Then a
+     full page load into that dashboard, so it starts with a clean state. */
+  const switchProfile = useCallback(async () => {
+    const data = await api.post('/auth/switch-profile', {});
+    localStorage.setItem('soac_token', data.accessToken);
+    localStorage.setItem('soac_user', JSON.stringify(data.user));
+    setUser(data.user);
+    window.location.replace(data.user.role === 'student' ? '/student' : '/coordinator');
+    return data.user;
+  }, []);
+
   /* Deliberate: logout does NOT revoke the device's push subscription. Once a
      device has an account logged in and notifications enabled, it keeps
      receiving that account's pushes regardless of login state afterward —
@@ -78,7 +90,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, updateUser, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, updateUser, refreshUser, switchProfile }}>
       {children}
     </AuthContext.Provider>
   );
