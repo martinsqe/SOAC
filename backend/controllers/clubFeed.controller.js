@@ -4,8 +4,51 @@ const { getCoordClubIds, getClubCoordinatorIds, assertCoordOwnsClub } = require(
 const { notifyUser, notifyManyUsers } = require('../services/notify');
 const { uploadMediaBuffer } = require('../config/multer');
 const { cloudinary, destroyMedia } = require('../config/cloudinary');
+const { sendClubFeedUpdate, sendClubFeedPostLive } = require('../config/email');
 
 const FEED_FOLDER = 'club-feed';
+
+/* A post just went live (a coordinator added it, or approved a member's
+   submission). Every other active member of the club is emailed and notified
+   that something new is in the feed — never who posted it — with an invite to
+   add their own. If a member submitted it, they get their own "your post is
+   live" email. Runs in the background after the response; emails go through
+   the shared send queue. */
+const announceFeedPost = async (post) => {
+  const { rows: poster } = await pgPool.query(
+    `SELECT id, name, email, role FROM users WHERE id = $1`, [post.student_id]
+  );
+  const posterEmail = (poster[0]?.email || '').toLowerCase();
+
+  const { rows: members } = await pgPool.query(
+    `SELECT DISTINCT ON (u.id) u.id, u.name, u.email
+     FROM student_clubs sc
+     JOIN users u ON u.id = sc.user_id AND u.is_active = true AND u.role = 'student'
+     WHERE sc.club_id = $1 AND sc.is_active = true
+       AND LOWER(u.email) <> $2`,
+    [post.club_id, posterEmail]
+  );
+
+  if (members.length) {
+    notifyManyUsers({
+      userIds: members.map(m => m.id),
+      clubId:  post.club_id,
+      title:   `New in the ${post.club_name} Club Feed`,
+      body:    `A new ${post.media_type === 'video' ? 'video' : 'photo'} was added — check it out, and share yours too!`,
+      type:    'club_feed_post',
+      url:     '/student/clubs-feed',
+    }).catch(() => {});
+    for (const m of members) {
+      sendClubFeedUpdate({ toEmail: m.email, toName: m.name, clubName: post.club_name, mediaType: post.media_type })
+        .catch(err => console.error(`[clubFeed] update email failed for ${m.email}:`, err.message));
+    }
+  }
+
+  if (poster[0]?.role === 'student') {
+    sendClubFeedPostLive({ toEmail: poster[0].email, toName: poster[0].name, clubName: post.club_name, mediaType: post.media_type })
+      .catch(err => console.error(`[clubFeed] post-live email failed for ${poster[0].email}:`, err.message));
+  }
+};
 const isCoordRole = (role) => role === 'coordinator' || role === 'faculty_coordinator';
 
 /* The club this user may post to: a coordinator's own club, or a club the
@@ -122,6 +165,11 @@ const createPost = async (req, res, next) => {
       ]
     );
     res.status(201).json({ post: asPost(rows[0]) });
+
+    /* A coordinator's post is live straight away — tell the club */
+    if (isCoordinator) {
+      announceFeedPost(rows[0]).catch(err => console.error('[clubFeed] announce failed:', err.message));
+    }
 
     if (!isCoordinator) {
       getClubCoordinatorIds(club.club_id).then((coordIds) => {
@@ -262,6 +310,9 @@ const approvePost = async (req, res, next) => {
       type:   'club_feed_submission',
       url:    '/student/clubs-feed',
     }).catch(() => {});
+
+    /* Now live — email the member, and tell the rest of the club (without names) */
+    announceFeedPost(updated[0]).catch(err => console.error('[clubFeed] announce failed:', err.message));
   } catch (err) { next(err); }
 };
 

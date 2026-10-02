@@ -295,6 +295,51 @@ const sendJoinRequestsReopening = async ({ toEmail, toName, opensOnLabel = null 
   });
 };
 
+/* Club Feed — something new went live. Sent to the club's members; deliberately
+   never names who posted it (member or coordinator). */
+const sendClubFeedUpdate = async ({ toEmail, toName, clubName, mediaType = 'image' }) => {
+  const what = mediaType === 'video' ? 'video' : 'photo';
+  await send({
+    to:      toEmail,
+    subject: `New ${what} in the ${clubName} Club Feed — SOAC RKU`,
+    html: wrap(`
+      ${header()}
+      <h2 style="color:#1a1040;margin-bottom:8px">Hi ${toName || 'there'},</h2>
+      <p style="color:#555;line-height:1.6">A new ${what} was just added to the <strong style="color:#635BFF">${clubName}</strong> Club Feed. Take a look at what your club has been up to!</p>
+      <div style="text-align:center;margin:26px 0">
+        <a href="${APP_URL}/student/clubs-feed" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:10px">Open the Club Feed</a>
+      </div>
+      <div style="background:#f8f7ff;border:1.5px solid #e8e5ff;border-radius:12px;padding:16px 20px;margin:0 0 20px">
+        <p style="margin:0;font-size:14px;font-weight:800;color:#1a1040">Got something to share?</p>
+        <p style="margin:6px 0 0;font-size:13px;color:#555;line-height:1.6">Add your own photos and videos from club activities, events and practice sessions — tap <strong>Submit</strong> in the Club Feed and your club coordinator will add it for everyone to see.</p>
+      </div>
+      ${footer()}
+    `),
+  });
+};
+
+/* Club Feed — a member's own submission went live. Encourages them to keep sharing. */
+const sendClubFeedPostLive = async ({ toEmail, toName, clubName, mediaType = 'image' }) => {
+  const what = mediaType === 'video' ? 'video' : 'photo';
+  await send({
+    to:      toEmail,
+    subject: `Your ${what} is live in the ${clubName} Club Feed 🎉 — SOAC RKU`,
+    html: wrap(`
+      ${header()}
+      <h2 style="color:#1a1040;margin-bottom:8px">Nice one, ${toName || 'there'}!</h2>
+      <p style="color:#555;line-height:1.6">Your ${what} has been added to the <strong style="color:#635BFF">${clubName}</strong> Club Feed, and every member of the club can now see it.</p>
+      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:12px;padding:16px 20px;margin:24px 0">
+        <p style="margin:0;font-size:14px;font-weight:800;color:#15803d">Keep it coming</p>
+        <p style="margin:6px 0 0;font-size:13px;color:#555;line-height:1.6">The Club Feed is where your club's story gets told. Share more from your practice sessions, events and wins — showcase what you do, inspire your teammates and get your work seen.</p>
+      </div>
+      <div style="text-align:center;margin:26px 0">
+        <a href="${APP_URL}/student/clubs-feed" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:10px">See it &amp; add more</a>
+      </div>
+      ${footer()}
+    `),
+  });
+};
+
 /* roleLabel lets the exact same template serve both club staff roles — the
    (Student) Coordinator and, one tier up, the Faculty Coordinator — so a
    role assigned from either the admin dashboard or a Faculty Coordinator's
@@ -542,6 +587,8 @@ module.exports = {
   sendApproval,
   sendRequestsRemoved,
   sendJoinRequestsReopening,
+  sendClubFeedUpdate,
+  sendClubFeedPostLive,
   sendCoordinatorCredentials,
   sendCoordinatorAssignment,
   sendPasswordReset,
