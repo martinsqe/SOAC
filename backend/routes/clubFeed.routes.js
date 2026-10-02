@@ -10,7 +10,10 @@ const requireCoordinator = (req, res, next) => {
   next();
 };
 
-/* Student routes */
+/* Student routes (coordinators post to their own club the same way) */
+/* Fast path: signature for uploading straight from the browser to Cloudinary */
+router.post('/upload-signature', verifyToken, ctrl.uploadSignature);
+/* JSON (already-uploaded media URL) or multipart with the file in 'media' (fallback) */
 router.post('/',    verifyToken, uploadClubFeedMedia.single('media'), ctrl.createPost);
 router.get('/',      verifyToken, ctrl.getFeed);
 router.get('/mine',  verifyToken, ctrl.getMyPosts);

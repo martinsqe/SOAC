@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useCoordClub } from '../../context/CoordClubContext';
 import api from '../../api/client';
+import { postToClubFeed, progressLabel } from '../../utils/feedUpload';
 import s from './CoordSubPage.module.css';
 import cs from './CoordClubFeed.module.css';
 
@@ -104,6 +105,7 @@ export default function CoordClubFeed() {
   const [filePrev,   setFilePrev]   = useState('');
   const [fileKind,   setFileKind]   = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [progress,   setProgress]   = useState(null);   // { stage, pct } while posting
   const fileRef = useRef();
 
   const openAdd = () => {
@@ -124,11 +126,11 @@ export default function CoordClubFeed() {
     if (!file) return showToast('Please choose a photo or video.');
     setSubmitting(true);
     try {
-      const fd = new FormData();
-      fd.append('clubId',  String(clubId));
-      fd.append('caption', caption.trim());
-      fd.append('media',   file);
-      await api.postForm('/club-feed', fd);
+      /* Photo shrunk in the browser, then uploaded straight to Cloudinary with progress */
+      await postToClubFeed({
+        clubId: String(clubId), caption: caption.trim(), file,
+        onProgress: (stage, pct) => setProgress({ stage, pct }),
+      });
       showToast('Added to the Club Feed!');
       closeAdd();
       loadReview();
@@ -136,6 +138,7 @@ export default function CoordClubFeed() {
       showToast(err?.message || 'Failed to add.');
     } finally {
       setSubmitting(false);
+      setProgress(null);
     }
   };
 
@@ -375,7 +378,7 @@ export default function CoordClubFeed() {
             <div className={cs.modalFoot}>
               <button className={cs.cancelBtn} onClick={closeAdd}>Cancel</button>
               <button className={cs.approveBtn} onClick={handleAddSubmit} disabled={submitting}>
-                {submitting ? 'Adding…' : 'Add to Feed'}
+                {submitting ? (progressLabel(progress) || 'Adding…') : 'Add to Feed'}
               </button>
             </div>
           </div>

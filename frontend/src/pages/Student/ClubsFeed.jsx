@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import api from '../../api/client';
+import { postToClubFeed, progressLabel } from '../../utils/feedUpload';
 import cf from './ClubsFeed.module.css';
 
 const STATUS_LABEL = {
@@ -38,6 +39,7 @@ export default function ClubsFeed() {
   const [filePrev,   setFilePrev]   = useState('');
   const [fileKind,   setFileKind]   = useState(''); // 'image' | 'video'
   const [submitting, setSubmitting] = useState(false);
+  const [progress,   setProgress]   = useState(null);   // { stage, pct } while posting
   const fileRef = useRef();
 
   const [lightboxIndex, setLightboxIndex] = useState(null);
@@ -100,11 +102,11 @@ export default function ClubsFeed() {
     if (!file)        return showToast('Please choose a photo or video.');
     setSubmitting(true);
     try {
-      const fd = new FormData();
-      fd.append('clubId',  form.clubId);
-      fd.append('caption', form.caption.trim());
-      fd.append('media',   file);
-      await api.postForm('/club-feed', fd);
+      /* Photo shrunk in the browser, then uploaded straight to Cloudinary with progress */
+      await postToClubFeed({
+        clubId: form.clubId, caption: form.caption.trim(), file,
+        onProgress: (stage, pct) => setProgress({ stage, pct }),
+      });
       showToast('Submitted! Your club coordinator will review it shortly.');
       closeSubmit();
       if (tab === 'mine') loadMine();
@@ -112,6 +114,7 @@ export default function ClubsFeed() {
       showToast(err?.message || 'Failed to submit.');
     } finally {
       setSubmitting(false);
+      setProgress(null);
     }
   };
 
@@ -324,7 +327,7 @@ export default function ClubsFeed() {
             <div className={cf.modalFoot}>
               <button className={cf.cancelBtn} onClick={closeSubmit}>Cancel</button>
               <button className={cf.submitBtn} onClick={handleSubmit} disabled={submitting}>
-                {submitting ? 'Submitting…' : 'Submit for Review'}
+                {submitting ? (progressLabel(progress) || 'Submitting…') : 'Submit for Review'}
               </button>
             </div>
           </div>
@@ -345,7 +348,7 @@ export default function ClubsFeed() {
               : <img key={lightboxPost.id} src={lightboxPost.mediaUrl} alt={lightboxPost.caption} className={cf.lightboxMedia} />
             }
             {lightboxPost.caption && <div className={cf.lightboxCaption}>{lightboxPost.caption}</div>}
-            <div className={cf.lightboxMeta}>{lightboxPost.studentName} · {lightboxPost.clubName}</div>
+            <div className={cf.lightboxMeta}>{lightboxPost.clubName}</div>
           </div>
           <button className={`${cf.navBtn} ${cf.navBtnRight}`} onClick={(e) => { e.stopPropagation(); goNext(); }} aria-label="Next">›</button>
         </div>,

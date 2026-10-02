@@ -3,43 +3,107 @@ const { ensureSoacTables } = require('../services/soacData');
 const { getCoordClubIds, getClubCoordinatorIds, assertCoordOwnsClub } = require('../services/coordAuth');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
 const { uploadMediaBuffer } = require('../config/multer');
-const { destroyMedia } = require('../config/cloudinary');
+const { cloudinary, destroyMedia } = require('../config/cloudinary');
+
+const FEED_FOLDER = 'club-feed';
+const isCoordRole = (role) => role === 'coordinator' || role === 'faculty_coordinator';
+
+/* The club this user may post to: a coordinator's own club, or a club the
+   student is an active member of. Returns { club } or { status, message }. */
+const resolvePostClub = async (user, clubId) => {
+  if (!clubId) return { status: 400, message: 'Please choose which club this is for.' };
+  if (isCoordRole(user.role)) {
+    if (!(await assertCoordOwnsClub(user.id, clubId))) return { status: 403, message: 'You do not manage this club.' };
+    const { rows } = await pgPool.query(`SELECT id AS club_id, name AS club_name FROM clubs WHERE id = $1`, [clubId]);
+    if (!rows.length) return { status: 404, message: 'Club not found.' };
+    return { club: rows[0] };
+  }
+  const { rows } = await pgPool.query(
+    `SELECT sc.club_id, c.name AS club_name
+     FROM student_clubs sc
+     JOIN clubs c ON c.id = sc.club_id
+     WHERE sc.user_id = $1 AND sc.club_id = $2 AND sc.is_active = true`,
+    [user.id, clubId]
+  );
+  if (!rows.length) return { status: 403, message: 'You can only submit to a club you are an active member of.' };
+  return { club: rows[0] };
+};
+
+/* ── POST /api/club-feed/upload-signature  body: { clubId, kind: 'image'|'video' }
+   Fast path: the browser uploads the photo/video STRAIGHT to Cloudinary with
+   this short-lived signature (only into the club-feed folder, only allowed
+   formats), then sends the resulting URL to POST /api/club-feed. The file never
+   passes through this server — one upload instead of two, no 50 MB buffering,
+   and the browser can show real upload progress. { direct: false } when
+   Cloudinary isn't configured; the client then posts the file the old way. ── */
+const uploadSignature = async (req, res, next) => {
+  try {
+    const found = await resolvePostClub(req.user, req.body?.clubId);
+    if (found.status) return res.status(found.status).json({ message: found.message });
+    if (!cloudinary) return res.json({ direct: false });
+
+    const isVideo = req.body?.kind === 'video';
+    const params = {
+      folder: FEED_FOLDER,
+      timestamp: Math.round(Date.now() / 1000),
+      allowed_formats: isVideo ? 'mp4,mov,webm' : 'jpg,jpeg,png,webp,gif',
+    };
+    res.json({
+      direct:       true,
+      cloudName:    process.env.CLOUDINARY_CLOUD_NAME,
+      apiKey:       process.env.CLOUDINARY_API_KEY,
+      resourceType: isVideo ? 'video' : 'image',
+      ...params,
+      signature:    cloudinary.utils.api_sign_request(params, process.env.CLOUDINARY_API_SECRET),
+    });
+  } catch (err) { next(err); }
+};
+
+/* A media URL uploaded directly by the browser must be one of OUR club-feed
+   assets of the stated type: https://res.cloudinary.com/<cloud>/<type>/upload/[v123/]club-feed/... */
+const isOwnFeedAsset = (url, mediaType) => {
+  const cloud = process.env.CLOUDINARY_CLOUD_NAME;
+  if (!cloud || typeof url !== 'string') return false;
+  const re = new RegExp(`^https://res\\.cloudinary\\.com/${cloud.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/${mediaType}/upload/(v\\d+/)?${FEED_FOLDER}/[^?#\\s]+$`);
+  return re.test(url);
+};
 
 /* ── POST /api/club-feed  (submit a photo/video)
-   A student's submission goes to 'pending' and notifies the club's
-   coordinator(s). A coordinator posting to a club they manage publishes
-   immediately — they're the approver, so there's nothing to review. ── */
+   Either JSON { clubId, caption, mediaUrl, mediaType, width, height } for media
+   the browser already uploaded to Cloudinary (fast path), or multipart with the
+   file in 'media' (fallback). A student's submission goes to 'pending' and
+   notifies the club's coordinator(s). A coordinator posting to a club they
+   manage publishes immediately — they're the approver, so there's nothing to review. ── */
 const createPost = async (req, res, next) => {
   try {
-    await ensureSoacTables();
     const { clubId, caption = '' } = req.body;
-    const isCoordinator = req.user.role === 'coordinator' || req.user.role === 'faculty_coordinator';
+    const isCoordinator = isCoordRole(req.user.role);
+    const direct = !req.file && req.body.mediaUrl;
 
-    if (!req.file) return res.status(400).json({ message: 'Please choose a photo or video to submit.' });
-    if (!clubId)   return res.status(400).json({ message: 'Please choose which club this is for.' });
+    if (!req.file && !direct) return res.status(400).json({ message: 'Please choose a photo or video to submit.' });
     if (caption.length > 300) return res.status(400).json({ message: 'Caption must be 300 characters or fewer.' });
 
-    let club;
-    if (isCoordinator) {
-      const owns = await assertCoordOwnsClub(req.user.id, clubId);
-      if (!owns) return res.status(403).json({ message: 'You do not manage this club.' });
-      const { rows } = await pgPool.query(`SELECT id AS club_id, name AS club_name FROM clubs WHERE id = $1`, [clubId]);
-      if (!rows.length) return res.status(404).json({ message: 'Club not found.' });
-      club = rows[0];
-    } else {
-      const { rows: membership } = await pgPool.query(
-        `SELECT sc.club_id, c.name AS club_name
-         FROM student_clubs sc
-         JOIN clubs c ON c.id = sc.club_id
-         WHERE sc.user_id = $1 AND sc.club_id = $2 AND sc.is_active = true`,
-        [req.user.id, clubId]
-      );
-      if (!membership.length)
-        return res.status(403).json({ message: 'You can only submit to a club you are an active member of.' });
-      club = membership[0];
-    }
+    const found = await resolvePostClub(req.user, clubId);
+    if (found.status) return res.status(found.status).json({ message: found.message });
+    const { club } = found;
 
-    const media = await uploadMediaBuffer(req.file, 'club-feed');
+    let media;
+    if (direct) {
+      const mediaType = req.body.mediaType === 'video' ? 'video' : 'image';
+      if (!isOwnFeedAsset(req.body.mediaUrl, mediaType)) {
+        return res.status(400).json({ message: 'That upload could not be verified. Please try again.' });
+      }
+      media = {
+        url: req.body.mediaUrl,
+        mediaType,
+        width:  Math.max(0, parseInt(req.body.width, 10) || 0),
+        height: Math.max(0, parseInt(req.body.height, 10) || 0),
+        /* Cloudinary serves a video's poster frame at the same path with .jpg */
+        thumbnailUrl: mediaType === 'video' ? req.body.mediaUrl.replace(/\.\w+($|\?)/, '.jpg$1') : '',
+      };
+    } else {
+      media = await uploadMediaBuffer(req.file, FEED_FOLDER);
+    }
 
     const { rows } = await pgPool.query(
       `INSERT INTO club_feed_posts
@@ -112,7 +176,8 @@ const getFeed = async (req, res, next) => {
         [req.user.id, limit, offset]
       ));
     }
-    res.json({ posts: rows.map(asPost) });
+    /* Members see the club's photos and videos, not who posted them */
+    res.json({ posts: rows.map(asPost).map(({ studentId, studentName, ...post }) => post) });
   } catch (err) { next(err); }
 };
 
@@ -276,4 +341,4 @@ const asPost = (r) => ({
   updatedAt:     r.updated_at,
 });
 
-module.exports = { createPost, getFeed, getMyPosts, getReviewQueue, approvePost, rejectPost, deletePost };
+module.exports = { uploadSignature, createPost, getFeed, getMyPosts, getReviewQueue, approvePost, rejectPost, deletePost };

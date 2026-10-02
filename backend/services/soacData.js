@@ -1,6 +1,21 @@
 const { pgPool } = require('../config/db');
 
-const ensureSoacTables = async () => {
+/* The schema setup below is ~175 statements. Controllers call ensureSoacTables()
+   at the start of many requests, so it runs ONCE per server process: the first
+   call does the work and every later call awaits the same finished promise
+   (instant). If it fails, the next call tries again. */
+let soacTablesReady = null;
+const ensureSoacTables = () => {
+  if (!soacTablesReady) {
+    soacTablesReady = runSoacTablesSetup().catch((err) => {
+      soacTablesReady = null;
+      throw err;
+    });
+  }
+  return soacTablesReady;
+};
+
+const runSoacTablesSetup = async () => {
   /* ── 1. Users ───────────────────────────────────────────────────────────────
      Single table for all roles: admin | faculty_coordinator | coordinator | student.
      'coordinator' is the club's Student Coordinator (day-to-day operations);
