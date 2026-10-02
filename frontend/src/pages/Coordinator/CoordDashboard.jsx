@@ -383,7 +383,7 @@ export default function CoordDashboard() {
               const mon  = d.toLocaleString('default', { month: 'short' });
               const day  = d.getDate();
               return (
-                <div key={ev.id} className={s.calItem} style={{ borderLeftColor: meta.color }}>
+                <div key={ev.id} className={s.calItem}>
                   <div className={s.calItemDate}>
                     <div className={s.calItemMon}>{mon}</div>
                     <div className={s.calItemDay}>{day}</div>

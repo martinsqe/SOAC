@@ -31,6 +31,8 @@ router.get('/:id/department-registrations', verifyToken, requireCoordOrAdmin, ct
 router.post('/',       verifyToken, requireCoordOrAdmin, uploadEvent.single('image'), ctrl.create);
 router.put('/:id',     verifyToken, requireAdmin, uploadEvent.single('image'), ctrl.update);
 router.patch('/:id/registration', verifyToken, requireAdmin, ctrl.toggleRegistration);
+/* Admin emails a reminder about the event (venue update, days to go, register now, custom) */
+router.post('/:id/remind',       verifyToken, requireAdmin, ctrl.sendReminder);
 router.delete('/:id',  verifyToken, requireAdmin, ctrl.remove);
 
 /* Registration routes */

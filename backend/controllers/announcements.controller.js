@@ -16,6 +16,7 @@ const { pgPool } = require('../config/db');
 const { ensureSoacTables } = require('../services/soacData');
 const { assertCoordOwnsClub } = require('../services/coordAuth');
 const { notifyManyUsers } = require('../services/notify');
+const { sendBroadcastEmail } = require('../config/email');
 const cache = require('../services/cache');
 
 const COLS = [
@@ -207,6 +208,22 @@ const createSOACAnnouncement = async (req, res, next) => {
           url:   '/student/soac-updates',
         });
       }).catch(() => {});
+    /* Email every SOAC member — students, Student Coordinators and Faculty
+       Advisors, each address once — with the category (Event, Deadline,
+       Announcement…) clearly labelled. Background, paced by the shared email queue. */
+    pgPool.query(
+      `SELECT DISTINCT ON (LOWER(u.email)) u.email, u.name
+       FROM users u
+       WHERE u.is_active = true
+         AND u.role IN ('student', 'coordinator', 'faculty_coordinator')
+         AND COALESCE(u.email, '') <> ''
+       ORDER BY LOWER(u.email), COALESCE(u.linked_profile, false), u.id`
+    ).then(({ rows: members }) => {
+      for (const m of members) {
+        sendBroadcastEmail({ toEmail: m.email, toName: m.name, title: title.trim(), body: (body || '').trim(), category: safeTag })
+          .catch(err => console.error(`[announcements] broadcast email failed for ${m.email}:`, err.message));
+      }
+    }).catch(() => {});
     pgPool.query(`SELECT id FROM users WHERE role IN ('coordinator', 'faculty_coordinator') AND is_active = true`)
       .then(({ rows: coords }) => {
         if (!coords.length) return;

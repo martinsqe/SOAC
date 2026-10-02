@@ -295,6 +295,102 @@ const sendJoinRequestsReopening = async ({ toEmail, toName, opensOnLabel = null 
   });
 };
 
+/* Text an admin typed, shown safely in an email: HTML escaped, line breaks kept */
+const escapeHtml = (s = '') => String(s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+const asParagraphs = (s = '') => escapeHtml(s).replace(/\r?\n/g, '<br/>');
+
+/* Category label above the heading — plain text on the white background, like
+   a person would type it */
+const categoryLine = (label) =>
+  `<p style="margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#6b7280">${escapeHtml(label)}</p>`;
+
+/* Admin broadcast → emailed to every club member, category clearly labelled.
+   Written to read like a normal typed email: no badges or boxes. */
+const sendBroadcastEmail = async ({ toEmail, toName, title, body, category = 'Announcement' }) => {
+  await send({
+    to:      toEmail,
+    subject: `[${category}] ${title} — SOAC RKU`,
+    html: wrap(`
+      ${header()}
+      ${categoryLine(category)}
+      <h2 style="color:#1a1040;margin:0 0 18px">${escapeHtml(title)}</h2>
+      <p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">Hi ${escapeHtml(toName || 'there')},</p>
+      ${body ? `<p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">${asParagraphs(body)}</p>` : ''}
+      <p style="color:#333;font-size:15px;line-height:1.7;margin:22px 0 4px">Regards,<br/>SOAC RKU</p>
+      <div style="margin:26px 0">
+        <a href="${APP_URL}/student/soac-updates" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">View SOAC Updates</a>
+      </div>
+      ${footer()}
+    `),
+  });
+};
+
+/* Admin event reminder. kind: 'venue' | 'countdown' | 'register' | 'custom'.
+   event: { id, title, dateLabel, time, venue, organizer }, daysToGo for countdown. */
+const sendEventReminder = async ({ toEmail, toName, kind, event, daysToGo = null, message = '' }) => {
+  const eventUrl = `${APP_URL}/events/${event.id}`;
+  const when = daysToGo === 0 ? 'today' : daysToGo === 1 ? 'tomorrow' : `in ${daysToGo} days`;
+  const SUBJECT = {
+    venue:     `Venue update: ${event.title} — ${event.venue}`,
+    countdown: daysToGo === 0 ? `Today: ${event.title}` : `${daysToGo === 1 ? '1 day' : `${daysToGo} days`} to go: ${event.title}`,
+    register:  `Don't miss out — register for ${event.title}`,
+    custom:    `Reminder: ${event.title}`,
+  };
+  const INTRO = {
+    venue:     `The venue for <strong>${escapeHtml(event.title)}</strong> has been confirmed.`,
+    countdown: `<strong>${escapeHtml(event.title)}</strong> is ${when}! Get ready.`,
+    register:  `Registration is open for <strong>${escapeHtml(event.title)}</strong> and you haven't registered yet — save your spot before it closes.`,
+    custom:    `A reminder about <strong>${escapeHtml(event.title)}</strong>.`,
+  };
+  /* One plain "Label: value" line; the venue is bold in a venue update */
+  const row = (label, value, highlight = false) => value
+    ? `${label}: ${highlight ? `<strong>${escapeHtml(value)}</strong>` : escapeHtml(value)}<br/>`
+    : '';
+  await send({
+    to:      toEmail,
+    subject: `${SUBJECT[kind] || SUBJECT.custom} — SOAC RKU`,
+    html: wrap(`
+      ${header()}
+      ${categoryLine('Event reminder')}
+      <h2 style="color:#1a1040;margin:0 0 18px">${escapeHtml(event.title)}</h2>
+      <p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">Hi ${escapeHtml(toName || 'there')},</p>
+      <p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">${INTRO[kind] || INTRO.custom}</p>
+      ${message ? `<p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">${asParagraphs(message)}</p>` : ''}
+      <p style="color:#333;font-size:15px;line-height:1.9;margin:0 0 14px">
+        ${row('Date', event.dateLabel)}${row('Time', event.time)}${row('Venue', event.venue, kind === 'venue')}${row('Organizer', event.organizer)}
+      </p>
+      <p style="color:#333;font-size:15px;line-height:1.7;margin:22px 0 4px">Regards,<br/>SOAC RKU</p>
+      <div style="margin:26px 0">
+        <a href="${eventUrl}" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">${kind === 'register' ? 'Register now' : 'View event'}</a>
+      </div>
+      ${footer()}
+    `),
+  });
+};
+
+/* Club group chat — a coordinator / Faculty Advisor / admin posted. Deliberately
+   doesn't include the message: members log in to read it. */
+const sendClubChatNotice = async ({ toEmail, toName, clubName, clubId, senderRole }) => {
+  await send({
+    to:      toEmail,
+    subject: `New message in the ${clubName} chat — SOAC RKU`,
+    html: wrap(`
+      ${header()}
+      ${categoryLine('Club chat')}
+      <h2 style="color:#1a1040;margin:0 0 18px">${escapeHtml(clubName)}</h2>
+      <p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">Hi ${escapeHtml(toName || 'there')},</p>
+      <p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">${escapeHtml(senderRole)} has posted a new message in the ${escapeHtml(clubName)} group chat. Log in to SOAC to read it and reply.</p>
+      <p style="color:#333;font-size:15px;line-height:1.7;margin:22px 0 4px">Regards,<br/>SOAC RKU</p>
+      <div style="margin:26px 0">
+        <a href="${APP_URL}/student/clubs/${clubId}" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">Open club chat</a>
+      </div>
+      ${footer()}
+    `),
+  });
+};
+
 /* Club Feed — something new went live. Sent to the club's members; deliberately
    never names who posted it (member or coordinator). */
 const sendClubFeedUpdate = async ({ toEmail, toName, clubName, mediaType = 'image' }) => {
@@ -589,6 +685,9 @@ module.exports = {
   sendJoinRequestsReopening,
   sendClubFeedUpdate,
   sendClubFeedPostLive,
+  sendBroadcastEmail,
+  sendEventReminder,
+  sendClubChatNotice,
   sendCoordinatorCredentials,
   sendCoordinatorAssignment,
   sendPasswordReset,

@@ -2,17 +2,21 @@ import s from './Explore.module.css';
 
 // span: 'wide'=2 cols  'tall'=2 rows  'big'=2×2 feature
 const PHOTOS = [
+  { url: '/soefront.png', label: 'Garba in Front of SOE — Jagannath Rath Yatra 2026', span: 'big' },
   { url: '/images/i20.png',       label: 'Galore 2026 — Annual Mega Fest',                  span: 'tall' },
+  { url: '/rolem6.png', label: 'Role Model Series 2025 — Guest Conversation', span: 'wide' },
   { url: '/images/img6.png',      label: 'Girls Basketball Final'                                         },
   { url: '/images/i12.png',       label: 'Garba & Classical Fusion — Galore 2026',           span: 'big'  },
   { url: '/images/asset-1.png',   label: 'Classical Dance Performance — Galore 2024'                      },
   { url: '/images/i14.png',       label: 'Inter-Department Football'                                       },
-  { url: '/rath.png',   label: 'SOAC Jaganath Ceremony',             span: 'tall' },
+  { url: '/rolem2.png', label: 'Role Model Series 2025 — Folk Dance Performance', span: 'wide' },
+  { url: '/rath.png', label: 'SOAC — Jagannath Rath Yatra 2026', span: 'tall' },
   { url: '/images/img4.png',      label: 'Basketball Championship',                          span: 'tall' },
-    { url: '/Rasotsav2.png',        label: 'Rasotsav — Men in Traditional Garba Attire',      span: 'big' },
-
+  { url: '/path.png', label: 'Jagannath Rath Yatra 2026 — Procession Across Campus', span: 'big' },
+  { url: '/Rasotsav2.png', label: 'Rasotsav — Men in Traditional Garba Attire', span: 'big' },
   { url: '/images/asset-5.png',   label: 'Echoes of Independence — Dance Tribute, Aug 2024', span: 'wide' },
   { url: '/images/i15.png',       label: 'NCC Guard of Honour',                             span: 'tall'  },
+  { url: '/astha.png', label: "Address by SOAC Volunteers' President — Rath Yatra 2026", span: 'big' },
   { url: '/images/img8.png',      label: 'Cricket League — 300+ Spectators',                span: 'wide' },
   { url: '/images/asset-7.png',   label: 'Mime Theatre — Indoor Cultural Performance',       span: 'big'  },
   { url: '/images/i18.png',       label: 'Galore 2026 Inauguration'                                        },
@@ -21,17 +25,17 @@ const PHOTOS = [
   { url: '/images/img7.png',      label: 'Chess — Three Members in Top 5'                                  },
   { url: '/images/asset-9.png',   label: 'NCC Cadets — Group Photo at RK University',       span: 'wide' },
   { url: '/images/asset-6.png',   label: "Volleyball — Sports Fiesta '25"                                  },
-    { url: '/Rasotsav3.png',        label: 'Rasotsav — Women Dancing Under Fairy Lights',     span: 'big' },
-
+  { url: '/Rasotsav3.png', label: 'Rasotsav — Women Dancing Under Fairy Lights', span: 'big' },
+  { url: '/rolem4.png', label: 'Role Model Series 2025 — Packed Auditorium', span: 'big' },
   { url: '/images/asset-10.png',  label: 'Student Entrepreneurship Exhibition'                              },
   { url: '/images/i24.png',       label: 'Table Tennis Championship',                       span: 'tall' },
   { url: '/images/asset-11.png',  label: 'Mime Theatre — Galore Stage Performance'                         },
   { url: '/images/i9.png',        label: 'Campus Life — SOAC Events'                                       },
-  { url: '/rath1.png',  label: 'SOAC Jaganath Ceremony',           span: 'tall' },
+  { url: '/rath1.png', label: 'Jagannath Rath Yatra 2026 — The Rath', span: 'tall' },
   { url: '/images/asset-32.jpeg', label: 'Inter-Department Football Match',                  span: 'wide' },
   { url: '/images/img3.png',      label: 'Art & Imagination Exhibition'                                     },
-    { url: '/Rasotsav1.png',        label: 'Rasotsav — Aerial View of RKU Garba Night',       span: 'big' },
-
+  { url: '/Rasotsav1.png', label: 'Rasotsav — Aerial View of RKU Garba Night', span: 'big' },
+  { url: '/rolem5.png', label: 'Role Model Series 2025 — Inspiring Students', span: 'wide' },
   { url: '/images/i13.png',       label: 'Student Activities',                              span: 'tall' },
   { url: '/images/asset-17.png',  label: "Volleyball Spike — Sports Fiesta '25",            span: 'wide' },
   { url: '/images/img5.png',      label: 'Basketball Layup — RKU Outdoor Court'                             },
@@ -61,7 +65,7 @@ export default function Explore() {
 
         <div className={s.header}>
           <h1 className={s.title}>Discover, Invent and Create your Passion.</h1>
-          <p className={s.sub}>SOAC is here to make it possible. Expore your Interests and Join a Club.</p>
+          <p className={s.sub}>SOAC is here to make it possible. Explore your Interests and Join a Club.</p>
         </div>
 
         <div className={s.grid}>

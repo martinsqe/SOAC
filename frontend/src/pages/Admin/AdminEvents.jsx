@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'; // useCallback
 import api from '../../api/client';
 import { fetchAllPages } from '../../utils/pagination';
 import CertTemplateEditor from '../../components/CertTemplateEditor/CertTemplateEditor';
+import EventReminderModal from '../../components/EventReminderModal/EventReminderModal';
 import s from './AdminEvents.module.css';
 
 /* Long description cut to `limit` characters with an inline "…read more"
@@ -327,7 +328,7 @@ const requestChain = (req) => {
 };
 
 /* ── Event Card ── */
-function EventCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg }) {
+function EventCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg, onRemind }) {
   const color = CAT_COLOR[ev.category] || '#888';
   const imgSrc = ev.imageUrl || (ev.image ? `/images/${ev.image}` : null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -384,6 +385,12 @@ function EventCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg }) {
           {linkCopied ? 'Link copied ✓' : '🔗 Copy Registration Link'}
         </button>
       </div>
+      <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
+        <button className={s.regsBtn} onClick={() => onRemind(ev)} style={{ width: '100%' }}
+          title="Email a reminder about this event — venue update, days to go, register now…">
+          📣 Send Reminder
+        </button>
+      </div>
     </div>
   );
 }
@@ -394,7 +401,7 @@ function EventCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg }) {
    included) lands in event_registrations just like an Other Events sign-up,
    so "Registrations" here opens the exact same panel/CSV export, just
    showing every team's members instead of individual sign-ups. ── */
-function SportsFiestaCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg }) {
+function SportsFiestaCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg, onRemind }) {
   const imgSrc = ev.imageUrl || (ev.image ? `/images/${ev.image}` : null);
   const captainSet = !!ev.captainName;
   const [linkCopied, setLinkCopied] = useState(false);
@@ -464,6 +471,12 @@ function SportsFiestaCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg }) {
           {linkCopied ? 'Link copied ✓' : '🔗 Copy Team Link'}
         </button>
       </div>
+      <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
+        <button className={s.regsBtn} onClick={() => onRemind(ev)} style={{ width: '100%' }}
+          title="Email a reminder about this event — venue update, days to go, register now…">
+          📣 Send Reminder
+        </button>
+      </div>
     </div>
   );
 }
@@ -504,6 +517,7 @@ export default function AdminEvents() {
   const [rejectNote,  setRejectNote]  = useState('');
   const [rejecting,   setRejecting]   = useState(false);
   const [toast,       setToast]       = useState('');
+  const [remindEvent, setRemindEvent] = useState(null);   // event whose reminder dialog is open
 
   /* ── Clubs list (for dropdown) ── */
   const [clubs, setClubs] = useState([]);
@@ -1214,6 +1228,11 @@ export default function AdminEvents() {
   return (
     <div className={s.page}>
 
+      {/* ── Event reminder email ── */}
+      {remindEvent && (
+        <EventReminderModal ev={remindEvent} onClose={() => setRemindEvent(null)} onSent={showToast} />
+      )}
+
       {/* ── Toast ── */}
       {toast && (
         <div style={{ position:'fixed', top:20, right:24, background:'#059669', color:'#fff',
@@ -1321,7 +1340,7 @@ export default function AdminEvents() {
           ) : (
             <div className={s.grid}>
               {otherEvents.map(ev => (
-                <EventCard key={ev._id} ev={ev} onEdit={openEdit} onDelete={setDeleteId} onViewRegs={viewRegs} onToggleReg={handleToggleReg} />
+                <EventCard key={ev._id} ev={ev} onEdit={openEdit} onDelete={setDeleteId} onViewRegs={viewRegs} onToggleReg={handleToggleReg} onRemind={setRemindEvent} />
               ))}
             </div>
           )}
@@ -1350,7 +1369,7 @@ export default function AdminEvents() {
           ) : (
             <div className={s.grid}>
               {sportsFiestaEvents.map(ev => (
-                <SportsFiestaCard key={ev._id} ev={ev} onEdit={openEditSF} onDelete={setDeleteId} onViewRegs={viewRegs} onToggleReg={handleToggleReg} />
+                <SportsFiestaCard key={ev._id} ev={ev} onEdit={openEditSF} onDelete={setDeleteId} onViewRegs={viewRegs} onToggleReg={handleToggleReg} onRemind={setRemindEvent} />
               ))}
             </div>
           )}
@@ -1566,6 +1585,12 @@ export default function AdminEvents() {
                         title={ev.registrationClosed ? 'Let students register for this Galore event again' : 'Stop new registrations for this Galore event (each activity can also be closed individually)'}
                       >
                         {ev.registrationClosed ? 'Reopen Registration' : 'Close Registration'}
+                      </button>
+                    </div>
+                    <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
+                      <button className={s.regsBtn} onClick={() => setRemindEvent(ev)} style={{ width: '100%' }}
+                        title="Email a reminder about this Galore event">
+                        📣 Send Reminder
                       </button>
                     </div>
                   </div>

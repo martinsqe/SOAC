@@ -5,7 +5,7 @@ const { destroyImage } = require('../config/cloudinary');
 const { getFileValue, uploadImageBuffer } = require('../config/multer');
 const { autoRefreshReportIfExists } = require('./reports.controller');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
-const { sendGaloreActivityAssignment } = require('../config/email');
+const { sendGaloreActivityAssignment, sendEventReminder } = require('../config/email');
 const cache = require('../services/cache');
 const { syncPastEvents } = require('../services/eventStatus');
 const { MAIN_CAMPUS, adminCampus } = require('../services/campus');
@@ -1574,7 +1574,103 @@ const getMyAssignments = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+/* ── POST /api/events/:id/remind  (admin) ─────────────────────────────────────
+   Email a reminder about an event.
+   body: { type, audience, message?, dryRun? }
+     type     'venue'     — venue confirmed / changed (needs a venue set)
+              'countdown' — "N days to go" (from the event's start date)
+              'register'  — nudge people who haven't registered (registration open)
+              'custom'    — admin's own message
+     audience 'registered' — everyone registered for the event (incl. Galore activities)
+              'members'    — the organizing club's members; for a SOAC-wide event,
+                             every club member on the event's campus
+              'both'
+     For 'register' the audience is always members who HAVEN'T registered yet.
+   dryRun: true → only returns how many people would be emailed. ── */
+const REMINDER_TYPES = ['venue', 'countdown', 'register', 'custom'];
+
+const sendReminder = async (req, res, next) => {
+  try {
+    const { type, audience = 'both', message = '', dryRun = false } = req.body || {};
+    if (!REMINDER_TYPES.includes(type)) return res.status(400).json({ message: 'Choose what the reminder is about.' });
+    if (type === 'custom' && !String(message).trim()) return res.status(400).json({ message: 'Write the reminder message.' });
+    if (String(message).length > 1000) return res.status(400).json({ message: 'Keep the message under 1000 characters.' });
+
+    const { rows: evRows } = await pgPool.query(
+      `SELECT id, title, club, club_id, date, time, venue, status, registration_closed, campus,
+              ((start_date AT TIME ZONE 'Asia/Kolkata')::date - (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS days_to_go
+       FROM events WHERE id = $1 AND is_active = true`,
+      [req.params.id]
+    );
+    const ev = evRows[0];
+    if (!ev) return res.status(404).json({ message: 'Event not found.' });
+    const daysToGo = ev.days_to_go === null ? null : Number(ev.days_to_go);
+
+    if (type === 'venue' && !String(ev.venue || '').trim()) {
+      return res.status(400).json({ message: 'This event has no venue yet — edit the event to set it, then send the venue update.' });
+    }
+    if (type === 'countdown' && (daysToGo === null || daysToGo < 0)) {
+      return res.status(400).json({ message: daysToGo === null ? 'This event has no start date set.' : 'This event has already started.' });
+    }
+    if (type === 'register' && (ev.registration_closed || ev.status === 'past')) {
+      return res.status(400).json({ message: 'Registration is closed for this event.' });
+    }
+
+    /* Registered participants (the event and any Galore activities under it) */
+    const { rows: registered } = await pgPool.query(
+      `SELECT DISTINCT ON (LOWER(er.email)) LOWER(er.email) AS email, er.name
+       FROM event_registrations er
+       WHERE (er.event_id = $1 OR er.event_id IN (SELECT id FROM events WHERE parent_event_id = $1))
+         AND er.email NOT LIKE '%@roster.internal'`,
+      [ev.id]
+    );
+    /* Club members: the organizing club's, or every club member on the event's campus */
+    const { rows: members } = await pgPool.query(
+      `SELECT DISTINCT ON (LOWER(u.email)) LOWER(u.email) AS email, u.name
+       FROM student_clubs sc
+       JOIN users u ON u.id = sc.user_id AND u.is_active = true AND u.role = 'student'
+       JOIN clubs c ON c.id = sc.club_id AND c.is_active = true
+       WHERE sc.is_active = true
+         AND ${ev.club_id ? 'sc.club_id = $1' : 'c.campus = $1'}`,
+      [ev.club_id || ev.campus]
+    );
+
+    const registeredSet = new Set(registered.map(r => r.email));
+    let recipients;
+    if (type === 'register') {
+      recipients = members.filter(m => !registeredSet.has(m.email));
+    } else {
+      const byEmail = new Map();
+      if (audience === 'registered' || audience === 'both') registered.forEach(r => byEmail.set(r.email, r));
+      if (audience === 'members'    || audience === 'both') members.forEach(m => { if (!byEmail.has(m.email)) byEmail.set(m.email, m); });
+      recipients = [...byEmail.values()];
+    }
+
+    if (dryRun) {
+      return res.json({ count: recipients.length, registered: registered.length, members: members.length, daysToGo, venue: ev.venue || '' });
+    }
+    if (!recipients.length) return res.status(400).json({ message: 'Nobody to remind for this choice yet.' });
+
+    res.json({ sent: recipients.length, message: `Reminder is being emailed to ${recipients.length} ${recipients.length === 1 ? 'person' : 'people'}.` });
+
+    await pgPool.query(
+      `INSERT INTO audit_log (user_id, user_name, action, entity_type, entity_id, meta)
+       VALUES ($1, $2, 'SEND_EVENT_REMINDER', 'event', $3, $4)`,
+      [req.user.id, req.user.name, String(ev.id), JSON.stringify({ type, audience, recipients: recipients.length })]
+    ).catch(() => {});
+
+    const event = {
+      id: ev.id, title: ev.title, dateLabel: ev.date, time: ev.time, venue: ev.venue, organizer: ev.club || 'SOAC',
+    };
+    for (const r of recipients) {
+      sendEventReminder({ toEmail: r.email, toName: r.name, kind: type, event, daysToGo, message: String(message).trim() })
+        .catch(err => console.error(`[events] reminder email failed for ${r.email}:`, err.message));
+    }
+  } catch (err) { next(err); }
+};
+
 module.exports = {
+  sendReminder,
   getAll, getLiveScores, getPastScores, getOne, getActivities,
   getGaloreDepartments, getGaloreCatalog, getGaloreCoordinators, createGaloreEvent, getDepartmentRegistrations,
   getMyAssignments,

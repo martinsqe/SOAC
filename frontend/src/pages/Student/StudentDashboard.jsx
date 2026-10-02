@@ -319,7 +319,7 @@ export default function StudentDashboard() {
               const mon  = d.toLocaleString('default', { month: 'short' });
               const day  = d.getDate();
               return (
-                <div key={ev.id} className={s.calRow} style={{ borderLeftColor: meta.color }}>
+                <div key={ev.id} className={s.calRow}>
                   <div className={s.calDate}>
                     <div className={s.calMon}>{mon}</div>
                     <div className={s.calDay}>{day}</div>

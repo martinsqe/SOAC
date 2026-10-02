@@ -154,7 +154,7 @@ function BroadcastsTab({ showToast }) {
       <div className={s.sectionHead}>
         <div>
           <p className={s.sectionTitle}>SOAC Broadcasts</p>
-          <p className={s.sectionSub}>Campus-wide updates visible to all students and coordinators.</p>
+          <p className={s.sectionSub}>Campus-wide updates visible to all students and coordinators — and emailed to every SOAC member (students, Student Coordinators and Faculty Advisors), labelled with the category you choose.</p>
         </div>
         <button className={s.btnPrimary} onClick={() => setOpen(true)}>+ New Broadcast</button>
       </div>
@@ -385,7 +385,7 @@ function CalendarTab({ showToast }) {
                       <div className={s.calCellEvents}>
                         {evs.map(ev => (
                           <div key={ev.id} className={s.calChip}
-                            style={{ background: TYPE_META[ev.type]?.bg || '#f0f0ff', color: TYPE_META[ev.type]?.color || '#635BFF', borderLeftColor: TYPE_META[ev.type]?.color || '#635BFF' }}
+                            style={{ background: TYPE_META[ev.type]?.bg || '#f0f0ff', color: TYPE_META[ev.type]?.color || '#635BFF' }}
                             onClick={e => { e.stopPropagation(); openEdit(ev); }}>
                             {ev.title}
                           </div>
@@ -590,7 +590,6 @@ function PlannerTab({ showToast }) {
                     const meta = TYPE_META[ev.type] || TYPE_META.event;
                     return (
                       <div key={ev.id} className={s.plannerItem}
-                        style={{ borderLeftColor: meta.color }}
                         onClick={() => openEdit(ev)}>
                         <div className={s.plannerItemLeft}>
                           <span className={s.plannerItemType}
