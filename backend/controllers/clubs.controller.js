@@ -11,6 +11,7 @@ const cache = require('../services/cache');
 const { MAIN_CAMPUS, CITY_CAMPUS, adminCampus, ensureCityCampusClubs, campusSlug, campusOfClub } = require('../services/campus');
 const { findStudentAccount, unusablePasswordHash } = require('../services/accounts');
 const { notifyAdminsOfClubChange } = require('./clubDetail.controller');
+const { notifyManyUsers } = require('../services/notify');
 const { markApprovedWithClub, notifyProposalApproved } = require('./clubProposals.controller');
 
 /* Longest a staff-assignment request waits on the credentials email before
@@ -878,12 +879,45 @@ const toggleMemberActive = async (req, res, next) => {
       cache.del(`student:${req.params.userId}`),
     ]);
 
+    /* A Faculty Advisor / Student Coordinator changed a membership → tell the admins */
+    if (MEMBER_ACTION_ROLE_LABEL[req.user.role]) {
+      notifyAdminsOfMemberStatus(req, membership).catch(err =>
+        console.error('[clubs] member status notice failed:', err.message));
+    }
+
     res.json({
       message: membership.is_active ? 'Member reactivated.' : 'Member deactivated.',
       membershipActive: membership.is_active,
       deactivatedAt: membership.deactivated_at,
     });
   } catch (err) { next(err); }
+};
+
+const MEMBER_ACTION_ROLE_LABEL = {
+  faculty_coordinator: 'Faculty Advisor',
+  coordinator:         'Student Coordinator',
+};
+
+const notifyAdminsOfMemberStatus = async (req, membership) => {
+  const [{ rows: info }, { rows: admins }] = await Promise.all([
+    pgPool.query(
+      `SELECT c.name AS club_name, c.campus, u.name AS student_name
+       FROM clubs c, users u WHERE c.id = $1::bigint AND u.id = $2::int`,
+      [membership.club_id, membership.user_id]
+    ),
+    pgPool.query(`SELECT id FROM users WHERE role = 'admin' AND is_active = true`),
+  ]);
+  if (!admins.length || !info.length) return;
+  const { club_name: clubName, campus, student_name: studentName } = info[0];
+  const action = membership.is_active ? 'reactivated' : 'deactivated';
+  await notifyManyUsers({
+    userIds: admins.map(a => a.id),
+    clubId:  membership.club_id,
+    title:   `Member ${action}`,
+    body:    `${MEMBER_ACTION_ROLE_LABEL[req.user.role]} ${req.user.name} ${action} ${studentName}'s membership in ${clubName} (${campus}).`,
+    type:    'member_status',
+    url:     '/admin/members',
+  });
 };
 
 /* GET /api/clubs/coordinator-assignments?email=X&clubId=Y  (admin, or a Faculty

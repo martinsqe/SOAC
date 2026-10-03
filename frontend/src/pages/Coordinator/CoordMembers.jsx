@@ -258,6 +258,7 @@ export default function CoordMembers() {
                 <th>Gender</th>
                 <th>Joined</th>
                 <th>Status</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -308,6 +309,21 @@ export default function CoordMembers() {
                     {m.membershipActive === false
                       ? <span style={{ background: '#fef2f2', color: '#b91c1c', padding: '2px 9px', borderRadius: 4, fontSize: '.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Deactivated</span>
                       : <span style={{ background: '#f0fdf4', color: '#15803d', padding: '2px 9px', borderRadius: 4, fontSize: '.78rem', fontWeight: 600 }}>Active</span>}
+                  </td>
+                  <td onClick={e => e.stopPropagation()}>
+                    <button
+                      onClick={() => toggleActive(m)}
+                      disabled={togglingId === m.id}
+                      style={{
+                        padding: '5px 12px', borderRadius: 4, fontSize: '.75rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+                        border: m.membershipActive === false ? '1.5px solid #86efac' : '1.5px solid #fca5a5',
+                        background: m.membershipActive === false ? '#f0fdf4' : '#fff1f2',
+                        color: m.membershipActive === false ? '#15803d' : '#dc2626',
+                        opacity: togglingId === m.id ? .6 : 1,
+                      }}
+                    >
+                      {togglingId === m.id ? '…' : (m.membershipActive === false ? 'Reactivate' : 'Deactivate')}
+                    </button>
                   </td>
                 </tr>
               ))}
