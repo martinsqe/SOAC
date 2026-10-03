@@ -786,3 +786,33 @@
   .grid { grid-template-columns: 1fr; }
   .mg2 { grid-template-columns: 1fr; }
 }
+
+/* Founding year — small tag in the top-left corner of the card */
+.cardEst {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 3px 9px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .05);
+  color: var(--muted, #888);
+}
+
+/* Faculty Advisors — same font as the description; only "FA:" is bold */
+.cardFA {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted, #888);
+}
+
+.cardFA strong {
+  font-weight: 700;
+}
+
+.cardFAList {
+  margin-bottom: 8px;
+}

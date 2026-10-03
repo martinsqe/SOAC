@@ -478,6 +478,8 @@ const normalise = (c) => ({
   members:  c.memberCount,
   events:   c.eventCount,
   coord:    c.coordinator,
+  mainFA:   c.mainCampusFA || '',
+  cityFA:   c.cityCampusFA || '',
   yr:       c.foundedYear,
   desc:     c.description || '',
   _id:      c._id,
@@ -674,6 +676,7 @@ const Clubs = () => {
                       <span className={styles.cardCat} style={{ background: (CAT_COLORS[club.cat] || '#635BFF') + '14', color: CAT_COLORS[club.cat] || '#635BFF' }}>
                         {CAT_LABELS[club.cat] || club.cat}
                       </span>
+                      {club.yr && <span className={styles.cardEst}>Est. {club.yr}</span>}
                       <div className={styles.cardLogo}>
                         <img
                           src={club._apiLogo || `/logos/${club.logo}`}
@@ -686,9 +689,10 @@ const Clubs = () => {
                     </div>
                     <div className={styles.cardBody}>
                       <div className={styles.cardName}>{club.name}</div>
-                      {/* Coordinator shown only once one is assigned */}
-                      <div className={styles.cardCoord}>
-                        {[club.coord && `Coordinator: ${club.coord}`, club.yr && `Est. ${club.yr}`].filter(Boolean).join(' · ')}
+                      {/* Faculty Advisors — each line shown only once that campus has one assigned */}
+                      <div className={styles.cardFAList}>
+                        {club.mainFA && <div className={styles.cardFA}><strong>FA:</strong> {club.mainFA} (Main Campus)</div>}
+                        {club.cityFA && <div className={styles.cardFA}><strong>FA:</strong> {club.cityFA} (City Campus)</div>}
                       </div>
                       {club.desc ? (
                         <div className={styles.cardDescWrap}>

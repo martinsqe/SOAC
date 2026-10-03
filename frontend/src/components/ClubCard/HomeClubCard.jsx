@@ -1,24 +1,25 @@
+import { useState } from 'react';
 import s from './HomeClubCard.module.css';
 
+/* Same categories and colours as the Clubs page */
 const CAT_COLORS = {
-  tech:      '#635BFF',
-  sports:    '#FF4757',
-  cultural:  '#FF6B9D',
-  health:    '#00C896',
-  community: '#4B6E2E',
+  sports:   '#FF4757',
+  cultural: '#FF6B9D',
+  social:   '#06D6A0',
+  academic: '#635BFF',
 };
 
 const CAT_LABELS = {
-  tech:      'Technology',
-  sports:    'Sports',
-  cultural:  'Cultural',
-  health:    'Health',
-  community: 'Community',
+  sports:   'Sports',
+  cultural: 'Cultural',
+  social:   'Social',
+  academic: 'Academic',
 };
 
 const HomeClubCard = ({ club, delay, onJoin, user }) => {
   const catColor = CAT_COLORS[club.cat] || club.color || '#635BFF';
   const catLabel = CAT_LABELS[club.cat] || club.cat || '';
+  const [descOpen, setDescOpen] = useState(false);
 
   return (
     <div className={`${s.card} fade ${delay}`}>
@@ -26,6 +27,7 @@ const HomeClubCard = ({ club, delay, onJoin, user }) => {
         <span className={s.cardCat} style={{ background: catColor + '14', color: catColor }}>
           {catLabel}
         </span>
+        {club.yr && <span className={s.cardEst}>Est. {club.yr}</span>}
         <div className={s.cardLogo}>
           <img
             src={club._apiLogo || `/logos/${club.logo}`}
@@ -41,13 +43,21 @@ const HomeClubCard = ({ club, delay, onJoin, user }) => {
 
       <div className={s.cardBody}>
         <div className={s.cardName}>{club.name}</div>
-        {club.coord && (
-          <div className={s.cardCoord}>👔 {club.coord} · Est. {club.yr}</div>
-        )}
-        <div className={s.cardStats}>
-          <span style={{ color: '#635BFF' }}>👥 {club.members ?? '—'} members</span>
-          <span style={{ color: '#00C896' }}>📅 {club.events ?? '—'} events</span>
+        {/* Faculty Advisors — each line shown only once that campus has one assigned */}
+        <div className={s.cardFAList}>
+          {club.mainFA && <div className={s.cardFA}><strong>FA:</strong> {club.mainFA} (Main Campus)</div>}
+          {club.cityFA && <div className={s.cardFA}><strong>FA:</strong> {club.cityFA} (City Campus)</div>}
         </div>
+        {club.desc ? (
+          <div className={s.cardDescWrap}>
+            <span className={`${s.cardDesc} ${descOpen ? s.cardDescOpen : ''}`}>{club.desc}</span>
+            <button type="button" className={s.readMoreBtn} onClick={() => setDescOpen(o => !o)}>
+              {descOpen ? 'Show less' : 'Read more'}
+            </button>
+          </div>
+        ) : club._id ? (
+          <div className={s.cardDescEmpty}>No description added yet.</div>
+        ) : null}
       </div>
 
       <div className={s.cardFoot}>

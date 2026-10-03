@@ -41,6 +41,24 @@ const withStaffNames = (club, row) => {
   return club;
 };
 
+/* Faculty Advisor of each campus copy of the club — for the public club cards,
+   which list the Main Campus FA and the City Campus FA. Works from either copy:
+   the Main copy is the one with no main_club_id, the City copy links to it. */
+const faOfClubSql = (clubIdSql) => `(SELECT u.name FROM coordinator_club_assignments cca
+   JOIN users u ON u.id = cca.user_id AND u.is_active = true AND u.role = 'faculty_coordinator'
+   WHERE cca.club_id = ${clubIdSql} AND cca.is_active = true
+   ORDER BY cca.updated_at DESC NULLS LAST, cca.id DESC LIMIT 1)`;
+const MAIN_COPY_ID = `COALESCE(clubs.main_club_id, clubs.id)`;
+const CAMPUS_FA_SQL = `${faOfClubSql(MAIN_COPY_ID)} AS main_fa_name,
+   ${faOfClubSql(`(SELECT twin.id FROM clubs twin
+      WHERE twin.main_club_id = ${MAIN_COPY_ID} AND twin.campus = '${CITY_CAMPUS}'
+      ORDER BY twin.id LIMIT 1)`)} AS city_fa_name`;
+const withCampusAdvisors = (club, row) => {
+  club.mainCampusFA = row.main_fa_name || '';
+  club.cityCampusFA = row.city_fa_name || '';
+  return club;
+};
+
 /* One club with live counts and staff names — for responses after a write */
 const loadClub = async (id) => {
   const { rows } = await pgPool.query(
@@ -123,6 +141,7 @@ const getAll = async (req, res, next) => {
               (SELECT COUNT(*)::int FROM student_clubs WHERE club_id = clubs.id AND is_active = true) AS real_member_count,
               ${EVENT_COUNT_SQL} AS real_event_count,
               ${STAFF_NAMES_SQL},
+              ${CAMPUS_FA_SQL},
               COUNT(*) OVER() AS total_count
        FROM clubs
        WHERE ${clauses.join(' AND ')}
@@ -134,7 +153,7 @@ const getAll = async (req, res, next) => {
     const total  = Number(rows[0]?.total_count ?? 0);
     const result = {
       clubs:      rows.map((r) => {
-        const club = withStaffNames(asClub(r), r);
+        const club = withCampusAdvisors(withStaffNames(asClub(r), r), r);
         club.memberCount = r.real_member_count;   // live count
         club.eventCount  = r.real_event_count;    // live count
         return withLogoUrl(club);

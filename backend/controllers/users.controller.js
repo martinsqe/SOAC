@@ -160,7 +160,7 @@ const update = async (req, res, next) => {
       [name, role, is_active, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'User not found.' });
-    await cache.del(`session:user:${req.params.id}`);
+    await Promise.all([cache.del(`session:user:${req.params.id}`), cache.delPattern('clubs:*')]);
     res.json({ user: rows[0] });
   } catch (err) {
     /* An email can hold one student and one staff account — not two of a kind */
@@ -1165,6 +1165,10 @@ const updateProfile = async (req, res, next) => {
       );
       await Promise.all(clubRows.map(r => cache.del(`clubs:${r.club_id}`)));
     }
+    /* Staff names appear on the public club cards */
+    if (req.user.role === 'coordinator' || req.user.role === 'faculty_coordinator') {
+      await cache.delPattern('clubs:*');
+    }
 
     res.json({ user: { ...u, avatar: u.avatar || '', managedClubId: u.managed_club_id || null } });
   } catch (err) { next(err); }
@@ -1214,7 +1218,7 @@ const assignClub = async (req, res, next) => {
        VALUES ($1, $2, 'ASSIGN_CLUB', 'user', $3, $4)`,
       [req.user.id, req.user.name, String(userId), JSON.stringify({ clubId })]
     );
-    await cache.del(`session:user:${userId}`);
+    await Promise.all([cache.del(`session:user:${userId}`), cache.delPattern('clubs:*')]);
     res.json({ user: rows[0] });
 
     /* Notify the coordinator when actually assigned to a club (not on removal). */
