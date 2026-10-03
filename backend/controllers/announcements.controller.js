@@ -16,7 +16,7 @@ const { pgPool } = require('../config/db');
 const { ensureSoacTables } = require('../services/soacData');
 const { assertCoordOwnsClub } = require('../services/coordAuth');
 const { notifyManyUsers } = require('../services/notify');
-const { sendBroadcastEmail } = require('../config/email');
+const { sendBroadcastEmail, sendClubAnnouncementEmail } = require('../config/email');
 const cache = require('../services/cache');
 
 const COLS = [
@@ -161,6 +161,29 @@ const createClubAnnouncement = async (req, res, next) => {
         url:   `/student/clubs/${clubId}`,
       });
     }).catch(() => {});
+
+    /* Email the club's members the whole announcement (each address once) */
+    const ROLE_NAME = { coordinator: 'Student Coordinator', faculty_coordinator: 'Faculty Advisor', admin: 'SOAC Admin' };
+    pgPool.query(
+      `SELECT c.name AS club_name, m.email, m.name
+       FROM clubs c
+       JOIN LATERAL (
+         SELECT DISTINCT ON (LOWER(u.email)) u.email, u.name
+         FROM student_clubs sc
+         JOIN users u ON u.id = sc.user_id AND u.is_active = true AND u.role = 'student'
+         WHERE sc.club_id = c.id AND sc.is_active = true AND COALESCE(u.email, '') <> ''
+       ) m ON true
+       WHERE c.id = $1::bigint`,
+      [clubId]
+    ).then(({ rows: members }) => {
+      for (const m of members) {
+        sendClubAnnouncementEmail({
+          toEmail: m.email, toName: m.name, clubName: m.club_name, clubId,
+          title: title.trim(), body: (body || '').trim(), category: safeTag,
+          postedBy: `${req.user.name} (${ROLE_NAME[req.user.role] || 'Club'})`,
+        }).catch(err => console.error(`[announcements] email failed for ${m.email}:`, err.message));
+      }
+    }).catch(err => console.error('[announcements] club email lookup failed:', err.message));
   } catch (err) { next(err); }
 };
 

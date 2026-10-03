@@ -370,6 +370,243 @@ const sendEventReminder = async ({ toEmail, toName, kind, event, daysToGo = null
   });
 };
 
+/* ═══ Plain "typed" emails with clearly arranged details ═══════════════════════
+   Shared pieces for the request / proposal / announcement / message emails:
+   a category line, heading, greeting, paragraphs, label-value tables and a
+   sign-off — no coloured boxes or badges, so they read like a typed email. */
+const para = (html) => `<p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">${html}</p>`;
+const signOff = () => para('Regards,<br/>SOAC RKU');
+const actionButton = (href, label) => `
+  <div style="margin:26px 0">
+    <a href="${href}" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">${escapeHtml(label)}</a>
+  </div>`;
+const isBlank = (v) => v === undefined || v === null || String(v).trim() === '';
+
+/* rows: [label, value] — blank values are skipped. Values are escaped, line breaks kept. */
+const detailTable = (heading, rows) => {
+  const body = rows
+    .filter(([, v]) => !isBlank(v))
+    .map(([label, v]) => `
+      <tr>
+        <td style="padding:8px 14px 8px 0;border-bottom:1px solid #f0f0f3;color:#6b7280;font-size:13px;vertical-align:top;width:38%">${escapeHtml(label)}</td>
+        <td style="padding:8px 0;border-bottom:1px solid #f0f0f3;color:#1f2937;font-size:14px;line-height:1.6;vertical-align:top">${asParagraphs(String(v))}</td>
+      </tr>`)
+    .join('');
+  if (!body) return '';
+  return `
+    ${heading ? `<p style="margin:24px 0 4px;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#1a1040">${escapeHtml(heading)}</p>` : ''}
+    <table role="presentation" style="width:100%;border-collapse:collapse;margin:0 0 6px">${body}</table>`;
+};
+
+const plainEmail = ({ category, title, toName, intro = [], sections = '', outro = [], button = null }) => wrap(`
+  ${header()}
+  ${categoryLine(category)}
+  <h2 style="color:#1a1040;margin:0 0 18px">${escapeHtml(title)}</h2>
+  ${para(`Hi ${escapeHtml(toName || 'there')},`)}
+  ${intro.map(para).join('')}
+  ${sections}
+  ${outro.length ? `<div style="margin-top:18px">${outro.map(para).join('')}</div>` : ''}
+  ${signOff()}
+  ${button ? actionButton(button.href, button.label) : ''}
+  ${footer()}
+`);
+
+const fmtLongDate = (d) => {
+  if (!d) return '';
+  const dt = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(dt.getTime())) return String(d);
+  return dt.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kolkata' });
+};
+const ROLE_NAME = { coordinator: 'Student Coordinator', faculty_coordinator: 'Faculty Advisor', admin: 'SOAC Admin', student: 'Student' };
+
+/* ── Event requests ────────────────────────────────────────────────────────── */
+/* Every field the Student Coordinator / Faculty Advisor filled in */
+const eventRequestSections = (r) => {
+  const tags = Array.isArray(r.tags) ? r.tags.join(', ') : (r.tags || '');
+  const fee  = r.is_free === false || r.is_free === 'false' ? `Paid — ₹${Number(r.fee_amount) || 0}` : 'Free';
+  return detailTable('Event details', [
+    ['Event',             r.title],
+    ['Club',              r.club_name],
+    ['Submitted by',      r.coordinator_name ? `${r.coordinator_name} (${ROLE_NAME[r.submitted_by_role] || 'Student Coordinator'})` : ''],
+    ['Category',          r.category ? r.category.charAt(0).toUpperCase() + r.category.slice(1) : ''],
+    ['Date',              fmtLongDate(r.start_date) || r.date],
+    ['Time',              r.time],
+    ['Venue',             r.venue],
+    ['Seats',             r.seats],
+    ['Entry',             fee],
+    ['Registration link', r.registration_url],
+    ['Tags',              tags],
+    ['Highlight',         r.highlight],
+    ['Special day',       r.is_special_day ? (r.special_day_name || 'Yes') : ''],
+    ['Poster',            r.image && String(r.image).startsWith('http') ? r.image : ''],
+  ]) + detailTable('About the event', [
+    ['Description',                     r.description],
+    ['Objective',                       r.objective],
+    ['Expected outcome',                r.expected_outcome],
+    ['Who can participate',             r.target_audience],
+    ['Expectations from the university', r.university_expectations],
+  ]);
+};
+
+/* stage: 'fa_review' → to the club's Faculty Advisor; 'admin_review' → to admins */
+const sendEventRequestForReview = async ({ toEmail, toName, stage, request, forwardedBy = '' }) => {
+  const forAdmin = stage === 'admin_review';
+  const intro = forAdmin
+    ? [forwardedBy
+        ? `${escapeHtml(forwardedBy)} (Faculty Advisor) has approved an event request from <strong>${escapeHtml(request.club_name)}</strong> and forwarded it to you for final approval.`
+        : `<strong>${escapeHtml(request.club_name)}</strong> has submitted a new event request for your approval.`]
+    : [`${escapeHtml(request.coordinator_name || 'Your Student Coordinator')} has submitted an event request for <strong>${escapeHtml(request.club_name)}</strong>. Please review it — once you approve, it goes to the SOAC admin for final approval.`];
+  await send({
+    to:      toEmail,
+    subject: `Event request for review: ${request.title} (${request.club_name}) — SOAC RKU`,
+    html: plainEmail({
+      category: 'Event request',
+      title:    request.title,
+      toName,
+      intro,
+      sections: eventRequestSections(request),
+      outro:    ['You can approve or decline it from your dashboard.'],
+      button:   { href: `${APP_URL}${forAdmin ? '/admin/events' : '/coordinator/events'}`, label: 'Review request' },
+    }),
+  });
+};
+
+/* outcome: 'forwarded' (FA approved → admin) | 'approved' (admin, event live) |
+   'declined_fa' | 'declined_admin'. note = reviewer's reason (declines). */
+const sendEventRequestDecision = async ({ toEmail, toName, outcome, request, event = null, note = '', reviewerName = '' }) => {
+  const t = escapeHtml(request.title);
+  const COPY = {
+    forwarded:      { subject: `Approved by your Faculty Advisor: ${request.title}`, intro: [`Good news — ${escapeHtml(reviewerName || 'your Faculty Advisor')} approved your event request <strong>${t}</strong> and forwarded it to the SOAC admin for final approval. You'll get another email once the admin decides.`] },
+    approved:       { subject: `Event approved: ${request.title}`,                   intro: [`The SOAC admin has approved <strong>${t}</strong> for ${escapeHtml(request.club_name)}. The event is now live — you can start your arrangements.`] },
+    declined_fa:    { subject: `Event request declined: ${request.title}`,           intro: [`${escapeHtml(reviewerName || 'Your Faculty Advisor')} has declined the event request <strong>${t}</strong>.`] },
+    declined_admin: { subject: `Event request declined: ${request.title}`,           intro: [`The SOAC admin has declined the event request <strong>${t}</strong>.`] },
+  };
+  const c = COPY[outcome] || COPY.approved;
+  const intro = [...c.intro];
+  if (note) intro.push(`Reason given: ${asParagraphs(note)}`);
+  /* An approved event shows its final (admin-reviewed) details */
+  const shown = event ? { ...request, ...event, club_name: event.club || request.club_name } : request;
+  await send({
+    to:      toEmail,
+    subject: `${c.subject} — SOAC RKU`,
+    html: plainEmail({
+      category: outcome === 'approved' ? 'Event approved' : 'Event request',
+      title:    shown.title,
+      toName,
+      intro,
+      sections: eventRequestSections(shown),
+      outro:    outcome === 'approved'
+        ? ['Please plan the venue, volunteers and promotion accordingly, and keep your members informed.']
+        : [],
+      button:   { href: `${APP_URL}${outcome === 'approved' && event?.id ? `/events/${event.id}` : '/coordinator/events'}`, label: outcome === 'approved' ? 'View event' : 'Open dashboard' },
+    }),
+  });
+};
+
+/* ── Direct messages — content deliberately not included ──────────────────── */
+const sendDirectMessageNotice = async ({ toEmail, toName, fromLabel, senderName, url }) => {
+  await send({
+    to:      toEmail,
+    subject: `You have a message from ${fromLabel} by ${senderName} — SOAC RKU`,
+    html: plainEmail({
+      category: 'Direct message',
+      title:    `New message from ${senderName}`,
+      toName,
+      intro:    [`You have a message from <strong>${escapeHtml(fromLabel)}</strong> by <strong>${escapeHtml(senderName)}</strong>. Log in to SOAC to read it and reply.`],
+      button:   { href: `${APP_URL}${url || '/login'}`, label: 'Open messages' },
+    }),
+  });
+};
+
+/* ── Club announcements — full details ─────────────────────────────────────── */
+const sendClubAnnouncementEmail = async ({ toEmail, toName, clubName, clubId, title, body, category = 'Announcement', postedBy = '' }) => {
+  await send({
+    to:      toEmail,
+    subject: `[${category}] ${title} — ${clubName}`,
+    html: plainEmail({
+      category: `${clubName} · ${category}`,
+      title,
+      toName,
+      intro:    [body ? asParagraphs(body) : `${escapeHtml(clubName)} posted a new ${escapeHtml(category.toLowerCase())}.`],
+      sections: detailTable('', [
+        ['Club',      clubName],
+        ['Category',  category],
+        ['Posted by', postedBy],
+        ['Posted on', fmtLongDate(new Date())],
+      ]),
+      button:   { href: `${APP_URL}/student/clubs/${clubId}`, label: 'Open club page' },
+    }),
+  });
+};
+
+/* ── Join requests — every 5 new requests, names only ──────────────────────── */
+const sendJoinRequestsDigest = async ({ toEmail, toName, clubName, campus, names, pendingTotal }) => {
+  const list = names.map((n, i) => `${i + 1}. ${escapeHtml(n)}`).join('<br/>');
+  await send({
+    to:      toEmail,
+    subject: `${names.length} new join requests for ${clubName} — SOAC RKU`,
+    html: plainEmail({
+      category: 'Join requests',
+      title:    `${names.length} new join requests`,
+      toName,
+      intro: [
+        `${names.length} more students have asked to join <strong>${escapeHtml(clubName)}</strong>${campus ? ` (${escapeHtml(campus)})` : ''}:`,
+        list,
+        `There ${pendingTotal === 1 ? 'is' : 'are'} now <strong>${pendingTotal}</strong> pending request${pendingTotal === 1 ? '' : 's'} in total. Their full details are in your dashboard, where you can approve or decline them.`,
+      ],
+      button: { href: `${APP_URL}/coordinator/requests`, label: 'Review requests' },
+    }),
+  });
+};
+
+/* ── Club proposals — every section of the application form ───────────────── */
+const PROPOSAL_SECTION_TITLES = {
+  organization: 'Organization',
+  applicant:    'Primary applicant',
+  advisor:      'Faculty advisor',
+  coordinator:  'Student coordinator',
+  plan:         'Activity plan',
+};
+const sendClubProposalEmail = async ({ toEmail, toName, proposal }) => {
+  const p = proposal;
+  const list = (v) => (Array.isArray(v) ? v.join('\n') : (v || ''));
+  let details = p.details || {};
+  if (typeof details === 'string') { try { details = JSON.parse(details); } catch { details = {}; } }
+  const extra = Object.entries(details)
+    .map(([key, value]) => (value && typeof value === 'object'
+      ? detailTable(PROPOSAL_SECTION_TITLES[key] || key, Object.entries(value))
+      : detailTable('', [[key, value]])))
+    .join('');
+  await send({
+    to:      toEmail,
+    subject: `New club proposal: ${p.club_name} — SOAC RKU`,
+    html: plainEmail({
+      category: 'Club proposal',
+      title:    p.club_name,
+      toName,
+      intro:    [`${escapeHtml(p.proposed_by_name || 'Someone')} has proposed a new club, <strong>${escapeHtml(p.club_name)}</strong>. The full application is below.`],
+      sections: detailTable('Proposed club', [
+        ['Club name',          p.club_name],
+        ['Category',           p.category ? p.category.charAt(0).toUpperCase() + p.category.slice(1) : ''],
+        ['Description',        p.description],
+        ['Objectives / vision', p.vision],
+        ['Reason for proposing', p.reason && p.reason !== p.vision ? p.reason : ''],
+        ['Meeting schedule',   p.schedule],
+        ['Founded year',       p.founded_year],
+        ['Tags',               list(p.tags).replace(/\n/g, ', ')],
+        ['Rules',              list(p.rules)],
+      ]) + detailTable('Submitted by', [
+        ['Name',      p.proposed_by_name],
+        ['Email',     p.proposed_by_email],
+        ['Role',      ROLE_NAME[p.proposed_by_role] || (p.proposed_by_role === 'guest' ? 'Guest (no account)' : p.proposed_by_role)],
+        ['Submitted', fmtLongDate(p.created_at || new Date())],
+      ]) + extra,
+      outro:    ['You can approve or decline it from Approvals → Club proposals.'],
+      button:   { href: `${APP_URL}/admin/approvals?tab=proposals`, label: 'Review proposal' },
+    }),
+  });
+};
+
 /* Club group chat — a coordinator / Faculty Advisor / admin posted. Deliberately
    doesn't include the message: members log in to read it. */
 const sendClubChatNotice = async ({ toEmail, toName, clubName, clubId, senderRole }) => {
@@ -688,6 +925,12 @@ module.exports = {
   sendBroadcastEmail,
   sendEventReminder,
   sendClubChatNotice,
+  sendEventRequestForReview,
+  sendEventRequestDecision,
+  sendDirectMessageNotice,
+  sendClubAnnouncementEmail,
+  sendJoinRequestsDigest,
+  sendClubProposalEmail,
   sendCoordinatorCredentials,
   sendCoordinatorAssignment,
   sendPasswordReset,

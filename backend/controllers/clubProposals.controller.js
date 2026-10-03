@@ -4,6 +4,8 @@ const { destroyImage } = require('../config/cloudinary');
 const { getFileValue } = require('../config/multer');
 const cache      = require('../services/cache');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
+const { sendClubProposalEmail } = require('../config/email');
+const { activeAdmins, emailEach } = require('../services/mailRecipients');
 const { MAIN_CAMPUS, adminCampus, ensureCityCampusClubs } = require('../services/campus');
 
 /* ─── helpers ─────────────────────────────────────────────────────────────── */
@@ -147,6 +149,9 @@ const submit = async (req, res, next) => {
     );
 
     notifyAdminsOfProposal(rows[0]);
+    activeAdmins()
+      .then(admins => emailEach(admins, (a) => sendClubProposalEmail({ toEmail: a.email, toName: a.name, proposal: rows[0] }), 'club proposal'))
+      .catch(err => console.error('[clubProposals] email failed:', err.message));
 
     res.status(201).json({ proposal: rows[0], message: 'Proposal submitted successfully.' });
   } catch (err) { next(err); }

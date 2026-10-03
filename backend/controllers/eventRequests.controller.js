@@ -5,6 +5,25 @@ const { getCoordClubIds, assertCoordOwnsClub } = require('../services/coordAuth'
 const { notifyUser, notifyManyUsers } = require('../services/notify');
 const { getFileValue } = require('../config/multer');
 const { destroyImage } = require('../config/cloudinary');
+const { sendEventRequestForReview, sendEventRequestDecision } = require('../config/email');
+const { activeAdmins, clubStaff, userById, emailEach } = require('../services/mailRecipients');
+
+/* Emails for each step of an event request (all after the response):
+   SC submits → club FA; FA approves (or an FA submits) → admins; admin decides
+   → the club's FA and SC. Errors are logged, never thrown. */
+const emailForReview = async (request, stage, forwardedBy = '') => {
+  const people = stage === 'fa_review'
+    ? await clubStaff(request.club_id, ['faculty_coordinator'])
+    : await activeAdmins();
+  emailEach(people, (p) => sendEventRequestForReview({
+    toEmail: p.email, toName: p.name, stage, request, forwardedBy,
+  }), `event request (${stage})`);
+};
+const emailDecision = async (request, outcome, { to, event = null, note = '', reviewerName = '' }) => {
+  emailEach(to.filter(Boolean), (p) => sendEventRequestDecision({
+    toEmail: p.email, toName: p.name, outcome, request, event, note, reviewerName,
+  }), `event request (${outcome})`);
+};
 
 /* Every currently-active Faculty Coordinator assigned to this club — same
    shared coordinator_club_assignments table the (Student) Coordinator uses,
@@ -135,6 +154,9 @@ const createRequest = async (req, res, next) => {
     );
     const created = rows[0];
     res.status(201).json({ request: asRequest(created) });
+
+    emailForReview(created, initialStatus === 'pending_fc' ? 'fa_review' : 'admin_review')
+      .catch(err => console.error('[eventRequests] review email failed:', err.message));
 
     if (initialStatus === 'pending_fc') {
       /* Goes to this club's Faculty Coordinator(s), not admin, until they review it. */
@@ -359,6 +381,11 @@ const fcApproveRequest = async (req, res, next) => {
     );
     res.json({ request: asRequest({ ...updated[0], fc_reviewer_name: req.user.name }) });
 
+    (async () => {
+      await emailForReview(updated[0], 'admin_review', req.user.name);
+      await emailDecision(updated[0], 'forwarded', { to: [await userById(r.coordinator_id)], reviewerName: req.user.name });
+    })().catch(err => console.error('[eventRequests] forward emails failed:', err.message));
+
     notifyUser({
       userId: r.coordinator_id,
       clubId: r.club_id,
@@ -409,6 +436,10 @@ const fcRejectRequest = async (req, res, next) => {
       [fc_note.trim(), req.user.id, req.params.id]
     );
     res.json({ request: asRequest({ ...updated[0], fc_reviewer_name: req.user.name }) });
+
+    userById(r.coordinator_id)
+      .then(sub => emailDecision(updated[0], 'declined_fa', { to: [sub], note: fc_note.trim(), reviewerName: req.user.name }))
+      .catch(err => console.error('[eventRequests] decline email failed:', err.message));
 
     notifyUser({
       userId: r.coordinator_id,
@@ -534,6 +565,11 @@ const approveRequest = async (req, res, next) => {
       event: { ...evRes.rows[0], _id: String(evRes.rows[0].id), imageUrl: imageUrl(evRes.rows[0].image) },
     });
 
+    (async () => {
+      const staff = await clubStaff(resolvedClubId || r.club_id);
+      emailDecision(r, 'approved', { to: [await userById(r.coordinator_id), ...staff], event: evRes.rows[0] });
+    })().catch(err => console.error('[eventRequests] approval emails failed:', err.message));
+
     notifyUser({
       userId: r.coordinator_id,
       clubId: resolvedClubId,
@@ -599,6 +635,11 @@ const rejectRequest = async (req, res, next) => {
     if (!rows.length)
       return res.status(404).json({ message: 'Request not found or already reviewed.' });
     res.json({ request: asRequest(rows[0]) });
+
+    (async () => {
+      const fas = await clubStaff(rows[0].club_id, ['faculty_coordinator']);
+      emailDecision(rows[0], 'declined_admin', { to: [await userById(rows[0].coordinator_id), ...fas], note: admin_note.trim() });
+    })().catch(err => console.error('[eventRequests] decline emails failed:', err.message));
 
     notifyUser({
       userId: rows[0].coordinator_id,

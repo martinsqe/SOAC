@@ -1,6 +1,7 @@
 const bcrypt   = require('bcryptjs');
 const { pgPool } = require('../config/db');
-const { sendCredentials, sendApproval, sendRequestsRemoved } = require('../config/email');
+const { sendCredentials, sendApproval, sendRequestsRemoved, sendJoinRequestsDigest } = require('../config/email');
+const { clubStaff, emailEach } = require('../services/mailRecipients');
 const { ensureSoacTables } = require('../services/soacData');
 const { getCoordClubIds, assertCoordOwnsClub, getClubCoordinatorIds } = require('../services/coordAuth');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
@@ -376,10 +377,70 @@ const create = async (req, res, next) => {
         url:   '/coordinator/requests',
       });
     }).catch((e) => console.error(`[requests] join-request coordinator notify failed for club ${clubId}:`, e.message));
+
+    maybeSendJoinDigest(clubId, created.id)
+      .catch((e) => console.error(`[requests] join-request digest failed for club ${clubId}:`, e.message));
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ message: 'A pending request for this club already exists from this email.' });
     next(err);
   }
+};
+
+/* ── Join-request emails to club staff: one email per 5 new requests ─────────
+   Lists the students' names only — details and approving stay in the dashboard.
+   join_request_digests.last_request_id marks the newest request already
+   emailed about; the marker is advanced atomically so two simultaneous
+   requests can't send the same batch twice. */
+const JOIN_DIGEST_SIZE = 5;
+let digestTableReady = null;
+const ensureDigestTable = () => {
+  if (!digestTableReady) {
+    digestTableReady = pgPool.query(
+      `CREATE TABLE IF NOT EXISTS join_request_digests (
+         club_id         BIGINT PRIMARY KEY REFERENCES clubs(id) ON DELETE CASCADE,
+         last_request_id BIGINT NOT NULL DEFAULT 0,
+         last_sent_at    TIMESTAMPTZ
+       )`
+    ).catch((err) => { digestTableReady = null; throw err; });
+  }
+  return digestTableReady;
+};
+
+const maybeSendJoinDigest = async (clubId, newRequestId) => {
+  await ensureDigestTable();
+  /* First request since this feature: start counting from now, not from old requests */
+  await pgPool.query(
+    `INSERT INTO join_request_digests (club_id, last_request_id)
+     VALUES ($1::bigint, (SELECT COALESCE(MAX(id), 0) FROM join_requests WHERE club_id = $1::bigint AND id < $2::bigint))
+     ON CONFLICT (club_id) DO NOTHING`,
+    [clubId, newRequestId]
+  );
+  const { rows: batch } = await pgPool.query(
+    `SELECT jr.id, jr.name, d.last_request_id AS marker
+     FROM join_request_digests d
+     JOIN join_requests jr ON jr.club_id = d.club_id AND jr.id > d.last_request_id
+     WHERE d.club_id = $1::bigint
+     ORDER BY jr.id
+     LIMIT ${JOIN_DIGEST_SIZE}`,
+    [clubId]
+  );
+  if (batch.length < JOIN_DIGEST_SIZE) return;
+  const { rowCount: claimed } = await pgPool.query(
+    `UPDATE join_request_digests SET last_request_id = $2::bigint, last_sent_at = NOW()
+     WHERE club_id = $1::bigint AND last_request_id = $3::bigint`,
+    [clubId, batch[batch.length - 1].id, batch[0].marker]
+  );
+  if (!claimed) return;   // another request already sent this batch
+
+  const [{ rows: club }, { rows: pending }, staff] = await Promise.all([
+    pgPool.query(`SELECT name, campus FROM clubs WHERE id = $1::bigint`, [clubId]),
+    pgPool.query(`SELECT COUNT(*)::int AS n FROM join_requests WHERE club_id = $1::bigint AND status = 'pending'`, [clubId]),
+    clubStaff(clubId),
+  ]);
+  emailEach(staff, (s) => sendJoinRequestsDigest({
+    toEmail: s.email, toName: s.name, clubName: club[0]?.name || 'your club', campus: club[0]?.campus,
+    names: batch.map(b => b.name), pendingTotal: pending[0]?.n ?? batch.length,
+  }), 'join requests digest');
 };
 
 const isCoord = (user) => user?.role === 'coordinator' || user?.role === 'faculty_coordinator';

@@ -7,6 +7,29 @@ const { ensureSoacTables } = require('../services/soacData');
 const { notifyUser } = require('../services/notify');
 const { getCoordClubIds, getClubCoordinatorIds } = require('../services/coordAuth');
 const { adminCampus } = require('../services/campus');
+const { sendDirectMessageNotice } = require('../config/email');
+
+/* The club a DM is "from": a club both people belong to (as member or staff),
+   else the sender's own club; admins write as SOAC. */
+const dmFromLabel = async (senderId, senderRole, recipientId) => {
+  if (senderRole === 'admin') return 'SOAC';
+  const { rows } = await pgPool.query(
+    `WITH links AS (
+       SELECT user_id, club_id FROM student_clubs WHERE is_active = true
+       UNION
+       SELECT user_id, club_id FROM coordinator_club_assignments WHERE is_active = true
+     )
+     SELECT c.name, (b.user_id IS NOT NULL) AS shared
+     FROM links a
+     JOIN clubs c ON c.id = a.club_id AND c.is_active = true
+     LEFT JOIN links b ON b.club_id = a.club_id AND b.user_id = $2
+     WHERE a.user_id = $1
+     ORDER BY shared DESC, c.name
+     LIMIT 1`,
+    [senderId, recipientId]
+  );
+  return rows[0]?.name || 'SOAC';
+};
 
 /* Student Coordinator and Faculty Coordinator share coordinator_club_assignments
    and both count as "the coordinators of a club" for DM purposes below. */
@@ -262,6 +285,18 @@ const sendDM = async (req, res, next) => {
       type:   'message',
       url:    messagesUrl,
     }).catch(() => {});
+
+    /* Email for every DM — who it's from, never the message itself */
+    (async () => {
+      const { rows: to } = await pgPool.query(
+        `SELECT email, name FROM users WHERE id = $1 AND is_active = true AND COALESCE(email, '') <> ''`, [other]
+      );
+      if (!to.length) return;
+      const fromLabel = await dmFromLabel(me, req.user.role, other);
+      await sendDirectMessageNotice({
+        toEmail: to[0].email, toName: to[0].name, fromLabel, senderName: req.user.name, url: messagesUrl,
+      });
+    })().catch(err => console.error('[messages] DM email failed:', err.message));
   } catch (err) { next(err); }
 };
 
