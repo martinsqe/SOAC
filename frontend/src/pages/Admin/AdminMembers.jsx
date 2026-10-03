@@ -64,16 +64,30 @@ const PAGE_SIZE = 25;
 /* ═══════════════════════════════════════════════════════════════════════════
    TAB 1 — Users (admin / coordinator / student account management)
 ═══════════════════════════════════════════════════════════════════════════ */
-function UsersTab({ clubs }) {
+/* A person can hold a student account and a staff account (Faculty Advisor /
+   Student Coordinator) on the same email. They're listed under each role, each
+   row showing only that role's clubs, and their details (phone, gender — which
+   come from the join form) are filled in on every one of their rows. */
+const shareDetails = (list) => {
+  const key = (u) => (u.email || '').toLowerCase();
+  const details = new Map();
+  for (const u of list) {
+    const d = details.get(key(u)) || {};
+    details.set(key(u), { phone: d.phone || u.phone || '', gender: d.gender || u.gender || '' });
+  }
+  return list.map(u => {
+    const d = details.get(key(u));
+    return { ...u, phone: u.phone || d.phone, gender: u.gender || d.gender };
+  });
+};
+
+function UsersTab() {
   const { user: me } = useAuth();
   const [users,      setUsers]      = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [search,     setSearch]     = useState('');
   const [roleF,      setRoleF]      = useState('all');
   const [error,      setError]      = useState('');
-  const [assignUser, setAssignUser] = useState(null);
-  const [assignClub, setAssignClub] = useState('');
-  const [assigning,  setAssigning]  = useState(false);
   const [toast,      setToast]      = useState('');
   const [togglingId, setTogglingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
@@ -83,27 +97,12 @@ function UsersTab({ clubs }) {
   const loadUsers = useCallback(() => {
     setLoading(true);
     fetchAllPages('/users', 'users')
-      .then(({ items }) => setUsers(items))
+      .then(({ items }) => setUsers(shareDetails(items)))
       .catch(() => setError('Failed to load users.'))
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
-
-  const handleAssign = async () => {
-    if (!assignUser) return;
-    setAssigning(true);
-    try {
-      await api.put(`/users/${assignUser.id}/assign-club`, { clubId: assignClub || null });
-      showToast(`Club assigned to ${assignUser.name}`);
-      setAssignUser(null);
-      loadUsers();
-    } catch (err) {
-      showToast(`Error: ${err.message}`);
-    } finally {
-      setAssigning(false);
-    }
-  };
 
   /* Activate/deactivate any account (coordinators included) — flips users.is_active via
      the same admin endpoint used for role/name edits, so it can be reversed either way. */
@@ -135,7 +134,7 @@ function UsersTab({ clubs }) {
     setDeletingId(u.id);
     try {
       const res = await api.delete(`/users/${u.id}`);
-      setUsers(prev => prev.filter(x => x.id !== u.id));
+      loadUsers();
       showToast(res.message || `${u.name} deleted`);
     } catch (err) {
       showToast(`Error: ${err.message}`);
@@ -176,34 +175,6 @@ function UsersTab({ clubs }) {
       {toast && (
         <div style={{ position:'fixed', bottom:24, right:24, zIndex:9999, background:'#1a1040', color:'#fff', padding:'11px 20px', borderRadius:4, fontSize:13, fontWeight:500, boxShadow:'0 6px 24px rgba(0,0,0,.22)' }}>
           {toast}
-        </div>
-      )}
-
-      {assignUser && (
-        <div style={{ position:'fixed', inset:0, zIndex:10000, background:'rgba(15,10,46,.55)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
-          <div style={{ background:'#fff', borderRadius:18, padding:28, maxWidth:420, width:'100%', boxShadow:'0 24px 64px rgba(0,0,0,.22)' }}>
-            <div style={{ fontWeight:800, fontSize:16, color:'#0f0a2e', marginBottom:6 }}>Assign Club to Coordinator</div>
-            <div style={{ fontSize:13, color:'#6b7280', marginBottom:20 }}>Coordinator: <strong>{assignUser.name}</strong></div>
-            <div style={{ marginBottom:18 }}>
-              <label style={{ fontSize:11, fontWeight:700, color:'#374151', display:'block', marginBottom:6 }}>Select Club</label>
-              <select value={assignClub} onChange={e => setAssignClub(e.target.value)}
-                style={{ width:'100%', padding:'10px 12px', borderRadius:9, border:'1.5px solid #e5e7eb', fontSize:13, outline:'none' }}>
-                <option value="">— Unassign / No club —</option>
-                {clubs.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
-              </select>
-            </div>
-            {assignClub && (
-              <div style={{ background:'#f0fff8', border:'1px solid #86efac', borderRadius:9, padding:'9px 13px', marginBottom:16, fontSize:12, color:'#15803d' }}>
-                ✓ {clubs.find(c => c._id === assignClub)?.name} will be assigned to {assignUser.name}
-              </div>
-            )}
-            <div style={{ display:'flex', gap:10 }}>
-              <button onClick={() => setAssignUser(null)} style={{ flex:1, padding:10, borderRadius:4, border:'1.5px solid #e5e7eb', background:'transparent', fontSize:13, fontWeight:700, color:'#6b7280', cursor:'pointer' }}>Cancel</button>
-              <button onClick={handleAssign} disabled={assigning} style={{ flex:2, padding:10, borderRadius:4, border:'none', background:'#635BFF', color:'#fff', fontSize:13, fontWeight:800, cursor:'pointer', opacity:assigning?.6:1 }}>
-                {assigning ? 'Saving…' : 'Confirm Assignment'}
-              </button>
-            </div>
-          </div>
         </div>
       )}
 
@@ -292,15 +263,16 @@ function UsersTab({ clubs }) {
                   </td>
                   <td data-label="Club">
                     {(u.role === 'coordinator' || u.role === 'faculty_coordinator') ? (
-                      <div style={{ display:'flex', alignItems:'center', gap:7, flexWrap:'wrap', justifyContent:'flex-end' }}>
-                        <span style={{ fontSize:11, fontWeight:600, color: u.managed_club_id ? '#007a5e' : '#9ca3af' }}>
-                          {u.managed_club_id ? (clubs.find(c => String(c._id) === String(u.managed_club_id))?.name || 'Assigned') : 'Not assigned'}
-                        </span>
-                        <button onClick={() => { setAssignUser(u); setAssignClub(u.managed_club_id || ''); }}
-                          style={{ fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:6, border:'1.5px solid #635BFF', background:'transparent', color:'#635BFF', cursor:'pointer' }}>
-                          {u.managed_club_id ? 'Change' : 'Assign'}
-                        </button>
-                      </div>
+                      /* Every club they're assigned to — shown the same way as a student's clubs */
+                      u.staff_clubs?.length > 0 ? (
+                        <div style={{ display:'flex', flexWrap:'wrap', gap:5, justifyContent:'flex-end' }}>
+                          {u.staff_clubs.map(c => (
+                            <span key={c.id} style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:6, background:'#faf5ff', color:'#7c3aed', whiteSpace:'nowrap' }}>
+                              {c.name}
+                            </span>
+                          ))}
+                        </div>
+                      ) : <span className={s.muted}>No club</span>
                     ) : u.role === 'student' ? (
                       u.clubs?.length > 0 ? (
                         <div style={{ display:'flex', flexWrap:'wrap', gap:5, justifyContent:'flex-end' }}>
@@ -847,7 +819,7 @@ export default function AdminMembers() {
       </div>
 
       {tab === 'users'
-        ? <UsersTab key={reloadKey} clubs={clubs} />
+        ? <UsersTab key={reloadKey} />
         : <ClubMembersTab key={reloadKey} clubs={clubs} />
       }
     </div>

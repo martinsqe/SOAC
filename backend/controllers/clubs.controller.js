@@ -8,7 +8,22 @@ const { assertCoordOwnsClub, getCoordClubIds } = require('../services/coordAuth'
 const { destroyImage } = require('../config/cloudinary');
 const { getFileValue } = require('../config/multer');
 const cache = require('../services/cache');
-const { MAIN_CAMPUS, CITY_CAMPUS, adminCampus, ensureCityCampusClubs, campusSlug, campusOfClub } = require('../services/campus');
+const { CAMPUSES, MAIN_CAMPUS, CITY_CAMPUS, adminCampus, ensureCityCampusClubs, campusSlug, campusOfClub } = require('../services/campus');
+/* Faculty Advisors (and admins) can view a club's members / join requests at
+   BOTH campuses: ?campus=both | Main Campus | City Campus. Returns the SQL for
+   the club ids to include (the club's own copy and/or its other-campus copy),
+   or null when the caller only sees the club itself. Viewing only — approving,
+   declining and deactivating stay with that campus's own staff. */
+const CROSS_CAMPUS_VIEWERS = ['faculty_coordinator', 'admin'];
+const crossCampusScope = (req, clubParam, campusParam) => {
+  const want = req.query.campus;
+  if (!want || !CROSS_CAMPUS_VIEWERS.includes(req.user?.role)) return null;
+  if (want !== 'both' && !CAMPUSES.includes(want)) return null;
+  return `(SELECT k.id FROM clubs me
+           JOIN clubs k ON COALESCE(k.main_club_id, k.id) = COALESCE(me.main_club_id, me.id)
+           WHERE me.id = ${clubParam}::bigint AND (${campusParam}::text = 'both' OR k.campus = ${campusParam}::text))`;
+};
+
 const { findStudentAccount, unusablePasswordHash } = require('../services/accounts');
 const { notifyAdminsOfClubChange } = require('./clubDetail.controller');
 const { notifyManyUsers } = require('../services/notify');
@@ -647,12 +662,13 @@ const getMembers = async (req, res, next) => {
     const { page, limit, offset } = parsePage(req.query);
     const { search, dept, year }  = req.query;
 
-    const cacheKey = cache.hashKey(`clubs:${req.params.id}:members`, { page, limit, search, dept, year });
+    const cacheKey = cache.hashKey(`clubs:${req.params.id}:members`, { page, limit, search, dept, year, campus: req.query.campus, role: req.user?.role });
     const cached   = await cache.get(cacheKey);
     if (cached) return res.json(cached);
 
-    /* $1 = club_id (used in main WHERE and inside LATERAL JOIN) */
-    const values        = [req.params.id];
+    /* $1 = club_id; $2 = campus view (Faculty Advisors can see both campuses) */
+    const values        = [req.params.id, req.query.campus || ''];
+    const scope         = crossCampusScope(req, '$1', '$2');
     const filterClauses = [];
 
     if (dept) {
@@ -683,6 +699,7 @@ const getMembers = async (req, res, next) => {
          u.name,
          u.email,
          u.is_active,
+         mc.campus,
          COALESCE(jr.dept,          '') AS dept,
          COALESCE(jr.year,          '') AS year,
          COALESCE(jr.phone,         '') AS phone,
@@ -692,16 +709,17 @@ const getMembers = async (req, res, next) => {
          COUNT(*) OVER()               AS total_count
        FROM student_clubs sc
        JOIN users u ON u.id = sc.user_id
+       JOIN clubs mc ON mc.id = sc.club_id
        LEFT JOIN LATERAL (
          SELECT dept, year, phone, enrollment_no, gender, message
          FROM   join_requests
-         WHERE  club_id = $1::bigint
+         WHERE  club_id = sc.club_id
            AND  email   = u.email
            AND  status  = 'approved'
          ORDER BY updated_at DESC
          LIMIT 1
        ) jr ON true
-       WHERE sc.club_id = $1::bigint
+       WHERE ${scope ? `sc.club_id IN ${scope}` : `sc.club_id = $1::bigint AND $2::text IS NOT NULL`}
          ${filterSQL}
        ORDER BY sc.joined_at DESC
        LIMIT $${values.length - 1} OFFSET $${values.length}`,

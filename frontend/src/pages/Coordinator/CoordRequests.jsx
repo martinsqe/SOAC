@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useCoordClub } from '../../context/CoordClubContext';
+import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
 import { fetchAllPages } from '../../utils/pagination';
 import s from './CoordSubPage.module.css';
@@ -28,7 +29,12 @@ function timeAgo(dateStr) {
 
 export default function CoordRequests() {
   const { club }              = useCoordClub();
+  const { user }              = useAuth();
   const clubId                = club?._id || null;
+  /* Faculty Advisors also see the club's requests at the other campus (view only —
+     that campus's own staff approve / decline them), under the "All" tab */
+  const isFA                  = user?.role === 'faculty_coordinator';
+  const [campusView, setCampusView] = useState('both');
   const [allRequests, setAllRequests] = useState([]);
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState('');
@@ -46,13 +52,16 @@ export default function CoordRequests() {
   const loadRequests = useCallback(() => {
     if (!clubId) return;
     setLoading(true);
-    fetchAllPages(`/requests?clubId=${clubId}`, 'requests')
+    fetchAllPages(`/requests?clubId=${clubId}${isFA ? '&campus=both' : ''}`, 'requests')
       .then(({ items }) => { setAllRequests(items); setError(''); })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
-  }, [clubId]);
+  }, [clubId, isFA]);
 
   useEffect(() => { loadRequests(); }, [loadRequests]);
+
+  /* This campus's own requests — the ones that can be acted on */
+  const isOwn = (r) => String(r.clubId) === String(clubId);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -104,13 +113,16 @@ export default function CoordRequests() {
     }
   };
 
-  const pending  = allRequests.filter(r => r.status === 'pending').length;
-  const approved = allRequests.filter(r => r.status === 'approved').length;
-  const declined = allRequests.filter(r => r.status === 'declined').length;
+  const ownRequests = allRequests.filter(isOwn);
+  const pending  = ownRequests.filter(r => r.status === 'pending').length;
+  const approved = ownRequests.filter(r => r.status === 'approved').length;
+  const declined = ownRequests.filter(r => r.status === 'declined').length;
 
+  /* Pending / Approved / Declined = this campus; All = both campuses (FA), filterable */
   const q = search.trim().toLowerCase();
-  const requests = allRequests.filter(r =>
+  const requests = (filter === 'all' ? allRequests : ownRequests).filter(r =>
     (filter === 'all' || r.status === filter) &&
+    (filter !== 'all' || !isFA || campusView === 'both' || r.campus === campusView) &&
     (!q || r.name?.toLowerCase().includes(q))
   );
 
@@ -251,7 +263,8 @@ export default function CoordRequests() {
         </div>
       </div>
 
-      <div style={{ position:'relative', maxWidth:320, margin:'16px 0' }}>
+      <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', margin:'16px 0' }}>
+      <div style={{ position:'relative', flex:'1 1 220px', maxWidth:320 }}>
         <input
           value={search}
           onChange={e => setSearch(e.target.value)}
@@ -265,6 +278,19 @@ export default function CoordRequests() {
               background:'none', border:'none', cursor:'pointer', color:'#9ca3af', fontSize:16 }}>
             ✕
           </button>
+        )}
+      </div>
+        {/* "All" tab: Faculty Advisors pick Main, City or both campuses */}
+        {isFA && filter === 'all' && (
+          <select
+            value={campusView}
+            onChange={e => setCampusView(e.target.value)}
+            style={{ padding:'9px 12px', border:'1.5px solid #e5e7eb', borderRadius:9, fontSize:'.85rem', outline:'none', background:'#fff', cursor:'pointer', fontFamily:'inherit' }}
+          >
+            <option value="both">Both Campuses ({allRequests.length})</option>
+            <option value="Main Campus">Main Campus ({allRequests.filter(r => r.campus === 'Main Campus').length})</option>
+            <option value="City Campus">City Campus ({allRequests.filter(r => r.campus === 'City Campus').length})</option>
+          </select>
         )}
       </div>
 
@@ -315,6 +341,14 @@ export default function CoordRequests() {
                     <span className={s.tag} style={{ background:'#ff950014', color:'#c47700' }}>
                       {timeAgo(r.createdAt)}
                     </span>
+                    {isFA && r.campus && (
+                      <span className={s.tag} style={{
+                        background: r.campus === 'City Campus' ? '#fff7ed' : '#eef2ff',
+                        color:      r.campus === 'City Campus' ? '#c2410c' : '#4338ca',
+                      }}>
+                        {r.campus}
+                      </span>
+                    )}
                     <span className={s.tag} style={{
                       background: r.status === 'approved' ? '#e8f8f0' : r.status === 'declined' ? '#fff0f0' : '#f0f0ff',
                       color:      r.status === 'approved' ? '#15803d' : r.status === 'declined' ? '#b91c1c' : '#635BFF',
@@ -333,7 +367,10 @@ export default function CoordRequests() {
                   <div style={{ fontSize:12, color:'#888', marginBottom:8 }}>Phone: {r.phone}</div>
                 )}
 
-                {r.status === 'pending' && (
+                {!isOwn(r) && (
+                  <div style={{ fontSize:11, color:'#888', marginTop:8 }}>View only — handled by the {r.campus} staff.</div>
+                )}
+                {r.status === 'pending' && isOwn(r) && (
                   <div className={s.btnRow}>
                     <button
                       className={s.approveBtn}
@@ -351,7 +388,7 @@ export default function CoordRequests() {
                     </button>
                   </div>
                 )}
-                {r.status === 'approved' && (
+                {r.status === 'approved' && isOwn(r) && (
                   <div style={{ marginTop: 10 }}>
                     <button
                       onClick={() => handleResend(r)}

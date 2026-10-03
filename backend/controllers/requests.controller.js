@@ -115,8 +115,18 @@ const getAll = async (req, res, next) => {
         if (!coordClubIds.includes(String(clubId))) {
           return res.status(403).json({ message: 'You can only access requests for your assigned club.' });
         }
-        values.push(clubId);
-        clauses.push(`club_id = $${values.length}::bigint`);
+        /* A Faculty Advisor can also view the club's requests at the other campus
+           (?campus=both | Main Campus | City Campus) — view only */
+        const want = req.query.campus;
+        if (req.user.role === 'faculty_coordinator' && (want === 'both' || CAMPUSES.includes(want))) {
+          values.push(clubId, want);
+          clauses.push(`club_id IN (SELECT k.id FROM clubs me
+             JOIN clubs k ON COALESCE(k.main_club_id, k.id) = COALESCE(me.main_club_id, me.id)
+             WHERE me.id = $${values.length - 1}::bigint AND ($${values.length}::text = 'both' OR k.campus = $${values.length}::text))`);
+        } else {
+          values.push(clubId);
+          clauses.push(`club_id = $${values.length}::bigint`);
+        }
       } else {
         values.push(coordClubIds);
         clauses.push(`club_id = ANY($${values.length}::bigint[])`);

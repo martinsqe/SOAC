@@ -68,6 +68,7 @@ const getAll = async (req, res, next) => {
                   FILTER (WHERE sc.id IS NOT NULL),
                 '[]'
               ) AS clubs,
+              staff.clubs AS staff_clubs,
               COUNT(*) OVER() AS total_count
        FROM users u
        LEFT JOIN student_clubs sc ON sc.user_id = u.id AND sc.is_active = true
@@ -85,6 +86,14 @@ const getAll = async (req, res, next) => {
          ORDER BY (status = 'approved') DESC, updated_at DESC
          LIMIT 1
        ) profile ON true
+       /* Every club a Student Coordinator / Faculty Advisor is assigned to on this
+          campus (like a student's clubs list) */
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(jsonb_agg(jsonb_build_object('id', c.id, 'name', c.name) ORDER BY c.name), '[]'::jsonb) AS clubs
+         FROM   coordinator_club_assignments cca
+         JOIN   clubs c ON c.id = cca.club_id AND c.campus = $3
+         WHERE  cca.user_id = u.id AND cca.is_active = true
+       ) staff ON true
        /* Accounts of the campus the admin is managing: its students and the
           staff of its clubs (staff with no club yet show under Main Campus).
           Admin accounts are shared by both campuses. */
@@ -95,7 +104,7 @@ const getAll = async (req, res, next) => {
                         WHERE cca.user_id = u.id AND cca.is_active = true AND c.campus = $3)
                 OR ($3 = '${MAIN_CAMPUS}' AND NOT EXISTS (
                       SELECT 1 FROM coordinator_club_assignments cca WHERE cca.user_id = u.id AND cca.is_active = true))))
-       GROUP BY u.id, profile.phone, profile.gender
+       GROUP BY u.id, profile.phone, profile.gender, staff.clubs
        ORDER BY u.created_at DESC
        LIMIT $1 OFFSET $2`,
       [limit, offset, adminCampus(req) || MAIN_CAMPUS]

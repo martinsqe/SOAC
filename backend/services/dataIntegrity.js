@@ -28,6 +28,11 @@ const ensureDataIntegrity = async () => {
      FROM (SELECT c2.id, (SELECT COUNT(*)::int FROM student_clubs sc WHERE sc.club_id = c2.id AND sc.is_active) AS n FROM clubs c2) x
      WHERE x.id = c.id AND c.member_count IS DISTINCT FROM x.n`
   );
+  /* Indexes for the newer lookups: a club's join requests newest-first (both
+     campus copies for Faculty Advisors), and the case-insensitive email checks
+     (one-campus rule, 3-club limit) */
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_join_requests_club_created ON join_requests(club_id, created_at DESC)`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_join_requests_email_lower ON join_requests(LOWER(email), status)`);
   if (orphans) console.log(`[integrity] removed ${orphans} membership(s) of deleted clubs`);
 };
 

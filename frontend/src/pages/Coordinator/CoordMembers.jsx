@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useCoordClub } from '../../context/CoordClubContext';
+import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
 import s from './CoordSubPage.module.css';
 
@@ -37,6 +38,11 @@ const PAGE_SIZE = 20;
 
 export default function CoordMembers() {
   const { club }                  = useCoordClub();
+  const { user }                  = useAuth();
+  /* Faculty Advisors see the club's members at both campuses (view only for the
+     other campus — that campus's own staff manage those memberships) */
+  const isFA                      = user?.role === 'faculty_coordinator';
+  const [campus,   setCampus]   = useState('both');
   const clubRef                   = useRef(null);
   const [members,    setMembers]    = useState([]);
   const [pagination, setPagination] = useState({ page: 1, total: 0, pages: 1 });
@@ -72,6 +78,7 @@ export default function CoordMembers() {
     if (debouncedSearch) params.set('search', debouncedSearch);
     if (dept)            params.set('dept',   dept);
     if (year)            params.set('year',   year);
+    if (isFA)            params.set('campus', campus);
 
     api.get(`/clubs/${c._id}/members?${params}`)
       .then(({ members: list, pagination: pg }) => {
@@ -84,13 +91,13 @@ export default function CoordMembers() {
       })
       .catch(err => setError(err.message || 'Failed to load members'))
       .finally(() => setLoading(false));
-  }, [debouncedSearch, dept, year, page]);
+  }, [debouncedSearch, dept, year, page, isFA, campus]);
 
   /* trigger load when club arrives or filters change */
   useEffect(() => { if (club) load(); }, [club, load]);
 
   /* reset page when filters change */
-  useEffect(() => { setPage(1); }, [debouncedSearch, dept, year]);
+  useEffect(() => { setPage(1); }, [debouncedSearch, dept, year, campus]);
 
   const clearFilters = () => { setSearch(''); setDept(''); setYear(''); setPage(1); };
   const hasFilters   = search || dept || year;
@@ -98,14 +105,17 @@ export default function CoordMembers() {
   /* Deactivate/reactivate this student's membership in THIS club — frees a slot toward
      their 3-club cap without touching their platform login or other memberships. The
      server never deletes the row, so joined/deactivated dates stay on record either way. */
+  /* Only memberships of this campus's club can be changed from here */
+  const isOwnCampus = (m) => String(m.club_id) === String(club?._id);
+
   const toggleActive = async (member) => {
-    if (!club) return;
+    if (!club || !isOwnCampus(member)) return;
     const activating = member.membershipActive === false;
     if (!activating && !window.confirm(`Deactivate ${member.name}'s membership in ${club.name}? They can rejoin later, and this frees a slot toward their 3-club limit.`)) return;
     setTogglingId(member.id);
     try {
       const d = await api.patch(`/clubs/${club._id}/members/${member.id}/toggle-active`);
-      const patch = m => m.id === member.id ? { ...m, membershipActive: d.membershipActive, deactivatedAt: d.deactivatedAt } : m;
+      const patch = m => m.id === member.id && isOwnCampus(m) ? { ...m, membershipActive: d.membershipActive, deactivatedAt: d.deactivatedAt } : m;
       setMembers(prev => prev.map(patch));
       setDetail(prev => prev && prev.id === member.id ? patch(prev) : prev);
     } catch (err) {
@@ -117,9 +127,9 @@ export default function CoordMembers() {
 
   /* ── CSV export ── */
   const exportCSV = () => {
-    const header = 'Name,Enrollment No,Email,Phone,Department,Year,Gender,Club,Joined';
+    const header = 'Name,Enrollment No,Email,Phone,Department,Year,Gender,Club,Campus,Joined';
     const rows   = members.map(m =>
-      [m.name, m.enrollmentNo, m.email, m.phone, m.dept, m.year, m.gender || '', m.club_name, fmt(m.joined_at)]
+      [m.name, m.enrollmentNo, m.email, m.phone, m.dept, m.year, m.gender || '', m.club_name, m.campus || '', fmt(m.joined_at)]
         .map(v => `"${String(v || '').replace(/"/g, '""')}"`)
         .join(',')
     );
@@ -198,6 +208,15 @@ export default function CoordMembers() {
           {deptOpts.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
 
+        {/* Campus — Faculty Advisors see both campuses */}
+        {isFA && (
+          <select value={campus} onChange={e => setCampus(e.target.value)} style={{ padding: '9px 12px', border: '1.5px solid #e5e7eb', borderRadius: 9, fontSize: '.875rem', outline: 'none', background: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>
+            <option value="both">Both Campuses</option>
+            <option value="Main Campus">Main Campus</option>
+            <option value="City Campus">City Campus</option>
+          </select>
+        )}
+
         {/* Year */}
         <select
           value={year}
@@ -256,6 +275,7 @@ export default function CoordMembers() {
                 <th>Department</th>
                 <th>Year</th>
                 <th>Gender</th>
+                {isFA && <th>Campus</th>}
                 <th>Joined</th>
                 <th>Status</th>
                 <th></th>
@@ -304,6 +324,13 @@ export default function CoordMembers() {
                       : <span className={s.muted}>—</span>}
                   </td>
                   <td className={s.muted}>{m.gender || '—'}</td>
+                  {isFA && (
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <span style={{ background: m.campus === 'City Campus' ? '#fff7ed' : '#eef2ff', color: m.campus === 'City Campus' ? '#c2410c' : '#4338ca', padding: '2px 9px', borderRadius: 4, fontSize: '.78rem', fontWeight: 600 }}>
+                        {m.campus || '—'}
+                      </span>
+                    </td>
+                  )}
                   <td className={s.muted} style={{ whiteSpace: 'nowrap' }}>{fmt(m.joined_at)}</td>
                   <td>
                     {m.membershipActive === false
@@ -311,6 +338,7 @@ export default function CoordMembers() {
                       : <span style={{ background: '#f0fdf4', color: '#15803d', padding: '2px 9px', borderRadius: 4, fontSize: '.78rem', fontWeight: 600 }}>Active</span>}
                   </td>
                   <td onClick={e => e.stopPropagation()}>
+                    {isOwnCampus(m) ? (
                     <button
                       onClick={() => toggleActive(m)}
                       disabled={togglingId === m.id}
@@ -324,6 +352,7 @@ export default function CoordMembers() {
                     >
                       {togglingId === m.id ? '…' : (m.membershipActive === false ? 'Reactivate' : 'Deactivate')}
                     </button>
+                    ) : <span className={s.muted} style={{ fontSize: '.72rem', whiteSpace: 'nowrap' }}>View only</span>}
                   </td>
                 </tr>
               ))}
@@ -407,6 +436,7 @@ export default function CoordMembers() {
                   </div>
                 )}
               </div>
+              {isOwnCampus(detail) ? (
               <div style={{ padding: '0 22px 20px' }}>
                 <button
                   onClick={() => toggleActive(detail)}
@@ -427,6 +457,11 @@ export default function CoordMembers() {
                       : '✕ Deactivate Membership'}
                 </button>
               </div>
+              ) : (
+                <div style={{ padding: '0 22px 20px', fontSize: '.8rem', color: '#6b7280' }}>
+                  {detail.campus} member — managed by the {detail.campus} staff.
+                </div>
+              )}
             </div>
         </div>
       )}
