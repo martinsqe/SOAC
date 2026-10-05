@@ -628,6 +628,44 @@ const sendClubChatNotice = async ({ toEmail, toName, clubName, clubId, senderRol
   });
 };
 
+/* Club Feed — a member submitted a photo / video for review. Sent to the club's
+   Student Coordinator and Faculty Advisor, with a preview and a link that opens
+   the submission in their review screen. */
+const feedPreviewImage = (mediaType, mediaUrl) => {
+  if (!mediaUrl) return '';
+  if (mediaType !== 'video') return mediaUrl;
+  /* Cloudinary can serve a still frame of the video as a JPEG */
+  return /\/video\/upload\//.test(mediaUrl)
+    ? mediaUrl.replace('/video/upload/', '/video/upload/so_1,w_560,c_limit/').replace(/\.[a-z0-9]+(\?.*)?$/i, '.jpg')
+    : '';
+};
+const sendClubFeedReviewRequest = async ({ toEmail, toName, clubName, clubId, studentName, mediaType = 'image', caption = '', mediaUrl = '', postId }) => {
+  const what = mediaType === 'video' ? 'video' : 'photo';
+  const reviewUrl = `${APP_URL}/coordinator/club-feed${postId ? `?review=${encodeURIComponent(postId)}${clubId ? `&club=${encodeURIComponent(clubId)}` : ''}` : ''}`;
+  const previewSrc = feedPreviewImage(mediaType, mediaUrl);
+  const preview = previewSrc
+    ? `<a href="${reviewUrl}" style="display:block;margin:4px 0 18px"><img src="${escapeHtml(previewSrc)}" alt="${what} preview" style="max-width:100%;max-height:320px;border-radius:10px;display:block"/></a>`
+    : '';
+  await send({
+    to:      toEmail,
+    subject: `New ${what} submitted for review — ${clubName} Club Feed`,
+    html: plainEmail({
+      category: 'Club feed review',
+      title:    `A ${what} is waiting for your review`,
+      toName,
+      intro:    [`${escapeHtml(studentName || 'A member')} has submitted a ${what} to the <strong>${escapeHtml(clubName)}</strong> Club Feed. It goes live for the club once you approve it.`],
+      sections: preview + detailTable('', [
+        ['Submitted by', studentName],
+        ['Club',         clubName],
+        ['Type',         what.charAt(0).toUpperCase() + what.slice(1)],
+        ['Caption',      caption],
+      ]),
+      outro:    [`Open it to ${mediaType === 'video' ? 'watch the video' : 'view the photo'} full size, then approve or reject it.`],
+      button:   { href: reviewUrl, label: `Review the ${what}` },
+    }),
+  });
+};
+
 /* Club Feed — something new went live. Sent to the club's members; deliberately
    never names who posted it (member or coordinator). */
 const sendClubFeedUpdate = async ({ toEmail, toName, clubName, mediaType = 'image' }) => {
@@ -925,6 +963,7 @@ module.exports = {
   sendBroadcastEmail,
   sendEventReminder,
   sendClubChatNotice,
+  sendClubFeedReviewRequest,
   sendEventRequestForReview,
   sendEventRequestDecision,
   sendDirectMessageNotice,

@@ -240,8 +240,8 @@ export default function ClubsFeed() {
                     <img src={post.mediaUrl} alt={post.caption} className={cf.img} loading="lazy" />
                   )}
                   {isVideo && <div className={cf.volumeBadge}>▶</div>}
-                  {(post.caption || post.clubName) && (
-                    <div className={cf.label}>{post.caption || post.clubName}</div>
+                  {post.caption && (
+                    <div className={cf.label}>{post.caption}</div>
                   )}
                 </div>
               );
@@ -348,7 +348,6 @@ export default function ClubsFeed() {
               : <img key={lightboxPost.id} src={lightboxPost.mediaUrl} alt={lightboxPost.caption} className={cf.lightboxMedia} />
             }
             {lightboxPost.caption && <div className={cf.lightboxCaption}>{lightboxPost.caption}</div>}
-            <div className={cf.lightboxMeta}>{lightboxPost.clubName}</div>
           </div>
           <button className={`${cf.navBtn} ${cf.navBtnRight}`} onClick={(e) => { e.stopPropagation(); goNext(); }} aria-label="Next">›</button>
         </div>,

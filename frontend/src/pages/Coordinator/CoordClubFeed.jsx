@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useCoordClub } from '../../context/CoordClubContext';
 import api from '../../api/client';
 import { postToClubFeed, progressLabel } from '../../utils/feedUpload';
@@ -25,7 +26,7 @@ function spanFor(post, index) {
 }
 
 export default function CoordClubFeed() {
-  const { club } = useCoordClub();
+  const { club, clubs, setSelectedClub } = useCoordClub();
   const [pageTab, setPageTab] = useState('feed'); // 'feed' | 'review'
   const [toast,   setToast]   = useState('');
 
@@ -37,6 +38,9 @@ export default function CoordClubFeed() {
   const [reviewLoading, setReviewLoading] = useState(true);
   const [busyId,       setBusyId]      = useState(null);
   const [rejectModal,  setRejectModal] = useState(null); // { id, note }
+  /* Submission opened full size for review (photo or playable video) */
+  const [preview,      setPreview]     = useState(null);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   /* Scoped to whichever club is currently selected — a coordinator managing
      several clubs must see each one's feed separately, never merged, exactly
@@ -53,6 +57,35 @@ export default function CoordClubFeed() {
   }, [clubId]);
   useEffect(() => { setReviewPosts([]); loadReview(); }, [clubId, loadReview]);
 
+  /* Opened from the review email (?review=<postId>&club=<clubId>) → switch to that
+     club if another one is selected, then open the submission */
+  const reviewParam = searchParams.get('review');
+  const clubParam   = searchParams.get('club');
+  const wrongClub   = !!reviewParam && !!clubParam && String(clubParam) !== String(clubId);
+  useEffect(() => {
+    if (!wrongClub) return;
+    const target = (clubs || []).find(c => String(c._id || c.id) === String(clubParam));
+    if (target) setSelectedClub(target);
+  }, [wrongClub, clubs, clubParam, setSelectedClub]);
+  useEffect(() => {
+    if (!reviewParam || reviewLoading) return;
+    if (wrongClub && (clubs || []).some(c => String(c._id || c.id) === String(clubParam))) return; // switching first
+    const post = reviewPosts.find(p => String(p.id) === String(reviewParam));
+    if (post) { setPageTab('review'); setFilter(post.status === 'pending' ? 'pending' : 'all'); setPreview(post); }
+    const next = new URLSearchParams(searchParams);
+    next.delete('review');
+    next.delete('club');
+    setSearchParams(next, { replace: true });
+  }, [reviewParam, reviewLoading, reviewPosts, searchParams, setSearchParams, wrongClub, clubs, clubParam]);
+
+  /* Esc closes the review viewer */
+  useEffect(() => {
+    if (!preview) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setPreview(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [preview]);
+
   const displayed = filter === 'all' ? reviewPosts : reviewPosts.filter(p => p.status === filter);
   const pendingCount = reviewPosts.filter(p => p.status === 'pending').length;
   const approvedPosts = reviewPosts.filter(p => p.status === 'approved');
@@ -62,6 +95,7 @@ export default function CoordClubFeed() {
     try {
       await api.put(`/club-feed/${id}/approve`);
       setReviewPosts(p => p.map(x => x.id === id ? { ...x, status: 'approved' } : x));
+      setPreview(v => (v && v.id === id ? null : v));
       showToast('Post approved — now live in the Clubs Feed.');
     } catch (err) {
       showToast(err?.message || 'Failed to approve.');
@@ -76,6 +110,7 @@ export default function CoordClubFeed() {
     try {
       await api.put(`/club-feed/${id}/reject`, { admin_note: note });
       setReviewPosts(p => p.map(x => x.id === id ? { ...x, status: 'rejected', adminNote: note } : x));
+      setPreview(v => (v && v.id === id ? null : v));
       showToast('Post rejected.');
       setRejectModal(null);
     } catch (err) {
@@ -282,10 +317,17 @@ export default function CoordClubFeed() {
             <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
               {displayed.map(post => {
                 const st = STATUS_META[post.status] || STATUS_META.pending;
-                const poster = post.mediaType === 'video' ? (post.thumbnailUrl || post.mediaUrl) : post.mediaUrl;
+                const isVideo = post.mediaType === 'video';
                 return (
                   <div key={post.id} className={cs.reviewCard}>
-                    <img src={poster} alt="" className={cs.thumb} />
+                    <button type="button" className={cs.thumbBtn} onClick={() => setPreview(post)} title={`Open ${isVideo ? 'video' : 'photo'}`}>
+                      {isVideo
+                        ? (post.thumbnailUrl
+                            ? <img src={post.thumbnailUrl} alt="" className={cs.thumb} />
+                            : <video src={`${post.mediaUrl}#t=0.5`} className={cs.thumb} muted playsInline preload="metadata" />)
+                        : <img src={post.mediaUrl} alt="" className={cs.thumb} loading="lazy" />}
+                      <span className={cs.thumbBadge}>{isVideo ? '▶ Play' : '⤢ View'}</span>
+                    </button>
                     <div className={cs.info}>
                       <div className={cs.infoHead}>
                         <span className={cs.submitter}>{post.studentName}</span>
@@ -302,6 +344,9 @@ export default function CoordClubFeed() {
                       </span>
                     </div>
                     <div className={cs.actions}>
+                      <button className={cs.viewBtn} onClick={() => setPreview(post)}>
+                        {post.mediaType === 'video' ? 'Watch' : 'View'}
+                      </button>
                       {post.status === 'pending' && (
                         <>
                           <button className={cs.approveBtn} onClick={() => handleApprove(post.id)} disabled={busyId === post.id}>
@@ -322,6 +367,39 @@ export default function CoordClubFeed() {
             </div>
           )}
         </>
+      )}
+
+      {/* ── Review viewer: the submission full size, with approve / reject ── */}
+      {preview && createPortal(
+        <div className={cs.lightbox} onClick={() => setPreview(null)}>
+          <button className={cs.lbCloseBtn} onClick={(e) => { e.stopPropagation(); setPreview(null); }} aria-label="Close">✕</button>
+          <div className={cs.lightboxContent} onClick={e => e.stopPropagation()}>
+            {preview.mediaType === 'video'
+              ? <video key={preview.id} src={preview.mediaUrl} className={`${cs.lightboxMedia} ${cs.reviewMedia}`} controls autoPlay playsInline />
+              : <img key={preview.id} src={preview.mediaUrl} alt={preview.caption || ''} className={`${cs.lightboxMedia} ${cs.reviewMedia}`} />}
+            <div className={cs.reviewPanel}>
+              <div className={cs.reviewPanelHead}>
+                <strong>{preview.studentName || 'Member'}</strong>
+                <span>{preview.mediaType === 'video' ? 'Video' : 'Photo'} · Submitted {new Date(preview.createdAt).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' })}</span>
+                <span className={cs.statusPill} style={{ background: (STATUS_META[preview.status] || STATUS_META.pending).bg, color: (STATUS_META[preview.status] || STATUS_META.pending).color }}>
+                  {(STATUS_META[preview.status] || STATUS_META.pending).label}
+                </span>
+              </div>
+              {preview.caption && <p className={cs.reviewPanelCaption}>{preview.caption}</p>}
+              {preview.status === 'pending' && (
+                <div className={cs.reviewPanelActions}>
+                  <button className={cs.approveBtn} onClick={() => handleApprove(preview.id)} disabled={busyId === preview.id}>
+                    {busyId === preview.id ? 'Approving…' : 'Approve'}
+                  </button>
+                  <button className={cs.rejectBtn} onClick={() => { setRejectModal({ id: preview.id, note: '' }); setPreview(null); }} disabled={busyId === preview.id}>
+                    Reject
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* ── Reject modal ── */}

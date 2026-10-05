@@ -329,3 +329,66 @@
   .actions { flex-direction: row; width: 100%; }
   .approveBtn, .rejectBtn, .deleteBtn { flex: 1; }
 }
+
+/* ── Review: clickable thumbnail + full-size viewer panel ── */
+.thumbBtn {
+  position: relative;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.thumbBtn .thumb { display: block; }
+.thumbBadge {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  font-size: .66rem;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0,0,0,.6);
+  padding: 2px 8px;
+  border-radius: 20px;
+  pointer-events: none;
+}
+.thumbBtn:hover .thumb { filter: brightness(1.08); }
+
+.viewBtn {
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1.5px solid #635BFF;
+  background: #fff;
+  color: #635BFF;
+  font-size: .8rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.viewBtn:hover { background: #f5f3ff; }
+
+.reviewPanel {
+  width: min(560px, 100%);
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.reviewPanelHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: .85rem;
+  color: #6b7280;
+}
+.reviewPanelHead strong { color: #0f0a2e; font-size: .92rem; }
+.reviewPanelCaption { margin: 0; font-size: .88rem; color: #374151; line-height: 1.5; }
+.reviewPanelActions { display: flex; gap: 10px; }
+.reviewPanelActions button { flex: 1; }
+.reviewMedia { max-height: 60vh; }
+@media (max-width: 720px) { .reviewMedia { max-height: 52vh; } }

@@ -4,7 +4,8 @@ const { getCoordClubIds, getClubCoordinatorIds, assertCoordOwnsClub } = require(
 const { notifyUser, notifyManyUsers } = require('../services/notify');
 const { uploadMediaBuffer } = require('../config/multer');
 const { cloudinary, destroyMedia } = require('../config/cloudinary');
-const { sendClubFeedUpdate, sendClubFeedPostLive } = require('../config/email');
+const { sendClubFeedUpdate, sendClubFeedPostLive, sendClubFeedReviewRequest } = require('../config/email');
+const { emailEach } = require('../services/mailRecipients');
 
 const FEED_FOLDER = 'club-feed';
 
@@ -172,17 +173,28 @@ const createPost = async (req, res, next) => {
     }
 
     if (!isCoordinator) {
-      getClubCoordinatorIds(club.club_id).then((coordIds) => {
+      /* The club's SC / FA get both an in-app notification and an email —
+         the same people for both (one email per address) */
+      getClubCoordinatorIds(club.club_id).then(async (coordIds) => {
         if (!coordIds.length) return;
+        const { rows: reviewers } = await pgPool.query(
+          `SELECT id, email, name FROM users
+           WHERE id = ANY($1::int[]) AND is_active = true AND COALESCE(email, '') <> ''`,
+          [coordIds]
+        );
+        emailEach(reviewers, (s) => sendClubFeedReviewRequest({
+          toEmail: s.email, toName: s.name, clubName: club.club_name, clubId: club.club_id, studentName: req.user.name,
+          mediaType: media.mediaType, caption: caption.trim(), mediaUrl: media.url, postId: rows[0].id,
+        }), 'club feed review');
         notifyManyUsers({
           userIds: coordIds,
           clubId:  club.club_id,
           title:   'New club feed submission',
           body:    `${req.user.name || 'A member'} submitted a ${media.mediaType} to ${club.club_name}'s feed.`,
           type:    'club_feed_submission',
-          url:     '/coordinator/club-feed',
+          url:     `/coordinator/club-feed?review=${rows[0].id}&club=${club.club_id}`,
         });
-      }).catch(() => {});
+      }).catch(err => console.error('[clubFeed] review notify/email failed:', err.message));
     }
   } catch (err) { next(err); }
 };
