@@ -16,8 +16,13 @@ const AUDIENCES = [
 ];
 
 export default function EventReminderModal({ ev, onClose, onSent }) {
+  /* Only events using SOAC's own form have registered participants here;
+     external-site and announcement-only events remind club members. */
+  const regType  = ev.registrationType || 'internal';
+  const internal = regType === 'internal';
+  const types    = TYPES.filter(t => !(t.key === 'register' && regType === 'none'));
   const [type,     setType]     = useState(ev.venue ? 'countdown' : 'custom');
-  const [audience, setAudience] = useState('both');
+  const [audience, setAudience] = useState(internal ? 'both' : 'members');
   const [message,  setMessage]  = useState('');
   const [preview,  setPreview]  = useState(null);   // { count, daysToGo, ... } or { error }
   const [sending,  setSending]  = useState(false);
@@ -40,6 +45,9 @@ export default function EventReminderModal({ ev, onClose, onSent }) {
     if (key === 'register' && ev.registrationClosed) return 'Registration is closed';
     return '';
   };
+  const hintFor = (t) => (t.key === 'register' && regType === 'external'
+    ? 'Club members — the button links to the registration website'
+    : t.hint);
 
   const send = async () => {
     setSending(true); setError('');
@@ -71,7 +79,7 @@ export default function EventReminderModal({ ev, onClose, onSent }) {
 
         <div style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:6 }}>What is this reminder about?</div>
         <div style={{ display:'grid', gap:8, marginBottom:16 }}>
-          {TYPES.map(t => {
+          {types.map(t => {
             const blocked = blockedReason(t.key);
             const active = type === t.key;
             return (
@@ -80,13 +88,13 @@ export default function EventReminderModal({ ev, onClose, onSent }) {
                   border:`1.5px solid ${active ? '#635BFF' : '#e5e7eb'}`, background: active ? '#f5f3ff' : '#fff',
                   opacity: blocked ? .5 : 1, fontFamily:'inherit' }}>
                 <div style={{ fontWeight:800, fontSize:13.5, color:'#0f0a2e' }}>{t.label}</div>
-                <div style={{ fontSize:12, color:'#6b7280', marginTop:2 }}>{blocked || t.hint}</div>
+                <div style={{ fontSize:12, color:'#6b7280', marginTop:2 }}>{blocked || hintFor(t)}</div>
               </button>
             );
           })}
         </div>
 
-        {type !== 'register' && (
+        {type !== 'register' && internal && (
           <>
             <div style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:6 }}>Send to</div>
             <select value={audience} onChange={e => setAudience(e.target.value)}
@@ -95,6 +103,12 @@ export default function EventReminderModal({ ev, onClose, onSent }) {
               {AUDIENCES.map(a => <option key={a.key} value={a.key}>{a.label}</option>)}
             </select>
           </>
+        )}
+        {!internal && (
+          <div style={{ fontSize:12.5, color:'#6b7280', marginBottom:16 }}>
+            Sent to <strong>club members</strong>
+            {regType === 'external' ? ' — sign-ups on the external website aren\'t tracked here.' : ' — this event has no registrations.'}
+          </div>
         )}
 
         <div style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:6 }}>
@@ -110,7 +124,7 @@ export default function EventReminderModal({ ev, onClose, onSent }) {
           {!preview ? 'Counting recipients…'
             : preview.error ? <span style={{ color:'#b91c1c' }}>{preview.error}</span>
             : <>This will email <strong>{preview.count}</strong> {preview.count === 1 ? 'person' : 'people'}
-                {type === 'register' && <> — club members who haven't registered</>}.</>}
+                {type === 'register' && internal && <> — club members who haven't registered</>}.</>}
         </div>
 
         {error && <div style={{ marginTop:10, padding:'9px 12px', borderRadius:8, background:'#fff0f0', border:'1px solid #fca5a5',

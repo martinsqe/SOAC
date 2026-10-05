@@ -260,6 +260,18 @@ const questionsError = (questions) => {
   return '';
 };
 
+/* How students sign up for an Other Events event (events.registration_type) */
+const REG_MODES = {
+  internal: { icon: '📝', label: 'Register on SOAC',  color: '#5b21b6', bg: '#f5f3ff',
+              desc: "Students fill in SOAC's registration form, with any extra questions you add." },
+  external: { icon: '🌐', label: 'External website',  color: '#0369a1', bg: '#f0f9ff',
+              desc: 'The Register button sends students to another website to sign up.' },
+  none:     { icon: '📢', label: 'No registration',   color: '#b45309', bg: '#fffbeb',
+              desc: 'Announcement only: shown with its details, without a Register button.' },
+};
+const regModeOf = (ev) => (REG_MODES[ev?.registrationType] ? ev.registrationType : 'internal');
+const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; } };
+
 const CAT_COLOR = {
   tech: '#635BFF', sports: '#FF4757', cultural: '#FF6B9D',
   'annual-fest': '#D32F2F', health: '#00C896', leadership: '#9B2335',
@@ -275,6 +287,8 @@ const EMPTY = {
   title: '', clubId: '', category: 'general', status: 'upcoming',
   date: '', startDate: '', time: '', venue: '',
   description: '', seats: '', highlight: '', registrationUrl: '',
+  registrationType: 'internal', // internal | external | none — see REG_MODES
+  registrationNote: '',         // optional note shown on announcement-only events
   isFree: true, feeAmount: '',
   customFields: [], // extra registration questions — see QuestionBuilder
 };
@@ -330,6 +344,9 @@ const requestChain = (req) => {
 /* ── Event Card ── */
 function EventCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg, onRemind }) {
   const color = CAT_COLOR[ev.category] || '#888';
+  const regMode = regModeOf(ev);
+  const mode = REG_MODES[regMode];
+  const takesRegs = regMode !== 'none';
   const imgSrc = ev.imageUrl || (ev.image ? `/images/${ev.image}` : null);
   const [linkCopied, setLinkCopied] = useState(false);
   const copyLink = () => {
@@ -351,6 +368,17 @@ function EventCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg, onRemind }) 
       <div className={s.cardBody}>
         <div className={s.cardTitle}>{ev.title}</div>
         <div className={s.cardClub}>Organizer: {ev.club || 'No organizer'}</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, margin: '4px 0 2px' }}>
+          <span style={{ fontSize: '.7rem', fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: mode.bg, color: mode.color }}>
+            {mode.icon} {mode.label}
+          </span>
+          {regMode === 'external' && ev.registrationUrl && (
+            <a href={ev.registrationUrl} target="_blank" rel="noopener noreferrer"
+              style={{ fontSize: '.72rem', color: '#0369a1', fontWeight: 600, overflowWrap: 'anywhere' }}>
+              {hostOf(ev.registrationUrl)} ↗
+            </a>
+          )}
+        </div>
         <ReadMore as="div" text={ev.description} limit={100}
           style={{ fontSize: '.8rem', color: '#6b7280', lineHeight: 1.45, margin: '4px 0 6px' }} />
         <div className={s.cardMeta}>
@@ -366,25 +394,32 @@ function EventCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg, onRemind }) 
         )}
       </div>
       <div className={s.cardActions}>
-        <button className={s.regsBtn} onClick={() => onViewRegs(ev)}>Registrations</button>
+        {takesRegs && <button className={s.regsBtn} onClick={() => onViewRegs(ev)}>Registrations</button>}
         <button className={s.editBtn} onClick={() => onEdit(ev)}>Edit</button>
         <button className={s.delBtn} onClick={() => onDelete(ev._id)}>Delete</button>
       </div>
-      <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
-        <button
-          className={s.regsBtn}
-          onClick={() => onToggleReg(ev)}
-          style={{ width: '100%' }}
-          title={ev.registrationClosed ? 'Let students register again' : 'Stop new registrations without changing the event status'}
-        >
-          {ev.registrationClosed ? 'Reopen Registration' : 'Close Registration'}
-        </button>
-      </div>
-      <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
-        <button className={s.regsBtn} onClick={copyLink} style={{ width: '100%' }} title="Copy a direct link students can use to register">
-          {linkCopied ? 'Link copied ✓' : '🔗 Copy Registration Link'}
-        </button>
-      </div>
+      {takesRegs && (
+        <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
+          <button
+            className={s.regsBtn}
+            onClick={() => onToggleReg(ev)}
+            style={{ width: '100%' }}
+            title={ev.registrationClosed ? 'Let students register again' : 'Stop new registrations without changing the event status'}
+          >
+            {ev.registrationClosed ? 'Reopen Registration' : 'Close Registration'}
+          </button>
+        </div>
+      )}
+      {takesRegs && (
+        <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
+          <button className={s.regsBtn} onClick={copyLink} style={{ width: '100%' }}
+            title={regMode === 'external'
+              ? 'Copy a SOAC link that takes students straight to the registration website'
+              : 'Copy a direct link students can use to register'}>
+            {linkCopied ? 'Link copied ✓' : '🔗 Copy Registration Link'}
+          </button>
+        </div>
+      )}
       <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
         <button className={s.regsBtn} onClick={() => onRemind(ev)} style={{ width: '100%' }}
           title="Email a reminder about this event — venue update, days to go, register now…">
@@ -629,6 +664,8 @@ export default function AdminEvents() {
       date: ev.date || '', startDate: ev.startDate ? ev.startDate.slice(0, 10) : '',
       time: ev.time || '', venue: ev.venue || '', description: ev.description || '',
       seats: ev.seats || '', highlight: ev.highlight || '', registrationUrl: ev.registrationUrl || '',
+      registrationType: regModeOf(ev),
+      registrationNote: ev.registrationNote || '',
       isFree: ev.isFree !== false, feeAmount: ev.feeAmount || '',
       customFields: (ev.customFields || []).map(q => ({ ...q, optionsText: (q.options || []).join('\n') })),
     });
@@ -656,6 +693,9 @@ export default function AdminEvents() {
       seats:           req.seats || '',
       highlight:       req.highlight || '',
       registrationUrl: req.registrationUrl || '',
+      /* Pre-filled with what the coordinator / Faculty Advisor asked for — admin can change it */
+      registrationType: REG_MODES[req.registrationType] ? req.registrationType : 'internal',
+      registrationNote: req.registrationNote || '',
       isFree:          req.isFree !== false,
       feeAmount:       req.feeAmount || '',
       customFields:    [],
@@ -682,14 +722,20 @@ export default function AdminEvents() {
   const handleSave = async (e) => {
     e.preventDefault();
     if (!form.title.trim()) return setError('Event title is required.');
-    if (modal !== 'approve') {
+    const internalReg = form.registrationType === 'internal';
+    if (form.registrationType === 'external' && !form.registrationUrl.trim()) {
+      return setError('Add the link to the website where students register.');
+    }
+    /* Questions are only asked on SOAC's own form, so only checked for it */
+    if (modal !== 'approve' && internalReg) {
       const qErr = questionsError(form.customFields);
       if (qErr) return setError(qErr);
     }
     setSaving(true); setError('');
     try {
       const fd = new FormData();
-      const { isFree, feeAmount, customFields, ...rest } = form;
+      const { isFree: isFreeForm, feeAmount, customFields, ...rest } = form;
+      const isFree = internalReg ? isFreeForm : true; // fees are only collected through SOAC's own form
       Object.entries(rest).forEach(([k, v]) => fd.append(k, v));
       fd.append('customFields', serializeQuestions(customFields));
       fd.append('isFree', isFree);
@@ -715,6 +761,8 @@ export default function AdminEvents() {
         approveFd.append('tags',             tagsStr); // raw comma-separated string; backend splits it
         approveFd.append('highlight',        form.highlight);
         approveFd.append('registration_url', form.registrationUrl);
+        approveFd.append('registration_type', form.registrationType);
+        approveFd.append('registration_note', form.registrationNote);
         approveFd.append('is_free',          isFree);
         approveFd.append('fee_amount',       isFree ? 0 : Number(feeAmount) || 0);
         if (imgFile) approveFd.append('image', imgFile);
@@ -1708,6 +1756,15 @@ export default function AdminEvents() {
                       <strong>Who can participate:</strong> {req.targetAudience || '—'}
                     </div>
                     <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Registration:</strong>{' '}
+                      {req.registrationType === 'external' ? (<>
+                        On an external website
+                        {req.registrationUrl && <> — <a href={req.registrationUrl} target="_blank" rel="noopener noreferrer" style={{ overflowWrap:'anywhere' }}>{req.registrationUrl}</a></>}
+                      </>) : req.registrationType === 'none' ? (<>
+                        No registration needed{req.registrationNote && <> — note: “{req.registrationNote}”</>}
+                      </>) : 'On SOAC (registration form)'}
+                    </div>
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
                       <strong>Expectations from university:</strong> {req.universityExpectations || '—'}
                     </div>
                   </div>
@@ -1835,7 +1892,59 @@ export default function AdminEvents() {
                 <textarea rows={3} value={form.description} onChange={sf('description')} placeholder="Event description…" />
               </div>
 
-              {/* ── Registration Fee ── */}
+              {/* ── How students register ── */}
+              <div style={{ background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:10, padding:'14px 16px' }}>
+                <div style={{ fontSize:'.78rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:10 }}>
+                  How do students register?
+                </div>
+                <div role="radiogroup" aria-label="How do students register?"
+                  style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:8 }}>
+                  {Object.entries(REG_MODES).map(([key, m]) => {
+                    const on = form.registrationType === key;
+                    return (
+                      <button key={key} type="button" role="radio" aria-checked={on}
+                        onClick={() => setForm(p => ({ ...p, registrationType: key }))}
+                        style={{
+                          textAlign:'left', padding:'10px 12px', borderRadius:8, cursor:'pointer', fontFamily:'inherit',
+                          border:`1.5px solid ${on ? m.color : '#e5e7eb'}`, background: on ? m.bg : '#fff', transition:'all .14s',
+                        }}>
+                        <div style={{ fontSize:'.83rem', fontWeight:700, color: on ? m.color : '#374151' }}>{m.icon} {m.label}</div>
+                        <div style={{ fontSize:'.72rem', color:'#6b7280', marginTop:3, lineHeight:1.4 }}>{m.desc}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {form.registrationType === 'external' && (
+                  <div className={s.field} style={{ marginTop:12 }}>
+                    <label>Registration Website Link <span className={s.req}>*</span></label>
+                    <input value={form.registrationUrl} onChange={sf('registrationUrl')}
+                      placeholder="e.g. https://forms.gle/… or https://example.com/register" required />
+                    <div style={{ fontSize:'.74rem', color:'#6b7280', marginTop:4, lineHeight:1.45 }}>
+                      Students who click Register go straight to this page. Sign-ups, fees and questions are handled there,
+                      so no SOAC registration form or fee is shown.
+                    </div>
+                  </div>
+                )}
+                {form.registrationType === 'none' && (<>
+                  <div className={s.field} style={{ marginTop:12 }}>
+                    <label>Note for students <span className={s.hint}>(optional)</span></label>
+                    <input value={form.registrationNote} onChange={sf('registrationNote')} maxLength={150}
+                      placeholder="e.g. Open to all — just turn up" />
+                    <div style={{ fontSize:'.74rem', color:'#6b7280', marginTop:4 }}>
+                      Shown where the Register button would be. Leave it empty to show nothing there.
+                    </div>
+                  </div>
+                  <div style={{ fontSize:'.76rem', color:'#92400e', background:'#fffbeb', border:'1px solid #fde68a',
+                    borderRadius:8, padding:'9px 12px', marginTop:12, lineHeight:1.5 }}>
+                    Students will see the description, date, time and venue, with no Register button.
+                    You can still edit or delete it and send reminders to club members.
+                  </div>
+                </>)}
+              </div>
+
+              {/* ── Registration Fee (only collected through SOAC's own form) ── */}
+              {form.registrationType === 'internal' && (
               <div style={{ background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:10, padding:'14px 16px' }}>
                 <div style={{ fontSize:'.78rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:10 }}>
                   Registration Fee
@@ -1870,6 +1979,7 @@ export default function AdminEvents() {
                   </div>
                 )}
               </div>
+              )}
 
               <div className={s.row2}>
                 <div className={s.field}>
@@ -1882,7 +1992,7 @@ export default function AdminEvents() {
                 </div>
               </div>
 
-              {modal === 'approve' ? (
+              {form.registrationType !== 'internal' ? null : modal === 'approve' ? (
                 <div style={{ fontSize:'.78rem', color:'#6b7280', background:'#f9fafb', border:'1.5px dashed #e5e7eb', borderRadius:10, padding:'10px 14px' }}>
                   Need extra registration questions for this event? Approve it first — the edit form opens straight after, where you can add them.
                 </div>
@@ -2310,7 +2420,14 @@ export default function AdminEvents() {
               {regsLoading ? (
                 <div className={s.regsEmpty}>Loading registrations…</div>
               ) : regs.length === 0 ? (
-                <div className={s.regsEmpty}><p>No registrations yet for this event.</p></div>
+                <div className={s.regsEmpty}>
+                  {regModeOf(regEvent) === 'external' ? (
+                    <p>
+                      Students register for this event on an external website, so sign-ups aren't recorded on SOAC.
+                      {regEvent.registrationUrl && <> <a href={regEvent.registrationUrl} target="_blank" rel="noopener noreferrer">Open the registration website ↗</a></>}
+                    </p>
+                  ) : <p>No registrations yet for this event.</p>}
+                </div>
               ) : filteredRegs.length === 0 ? (
                 <div className={s.regsEmpty}>No registrations match your search.</div>
               ) : (

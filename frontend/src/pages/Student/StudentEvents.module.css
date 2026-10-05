@@ -841,3 +841,15 @@
   margin: 0 0.5cm;
   white-space: nowrap;
 }
+
+/* Announcement-only events: shown in place of a Register button */
+.noRegNote {
+  font-size: 12px;
+  font-weight: 700;
+  color: #b45309;
+}
+
+/* External-registration link reuses the Register button style */
+a.regBtn {
+  text-decoration: none;
+}

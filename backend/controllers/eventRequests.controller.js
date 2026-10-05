@@ -1,6 +1,7 @@
 const { pgPool } = require('../config/db');
 const { ensureSoacTables } = require('../services/soacData');
 const { MAIN_CAMPUS, adminCampus } = require('../services/campus');
+const { resolveRegistration } = require('../services/eventRegistration');
 const { getCoordClubIds, assertCoordOwnsClub } = require('../services/coordAuth');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
 const { getFileValue } = require('../config/multer');
@@ -51,6 +52,17 @@ const imageUrl = (filename) => {
 /* Request bodies arrive as multipart/form-data (multer), where every non-file
    field is a string — so booleans must be parsed, never compared with === true/false. */
 const parseBoolDefaultTrue  = (v) => v !== false && v !== 'false';
+
+/* How students will register for the proposed event. A body without a type
+   (older clients) keeps the previous behaviour: SOAC form, link stored as given. */
+const registrationFromBody = (body) => {
+  if (body.registration_type === undefined) {
+    return { type: 'internal', url: body.registration_url || '', note: '' };
+  }
+  const reg = resolveRegistration(body.registration_type, body.registration_url);
+  if (reg.error) return reg;
+  return { ...reg, note: reg.type === 'none' ? String(body.registration_note || '').trim().slice(0, 150) : '' };
+};
 const parseBoolDefaultFalse = (v) => v === true || v === 'true';
 
 /* ── POST /api/event-requests  (coordinator submits proposal) ── */
@@ -65,7 +77,10 @@ const createRequest = async (req, res, next) => {
       target_audience, university_expectations,
     } = req.body;
 
-    const isFree = parseBoolDefaultTrue(is_free);
+    const registration = registrationFromBody(req.body);
+    if (registration.error) return res.status(400).json({ message: registration.error });
+    /* A fee is only collected through SOAC's own form */
+    const isFree = registration.type !== 'internal' || parseBoolDefaultTrue(is_free);
 
     if (!title?.trim())       return res.status(400).json({ message: 'Event title is required.' });
     if (!description?.trim()) return res.status(400).json({ message: 'Description is required.' });
@@ -126,8 +141,8 @@ const createRequest = async (req, res, next) => {
           title, description, category, date, start_date, time, venue,
           seats, tags, highlight, registration_url, is_free, fee_amount,
           objective, expected_outcome, is_special_day, special_day_name,
-          target_audience, university_expectations, image)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+          target_audience, university_expectations, image, registration_type, registration_note)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
        RETURNING *`,
       [
         club.id, club.name, req.user.id, req.user.name || '', submitterRole, initialStatus,
@@ -140,7 +155,7 @@ const createRequest = async (req, res, next) => {
         seats || '',
         parsedTags,
         highlight || '',
-        registration_url || '',
+        registration.url,
         isFree,
         isFree ? 0 : Number(fee_amount) || 0,
         objective.trim(),
@@ -150,6 +165,8 @@ const createRequest = async (req, res, next) => {
         target_audience.trim(),
         university_expectations.trim(),
         image,
+        registration.type,
+        registration.note,
       ]
     );
     const created = rows[0];
@@ -211,7 +228,10 @@ const updateRequest = async (req, res, next) => {
       target_audience, university_expectations,
     } = req.body;
 
-    const isFree = parseBoolDefaultTrue(is_free);
+    const registration = registrationFromBody(req.body);
+    if (registration.error) return res.status(400).json({ message: registration.error });
+    /* A fee is only collected through SOAC's own form */
+    const isFree = registration.type !== 'internal' || parseBoolDefaultTrue(is_free);
 
     if (!title?.trim())       return res.status(400).json({ message: 'Event title is required.' });
     if (!description?.trim()) return res.status(400).json({ message: 'Description is required.' });
@@ -244,7 +264,7 @@ const updateRequest = async (req, res, next) => {
          registration_url = $11, is_free = $12, fee_amount = $13,
          objective = $14, expected_outcome = $15, is_special_day = $16,
          special_day_name = $17, target_audience = $18, university_expectations = $19,
-         image = $20, updated_at = NOW()
+         image = $20, registration_type = $22, registration_note = $23, updated_at = NOW()
        WHERE id = $21
        RETURNING *`,
       [
@@ -257,7 +277,7 @@ const updateRequest = async (req, res, next) => {
         seats || '',
         parsedTags,
         highlight || '',
-        registration_url || '',
+        registration.url,
         isFree,
         isFree ? 0 : Number(fee_amount) || 0,
         objective.trim(),
@@ -268,6 +288,8 @@ const updateRequest = async (req, res, next) => {
         university_expectations.trim(),
         image,
         req.params.id,
+        registration.type,
+        registration.note,
       ]
     );
     res.json({ request: asRequest(rows[0]) });
@@ -483,6 +505,8 @@ const approveRequest = async (req, res, next) => {
       tags,
       highlight   = r.highlight,
       registration_url = r.registration_url,
+      registration_type,
+      registration_note,
       is_free     = r.is_free,
       fee_amount  = r.fee_amount,
       status      = 'upcoming',
@@ -508,6 +532,20 @@ const approveRequest = async (req, res, next) => {
         ? tags.split(',').map(t => t.trim()).filter(Boolean)
         : (r.tags || []);
 
+    /* Admin picks how students register while reviewing. Older clients that don't
+       send a type keep the previous behaviour (internal form, link stored as-is). */
+    let registration, regNote;
+    if (registration_type !== undefined) {
+      registration = resolveRegistration(registration_type, registration_url);
+      if (registration.error) return res.status(400).json({ message: registration.error });
+      regNote = registration.type === 'none' ? String(registration_note || '').trim().slice(0, 150) : '';
+    } else {
+      const type = r.registration_type || 'internal';
+      registration = { type, url: type === 'none' ? '' : (registration_url || r.registration_url || '') };
+      regNote = type === 'none' ? (r.registration_note || '') : '';
+    }
+    const freeEntry = registration.type !== 'internal' || (is_free !== false && is_free !== 'false');
+
     // Admin may attach a new banner while reviewing; otherwise the coordinator's
     // own submitted image (if any) carries over to the live event.
     const image = req.file ? (getFileValue(req.file) || '') : (r.image || '');
@@ -522,8 +560,8 @@ const approveRequest = async (req, res, next) => {
           description, seats, tags, highlight, registration_url,
           is_free, fee_amount, is_active, image,
           objective, expected_outcome, is_special_day, special_day_name,
-          target_audience, university_expectations)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,true,$17,$18,$19,$20,$21,$22,$23)
+          target_audience, university_expectations, registration_type, registration_note)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,true,$17,$18,$19,$20,$21,$22,$23,$24,$25)
        RETURNING *`,
       [
         title?.trim() || r.title,
@@ -539,9 +577,9 @@ const approveRequest = async (req, res, next) => {
         seats || r.seats || '',
         parsedTags,
         highlight || r.highlight || '',
-        registration_url || r.registration_url || '',
-        is_free !== false && is_free !== 'false',
-        Number(fee_amount) || 0,
+        registration.url,
+        freeEntry,
+        freeEntry ? 0 : Number(fee_amount) || 0,
         image,
         r.objective,
         r.expected_outcome,
@@ -549,6 +587,8 @@ const approveRequest = async (req, res, next) => {
         r.special_day_name,
         r.target_audience,
         r.university_expectations,
+        registration.type,
+        regNote,
       ]
     );
 
@@ -697,6 +737,8 @@ const asRequest = (r) => ({
   tags:             r.tags || [],
   highlight:        r.highlight,
   registrationUrl:  r.registration_url,
+  registrationType: r.registration_type || 'internal',
+  registrationNote: r.registration_note || '',
   isFree:           r.is_free,
   feeAmount:        Number(r.fee_amount || 0),
   image:            r.image || '',

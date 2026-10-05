@@ -635,6 +635,10 @@ const runSoacTablesSetup = async () => {
 
   /* ── Add proposal/planning-detail columns to event_requests (idempotent) ── */
   await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS objective TEXT NOT NULL DEFAULT ''`);
+  /* How students will register — same meaning as events.registration_type /
+     registration_note (see services/eventRegistration.js) */
+  await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS registration_type VARCHAR(10) NOT NULL DEFAULT 'internal'`);
+  await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS registration_note VARCHAR(150) NOT NULL DEFAULT ''`);
   await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS expected_outcome TEXT NOT NULL DEFAULT ''`);
   await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS is_special_day BOOLEAN NOT NULL DEFAULT false`);
   await pgPool.query(`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS special_day_name VARCHAR(255) NOT NULL DEFAULT ''`);
@@ -1005,6 +1009,8 @@ const asEvent = (row) => ({
   seats: row.seats || '',
   highlight: row.highlight || '',
   registrationUrl: row.registration_url || '',
+  registrationType: row.registration_type || 'internal',
+  registrationNote: row.registration_note || '',
   isFree: row.is_free !== false,
   feeAmount: Number(row.fee_amount || 0),
   isActive: !!row.is_active,

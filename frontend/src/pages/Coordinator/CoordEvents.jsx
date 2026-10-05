@@ -82,9 +82,20 @@ const CAT_LABEL = {
   health:'Health', leadership:'Leadership', community:'Community', general:'General',
 };
 
+/* How students will register for the proposed event (events.registration_type) */
+const REG_MODES = [
+  { key: 'internal', icon: '📝', label: 'Register on SOAC', color: '#5b21b6', bg: '#f5f3ff',
+    desc: "Students fill in SOAC's registration form." },
+  { key: 'external', icon: '🌐', label: 'External website', color: '#0369a1', bg: '#f0f9ff',
+    desc: 'The Register button sends students to another website to sign up.' },
+  { key: 'none',     icon: '📢', label: 'No registration',  color: '#b45309', bg: '#fffbeb',
+    desc: 'Announcement only: shown with its details, without a Register button.' },
+];
+
 const BLANK_FORM = {
   title:'', description:'', category:'general', date:'', start_date:'',
   time:'', venue:'', seats:'', tags:'', highlight:'', registration_url:'',
+  registration_type:'internal', registration_note:'', // internal | external | none
   is_free: true, fee_amount:'',
   objective:'', expected_outcome:'', is_special_day:false, special_day_name:'',
   target_audience:'', university_expectations:'',
@@ -98,7 +109,9 @@ function validate(form) {
   else if (form.description.trim().length < 20) errs.description = 'Please provide at least 20 characters.';
   if (!form.start_date)               errs.start_date  = 'Event date is required.';
   if (!form.venue.trim())             errs.venue       = 'Venue is required.';
-  if (!form.is_free) {
+  if (form.registration_type === 'external' && !form.registration_url.trim())
+    errs.registration_url = 'Add the link to the website where students register.';
+  if (form.registration_type === 'internal' && !form.is_free) {
     if (!form.fee_amount || isNaN(Number(form.fee_amount))) errs.fee_amount = 'Enter a valid fee amount.';
     else if (Number(form.fee_amount) <= 0) errs.fee_amount = 'Fee must be greater than ₹0.';
   }
@@ -349,6 +362,8 @@ export default function CoordEvents() {
       tags:             (req.tags || []).join(', '),
       highlight:        req.highlight || '',
       registration_url: req.registrationUrl || '',
+      registration_type: req.registrationType || 'internal',
+      registration_note: req.registrationNote || '',
       is_free:          req.isFree !== false,
       fee_amount:       req.feeAmount || '',
       objective:               req.objective || '',
@@ -396,9 +411,13 @@ export default function CoordEvents() {
       fd.append('seats',            form.seats);
       fd.append('tags',             form.tags); // raw comma-separated string; backend splits it
       fd.append('highlight',        form.highlight);
-      fd.append('registration_url', form.registration_url);
-      fd.append('is_free',          form.is_free);
-      fd.append('fee_amount',       form.is_free ? 0 : Number(form.fee_amount));
+      /* Fees are only collected through SOAC's own form */
+      const isFree = form.registration_type !== 'internal' || form.is_free;
+      fd.append('registration_type', form.registration_type);
+      fd.append('registration_url', form.registration_type === 'external' ? form.registration_url.trim() : '');
+      fd.append('registration_note', form.registration_type === 'none' ? form.registration_note.trim() : '');
+      fd.append('is_free',          isFree);
+      fd.append('fee_amount',       isFree ? 0 : Number(form.fee_amount));
       fd.append('objective',               form.objective.trim());
       fd.append('expected_outcome',        form.expected_outcome.trim());
       fd.append('is_special_day',          form.is_special_day);
@@ -1433,6 +1452,15 @@ export default function CoordEvents() {
                       <strong>Who can participate:</strong> {req.targetAudience || '—'}
                     </div>
                     <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Registration:</strong>{' '}
+                      {req.registrationType === 'external' ? (<>
+                        On an external website
+                        {req.registrationUrl && <> — <a href={req.registrationUrl} target="_blank" rel="noopener noreferrer" style={{ overflowWrap:'anywhere' }}>{req.registrationUrl}</a></>}
+                      </>) : req.registrationType === 'none' ? (<>
+                        No registration needed{req.registrationNote && <> — note: “{req.registrationNote}”</>}
+                      </>) : 'On SOAC (registration form)'}
+                    </div>
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
                       <strong>Expectations from university:</strong> {req.universityExpectations || '—'}
                     </div>
                   </div>
@@ -1562,6 +1590,15 @@ export default function CoordEvents() {
                     </div>
                     <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
                       <strong>Who can participate:</strong> {req.targetAudience || '—'}
+                    </div>
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Registration:</strong>{' '}
+                      {req.registrationType === 'external' ? (<>
+                        On an external website
+                        {req.registrationUrl && <> — <a href={req.registrationUrl} target="_blank" rel="noopener noreferrer" style={{ overflowWrap:'anywhere' }}>{req.registrationUrl}</a></>}
+                      </>) : req.registrationType === 'none' ? (<>
+                        No registration needed{req.registrationNote && <> — note: “{req.registrationNote}”</>}
+                      </>) : 'On SOAC (registration form)'}
                     </div>
                     <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
                       <strong>Expectations from university:</strong> {req.universityExpectations || '—'}
@@ -3541,7 +3578,45 @@ export default function CoordEvents() {
                 </select>
               </Field>
 
-              {/* Fee section */}
+              {/* How students will register */}
+              <div className={es.feeSection}>
+                <div className={es.feeSectionTitle}>How will students register?</div>
+                <div role="radiogroup" aria-label="How will students register?"
+                  style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:8 }}>
+                  {REG_MODES.map(m => {
+                    const on = form.registration_type === m.key;
+                    return (
+                      <button key={m.key} type="button" role="radio" aria-checked={on}
+                        onClick={() => { setForm(p => ({ ...p, registration_type: m.key })); setErrs(p => ({ ...p, registration_url: undefined, fee_amount: undefined })); }}
+                        style={{ textAlign:'left', padding:'10px 12px', borderRadius:8, cursor:'pointer', fontFamily:'inherit',
+                          border:`1.5px solid ${on ? m.color : '#e5e7eb'}`, background: on ? m.bg : '#fff' }}>
+                        <div style={{ fontSize:'.83rem', fontWeight:700, color: on ? m.color : '#374151' }}>{m.icon} {m.label}</div>
+                        <div style={{ fontSize:'.72rem', color:'#6b7280', marginTop:3, lineHeight:1.4 }}>{m.desc}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {form.registration_type === 'external' && (
+                  <div style={{ marginTop:12 }}>
+                    <Field label="Registration Website Link" required error={errs.registration_url}>
+                      <input className={errs.registration_url ? es.inputErr : es.input}
+                        value={form.registration_url} onChange={f('registration_url')}
+                        placeholder="e.g. https://forms.gle/… or https://example.com/register" />
+                    </Field>
+                  </div>
+                )}
+                {form.registration_type === 'none' && (
+                  <div style={{ marginTop:12 }}>
+                    <Field label="Note for students" hint="(optional — leave empty to show nothing)">
+                      <input className={es.input} value={form.registration_note} onChange={f('registration_note')}
+                        maxLength={150} placeholder="e.g. Open to all — just turn up" />
+                    </Field>
+                  </div>
+                )}
+              </div>
+
+              {/* Fee section — only collected through SOAC's own form */}
+              {form.registration_type === 'internal' && (
               <div className={es.feeSection}>
                 <div className={es.feeSectionTitle}>Registration Fee</div>
                 <div className={es.feeToggleRow}>
@@ -3571,6 +3646,7 @@ export default function CoordEvents() {
                   </Field>
                 )}
               </div>
+              )}
 
               {/* Optional fields */}
               <div className={es.row2}>
@@ -3583,11 +3659,6 @@ export default function CoordEvents() {
                     onChange={f('tags')} placeholder="e.g. Workshop, Open to All" />
                 </Field>
               </div>
-
-              <Field label="Registration / Info URL" hint="(optional)">
-                <input className={es.input} value={form.registration_url}
-                  onChange={f('registration_url')} placeholder="https://…" />
-              </Field>
 
               {/* Footer */}
               <div className={es.modalFoot}>

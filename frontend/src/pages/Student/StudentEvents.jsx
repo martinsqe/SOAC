@@ -380,6 +380,7 @@ export default function StudentEvents() {
             const isUpcoming = ev.status === 'upcoming';
             const isOngoing  = ev.status === 'ongoing';
             const canRegister = (isUpcoming || isOngoing) && !ev.registrationClosed;
+            const regType = ev.registrationType || 'internal'; // internal | external | none
 
             return (
               <div key={ev._id || i} className={s.card}>
@@ -425,6 +426,12 @@ export default function StudentEvents() {
                     <div className={s.venue}>
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
                       {ev.venue}
+                    </div>
+                  )}
+                  {ev.time && (
+                    <div className={s.venue}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      {ev.time}
                     </div>
                   )}
                   {ev.description && (
@@ -492,6 +499,16 @@ export default function StudentEvents() {
                           <span className={s.regStatusDot} />
                           Registered
                         </span>
+                      );
+                    }
+                    if (regType === 'none') {
+                      return ev.registrationNote ? <span className={s.noRegNote}>{ev.registrationNote}</span> : null;
+                    }
+                    if (canRegister && regType === 'external') {
+                      return (
+                        <a className={s.regBtn} href={ev.registrationUrl} target="_blank" rel="noopener noreferrer">
+                          Register on website ↗
+                        </a>
                       );
                     }
                     if (canRegister) {

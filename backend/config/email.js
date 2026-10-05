@@ -328,9 +328,11 @@ const sendBroadcastEmail = async ({ toEmail, toName, title, body, category = 'An
 };
 
 /* Admin event reminder. kind: 'venue' | 'countdown' | 'register' | 'custom'.
-   event: { id, title, dateLabel, time, venue, organizer }, daysToGo for countdown. */
+   event: { id, title, dateLabel, time, venue, organizer, registrationType, registrationUrl },
+   daysToGo for countdown. */
 const sendEventReminder = async ({ toEmail, toName, kind, event, daysToGo = null, message = '' }) => {
-  const eventUrl = `${APP_URL}/events/${event.id}`;
+  const external = event.registrationType === 'external' && event.registrationUrl;
+  const eventUrl = kind === 'register' && external ? event.registrationUrl : `${APP_URL}/events/${event.id}`;
   const when = daysToGo === 0 ? 'today' : daysToGo === 1 ? 'tomorrow' : `in ${daysToGo} days`;
   const SUBJECT = {
     venue:     `Venue update: ${event.title} — ${event.venue}`,
@@ -341,7 +343,9 @@ const sendEventReminder = async ({ toEmail, toName, kind, event, daysToGo = null
   const INTRO = {
     venue:     `The venue for <strong>${escapeHtml(event.title)}</strong> has been confirmed.`,
     countdown: `<strong>${escapeHtml(event.title)}</strong> is ${when}! Get ready.`,
-    register:  `Registration is open for <strong>${escapeHtml(event.title)}</strong> and you haven't registered yet — save your spot before it closes.`,
+    register:  external
+      ? `Registration is open for <strong>${escapeHtml(event.title)}</strong> on the organizer's website — save your spot before it closes.`
+      : `Registration is open for <strong>${escapeHtml(event.title)}</strong> and you haven't registered yet — save your spot before it closes.`,
     custom:    `A reminder about <strong>${escapeHtml(event.title)}</strong>.`,
   };
   /* One plain "Label: value" line; the venue is bold in a venue update */
@@ -363,7 +367,7 @@ const sendEventReminder = async ({ toEmail, toName, kind, event, daysToGo = null
       </p>
       <p style="color:#333;font-size:15px;line-height:1.7;margin:22px 0 4px">Regards,<br/>SOAC RKU</p>
       <div style="margin:26px 0">
-        <a href="${eventUrl}" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">${kind === 'register' ? 'Register now' : 'View event'}</a>
+        <a href="${escapeHtml(eventUrl)}" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">${kind === 'register' ? (external ? 'Register on website' : 'Register now') : 'View event'}</a>
       </div>
       ${footer()}
     `),
@@ -434,7 +438,11 @@ const eventRequestSections = (r) => {
     ['Venue',             r.venue],
     ['Seats',             r.seats],
     ['Entry',             fee],
-    ['Registration link', r.registration_url],
+    ['Registration',      r.registration_type === 'external' ? 'On an external website'
+                          : r.registration_type === 'none'     ? 'No registration needed'
+                          : 'On SOAC (registration form)'],
+    ['Registration link', r.registration_type === 'none' ? '' : r.registration_url],
+    ['Note for students', r.registration_type === 'none' ? r.registration_note : ''],
     ['Tags',              tags],
     ['Highlight',         r.highlight],
     ['Special day',       r.is_special_day ? (r.special_day_name || 'Yes') : ''],

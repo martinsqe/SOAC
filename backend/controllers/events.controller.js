@@ -9,6 +9,7 @@ const { sendGaloreActivityAssignment, sendEventReminder } = require('../config/e
 const cache = require('../services/cache');
 const { syncPastEvents } = require('../services/eventStatus');
 const { MAIN_CAMPUS, adminCampus } = require('../services/campus');
+const { resolveRegistration } = require('../services/eventRegistration');
 
 /* ── Column lists ───────────────────────────────────────────────────────────*/
 const EVENT_COLS = [
@@ -19,8 +20,10 @@ const EVENT_COLS = [
   'certificates_finalized_at',
   'event_format', 'captain_name', 'captain_email', 'captain_phone',
   'team_members', 'payment_link', 'team_size', 'min_team_size',
-  'parent_event_id', 'custom_fields', 'campus',
+  'parent_event_id', 'custom_fields', 'campus', 'registration_type', 'registration_note',
 ].join(', ');
+
+const cleanNote = (raw) => String(raw || '').trim().slice(0, 150);
 
 /* ── Admin-defined extra registration questions (Other Events) ──────────────
    Stored on events.custom_fields; answers land in
@@ -189,6 +192,11 @@ function normalizePaymentLink(raw) {
     `);
     await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_coordinators_event ON event_coordinators(event_id)`);
     await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_coordinators_user  ON event_coordinators(user_id)`);
+    /* How students sign up for an Other Events event — internal | external | none
+       (see services/eventRegistration.js). Every existing event keeps SOAC's own form. */
+    await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS registration_type VARCHAR(10) NOT NULL DEFAULT 'internal'`);
+    /* Optional note shown to students on an announcement-only event, in place of a Register button */
+    await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS registration_note VARCHAR(150) NOT NULL DEFAULT ''`);
     console.log('[events] migrations ready');
   } catch (err) {
     console.error('[events] migration failed:', err.message);
@@ -496,10 +504,17 @@ const create = async (req, res, next) => {
       description, tags, seats, highlight, registrationUrl,
       isFree, feeAmount,
       eventFormat, teamSize, minTeamSize, paymentLink, parentEventId,
-      customFields,
+      customFields, registrationType, registrationNote,
     } = req.body;
 
     const format = ['sports_fiesta', 'galore'].includes(eventFormat) ? eventFormat : 'other';
+
+    /* Only top-level Other Events choose how students register — Sports Fiesta
+       and Galore (and Galore activities) always use SOAC's own flows. */
+    const registration = format === 'other' && !parentEventId
+      ? resolveRegistration(registrationType, registrationUrl)
+      : { type: 'internal', url: '' };
+    if (registration.error) return res.status(400).json({ message: registration.error });
 
     /* A Galore activity (parentEventId set) must point at a real Galore umbrella —
        checked up front so a bad id fails clearly instead of silently orphaning. */
@@ -539,7 +554,9 @@ const create = async (req, res, next) => {
     }
 
     const image   = getFileValue(req.file) ?? '';
-    const is_free = isFree === 'false' || isFree === false ? false : true;
+    /* A fee is only collected through SOAC's own form — external sites handle
+       their own payments, and an announcement has nothing to pay for. */
+    const is_free = registration.type !== 'internal' || !(isFree === 'false' || isFree === false);
     /* Sports Fiesta events default to category 'sports' even if the caller
        omits it — that's what turns on the existing Teams/Fixtures/Scoreboard
        tabs and sport-detection for certificates elsewhere in the app. */
@@ -549,13 +566,13 @@ const create = async (req, res, next) => {
        (title, club, club_id, category, status, date, start_date, time, venue,
         description, image, tags, seats, highlight, registration_url, is_free, fee_amount,
         event_format, captain_name, captain_email, captain_phone, team_members, payment_link, team_size, min_team_size,
-        parent_event_id, custom_fields, campus)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
+        parent_event_id, custom_fields, campus, registration_type, registration_note)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
        RETURNING ${EVENT_COLS}`,
       [
         title, clubName, resolvedClubId, resolvedCategory, status || 'upcoming', date || '',
         startDate ? new Date(startDate) : null, time || '', venue || '', description || '', image,
-        tags ? JSON.parse(tags) : [], seats || '', highlight || '', registrationUrl || '',
+        tags ? JSON.parse(tags) : [], seats || '', highlight || '', registration.url,
         is_free, is_free ? 0 : Number(feeAmount) || 0,
         /* captain_* and team_members always start blank/empty — the captain
            fills all of it in later via the public event page's team-roster
@@ -569,6 +586,8 @@ const create = async (req, res, next) => {
         /* SOAC-wide events belong to the campus the admin is managing; a club
            event's campus is set from its club by the events_set_campus trigger. */
         adminCampus(req) || MAIN_CAMPUS,
+        registration.type,
+        registration.type === 'none' ? cleanNote(registrationNote) : '',
       ]
     );
     const event = asEvent(rows[0]);
@@ -620,7 +639,8 @@ const create = async (req, res, next) => {
 const update = async (req, res, next) => {
   try {
     const { rows: cur } = await pgPool.query(
-      `SELECT id, image, title, club, category, status, date, time, venue, description, seats, highlight, is_free, fee_amount, custom_fields FROM events WHERE id = $1`,
+      `SELECT id, image, title, club, category, status, date, time, venue, description, seats, highlight, is_free, fee_amount, custom_fields,
+              event_format, parent_event_id, registration_type FROM events WHERE id = $1`,
       [req.params.id]
     );
     if (!cur.length) return res.status(404).json({ message: 'Event not found.' });
@@ -654,9 +674,19 @@ const update = async (req, res, next) => {
       }
     }
 
+    /* Registration mode can change on edit, but only for top-level Other Events */
+    let registration = null;
+    if (req.body.registrationType !== undefined
+        && (cur[0].event_format || 'other') === 'other' && !cur[0].parent_event_id) {
+      registration = resolveRegistration(req.body.registrationType, req.body.registrationUrl);
+      if (registration.error) return res.status(400).json({ message: registration.error });
+    }
+    const effectiveRegType = registration ? registration.type : (cur[0].registration_type || 'internal');
+
     const isFreeRaw = req.body.isFree;
-    const is_free   = isFreeRaw === undefined ? undefined
+    let is_free     = isFreeRaw === undefined ? undefined
                     : isFreeRaw === 'false' || isFreeRaw === false ? false : true;
+    if (effectiveRegType !== 'internal' && (is_free !== undefined || registration)) is_free = true; // no fee without SOAC registration
 
     const { rows } = await pgPool.query(
       `UPDATE events
@@ -685,6 +715,8 @@ const update = async (req, res, next) => {
            team_size        = COALESCE($24, team_size),
            min_team_size    = COALESCE($25, min_team_size),
            custom_fields    = COALESCE($27::jsonb, custom_fields),
+           registration_type = COALESCE($28, registration_type),
+           registration_note = COALESCE($29, registration_note),
            updated_at       = NOW()
        WHERE id = $26
        RETURNING ${EVENT_COLS}`,
@@ -702,7 +734,7 @@ const update = async (req, res, next) => {
         req.body.description  ?? null,   // $11
         req.body.seats        ?? null,   // $12
         req.body.highlight    ?? null,   // $13
-        req.body.registrationUrl ?? null, // $14
+        registration ? registration.url : (req.body.registrationUrl ?? null), // $14
         req.body.tags ? JSON.parse(req.body.tags) : null,  // $15
         req.file ? getFileValue(req.file) : cur[0].image,  // $16
         is_free   ?? null,               // $17
@@ -716,6 +748,8 @@ const update = async (req, res, next) => {
         req.body.minTeamSize !== undefined ? Number(req.body.minTeamSize) || 0 : null,  // $25
         req.params.id,                   // $26
         req.body.customFields !== undefined ? JSON.stringify(sanitizeCustomFields(req.body.customFields)) : null,  // $27
+        registration ? registration.type : null,  // $28
+        registration ? (registration.type === 'none' ? cleanNote(req.body.registrationNote) : '') : null,  // $29
       ]
     );
     const event = asEvent(rows[0]);
@@ -772,11 +806,16 @@ const toggleRegistration = async (req, res, next) => {
     const closed = !!req.body.closed;
     const { rows } = await pgPool.query(
       `UPDATE events SET registration_closed = $1, updated_at = NOW()
-       WHERE id = $2 AND is_active = true
+       WHERE id = $2 AND is_active = true AND registration_type <> 'none'
        RETURNING ${EVENT_COLS}`,
       [closed, req.params.id]
     );
-    if (!rows.length) return res.status(404).json({ message: 'Event not found.' });
+    if (!rows.length) {
+      const { rows: ex } = await pgPool.query(`SELECT 1 FROM events WHERE id = $1 AND is_active = true`, [req.params.id]);
+      return ex.length
+        ? res.status(400).json({ message: "This event doesn't take registrations." })
+        : res.status(404).json({ message: 'Event not found.' });
+    }
     const event = asEvent(rows[0]);
 
     await logAudit(req.user.id, req.user.name, 'UPDATE_EVENT', 'event', event.id, {
@@ -985,11 +1024,18 @@ const register = async (req, res, next) => {
   try {
     /* Only fetch what we need: id, title, status, category, event_format + parent_event_id */
     const { rows: eventRows } = await pgPool.query(
-      `SELECT id, title, status, category, event_format, parent_event_id, registration_closed, custom_fields FROM events WHERE id = $1 AND is_active = true`,
+      `SELECT id, title, status, category, event_format, parent_event_id, registration_closed, custom_fields, registration_type, registration_url
+       FROM events WHERE id = $1 AND is_active = true`,
       [req.params.id]
     );
     if (!eventRows.length) return res.status(404).json({ message: 'Event not found.' });
     const event = eventRows[0];
+    if (event.registration_type === 'none') {
+      return res.status(400).json({ message: "This event doesn't need registration — just turn up." });
+    }
+    if (event.registration_type === 'external') {
+      return res.status(400).json({ message: "Registration for this event happens on the organizer's website.", registrationUrl: event.registration_url });
+    }
     if (event.status === 'past' || event.registration_closed) {
       return res.status(400).json({ message: 'Registrations for this event are closed.' });
     }
@@ -1597,7 +1643,7 @@ const sendReminder = async (req, res, next) => {
     if (String(message).length > 1000) return res.status(400).json({ message: 'Keep the message under 1000 characters.' });
 
     const { rows: evRows } = await pgPool.query(
-      `SELECT id, title, club, club_id, date, time, venue, status, registration_closed, campus,
+      `SELECT id, title, club, club_id, date, time, venue, status, registration_closed, campus, registration_type, registration_url,
               ((start_date AT TIME ZONE 'Asia/Kolkata')::date - (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS days_to_go
        FROM events WHERE id = $1 AND is_active = true`,
       [req.params.id]
@@ -1612,9 +1658,16 @@ const sendReminder = async (req, res, next) => {
     if (type === 'countdown' && (daysToGo === null || daysToGo < 0)) {
       return res.status(400).json({ message: daysToGo === null ? 'This event has no start date set.' : 'This event has already started.' });
     }
+    const regType = ev.registration_type || 'internal';
+    if (type === 'register' && regType === 'none') {
+      return res.status(400).json({ message: "This event doesn't take registrations." });
+    }
     if (type === 'register' && (ev.registration_closed || ev.status === 'past')) {
       return res.status(400).json({ message: 'Registration is closed for this event.' });
     }
+    /* Only SOAC-form events have registered participants on our side —
+       everything else goes to the club members. */
+    const effectiveAudience = regType === 'internal' ? audience : 'members';
 
     /* Registered participants (the event and any Galore activities under it) */
     const { rows: registered } = await pgPool.query(
@@ -1641,13 +1694,13 @@ const sendReminder = async (req, res, next) => {
       recipients = members.filter(m => !registeredSet.has(m.email));
     } else {
       const byEmail = new Map();
-      if (audience === 'registered' || audience === 'both') registered.forEach(r => byEmail.set(r.email, r));
-      if (audience === 'members'    || audience === 'both') members.forEach(m => { if (!byEmail.has(m.email)) byEmail.set(m.email, m); });
+      if (effectiveAudience === 'registered' || effectiveAudience === 'both') registered.forEach(r => byEmail.set(r.email, r));
+      if (effectiveAudience === 'members'    || effectiveAudience === 'both') members.forEach(m => { if (!byEmail.has(m.email)) byEmail.set(m.email, m); });
       recipients = [...byEmail.values()];
     }
 
     if (dryRun) {
-      return res.json({ count: recipients.length, registered: registered.length, members: members.length, daysToGo, venue: ev.venue || '' });
+      return res.json({ count: recipients.length, registered: registered.length, members: members.length, daysToGo, venue: ev.venue || '', registrationType: regType });
     }
     if (!recipients.length) return res.status(400).json({ message: 'Nobody to remind for this choice yet.' });
 
@@ -1656,11 +1709,12 @@ const sendReminder = async (req, res, next) => {
     await pgPool.query(
       `INSERT INTO audit_log (user_id, user_name, action, entity_type, entity_id, meta)
        VALUES ($1, $2, 'SEND_EVENT_REMINDER', 'event', $3, $4)`,
-      [req.user.id, req.user.name, String(ev.id), JSON.stringify({ type, audience, recipients: recipients.length })]
+      [req.user.id, req.user.name, String(ev.id), JSON.stringify({ type, audience: effectiveAudience, recipients: recipients.length })]
     ).catch(() => {});
 
     const event = {
       id: ev.id, title: ev.title, dateLabel: ev.date, time: ev.time, venue: ev.venue, organizer: ev.club || 'SOAC',
+      registrationType: regType, registrationUrl: ev.registration_url || '',
     };
     for (const r of recipients) {
       sendEventReminder({ toEmail: r.email, toName: r.name, kind: type, event, daysToGo, message: String(message).trim() })

@@ -383,6 +383,9 @@ const normaliseEvent = (e) => ({
   parentEventId: e.parentEventId || null, // set → this is a Galore activity (department + division apply)
   registrationClosed: !!e.registrationClosed,
   customFields: e.customFields || [], // extra registration questions admin added
+  registrationType: e.registrationType || 'internal', // internal | external | none
+  registrationUrl: e.registrationUrl || '',
+  registrationNote: e.registrationNote || '', // announcement-only events: admin's optional note
 });
 
 const DEPTS = ['ACH', 'AI/ML', 'FOT', 'SOE', 'SOM', 'SOP', 'SPT', 'SDS', 'SOS'];
@@ -713,7 +716,9 @@ const Events = () => {
     linkHandledRef.current = true;
     const target = events.find(e => String(e.id) === String(linkedEventId));
     if (!target) { setLinkedEventMissing(true); return; }
+    if (target.registrationType === 'none') return; // announcement only — the page itself shows it
     if (target.registrationClosed) { setLinkedEventClosed(target.title); return; }
+    if (target.registrationType === 'external') { window.location.assign(target.registrationUrl); return; }
     openReg(target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkedEventId, events, eventsLoading]);
@@ -904,8 +909,12 @@ const Events = () => {
                     <div className={styles.featBtnRow}>
                       {registeredIds.has(String(featured.id)) && featured.category === 'sports' && featured.eventFormat !== 'sports_fiesta' ? (
                         <button className={styles.fixturesBtn} onClick={() => openFixtures(featured)}>Teams &amp; Fixtures</button>
+                      ) : featured.registrationType === 'none' ? (
+                        featured.registrationNote ? <span className={styles.noRegNote}>{featured.registrationNote}</span> : null
                       ) : featured.registrationClosed ? (
                         <span className={styles.closedNote}>Registration closed</span>
+                      ) : featured.registrationType === 'external' ? (
+                        <a className={styles.regBtn} href={featured.registrationUrl} target="_blank" rel="noopener noreferrer">Register on Website ↗</a>
                       ) : (
                         <button className={styles.regBtn} onClick={() => openReg(featured)}>Register Now →</button>
                       )}
@@ -931,13 +940,18 @@ const Events = () => {
                         <ReadMore className={styles.upCardDesc} text={ev.desc} limit={120} />
                         <div className={styles.upCardMeta}>
                           <span><strong className={styles.upCardMetaLabel}>Date:</strong> {ev.date}</span>
+                          {ev.time && <span><strong className={styles.upCardMetaLabel}>Time:</strong> {ev.time}</span>}
                           <span><strong className={styles.upCardMetaLabel}>Venue:</strong> {ev.venue}</span>
                         </div>
                         <div className={styles.upCardFooter}>
                           {registeredIds.has(String(ev.id)) && ev.category === 'sports' && ev.eventFormat !== 'sports_fiesta' ? (
                             <button className={styles.fixturesBtn} onClick={() => openFixtures(ev)}>Teams &amp; Fixtures</button>
+                          ) : ev.registrationType === 'none' ? (
+                            ev.registrationNote ? <span className={styles.noRegNote}>{ev.registrationNote}</span> : <span />
                           ) : ev.registrationClosed ? (
                             <span className={styles.closedNote}>Registration closed</span>
+                          ) : ev.registrationType === 'external' ? (
+                            <a className={styles.upRegBtn} href={ev.registrationUrl} target="_blank" rel="noopener noreferrer">Register on Website ↗</a>
                           ) : (
                             <button className={styles.upRegBtn} onClick={() => openReg(ev)}>Register Now →</button>
                           )}
@@ -1038,7 +1052,12 @@ const Events = () => {
               <p>Log in to the SOAC platform to register and track attendance for every event you attend.</p>
             </div>
             <div className={styles.evCtaBtns}>
-              <button className="btr" onClick={() => upcoming[0] && openReg(upcoming[0])}>
+              <button className="btr" onClick={() => {
+                const next = upcoming.find(ev => ev.registrationType !== 'none' && !ev.registrationClosed);
+                if (!next) return;
+                if (next.registrationType === 'external') window.open(next.registrationUrl, '_blank', 'noopener');
+                else openReg(next);
+              }}>
                 {user ? `Register as ${user.name.split(' ')[0]}` : 'Register for an Event'}
               </button>
               <button className="btg" onClick={() => navigate('/clubs')}>Explore Clubs</button>

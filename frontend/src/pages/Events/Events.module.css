@@ -342,6 +342,19 @@
   font-style: italic;
 }
 
+/* Announcement-only events: shown in place of a Register button */
+.noRegNote {
+  font-size: .8rem;
+  font-weight: 700;
+  color: #b45309;
+}
+
+/* External-registration links reuse the Register button styles */
+a.regBtn,
+a.upRegBtn {
+  text-decoration: none;
+}
+
 .regBtn {
   display: inline-flex;
   align-items: center;
