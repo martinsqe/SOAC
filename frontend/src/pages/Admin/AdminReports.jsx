@@ -50,7 +50,7 @@ export default function AdminReports() {
                 <div className={r.cardLeft}>
                   <div className={r.cardTitle}>{rep.event_title || 'Untitled Event'}</div>
                   <div className={r.cardMeta}>
-                    {rep.club_name} · {rep.academic_year} · Submitted {new Date(rep.submitted_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {rep.club_name || 'SOAC · RK University (non-club event)'} · {rep.academic_year} · Submitted {new Date(rep.submitted_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </div>
                 </div>
                 <div className={r.cardPills}>

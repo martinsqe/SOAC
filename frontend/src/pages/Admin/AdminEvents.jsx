@@ -3,6 +3,7 @@ import api from '../../api/client';
 import { fetchAllPages } from '../../utils/pagination';
 import CertTemplateEditor from '../../components/CertTemplateEditor/CertTemplateEditor';
 import EventReminderModal from '../../components/EventReminderModal/EventReminderModal';
+import EventReportEditor from '../../components/EventReportEditor/EventReportEditor';
 import s from './AdminEvents.module.css';
 
 /* Long description cut to `limit` characters with an inline "…read more"
@@ -394,7 +395,8 @@ function EventCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg, onRemind }) 
         )}
       </div>
       <div className={s.cardActions}>
-        {takesRegs && <button className={s.regsBtn} onClick={() => onViewRegs(ev)}>Registrations</button>}
+        {takesRegs && <button className={s.regsBtn} onClick={() => onViewRegs(ev)}>Manage Event</button>}
+        {!takesRegs && !ev.clubId && <button className={s.regsBtn} onClick={() => onViewRegs(ev)}>📝 Make Report</button>}
         <button className={s.editBtn} onClick={() => onEdit(ev)}>Edit</button>
         <button className={s.delBtn} onClick={() => onDelete(ev._id)}>Delete</button>
       </div>
@@ -487,7 +489,7 @@ function SportsFiestaCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg, onRem
         )}
       </div>
       <div className={s.cardActions}>
-        <button className={s.regsBtn} onClick={() => onViewRegs(ev)}>Registrations</button>
+        <button className={s.regsBtn} onClick={() => onViewRegs(ev)}>Manage Event</button>
         <button className={s.editBtn} onClick={() => onEdit(ev)}>Edit</button>
         <button className={s.delBtn} onClick={() => onDelete(ev._id)}>Delete</button>
       </div>
@@ -1020,6 +1022,13 @@ export default function AdminEvents() {
     setRegEvent(ev);
     setRegs([]);
     setRegSearch('');
+    setTeams([]);
+    if (regModeOf(ev) === 'none') {
+      /* No registrations or teams — only the event report (non-club events) */
+      setRegsTab('report');
+      setRegsLoading(false); setTeamsLoading(false);
+      return;
+    }
     setRegsTab('list');
     setRegsLoading(true);
     fetchAllPages(`/events/${ev._id}/registrations`, 'registrations')
@@ -1462,7 +1471,7 @@ export default function AdminEvents() {
                           </div>
                         </div>
                         <div className={s.cardActions}>
-                          <button className={s.regsBtn} onClick={() => viewRegs(act)}>Registrations</button>
+                          <button className={s.regsBtn} onClick={() => viewRegs(act)}>Manage Event</button>
                           <button className={s.delBtn} onClick={() => setDeleteId(act.id)}>Delete</button>
                         </div>
                         <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
@@ -2388,27 +2397,43 @@ export default function AdminEvents() {
           <div className={s.regsModal} onClick={e => e.stopPropagation()}>
             <div className={s.regsHeader}>
               <div>
-                <div className={s.modalTag}>Event Registrations</div>
+                <div className={s.modalTag}>{regModeOf(regEvent) === 'none' ? 'Event Report' : 'Manage Event'}</div>
                 <h2 className={s.modalTitle}>{regEvent.title}</h2>
                 <p className={s.regsSub}>
-                  {regsLoading ? 'Loading…' : `${regs.length} registration${regs.length !== 1 ? 's' : ''}`}
-                  {!teamsLoading && ` · ${teams.length} team${teams.length !== 1 ? 's' : ''} registered`}
+                  {regModeOf(regEvent) === 'none' ? 'No registration needed · Event report' : (<>
+                    {regsLoading ? 'Loading…' : `${regs.length} registration${regs.length !== 1 ? 's' : ''}`}
+                    {!teamsLoading && ` · ${teams.length} team${teams.length !== 1 ? 's' : ''} registered`}
+                  </>)}
                 </p>
               </div>
               <div className={s.regsHeaderRight}>
-                <button className={s.csvBtn} onClick={exportCSV} disabled={!regs.length}>Export CSV</button>
+                {regsTab === 'list' && <button className={s.csvBtn} onClick={exportCSV} disabled={!regs.length}>Export CSV</button>}
                 <button className={s.closeBtn} onClick={() => setRegEvent(null)}>✕</button>
               </div>
             </div>
 
             <div className={s.regsTabBar}>
-              <button className={`${s.regsSubTab} ${regsTab === 'list' ? s.regsSubTabOn : ''}`} onClick={() => setRegsTab('list')}>
-                Registrations ({regs.length})
-              </button>
-              <button className={`${s.regsSubTab} ${regsTab === 'teams' ? s.regsSubTabOn : ''}`} onClick={() => setRegsTab('teams')}>
-                Teams ({teams.length})
-              </button>
+              {regModeOf(regEvent) !== 'none' && (<>
+                <button className={`${s.regsSubTab} ${regsTab === 'list' ? s.regsSubTabOn : ''}`} onClick={() => setRegsTab('list')}>
+                  Registrations ({regs.length})
+                </button>
+                <button className={`${s.regsSubTab} ${regsTab === 'teams' ? s.regsSubTabOn : ''}`} onClick={() => setRegsTab('teams')}>
+                  Teams ({teams.length})
+                </button>
+              </>)}
+              {/* Non-club events have no coordinators, so admin writes their report */}
+              {!regEvent.clubId && (
+                <button className={`${s.regsSubTab} ${regsTab === 'report' ? s.regsSubTabOn : ''}`} onClick={() => setRegsTab('report')}>
+                  Report
+                </button>
+              )}
             </div>
+
+            {regsTab === 'report' && !regEvent.clubId && (
+              <div style={{ padding: '4px 4px 12px', overflowY: 'auto' }}>
+                <EventReportEditor key={regEvent._id} event={regEvent} showToast={showToast} canSubmit />
+              </div>
+            )}
 
             {regsTab === 'list' && (<>
             <div className={s.regsSearchWrap}>

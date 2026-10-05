@@ -15,6 +15,12 @@ pgPool.query(
   `ALTER TABLE event_reports ADD COLUMN IF NOT EXISTS highlight_photos TEXT[] DEFAULT '{}'`
 ).catch(() => {});
 
+/* Non-club (SOAC-wide) events have no club — admin writes their report, so a
+   report's club is optional. */
+pgPool.query(
+  `ALTER TABLE event_reports ALTER COLUMN club_id DROP NOT NULL`
+).catch(() => {});
+
 /* ── Helpers ── */
 const academicYear = () => {
   const now   = new Date();
@@ -654,6 +660,9 @@ const submitReport = async (req, res, next) => {
     );
     res.json({ report: rows[0] });
 
+    /* An admin saving a non-club event's report to Reports needs no heads-up */
+    if (req.user?.role === 'admin') return;
+
     /* Notify every admin — fire-and-forget. */
     pgPool.query(`SELECT id FROM users WHERE role = 'admin' AND is_active = true`)
       .then(({ rows: admins }) => {
@@ -704,10 +713,15 @@ const updateNarrative = async (req, res, next) => {
       `UPDATE event_reports
        SET narrative = COALESCE(narrative, '{}'::jsonb) || $1::jsonb,
            updated_at = NOW()
-       WHERE event_id = $2::bigint RETURNING *`,
+       WHERE event_id = $2::bigint AND submitted_at IS NULL RETURNING *`,
       [JSON.stringify(narrative), req.params.eventId]
     );
-    if (!rows.length) return res.status(404).json({ message: 'Generate the report first.' });
+    if (!rows.length) {
+      const { rows: ex } = await pgPool.query(`SELECT submitted_at FROM event_reports WHERE event_id = $1::bigint`, [req.params.eventId]);
+      return ex.length
+        ? res.status(409).json({ message: 'This report has already been submitted and can no longer be edited.' })
+        : res.status(404).json({ message: 'Generate the report first.' });
+    }
     res.json({ report: rows[0] });
   } catch (err) { next(err); }
 };
