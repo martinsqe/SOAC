@@ -1,3 +1,4 @@
+const { isSportsEvent, isSportsSql, CLUB_CATEGORY_SQL } = require('../services/eventKind');
 const path = require('path');
 const fs   = require('fs');
 const { pgPool }          = require('../config/db');
@@ -67,7 +68,7 @@ const SPORT_LABELS = { basketball: 'Basketball', football: 'Football', cricket: 
    would otherwise print its full, often multi-sport title. Non-sports events keep the event
    title (there's no "sport" to extract). */
 const gameNameFor = (event) => {
-  if (event.category !== 'sports') return event.title;
+  if (!isSportsEvent(event)) return event.title;
   return SPORT_LABELS[detectSport(event.title)] || event.title;
 };
 
@@ -114,7 +115,7 @@ const templateIsReady = (anchors) => {
    the standard team-member join, and Participation as everyone else registered. */
 async function assembleCertificationBuckets(eventId) {
   const { rows: evRows } = await pgPool.query(
-    `SELECT id, title, category, club_id, date, start_date FROM events WHERE id = $1`,
+    `SELECT id, title, category, event_format, club_id, date, start_date, ${CLUB_CATEGORY_SQL} FROM events WHERE id = $1`,
     [eventId]
   );
   if (!evRows.length) return null;
@@ -130,7 +131,7 @@ async function assembleCertificationBuckets(eventId) {
   const claimedRegIds = new Set();
   const regTeamInfo = {}; // registrationId -> { teamName, division } for every team, not just winner/runner-up — lets Participation show team context too
 
-  if (event.category === 'sports') {
+  if (isSportsEvent(event)) {
     const { rows: teamRows } = await pgPool.query(
       `SELECT t.id, t.name, t.division,
               COALESCE(json_agg(

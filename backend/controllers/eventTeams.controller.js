@@ -1,3 +1,4 @@
+const { isSportsSql } = require('../services/eventKind');
 const { pgPool }          = require('../config/db');
 const cache               = require('../services/cache');
 const { ensureSoacTables } = require('../services/soacData');
@@ -18,13 +19,13 @@ async function notifyTeamAssignments(eventId, division) {
   const summary = { attempted: 0, sent: 0, failed: 0, reason: null };
   try {
     const { rows: evRows } = await pgPool.query(
-      `SELECT e.title, e.club_id, c.category
+      `SELECT e.title, e.club_id, ${isSportsSql('e', 'c')} AS is_sports
        FROM events e LEFT JOIN clubs c ON c.id = e.club_id
        WHERE e.id = $1::bigint`,
       [eventId]
     );
     if (!evRows.length) { summary.reason = 'event_not_found'; return summary; }
-    if (evRows[0].category !== 'sports') { summary.reason = 'not_sports'; return summary; }
+    if (!evRows[0].is_sports) { summary.reason = 'not_sports'; return summary; }
     const eventTitle = evRows[0].title;
     const clubId     = evRows[0].club_id || null;
 
@@ -602,6 +603,25 @@ const recordResult = async (req, res, next) => {
   try {
     if (!await checkAccess(req, res)) return;
     const { scoreA, scoreB, winner } = req.body;
+
+    /* Keep results consistent with the fixture: the winner has to be one of the
+       two teams (it feeds the bracket, winners, certificates and the report), and
+       scores must be whole numbers, zero or more. */
+    const { rows: fxRows } = await pgPool.query(
+      `SELECT team_a_name, team_b_name FROM event_fixtures WHERE id = $1 AND event_id = $2`,
+      [req.params.fixtureId, req.params.id]
+    );
+    if (!fxRows.length) return res.status(404).json({ message: 'Fixture not found.' });
+    const winnerName = winner?.trim() || null;
+    if (winnerName && ![fxRows[0].team_a_name, fxRows[0].team_b_name].includes(winnerName)) {
+      return res.status(400).json({ message: `The winner must be ${fxRows[0].team_a_name} or ${fxRows[0].team_b_name}.` });
+    }
+    for (const [label, v] of [['Score A', scoreA], ['Score B', scoreB]]) {
+      if (v !== undefined && v !== null && v !== '' && !(Number.isInteger(Number(v)) && Number(v) >= 0)) {
+        return res.status(400).json({ message: `${label} must be a whole number of 0 or more.` });
+      }
+    }
+
     const { rows } = await pgPool.query(
       `UPDATE event_fixtures
        SET score_a = $1, score_b = $2, winner_name = $3
@@ -610,7 +630,7 @@ const recordResult = async (req, res, next) => {
       [
         scoreA !== undefined && scoreA !== '' ? Number(scoreA) : null,
         scoreB !== undefined && scoreB !== '' ? Number(scoreB) : null,
-        winner?.trim() || null,
+        winnerName,
         req.params.fixtureId,
         req.params.id,
       ]

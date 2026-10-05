@@ -11,6 +11,7 @@ const cache = require('../services/cache');
 const { syncPastEvents } = require('../services/eventStatus');
 const { MAIN_CAMPUS, adminCampus } = require('../services/campus');
 const { resolveRegistration } = require('../services/eventRegistration');
+const { isSportsEvent, CLUB_CATEGORY_SQL } = require('../services/eventKind');
 
 /* ── Column lists ───────────────────────────────────────────────────────────*/
 const EVENT_COLS = [
@@ -1143,7 +1144,8 @@ const register = async (req, res, next) => {
 const submitTeamRoster = async (req, res, next) => {
   try {
     const { rows } = await pgPool.query(
-      `SELECT id, title, status, event_format, team_size, min_team_size, category, parent_event_id, registration_closed
+      `SELECT id, title, status, event_format, team_size, min_team_size, category, parent_event_id, registration_closed,
+              ${CLUB_CATEGORY_SQL}
        FROM events WHERE id = $1 AND is_active = true`,
       [req.params.id]
     );
@@ -1172,7 +1174,7 @@ const submitTeamRoster = async (req, res, next) => {
        'open' division regardless of what's posted; only a sports team gets to
        pick 'boys' or 'girls'. Non-Galore Sports Fiesta events (no parent_event_id)
        keep defaulting to 'boys', exactly as before this feature existed. */
-    const division = event.category === 'sports'
+    const division = isSportsEvent(event)
       ? (['boys', 'girls'].includes(rawDivision) ? rawDivision : 'boys')
       : 'open';
     if (event.parent_event_id) {

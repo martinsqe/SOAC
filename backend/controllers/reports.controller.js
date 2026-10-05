@@ -3,6 +3,7 @@ const { adminCampus } = require('../services/campus');
 const { getFileValue } = require('../config/multer');
 const { getChampion } = require('../services/bracketMath');
 const { notifyManyUsers } = require('../services/notify');
+const { isSportsEvent, isSportsSql, CLUB_CATEGORY_SQL } = require('../services/eventKind');
 
 /* Add narrative column if it doesn't exist yet */
 pgPool.query(
@@ -25,7 +26,7 @@ pgPool.query(
    teams/matches/MVPs in their reports; every other event gets volunteers instead.
    Needs `ev` = events and `c` = the report's club joined in. Mirrors
    frontend/src/utils/eventKind.js. */
-const IS_SPORTS_SQL = `(COALESCE(ev.category, '') = 'sports' OR COALESCE(ev.event_format, '') = 'sports_fiesta' OR COALESCE(c.category, '') = 'sports')`;
+const IS_SPORTS_SQL = isSportsSql('ev', 'c');
 const VOLUNTEERS_COUNT_SQL = `COALESCE(jsonb_array_length(CASE WHEN jsonb_typeof(er.narrative->'volunteers') = 'array' THEN er.narrative->'volunteers' END), 0)`;
 
 /* Volunteers the coordinator / FA adds to a non-sports report: [{ name, enrollment, role }] */
@@ -120,7 +121,7 @@ const regenerateReport = async (eventId, clubId, userId) => {
   {
     /* ── Event meta ── */
     const { rows: evRows } = await pgPool.query(
-      `SELECT id, title, category, status, start_date, venue, club_id FROM events WHERE id = $1::bigint`,
+      `SELECT id, title, category, event_format, status, start_date, venue, club_id, ${CLUB_CATEGORY_SQL} FROM events WHERE id = $1::bigint`,
       [eventId]
     );
     if (!evRows.length) return null;
@@ -139,7 +140,7 @@ const regenerateReport = async (eventId, clubId, userId) => {
        social/academic/cultural events have no bracket or team engine at all, so
        these queries are skipped entirely for them and every field below just
        stays empty/null. ── */
-    const isSports = ev.category === 'sports';
+    const isSports = isSportsEvent(ev);
     let teamRows = [];
     let groupRowsWithMembers = [];
     let fixtures = [];
