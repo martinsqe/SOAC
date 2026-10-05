@@ -5,7 +5,8 @@ const { destroyImage } = require('../config/cloudinary');
 const { getFileValue, uploadImageBuffer } = require('../config/multer');
 const { autoRefreshReportIfExists } = require('./reports.controller');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
-const { sendGaloreActivityAssignment, sendEventReminder } = require('../config/email');
+const { sendGaloreActivityAssignment, sendEventReminder, sendEventPublishedToCoordinator } = require('../config/email');
+const { clubStaff, emailEach } = require('../services/mailRecipients');
 const cache = require('../services/cache');
 const { syncPastEvents } = require('../services/eventStatus');
 const { MAIN_CAMPUS, adminCampus } = require('../services/campus');
@@ -230,6 +231,28 @@ const logAudit = async (userId, userName, action, entityType, entityId, meta = {
       [userId, userName, action, entityType, String(entityId), JSON.stringify(meta)]
     );
   } catch (_) {}
+};
+
+/* An event just landed in a club's coordinator dashboard (created for the club,
+   or moved to it): email + in-app notice to the club's Student Coordinators and
+   Faculty Advisors, reminding them the report is due right after the event.
+   Fire-and-forget — always called after the response has been sent. */
+const notifyClubOfPublishedEvent = (event, clubId, reason, actor) => {
+  if (!clubId) return; // SOAC-wide event — no club coordinators to tell
+  const publishedBy = actor?.role === 'admin' ? 'The SOAC admin' : (actor?.name || 'The SOAC admin');
+  clubStaff(clubId).then((all) => {
+    const staff = all.filter(p => String(p.id) !== String(actor?.id)); // not the person who published it
+    if (!staff.length) return;
+    emailEach(staff, (p) => sendEventPublishedToCoordinator({ toEmail: p.email, toName: p.name, event, reason, publishedBy }), 'event published');
+    notifyManyUsers({
+      userIds: staff.map(p => p.id),
+      clubId,
+      title:   'New event in your dashboard',
+      body:    `"${event.title}" is now on your Events page. Submit the event report immediately after it's done.`,
+      type:    'event_update',
+      url:     '/coordinator/events',
+    }).catch(() => {});
+  }).catch(err => console.error('[events] published-event notice failed:', err.message));
 };
 
 const imageUrl = (filename) => {
@@ -595,6 +618,8 @@ const create = async (req, res, next) => {
     await Promise.all([cache.delPattern('events:*'), cache.del('stats:admin', 'stats:admin:city')]);
     res.status(201).json({ event: withImageUrl(event) });
 
+    notifyClubOfPublishedEvent(event, resolvedClubId, 'created', req.user);
+
     /* Notify students a new event was posted — fire-and-forget, after the
        response, so a large club/SOAC-wide fan-out never delays the creator's
        own confirmation. Club-scoped events notify only that club's active
@@ -640,7 +665,7 @@ const update = async (req, res, next) => {
   try {
     const { rows: cur } = await pgPool.query(
       `SELECT id, image, title, club, category, status, date, time, venue, description, seats, highlight, is_free, fee_amount, custom_fields,
-              event_format, parent_event_id, registration_type FROM events WHERE id = $1`,
+              event_format, parent_event_id, registration_type, club_id FROM events WHERE id = $1`,
       [req.params.id]
     );
     if (!cur.length) return res.status(404).json({ message: 'Event not found.' });
@@ -753,6 +778,7 @@ const update = async (req, res, next) => {
       ]
     );
     const event = asEvent(rows[0]);
+    const movedToClub = updateClubId && newClubId && String(newClubId) !== String(cur[0].club_id || '');
 
     /* Build before/after diff for the audit trail */
     const evChanges = [];
@@ -793,6 +819,8 @@ const update = async (req, res, next) => {
     await logAudit(req.user.id, req.user.name, 'UPDATE_EVENT', 'event', event.id, { title: event.title, changes: evChanges });
     await Promise.all([cache.del(`events:${req.params.id}`), cache.delPattern('events:*')]);
     res.json({ event: withImageUrl(event) });
+
+    if (movedToClub) notifyClubOfPublishedEvent(event, newClubId, 'assigned', req.user);
   } catch (err) { next(err); }
 };
 

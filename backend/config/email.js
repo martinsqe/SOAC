@@ -485,7 +485,7 @@ const sendEventRequestDecision = async ({ toEmail, toName, outcome, request, eve
   const t = escapeHtml(request.title);
   const COPY = {
     forwarded:      { subject: `Approved by your Faculty Advisor: ${request.title}`, intro: [`Good news — ${escapeHtml(reviewerName || 'your Faculty Advisor')} approved your event request <strong>${t}</strong> and forwarded it to the SOAC admin for final approval. You'll get another email once the admin decides.`] },
-    approved:       { subject: `Event approved: ${request.title}`,                   intro: [`The SOAC admin has approved <strong>${t}</strong> for ${escapeHtml(request.club_name)}. The event is now live — you can start your arrangements.`] },
+    approved:       { subject: `Event approved: ${request.title}`,                   intro: [`The SOAC admin has approved <strong>${t}</strong> for ${escapeHtml(request.club_name)}. The event is now live and on the Events page of your coordinator dashboard — you can start your arrangements.`] },
     declined_fa:    { subject: `Event request declined: ${request.title}`,           intro: [`${escapeHtml(reviewerName || 'Your Faculty Advisor')} has declined the event request <strong>${t}</strong>.`] },
     declined_admin: { subject: `Event request declined: ${request.title}`,           intro: [`The SOAC admin has declined the event request <strong>${t}</strong>.`] },
   };
@@ -504,9 +504,45 @@ const sendEventRequestDecision = async ({ toEmail, toName, outcome, request, eve
       intro,
       sections: eventRequestSections(shown),
       outro:    outcome === 'approved'
-        ? ['Please plan the venue, volunteers and promotion accordingly, and keep your members informed.']
+        ? [`<strong>Report required:</strong> please submit the event report from the <strong>Reports</strong> page of your dashboard immediately after the event is done.`, 'Please plan the venue, volunteers and promotion accordingly, and keep your members informed.']
         : [],
       button:   { href: `${APP_URL}${outcome === 'approved' && event?.id ? `/events/${event.id}` : '/coordinator/events'}`, label: outcome === 'approved' ? 'View event' : 'Open dashboard' },
+    }),
+  });
+};
+
+/* An event now sits in a club's coordinator dashboard — sent to the club's Student
+   Coordinators and Faculty Advisors. reason: 'created' (admin published it for the
+   club) | 'assigned' (an existing event was moved to this club). */
+const REG_LABEL = { internal: 'On SOAC (registration form)', external: 'On an external website', none: 'No registration needed' };
+const sendEventPublishedToCoordinator = async ({ toEmail, toName, event, reason = 'created', publishedBy = 'The SOAC admin' }) => {
+  const t    = escapeHtml(event.title);
+  const club = escapeHtml(event.club || 'your club');
+  const regType = event.registrationType || 'internal';
+  await send({
+    to:      toEmail,
+    subject: `New event in your dashboard: ${event.title} — SOAC RKU`,
+    html: plainEmail({
+      category: 'Event published',
+      title:    event.title,
+      toName,
+      intro: [reason === 'assigned'
+        ? `<strong>${t}</strong> has been assigned to <strong>${club}</strong> and is now on the Events page of your coordinator dashboard.`
+        : `${escapeHtml(publishedBy)} has published <strong>${t}</strong> for <strong>${club}</strong>. It is now on the Events page of your coordinator dashboard.`],
+      sections: detailTable('Event details', [
+        ['Event',             event.title],
+        ['Club',              event.club],
+        ['Date',              fmtLongDate(event.startDate) || event.date],
+        ['Time',              event.time],
+        ['Venue',             event.venue],
+        ['Registration',      REG_LABEL[regType] || REG_LABEL.internal],
+        ['Registration link', regType === 'external' ? event.registrationUrl : ''],
+      ]),
+      outro: [
+        `<strong>Report required:</strong> please submit the event report from the <strong>Reports</strong> page of your dashboard immediately after the event is done.`,
+        'Please plan the venue, volunteers and promotion accordingly, and keep your members informed.',
+      ],
+      button: { href: `${APP_URL}/coordinator/events`, label: 'Open your Events dashboard' },
     }),
   });
 };
@@ -840,6 +876,7 @@ const sendGaloreActivityAssignment = async ({ toEmail, toName, activityTitle, ca
         <p style="margin:0;font-size:16px;font-weight:800;color:#15803d">Coordinator of ${activityTitle}</p>
         <p style="margin:6px 0 0;font-size:13px;color:#555">Log in to your SOAC Coordinator Portal to view registrations for this activity and build boys'/girls' teams once students sign up.</p>
       </div>
+      <p style="color:#333;font-size:14px;line-height:1.6"><strong>Report required:</strong> please submit the event report from the <strong>Reports</strong> page of your dashboard immediately after the activity is done.</p>
       <p style="color:#888;font-size:13px;line-height:1.6">Your existing credentials are unchanged. Visit <strong>${APP_LOGIN}</strong> to access your portal.</p>
       ${footer()}
     `),
@@ -983,6 +1020,7 @@ module.exports = {
   sendPasswordReset,
   sendTeamAssignment,
   sendGaloreActivityAssignment,
+  sendEventPublishedToCoordinator,
   sendActivityReport,
   sendTestEmail,
 };
