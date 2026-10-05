@@ -92,6 +92,10 @@ const REG_MODES = [
     desc: 'Announcement only: shown with its details, without a Register button.' },
 ];
 
+/* External-website and announcement-only events have no SOAC registrations —
+   their published card goes straight to the event report instead. */
+const takesSoacRegs = (ev) => !ev?.registrationType || ev.registrationType === 'internal';
+
 const BLANK_FORM = {
   title:'', description:'', category:'general', date:'', start_date:'',
   time:'', venue:'', seats:'', tags:'', highlight:'', registration_url:'',
@@ -524,7 +528,7 @@ export default function CoordEvents() {
     setWinnerInputs({});
     setFixturesDeclared(ev.fixturesDeclared || false);
     setRegSearch('');
-    setRegsTab('list');
+    setRegsTab(takesSoacRegs(ev) ? 'list' : 'report');
     setEventReport(null);
     setCertPreview(null);
     setReportPhotoFiles([]);
@@ -535,6 +539,12 @@ export default function CoordEvents() {
     setEventLiveScores([]);
     setMatchMvpData({});
     setMvpPickScoreId(null);
+    if (!takesSoacRegs(ev)) {
+      /* Nothing to list — load the report straight away */
+      setRegsLoading(false); setTeamsLoading(false); setGroupsLoading(false);
+      loadEventReport(ev._id);
+      return;
+    }
     setRegsLoading(true);
     setTeamsLoading(true);
     setGroupsLoading(true);
@@ -1708,7 +1718,7 @@ export default function CoordEvents() {
                   </div>
                   <div className={es.cardFoot}>
                     <button className={es.regsBtn} onClick={() => viewRegs(ev)}>
-                      View Registrations
+                      {takesSoacRegs(ev) ? 'View Registrations' : '📝 Make Report'}
                     </button>
                   </div>
                 </div>
@@ -1730,7 +1740,11 @@ export default function CoordEvents() {
                 <div className={es.modalTag}>Event Management</div>
                 <h2 className={es.modalTitle}>{regEvent.title}</h2>
                 <p className={es.regsSub}>
-                  {regsLoading ? 'Loading…' : `${regs.length} registration${regs.length !== 1 ? 's' : ''} · ${teams.length} team${teams.length !== 1 ? 's' : ''}`}
+                  {!takesSoacRegs(regEvent)
+                    ? (regEvent.registrationType === 'external'
+                        ? 'Students register on an external website · Event report'
+                        : 'No registration needed · Event report')
+                    : regsLoading ? 'Loading…' : `${regs.length} registration${regs.length !== 1 ? 's' : ''} · ${teams.length} team${teams.length !== 1 ? 's' : ''}`}
                 </p>
               </div>
               <div className={es.regsHeadRight}>
@@ -1745,6 +1759,12 @@ export default function CoordEvents() {
 
             {/* Sub-tabs */}
             <div className={es.regsTabBar}>
+              {!takesSoacRegs(regEvent) ? (
+                <button className={`${es.regsSubTab} ${es.regsSubTabOn}`}
+                  onClick={() => { setRegsTab('report'); loadEventReport(regEvent._id); }}>
+                  Report {eventReport && <span className={es.declaredBadge} style={{ background: '#dcfce7', color: '#16a34a' }}>Saved</span>}
+                </button>
+              ) : (<>
               <button
                 className={`${es.regsSubTab} ${regsTab === 'list' ? es.regsSubTabOn : ''}`}
                 onClick={() => setRegsTab('list')}>
@@ -1790,6 +1810,7 @@ export default function CoordEvents() {
                 onClick={() => { setRegsTab('attendance'); loadAttendance(regEvent._id); }}>
                 Attendance {attendSessions.length > 0 && <span className={es.declaredBadge}>{attendSessions.length}</span>}
               </button>
+              </>)}
             </div>
 
             {/* ── REGISTRATIONS LIST ── */}
