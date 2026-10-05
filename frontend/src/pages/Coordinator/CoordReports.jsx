@@ -79,13 +79,17 @@ export default function CoordReports() {
             <div className={r.loadingText} style={{ color: 'rgba(255,255,255,.7)' }}>Loading…</div>
           ) : annualData ? (
             <div className={r.annualStats}>
-              {[
+              {(annualData.clubIsSports ? [
                 ['Events',       annualData.totals?.totalEvents],
                 ['Participants', annualData.totals?.totalParticipants],
                 ['Matches',      annualData.totals?.totalMatches],
                 ['Completed',    annualData.totals?.completedMatches],
                 ['MVP Games',    annualData.totals?.totalMvpGames],
-              ].map(([lbl, val]) => (
+              ] : [
+                /* Academic / cultural / social clubs — no teams, matches or games */
+                ['Events',       annualData.totals?.totalEvents],
+                ['Volunteers',   annualData.totals?.totalVolunteers],
+              ]).map(([lbl, val]) => (
                 <div key={lbl} className={r.annualStat}>
                   <span className={r.annualStatNum}>{val ?? 0}</span>
                   <span className={r.annualStatLbl}>{lbl}</span>
@@ -115,8 +119,12 @@ export default function CoordReports() {
                   </div>
                 </div>
                 <div className={r.reportCardStats}>
-                  <span className={r.statPill}>{rep.summary_stats?.totalParticipants ?? 0} players</span>
-                  <span className={r.statPill}>{rep.summary_stats?.completedMatches ?? 0} matches</span>
+                  {rep.is_sports ? (<>
+                    <span className={r.statPill}>{rep.summary_stats?.totalParticipants ?? 0} players</span>
+                    <span className={r.statPill}>{rep.summary_stats?.completedMatches ?? 0} matches</span>
+                  </>) : (
+                    <span className={r.statPill}>{rep.volunteers_count ?? 0} volunteer{Number(rep.volunteers_count) === 1 ? '' : 's'}</span>
+                  )}
                 </div>
                 <span className={r.chevron}>{expanded === rep.id ? '▲' : '▼'}</span>
               </div>
@@ -182,7 +190,8 @@ function ReportDetail({ eventId }) {
   });
 
   const nav = data.narrative || {};
-  const isSports = data.event_category === 'sports';
+  const isSports = data.is_sports ?? data.event_category === 'sports';
+  const volunteers = Array.isArray(nav.volunteers) ? nav.volunteers : [];
   /* One column per extra registration question the admin added to this event */
   const qCols = [];
   (data.participants || []).forEach(p => (p.extra_answers || []).forEach(a => {
@@ -237,6 +246,23 @@ function ReportDetail({ eventId }) {
         <div className={r.detailSectionTitle}>Objective of the Event</div>
         <p className={r.narrativeText}>{nav.objective || '—'}</p>
       </div>
+
+      {/* ── VOLUNTEERS — non-sports events ── */}
+      {!isSports && volunteers.length > 0 && (
+        <div className={r.detailSection}>
+          <div className={r.detailSectionTitle}>Volunteers ({volunteers.length})</div>
+          <div className={r.tableWrap}>
+            <table className={r.table}>
+              <thead><tr><th>#</th><th>Name</th><th>Enrollment</th><th>Role</th></tr></thead>
+              <tbody>
+                {volunteers.map((v, i) => (
+                  <tr key={i}><td>{i + 1}</td><td>{v.name}</td><td>{v.enrollment || '—'}</td><td>{v.role || '—'}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* ── PARTICIPANTS ── */}
       {data.participants?.length > 0 && (

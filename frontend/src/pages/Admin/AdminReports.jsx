@@ -54,8 +54,12 @@ export default function AdminReports() {
                   </div>
                 </div>
                 <div className={r.cardPills}>
-                  <span className={r.pill}>{rep.summary_stats?.totalParticipants ?? 0} players</span>
-                  <span className={r.pill}>{rep.summary_stats?.completedMatches ?? 0} matches</span>
+                  {rep.is_sports ? (<>
+                    <span className={r.pill}>{rep.summary_stats?.totalParticipants ?? 0} players</span>
+                    <span className={r.pill}>{rep.summary_stats?.completedMatches ?? 0} matches</span>
+                  </>) : (
+                    <span className={r.pill}>{rep.volunteers_count ?? 0} volunteer{Number(rep.volunteers_count) === 1 ? '' : 's'}</span>
+                  )}
                 </div>
                 <span className={r.chevron}>{expanded === rep.id ? '▲' : '▼'}</span>
               </div>
@@ -104,7 +108,8 @@ function ReportDetail({ eventId }) {
   });
 
   const narrative = data.narrative || {};
-  const isSports = data.event_category === 'sports';
+  const isSports = data.is_sports ?? data.event_category === 'sports';
+  const volunteers = Array.isArray(narrative.volunteers) ? narrative.volunteers : [];
   /* One column per extra registration question the admin added to this event */
   const qCols = [];
   (data.participants || []).forEach(p => (p.extra_answers || []).forEach(a => {
@@ -150,6 +155,23 @@ function ReportDetail({ eventId }) {
 
       <NarrativeBlock label="Association / Collaboration" text={narrative.association} />
       <NarrativeBlock label="Objective of the Event" text={narrative.objective} />
+
+      {/* ── VOLUNTEERS — non-sports events ── */}
+      {!isSports && volunteers.length > 0 && (
+        <div className={r.section}>
+          <div className={r.sectionTitle}>Volunteers ({volunteers.length})</div>
+          <div className={r.tableWrap}>
+            <table className={r.table}>
+              <thead><tr><th>#</th><th>Name</th><th>Enrollment</th><th>Role</th></tr></thead>
+              <tbody>
+                {volunteers.map((v, i) => (
+                  <tr key={i}><td>{i + 1}</td><td>{v.name}</td><td>{v.enrollment || '—'}</td><td>{v.role || '—'}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Participants */}
       {data.participants?.length > 0 && (

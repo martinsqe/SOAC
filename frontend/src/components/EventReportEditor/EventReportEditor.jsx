@@ -9,9 +9,12 @@ import es from '../../pages/Coordinator/CoordEvents.module.css';
      event          the event (needs _id, venue, category, club_id/clubId)
      showToast      (message, type?) => void
      onReportChange called with the report whenever it loads or changes
-     canSubmit      show "Save to Reports" (admin, for non-club events) */
-export default function EventReportEditor({ event, showToast = () => {}, onReportChange, canSubmit = false }) {
+     canSubmit      show "Save to Reports" (admin, for non-club events)
+     isSports       sports event (see utils/eventKind.js): teams, matches and MVPs;
+                    otherwise a volunteers list instead */
+export default function EventReportEditor({ event, showToast = () => {}, onReportChange, canSubmit = false, isSports: isSportsProp }) {
   const regEvent = event;
+  const isSports = isSportsProp ?? (regEvent?.category === 'sports' || regEvent?.eventFormat === 'sports_fiesta');
   const [eventReport, setEventReportState] = useState(null);
   const setEventReport = (r) => { setEventReportState(r); onReportChange?.(r); };
   const [reportLoading,   setReportLoading]   = useState(true);
@@ -24,12 +27,13 @@ export default function EventReportEditor({ event, showToast = () => {}, onRepor
   /* ── Narrative (written report text) ── */
   const [reportNarrative, setReportNarrative] = useState({
     event_date: '', association: '', objective: '', key_highlights: '', outcome: '', acknowledgments: '', remarks: '',
+    volunteers: [],
   });
   const [narrativeSaving, setNarrativeSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   /* Sports events are split into Boys/Girls; everything else is one Open division */
-  const DIVISIONS = regEvent?.category === 'sports' ? ['boys', 'girls'] : ['open'];
+  const DIVISIONS = isSports ? ['boys', 'girls'] : ['open'];
   const DIVISION_LABEL = { boys: 'Boys', girls: 'Girls', open: 'Open' };
 
   /* Load this event's report (if one has been generated yet) */
@@ -66,6 +70,7 @@ export default function EventReportEditor({ event, showToast = () => {}, onRepor
       outcome:             n.outcome           || '',
       acknowledgments:     n.acknowledgments   || '',
       remarks:             n.remarks           || '',
+      volunteers:          Array.isArray(n.volunteers) ? n.volunteers : [],
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventReport?.id]);
@@ -283,6 +288,42 @@ export default function EventReportEditor({ event, showToast = () => {}, onRepor
                             onChange={e => setReportNarrative(p => ({ ...p, objective: e.target.value }))} />
                         </div>
 
+                        {/* ══ VOLUNTEERS — non-sports events (optional) ══ */}
+                        {!isSports && (
+                          <div className={es.reportNarrativeSection}>
+                            <div className={es.reportNarrativeLabel}>Volunteers ({(reportNarrative.volunteers || []).filter(v => v.name?.trim()).length})</div>
+                            <div style={{ fontSize: '.75rem', color: '#6b7280', margin: '2px 0 8px' }}>
+                              Optional — students who volunteered at this event. They are counted as Volunteers on the Reports page.
+                            </div>
+                            {(reportNarrative.volunteers || []).map((v, i) => (
+                              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                                <input className={es.reportNarrativeInput} style={{ flex: '2 1 160px' }} placeholder="Name"
+                                  value={v.name || ''} maxLength={100} disabled={!!eventReport.submitted_at}
+                                  onChange={e => setReportNarrative(p => ({ ...p, volunteers: p.volunteers.map((x, j) => j === i ? { ...x, name: e.target.value } : x) }))} />
+                                <input className={es.reportNarrativeInput} style={{ flex: '1 1 120px' }} placeholder="Enrollment no. (optional)"
+                                  value={v.enrollment || ''} maxLength={40} disabled={!!eventReport.submitted_at}
+                                  onChange={e => setReportNarrative(p => ({ ...p, volunteers: p.volunteers.map((x, j) => j === i ? { ...x, enrollment: e.target.value } : x) }))} />
+                                <input className={es.reportNarrativeInput} style={{ flex: '2 1 160px' }} placeholder="Role (optional), e.g. Registration desk"
+                                  value={v.role || ''} maxLength={100} disabled={!!eventReport.submitted_at}
+                                  onChange={e => setReportNarrative(p => ({ ...p, volunteers: p.volunteers.map((x, j) => j === i ? { ...x, role: e.target.value } : x) }))} />
+                                {!eventReport.submitted_at && (
+                                  <button type="button" onClick={() => setReportNarrative(p => ({ ...p, volunteers: p.volunteers.filter((_, j) => j !== i) }))}
+                                    style={{ border: '1px solid #fecaca', background: '#fff5f5', color: '#dc2626', borderRadius: 8, padding: '0 12px', fontSize: '.78rem', fontWeight: 700, cursor: 'pointer' }}>
+                                    Remove
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                            {!eventReport.submitted_at && (
+                              <button type="button"
+                                onClick={() => setReportNarrative(p => ({ ...p, volunteers: [...(p.volunteers || []), { name: '', enrollment: '', role: '' }] }))}
+                                style={{ border: '1.5px dashed #a5a0f5', background: '#f5f3ff', color: '#635BFF', borderRadius: 8, padding: '7px 14px', fontSize: '.8rem', fontWeight: 700, cursor: 'pointer' }}>
+                                + Add volunteer
+                              </button>
+                            )}
+                          </div>
+                        )}
+
                         {/* ── 1. PARTICIPANTS ── */}
                         {eventReport.participants?.length > 0 && (
                           <div className={es.reportSection}>
@@ -292,7 +333,7 @@ export default function EventReportEditor({ event, showToast = () => {}, onRepor
                                 <thead>
                                   <tr>
                                     <th>#</th><th>Name</th><th>Enrollment</th><th>Gender</th><th>Dept</th><th>Course</th>
-                                    {regEvent?.category === 'sports' && (<><th>PTS</th><th>AST</th><th>REB</th><th>STL</th></>)}
+                                    {isSports && (<><th>PTS</th><th>AST</th><th>REB</th><th>STL</th></>)}
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -318,7 +359,7 @@ export default function EventReportEditor({ event, showToast = () => {}, onRepor
                                           <td>{genderLabel(p.gender)}</td>
                                           <td>{p.dept || '—'}</td>
                                           <td>{p.course || '—'}</td>
-                                          {regEvent?.category === 'sports' && (<>
+                                          {isSports && (<>
                                             <td className={es.reportStatCell}>{st.PTS || '—'}</td>
                                             <td className={es.reportStatCell}>{st.AST || '—'}</td>
                                             <td className={es.reportStatCell}>{st.REB || '—'}</td>
@@ -335,7 +376,7 @@ export default function EventReportEditor({ event, showToast = () => {}, onRepor
                         )}
 
                         {/* ── 2. GROUPS & TEAMS (per division) — sports only ── */}
-                        {regEvent?.category === 'sports' && DIVISIONS.map(division => {
+                        {isSports && DIVISIONS.map(division => {
                           const divGroupsR = (eventReport.groups || []).filter(g => (g.division || 'boys') === division);
                           const divTeamsR  = (eventReport.teams  || []).filter(t => (t.division || 'boys') === division);
                           if (!divGroupsR.length && !divTeamsR.length) return null;
@@ -381,7 +422,7 @@ export default function EventReportEditor({ event, showToast = () => {}, onRepor
                         })}
 
                         {/* ── 3. FIXTURES / RESULTS (per division) — sports only ── */}
-                        {regEvent?.category === 'sports' && DIVISIONS.map(division => {
+                        {isSports && DIVISIONS.map(division => {
                           const divFixturesR = (eventReport.fixtures || []).filter(f => (f.division || 'boys') === division);
                           if (!divFixturesR.length) return null;
                           return (
@@ -414,7 +455,7 @@ export default function EventReportEditor({ event, showToast = () => {}, onRepor
                         })}
 
                         {/* ── 4. GAME MVPs — sports only ── */}
-                        {regEvent?.category === 'sports' && eventReport.match_mvps?.length > 0 && (
+                        {isSports && eventReport.match_mvps?.length > 0 && (
                           <div className={es.reportSection}>
                             <div className={es.reportSectionTitle}>Game MVPs</div>
                             <div className={es.reportGameMvpRow}>
@@ -469,7 +510,7 @@ export default function EventReportEditor({ event, showToast = () => {}, onRepor
                            locked once submitted, so they can never be regenerated into the new shape —
                            fall back to that legacy key under Boys so old reports keep showing a winner.
                            Sports only — non-sports events have no bracket to show a winner from. */}
-                        {regEvent?.category === 'sports' && DIVISIONS.map(division => {
+                        {isSports && DIVISIONS.map(division => {
                           const divFixturesR = (eventReport.fixtures || []).filter(f => (f.division || 'boys') === division);
                           const divGroupsR   = (eventReport.groups  || []).filter(g => (g.division || 'boys') === division);
                           const w = division === 'girls'
@@ -533,7 +574,7 @@ export default function EventReportEditor({ event, showToast = () => {}, onRepor
                         })}
 
                         {/* ── 6. TOURNAMENT MVP CARD — sports only ── */}
-                        {regEvent?.category === 'sports' && eventReport.tournament_mvp && (
+                        {isSports && eventReport.tournament_mvp && (
                           <div className={es.reportSection}>
                             <div className={es.reportSectionTitle}>Tournament MVP</div>
                             <div className={es.reportMvpCardWrap}>
@@ -754,7 +795,7 @@ export default function EventReportEditor({ event, showToast = () => {}, onRepor
       {canSubmit && eventReport && !eventReport.submitted_at && (
         <div className={es.reportActions} style={{ marginTop: 12 }}>
           <button className={es.reportGenBtn} onClick={handleSaveToReports} disabled={submitting}>
-            {submitting ? 'Saving…' : '📁 Save to Reports'}
+            {submitting ? 'Saving…' : 'Save to Reports'}
           </button>
           <span className={es.reportSavedAt}>
             Fill in every section and add photos first — once saved to Reports it can no longer be edited.

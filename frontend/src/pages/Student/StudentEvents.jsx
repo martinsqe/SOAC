@@ -507,7 +507,7 @@ export default function StudentEvents() {
                     if (canRegister && regType === 'external') {
                       return (
                         <a className={s.regBtn} href={ev.registrationUrl} target="_blank" rel="noopener noreferrer">
-                          Register on website ↗
+                          Register on website
                         </a>
                       );
                     }

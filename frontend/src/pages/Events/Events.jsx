@@ -914,7 +914,7 @@ const Events = () => {
                       ) : featured.registrationClosed ? (
                         <span className={styles.closedNote}>Registration closed</span>
                       ) : featured.registrationType === 'external' ? (
-                        <a className={styles.regBtn} href={featured.registrationUrl} target="_blank" rel="noopener noreferrer">Register on Website ↗</a>
+                        <a className={styles.regBtn} href={featured.registrationUrl} target="_blank" rel="noopener noreferrer">Register on Website</a>
                       ) : (
                         <button className={styles.regBtn} onClick={() => openReg(featured)}>Register Now →</button>
                       )}
@@ -951,7 +951,7 @@ const Events = () => {
                           ) : ev.registrationClosed ? (
                             <span className={styles.closedNote}>Registration closed</span>
                           ) : ev.registrationType === 'external' ? (
-                            <a className={styles.upRegBtn} href={ev.registrationUrl} target="_blank" rel="noopener noreferrer">Register on Website ↗</a>
+                            <a className={styles.upRegBtn} href={ev.registrationUrl} target="_blank" rel="noopener noreferrer">Register on Website</a>
                           ) : (
                             <button className={styles.upRegBtn} onClick={() => openReg(ev)}>Register Now →</button>
                           )}

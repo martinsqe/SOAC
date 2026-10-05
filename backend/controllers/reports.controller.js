@@ -21,6 +21,28 @@ pgPool.query(
   `ALTER TABLE event_reports ALTER COLUMN club_id DROP NOT NULL`
 ).catch(() => {});
 
+/* Sports events (sports category, Sports Fiesta, or a sports club's event) get
+   teams/matches/MVPs in their reports; every other event gets volunteers instead.
+   Needs `ev` = events and `c` = the report's club joined in. Mirrors
+   frontend/src/utils/eventKind.js. */
+const IS_SPORTS_SQL = `(COALESCE(ev.category, '') = 'sports' OR COALESCE(ev.event_format, '') = 'sports_fiesta' OR COALESCE(c.category, '') = 'sports')`;
+const VOLUNTEERS_COUNT_SQL = `COALESCE(jsonb_array_length(CASE WHEN jsonb_typeof(er.narrative->'volunteers') = 'array' THEN er.narrative->'volunteers' END), 0)`;
+
+/* Volunteers the coordinator / FA adds to a non-sports report: [{ name, enrollment, role }] */
+const sanitizeVolunteers = (raw) => {
+  let list = raw;
+  if (typeof raw === 'string') { try { list = JSON.parse(raw); } catch { list = []; } }
+  if (!Array.isArray(list)) return [];
+  return list
+    .map(v => ({
+      name:       String(v?.name || '').trim().slice(0, 100),
+      enrollment: String(v?.enrollment || '').trim().slice(0, 40),
+      role:       String(v?.role || '').trim().slice(0, 100),
+    }))
+    .filter(v => v.name)
+    .slice(0, 200);
+};
+
 /* ── Helpers ── */
 const academicYear = () => {
   const now   = new Date();
@@ -35,9 +57,10 @@ const academicYear = () => {
 const getEventReport = async (req, res, next) => {
   try {
     const { rows } = await pgPool.query(
-      `SELECT er.*, ev.category AS event_category
+      `SELECT er.*, ev.category AS event_category, ${IS_SPORTS_SQL} AS is_sports
        FROM event_reports er
        LEFT JOIN events ev ON ev.id = er.event_id
+       LEFT JOIN clubs c ON c.id = COALESCE(er.club_id, ev.club_id)
        WHERE er.event_id = $1::bigint`,
       [req.params.eventId]
     );
@@ -54,9 +77,11 @@ const listReports = async (req, res, next) => {
     if (!clubId) return res.status(400).json({ message: 'clubId required' });
     const { rows } = await pgPool.query(
       `SELECT er.id, er.event_id, er.event_title, er.academic_year, er.summary_stats, er.photos,
-              er.generated_at, er.updated_at, ev.category AS event_category
+              er.generated_at, er.updated_at, ev.category AS event_category,
+              ${IS_SPORTS_SQL} AS is_sports, ${VOLUNTEERS_COUNT_SQL} AS volunteers_count
        FROM event_reports er
        LEFT JOIN events ev ON ev.id = er.event_id
+       LEFT JOIN clubs c ON c.id = er.club_id
        WHERE er.club_id = $1::bigint
        ORDER BY er.generated_at DESC`,
       [clubId]
@@ -510,15 +535,18 @@ const getAnnualReport = async (req, res, next) => {
 
     const totals = reports.reduce((acc, r) => {
       const s = r.summary_stats || {};
+      const vols = r.narrative?.volunteers;
+      acc.totalVolunteers   += Array.isArray(vols) ? vols.length : 0;
       acc.totalEvents       += 1;
       acc.totalParticipants += s.totalParticipants || 0;
       acc.totalMatches      += s.totalFixtures     || 0;
       acc.completedMatches  += s.completedMatches  || 0;
       acc.totalMvpGames     += s.totalMvpGames     || 0;
       return acc;
-    }, { totalEvents: 0, totalParticipants: 0, totalMatches: 0, completedMatches: 0, totalMvpGames: 0 });
+    }, { totalEvents: 0, totalParticipants: 0, totalMatches: 0, completedMatches: 0, totalMvpGames: 0, totalVolunteers: 0 });
 
-    res.json({ year, clubId, reports, totals });
+    const { rows: clubRows } = await pgPool.query(`SELECT category FROM clubs WHERE id = $1::bigint`, [clubId]);
+    res.json({ year, clubId, reports, totals, clubIsSports: clubRows[0]?.category === 'sports' });
   } catch (err) { next(err); }
 };
 
@@ -687,7 +715,8 @@ const getSubmittedReports = async (req, res, next) => {
       `SELECT er.id, er.event_id, er.event_title, er.academic_year,
               er.summary_stats, er.photos, er.tournament_mvp,
               er.generated_at, er.submitted_at, er.club_id,
-              c.name AS club_name, ev.category AS event_category
+              c.name AS club_name, ev.category AS event_category,
+              ${IS_SPORTS_SQL} AS is_sports, ${VOLUNTEERS_COUNT_SQL} AS volunteers_count
        FROM event_reports er
        LEFT JOIN clubs c ON c.id = er.club_id
        LEFT JOIN events ev ON ev.id = er.event_id
@@ -709,6 +738,7 @@ const updateNarrative = async (req, res, next) => {
     const allowed = ['event_date', 'participants_count', 'association', 'objective', 'key_highlights', 'outcome', 'acknowledgments', 'remarks'];
     const narrative = {};
     allowed.forEach(k => { if (req.body[k] !== undefined) narrative[k] = String(req.body[k] || ''); });
+    if (req.body.volunteers !== undefined) narrative.volunteers = sanitizeVolunteers(req.body.volunteers);
     const { rows } = await pgPool.query(
       `UPDATE event_reports
        SET narrative = COALESCE(narrative, '{}'::jsonb) || $1::jsonb,

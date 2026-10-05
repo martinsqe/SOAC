@@ -8,6 +8,7 @@ import s from './CoordSubPage.module.css';
 import es from './CoordEvents.module.css';
 import TournamentBracket from '../../components/TournamentBracket/TournamentBracket';
 import EventReportEditor from '../../components/EventReportEditor/EventReportEditor';
+import { isSportsEvent, hasTeams } from '../../utils/eventKind';
 
 /* Long description cut to `limit` characters with an inline "…read more"
    that expands the full text in place (and "show less" to collapse it). */
@@ -85,11 +86,11 @@ const CAT_LABEL = {
 
 /* How students will register for the proposed event (events.registration_type) */
 const REG_MODES = [
-  { key: 'internal', icon: '📝', label: 'Register on SOAC', color: '#5b21b6', bg: '#f5f3ff',
+  { key: 'internal', label: 'Register on SOAC', color: '#5b21b6', bg: '#f5f3ff',
     desc: "Students fill in SOAC's registration form." },
-  { key: 'external', icon: '🌐', label: 'External website', color: '#0369a1', bg: '#f0f9ff',
+  { key: 'external', label: 'External website', color: '#0369a1', bg: '#f0f9ff',
     desc: 'The Register button sends students to another website to sign up.' },
-  { key: 'none',     icon: '📢', label: 'No registration',  color: '#b45309', bg: '#fffbeb',
+  { key: 'none',     label: 'No registration',  color: '#b45309', bg: '#fffbeb',
     desc: 'Announcement only: shown with its details, without a Register button.' },
 ];
 
@@ -250,7 +251,11 @@ export default function CoordEvents() {
      Groups/Fixtures/Scoreboard stay sports-only regardless (gated separately,
      unaffected here), so this only changes what the always-visible Teams tab
      shows. ── */
-  const DIVISIONS = regEvent?.category === 'sports' ? ['boys', 'girls'] : ['open'];
+  /* Teams/Groups/Fixtures/Scoreboard only for sports events (incl. Sports Fiesta and
+     any event of a sports club) — see utils/eventKind.js */
+  const evIsSports = isSportsEvent(regEvent, club?.category);
+  const evHasTeams = hasTeams(regEvent, club?.category);
+  const DIVISIONS = evIsSports ? ['boys', 'girls'] : ['open'];
   const DIVISION_LABEL = { boys: 'Boys', girls: 'Girls', open: 'Open' };
 
   /* ── Groups state (single fetch, both divisions tagged — filtered per-section at render) ── */
@@ -1560,7 +1565,7 @@ export default function CoordEvents() {
                   </div>
                   <div className={es.cardFoot}>
                     <button className={es.regsBtn} onClick={() => viewRegs(ev)}>
-                      {takesSoacRegs(ev) ? 'Manage Event' : '📝 Make Report'}
+                      {takesSoacRegs(ev) ? 'Manage Event' : 'Make Report'}
                     </button>
                   </div>
                 </div>
@@ -1586,7 +1591,7 @@ export default function CoordEvents() {
                     ? (regEvent.registrationType === 'external'
                         ? 'Students register on an external website · Event report'
                         : 'No registration needed · Event report')
-                    : regsLoading ? 'Loading…' : `${regs.length} registration${regs.length !== 1 ? 's' : ''} · ${teams.length} team${teams.length !== 1 ? 's' : ''}`}
+                    : regsLoading ? 'Loading…' : `${regs.length} registration${regs.length !== 1 ? 's' : ''}${evHasTeams ? ` · ${teams.length} team${teams.length !== 1 ? 's' : ''}` : ''}`}
                 </p>
               </div>
               <div className={es.regsHeadRight}>
@@ -1612,12 +1617,14 @@ export default function CoordEvents() {
                 onClick={() => setRegsTab('list')}>
                 Registrations ({regs.length})
               </button>
-              <button
-                className={`${es.regsSubTab} ${regsTab === 'teams' ? es.regsSubTabOn : ''}`}
-                onClick={() => setRegsTab('teams')}>
-                Teams ({teams.length})
-              </button>
-              {regEvent?.category === 'sports' && (<>
+              {evHasTeams && (
+                <button
+                  className={`${es.regsSubTab} ${regsTab === 'teams' ? es.regsSubTabOn : ''}`}
+                  onClick={() => setRegsTab('teams')}>
+                  Teams ({teams.length})
+                </button>
+              )}
+              {evIsSports && (<>
                 <button
                   className={`${es.regsSubTab} ${regsTab === 'groups' ? es.regsSubTabOn : ''}`}
                   onClick={() => setRegsTab('groups')}>
@@ -2387,7 +2394,7 @@ export default function CoordEvents() {
 
             {/* ── REPORT TAB ── */}
             {regsTab === 'report' && (
-              <EventReportEditor key={regEvent._id} event={regEvent} showToast={showToast} onReportChange={setEventReport} />
+              <EventReportEditor key={regEvent._id} event={regEvent} showToast={showToast} onReportChange={setEventReport} isSports={evIsSports} />
             )}
 
             {/* ── CERTIFICATIONS TAB — visible for every event, not just sports, since
@@ -2909,7 +2916,7 @@ export default function CoordEvents() {
                         onClick={() => { setForm(p => ({ ...p, registration_type: m.key })); setErrs(p => ({ ...p, registration_url: undefined, fee_amount: undefined })); }}
                         style={{ textAlign:'left', padding:'10px 12px', borderRadius:8, cursor:'pointer', fontFamily:'inherit',
                           border:`1.5px solid ${on ? m.color : '#e5e7eb'}`, background: on ? m.bg : '#fff' }}>
-                        <div style={{ fontSize:'.83rem', fontWeight:700, color: on ? m.color : '#374151' }}>{m.icon} {m.label}</div>
+                        <div style={{ fontSize:'.83rem', fontWeight:700, color: on ? m.color : '#374151' }}>{m.label}</div>
                         <div style={{ fontSize:'.72rem', color:'#6b7280', marginTop:3, lineHeight:1.4 }}>{m.desc}</div>
                       </button>
                     );

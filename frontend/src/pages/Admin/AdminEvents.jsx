@@ -4,6 +4,7 @@ import { fetchAllPages } from '../../utils/pagination';
 import CertTemplateEditor from '../../components/CertTemplateEditor/CertTemplateEditor';
 import EventReminderModal from '../../components/EventReminderModal/EventReminderModal';
 import EventReportEditor from '../../components/EventReportEditor/EventReportEditor';
+import { isSportsEvent, hasTeams } from '../../utils/eventKind';
 import s from './AdminEvents.module.css';
 
 /* Long description cut to `limit` characters with an inline "…read more"
@@ -263,11 +264,11 @@ const questionsError = (questions) => {
 
 /* How students sign up for an Other Events event (events.registration_type) */
 const REG_MODES = {
-  internal: { icon: '📝', label: 'Register on SOAC',  color: '#5b21b6', bg: '#f5f3ff',
+  internal: { label: 'Register on SOAC',  color: '#5b21b6', bg: '#f5f3ff',
               desc: "Students fill in SOAC's registration form, with any extra questions you add." },
-  external: { icon: '🌐', label: 'External website',  color: '#0369a1', bg: '#f0f9ff',
+  external: { label: 'External website',  color: '#0369a1', bg: '#f0f9ff',
               desc: 'The Register button sends students to another website to sign up.' },
-  none:     { icon: '📢', label: 'No registration',   color: '#b45309', bg: '#fffbeb',
+  none:     { label: 'No registration',   color: '#b45309', bg: '#fffbeb',
               desc: 'Announcement only: shown with its details, without a Register button.' },
 };
 const regModeOf = (ev) => (REG_MODES[ev?.registrationType] ? ev.registrationType : 'internal');
@@ -371,12 +372,12 @@ function EventCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg, onRemind }) 
         <div className={s.cardClub}>Organizer: {ev.club || 'No organizer'}</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, margin: '4px 0 2px' }}>
           <span style={{ fontSize: '.7rem', fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: mode.bg, color: mode.color }}>
-            {mode.icon} {mode.label}
+            {mode.label}
           </span>
           {regMode === 'external' && ev.registrationUrl && (
             <a href={ev.registrationUrl} target="_blank" rel="noopener noreferrer"
               style={{ fontSize: '.72rem', color: '#0369a1', fontWeight: 600, overflowWrap: 'anywhere' }}>
-              {hostOf(ev.registrationUrl)} ↗
+              {hostOf(ev.registrationUrl)}
             </a>
           )}
         </div>
@@ -396,7 +397,7 @@ function EventCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg, onRemind }) 
       </div>
       <div className={s.cardActions}>
         {takesRegs && <button className={s.regsBtn} onClick={() => onViewRegs(ev)}>Manage Event</button>}
-        {!takesRegs && !ev.clubId && <button className={s.regsBtn} onClick={() => onViewRegs(ev)}>📝 Make Report</button>}
+        {!takesRegs && !ev.clubId && <button className={s.regsBtn} onClick={() => onViewRegs(ev)}>Make Report</button>}
         <button className={s.editBtn} onClick={() => onEdit(ev)}>Edit</button>
         <button className={s.delBtn} onClick={() => onDelete(ev._id)}>Delete</button>
       </div>
@@ -425,7 +426,7 @@ function EventCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg, onRemind }) 
       <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
         <button className={s.regsBtn} onClick={() => onRemind(ev)} style={{ width: '100%' }}
           title="Email a reminder about this event — venue update, days to go, register now…">
-          📣 Send Reminder
+          Send Reminder
         </button>
       </div>
     </div>
@@ -511,7 +512,7 @@ function SportsFiestaCard({ ev, onEdit, onDelete, onViewRegs, onToggleReg, onRem
       <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
         <button className={s.regsBtn} onClick={() => onRemind(ev)} style={{ width: '100%' }}
           title="Email a reminder about this event — venue update, days to go, register now…">
-          📣 Send Reminder
+          Send Reminder
         </button>
       </div>
     </div>
@@ -1047,7 +1048,12 @@ export default function AdminEvents() {
 
   /* ── Teams — same endpoints the coordinator's own Teams tab uses (see
      CoordEvents.jsx), so a change made from either side shows up on both. ── */
-  const DIVISIONS = regEvent?.category === 'sports' ? ['boys', 'girls'] : ['open'];
+  /* Teams only for sports events (incl. Sports Fiesta and any event of a sports
+     club) — see utils/eventKind.js */
+  const regClubCategory = clubs.find(c => String(c._id || c.id) === String(regEvent?.clubId))?.category;
+  const evIsSports = isSportsEvent(regEvent, regClubCategory);
+  const evHasTeams = hasTeams(regEvent, regClubCategory);
+  const DIVISIONS = evIsSports ? ['boys', 'girls'] : ['open'];
   const DIVISION_LABEL = { boys: 'Boys', girls: 'Girls', open: 'Teams' };
   const teamsByDiv = {
     boys:  teams.filter(t => t.division !== 'girls' && t.division !== 'open'),
@@ -1647,7 +1653,7 @@ export default function AdminEvents() {
                     <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
                       <button className={s.regsBtn} onClick={() => setRemindEvent(ev)} style={{ width: '100%' }}
                         title="Email a reminder about this Galore event">
-                        📣 Send Reminder
+                        Send Reminder
                       </button>
                     </div>
                   </div>
@@ -1917,7 +1923,7 @@ export default function AdminEvents() {
                           textAlign:'left', padding:'10px 12px', borderRadius:8, cursor:'pointer', fontFamily:'inherit',
                           border:`1.5px solid ${on ? m.color : '#e5e7eb'}`, background: on ? m.bg : '#fff', transition:'all .14s',
                         }}>
-                        <div style={{ fontSize:'.83rem', fontWeight:700, color: on ? m.color : '#374151' }}>{m.icon} {m.label}</div>
+                        <div style={{ fontSize:'.83rem', fontWeight:700, color: on ? m.color : '#374151' }}>{m.label}</div>
                         <div style={{ fontSize:'.72rem', color:'#6b7280', marginTop:3, lineHeight:1.4 }}>{m.desc}</div>
                       </button>
                     );
@@ -2402,7 +2408,7 @@ export default function AdminEvents() {
                 <p className={s.regsSub}>
                   {regModeOf(regEvent) === 'none' ? 'No registration needed · Event report' : (<>
                     {regsLoading ? 'Loading…' : `${regs.length} registration${regs.length !== 1 ? 's' : ''}`}
-                    {!teamsLoading && ` · ${teams.length} team${teams.length !== 1 ? 's' : ''} registered`}
+                    {!teamsLoading && evHasTeams && ` · ${teams.length} team${teams.length !== 1 ? 's' : ''} registered`}
                   </>)}
                 </p>
               </div>
@@ -2417,9 +2423,11 @@ export default function AdminEvents() {
                 <button className={`${s.regsSubTab} ${regsTab === 'list' ? s.regsSubTabOn : ''}`} onClick={() => setRegsTab('list')}>
                   Registrations ({regs.length})
                 </button>
-                <button className={`${s.regsSubTab} ${regsTab === 'teams' ? s.regsSubTabOn : ''}`} onClick={() => setRegsTab('teams')}>
-                  Teams ({teams.length})
-                </button>
+                {evHasTeams && (
+                  <button className={`${s.regsSubTab} ${regsTab === 'teams' ? s.regsSubTabOn : ''}`} onClick={() => setRegsTab('teams')}>
+                    Teams ({teams.length})
+                  </button>
+                )}
               </>)}
               {/* Non-club events have no coordinators, so admin writes their report */}
               {!regEvent.clubId && (
@@ -2431,7 +2439,7 @@ export default function AdminEvents() {
 
             {regsTab === 'report' && !regEvent.clubId && (
               <div style={{ padding: '4px 4px 12px', overflowY: 'auto' }}>
-                <EventReportEditor key={regEvent._id} event={regEvent} showToast={showToast} canSubmit />
+                <EventReportEditor key={regEvent._id} event={regEvent} showToast={showToast} canSubmit isSports={evIsSports} />
               </div>
             )}
 
@@ -2449,7 +2457,7 @@ export default function AdminEvents() {
                   {regModeOf(regEvent) === 'external' ? (
                     <p>
                       Students register for this event on an external website, so sign-ups aren't recorded on SOAC.
-                      {regEvent.registrationUrl && <> <a href={regEvent.registrationUrl} target="_blank" rel="noopener noreferrer">Open the registration website ↗</a></>}
+                      {regEvent.registrationUrl && <> <a href={regEvent.registrationUrl} target="_blank" rel="noopener noreferrer">Open the registration website</a></>}
                     </p>
                   ) : <p>No registrations yet for this event.</p>}
                 </div>
@@ -2553,7 +2561,7 @@ export default function AdminEvents() {
                   const unassigned = getUnassignedRegs();
                   return (
                     <div key={division} className={s.divisionSection}>
-                      {regEvent?.category === 'sports' && (
+                      {evIsSports && (
                         <div className={s.divisionSectionTitle}>{DIVISION_LABEL[division]}</div>
                       )}
 
