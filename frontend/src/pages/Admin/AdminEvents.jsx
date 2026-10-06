@@ -4,6 +4,7 @@ import { fetchAllPages } from '../../utils/pagination';
 import CertTemplateEditor from '../../components/CertTemplateEditor/CertTemplateEditor';
 import EventReminderModal from '../../components/EventReminderModal/EventReminderModal';
 import EventReportEditor from '../../components/EventReportEditor/EventReportEditor';
+import AdminMakeReport from './AdminMakeReport';
 import { isSportsEvent, hasTeams } from '../../utils/eventKind';
 import s from './AdminEvents.module.css';
 
@@ -1315,14 +1316,20 @@ export default function AdminEvents() {
               : `${requests.length} total requests · ${pendingCount} pending review`}
           </p>
         </div>
-        {pageTab === 'events' && formatTab === 'other' && (
-          <button className={s.addBtn} onClick={openAdd}>+ Add Event</button>
-        )}
-        {pageTab === 'events' && formatTab === 'sports_fiesta' && (
-          <button className={s.addBtn} onClick={openAddSF}>+ Add Sports Fiesta Event</button>
-        )}
-        {pageTab === 'events' && formatTab === 'galore' && !selectedGalore && (
-          <button className={s.addBtn} onClick={openAddGalore}>+ Add Galore Event</button>
+        {pageTab === 'events' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {/* Make Report: pick any event and fill in its report */}
+            <AdminMakeReport events={events} clubs={clubs} showToast={showToast} />
+            {formatTab === 'other' && (
+              <button className={s.addBtn} onClick={openAdd}>+ Add Event</button>
+            )}
+            {formatTab === 'sports_fiesta' && (
+              <button className={s.addBtn} onClick={openAddSF}>+ Add Sports Fiesta Event</button>
+            )}
+            {formatTab === 'galore' && !selectedGalore && (
+              <button className={s.addBtn} onClick={openAddGalore}>+ Add Galore Event</button>
+            )}
+          </div>
         )}
       </div>
 

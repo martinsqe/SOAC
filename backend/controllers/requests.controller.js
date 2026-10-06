@@ -1,6 +1,6 @@
 const bcrypt   = require('bcryptjs');
 const { pgPool } = require('../config/db');
-const { sendCredentials, sendApproval, sendRequestsRemoved, sendJoinRequestsDigest } = require('../config/email');
+const { sendCredentials, sendApproval, sendRequestsRemoved, sendJoinRequestsDigest, sendJoinRequestCampusChanged } = require('../config/email');
 const { clubStaff, emailEach } = require('../services/mailRecipients');
 const { ensureSoacTables } = require('../services/soacData');
 const { getCoordClubIds, assertCoordOwnsClub, getClubCoordinatorIds } = require('../services/coordAuth');
@@ -762,6 +762,117 @@ const bulkDelete = async (req, res, next) => {
 };
 
 /* POST /api/requests/:id/decline  (coordinator/admin) */
+/* POST /api/requests/:id/change-campus  (admin)
+   Moves a pending join request to the same club's copy on the other campus
+   (Main ↔ City) — the request then belongs to that campus: its club, campus,
+   coordinators and lists all follow. The student is emailed and notified. */
+const changeCampus = async (req, res, next) => {
+  const client = await pgPool.connect();
+  try {
+    const { rows } = await client.query(
+      `SELECT jr.id, jr.status, jr.club_id, jr.club_name, jr.name, jr.email, jr.campus,
+              c.campus AS club_campus
+       FROM join_requests jr JOIN clubs c ON c.id = jr.club_id
+       WHERE jr.id = $1`,
+      [req.params.id]
+    );
+    const jr = rows[0];
+    if (!jr) return res.status(404).json({ message: 'Request not found.' });
+    if (jr.status !== 'pending') return res.status(400).json({ message: `Only a pending request can change campus — this one is ${jr.status}.` });
+
+    const fromCampus = jr.club_campus;
+    const toCampus   = CAMPUSES.find(c => c !== fromCampus);
+    const target     = await clubOnCampus(jr.club_id, toCampus, client);
+    if (!target) return res.status(404).json({ message: `${jr.club_name} has no ${toCampus} copy to move this request to.` });
+
+    const email = String(jr.email).trim().toLowerCase();
+    /* Same club at the other campus: already a member, or already asked */
+    const { rows: dupe } = await client.query(
+      `SELECT 'member' AS kind FROM student_clubs sc JOIN users u ON u.id = sc.user_id
+         WHERE sc.club_id = $1::bigint AND sc.is_active = true AND LOWER(u.email) = $2
+       UNION ALL
+       SELECT 'pending' FROM join_requests
+         WHERE club_id = $1::bigint AND status = 'pending' AND LOWER(email) = $2 AND id <> $3`,
+      [target.id, email, jr.id]
+    );
+    if (dupe.length) {
+      return res.status(409).json({ message: dupe[0].kind === 'member'
+        ? `${jr.name} is already a member of ${target.name} at ${toCampus}.`
+        : `${jr.name} already has a pending request for ${target.name} at ${toCampus}.` });
+    }
+    /* A student belongs to one campus — don't split an approved member across both */
+    const { rows: members } = await client.query(
+      `SELECT COALESCE(c.name, sc.club_name) AS club_name
+       FROM student_clubs sc JOIN users u ON u.id = sc.user_id JOIN clubs c ON c.id = sc.club_id
+       WHERE sc.is_active = true AND LOWER(u.email) = $1 AND c.campus = $2`,
+      [email, fromCampus]
+    );
+    if (members.length) {
+      return res.status(409).json({ message: `${jr.name} is already a member of ${members.map(m => m.club_name).join(', ')} at ${fromCampus}. A student's clubs must all be on one campus, so remove that membership first.` });
+    }
+
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE join_requests SET club_id = $1, club_name = $2, campus = $3, updated_at = NOW() WHERE id = $4`,
+      [target.id, target.name, toCampus, jr.id]
+    );
+    await client.query(
+      `INSERT INTO audit_log (user_id, user_name, action, entity_type, entity_id, meta)
+       VALUES ($1, $2, 'CHANGE_REQUEST_CAMPUS', 'join_request', $3, $4)`,
+      [req.user.id, req.user.name, String(jr.id), JSON.stringify({
+        student: jr.name, email, club: jr.club_name, from: fromCampus, to: toCampus,
+        fromClubId: String(jr.club_id), toClubId: String(target.id),
+      })]
+    );
+    await client.query('COMMIT');
+    await cache.del('stats:admin', 'stats:admin:city').catch(() => {});
+
+    /* Other requests this student still has waiting at the old campus */
+    const { rows: others } = await pgPool.query(
+      `SELECT jr.club_name FROM join_requests jr JOIN clubs c ON c.id = jr.club_id
+       WHERE LOWER(jr.email) = $1 AND jr.status = 'pending' AND c.campus = $2`,
+      [email, fromCampus]
+    );
+    res.json({
+      message: `${jr.name}'s request for ${target.name} moved from ${fromCampus} to ${toCampus}.`
+        + (others.length ? ` They still have ${others.length} pending request${others.length === 1 ? '' : 's'} at ${fromCampus} (${others.map(o => o.club_name).join(', ')}).` : ''),
+      request: { id: String(jr.id), clubId: String(target.id), clubName: target.name, campus: toCampus },
+    });
+
+    sendJoinRequestCampusChanged({ toEmail: email, toName: jr.name, clubName: target.name, fromCampus, toCampus })
+      .catch(err => console.error(`[requests] campus-change email failed for ${email}:`, err.message));
+    pgPool.query(`SELECT id FROM users WHERE LOWER(email) = $1 AND is_active = true`, [email])
+      .then(({ rows: u }) => {
+        if (!u.length) return;
+        notifyUser({
+          userId: u[0].id,
+          clubId: target.id,
+          title:  'Join request moved to another campus',
+          body:   `Your request to join ${target.name} was moved from ${fromCampus} to ${toCampus}.`,
+          type:   'join_request',
+          url:    '/student/clubs',
+        }).catch(() => {});
+      }).catch(() => {});
+    /* Let the receiving campus's coordinators know a request is waiting for them */
+    getClubCoordinatorIds(target.id).then(ids => {
+      if (!ids?.length) return;
+      notifyManyUsers({
+        userIds: ids, clubId: target.id,
+        title: 'New join request',
+        body:  `${jr.name}'s request for ${target.name} was moved here from ${fromCampus}.`,
+        type:  'join_request',
+        url:   '/coordinator/requests',
+      }).catch(() => {});
+    }).catch(() => {});
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (err.code === '23505') return res.status(409).json({ message: 'The student already has a pending request for this club at the other campus.' });
+    next(err);
+  } finally {
+    client.release();
+  }
+};
+
 const decline = async (req, res, next) => {
   try {
     const { rows } = await pgPool.query(
@@ -868,4 +979,4 @@ const resendEmail = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getJoinStatus, setJoinStatus, getAll, create, checkClubLimit, approve, bulkApprove, bulkDelete, decline, resendEmail };
+module.exports = { getJoinStatus, setJoinStatus, getAll, create, checkClubLimit, approve, bulkApprove, bulkDelete, decline, resendEmail, changeCampus };

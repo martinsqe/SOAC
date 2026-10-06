@@ -573,6 +573,31 @@ const sendVolunteerThanks = async ({ toEmail, toName, role = '', event }) => {
   });
 };
 
+/* Admin moved a student's pending join request to the club's other campus */
+const sendJoinRequestCampusChanged = async ({ toEmail, toName, clubName, fromCampus, toCampus }) => {
+  await send({
+    to:      toEmail,
+    subject: `Your ${clubName} join request moved to ${toCampus} — SOAC RKU`,
+    html: plainEmail({
+      category: 'Join request',
+      title:    clubName,
+      toName,
+      intro: [
+        `Your request to join <strong>${escapeHtml(clubName)}</strong> has been changed from <strong>${escapeHtml(fromCampus)}</strong> to <strong>${escapeHtml(toCampus)}</strong> by the SOAC admin.`,
+        `It is now with the ${escapeHtml(toCampus)} club team, who will review it. You don't need to send it again.`,
+      ],
+      sections: detailTable('Request details', [
+        ['Club', clubName],
+        ['Previous campus', fromCampus],
+        ['New campus', toCampus],
+        ['Status', 'Pending review'],
+      ]),
+      outro: ['If you think this is a mistake, please contact your club coordinator or the SOAC office.'],
+      button: { href: `${APP_URL}/login`, label: 'Open SOAC' },
+    }),
+  });
+};
+
 /* ── Direct messages — content deliberately not included ──────────────────── */
 const sendDirectMessageNotice = async ({ toEmail, toName, fromLabel, senderName, url }) => {
   await send({
@@ -1048,6 +1073,7 @@ module.exports = {
   sendGaloreActivityAssignment,
   sendEventPublishedToCoordinator,
   sendVolunteerThanks,
+  sendJoinRequestCampusChanged,
   sendActivityReport,
   sendTestEmail,
 };

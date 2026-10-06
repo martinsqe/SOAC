@@ -29,6 +29,7 @@ router.post('/bulk-approve',     verifyToken, requireCoordOrAdmin, ctrl.bulkAppr
 router.post('/bulk-delete',      verifyToken, requireCoordOrAdmin, ctrl.bulkDelete);
 router.post('/:id/approve',     verifyToken, requireCoordOrAdmin, ctrl.approve);
 router.post('/:id/decline',      verifyToken, requireCoordOrAdmin, ctrl.decline);
+router.post('/:id/change-campus', verifyToken, requireAdmin, ctrl.changeCampus);  /* admin: Main ↔ City */
 router.post('/:id/resend-email', verifyToken, requireCoordOrAdmin, ctrl.resendEmail);
 
 module.exports = router;

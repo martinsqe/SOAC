@@ -276,6 +276,23 @@ function JoinRequestsPanel() {
     }
   };
 
+  /* Move a pending request to the same club's other campus (Main ↔ City) */
+  const handleChangeCampus = async (req) => {
+    const from = req.campus || 'Main Campus';
+    const to = from === 'City Campus' ? 'Main Campus' : 'City Campus';
+    if (!window.confirm(`Move ${req.name}'s request for ${req.club_name} from ${from} to ${to}?
+
+It will go to the ${to} club team, and ${req.name} will be emailed about the change.`)) return;
+    setActionId(req._id);
+    try {
+      const res = await api.post(`/requests/${req._id}/change-campus`, {});
+      showToast(res.message || `Moved to ${to}.`);
+      loadRequests();
+      approvalsChanged();
+    } catch (err) { showToast(`Error: ${err.message}`); }
+    finally { setActionId(null); }
+  };
+
   const handleDecline = async (req) => {
     setActionId(req._id);
     try {
@@ -509,6 +526,17 @@ function JoinRequestsPanel() {
                 <span>ID: {r.enrollment_no}</span>
                 <span>{r.dept} · {r.year}</span>
                 {r.gender && <span>{r.gender}</span>}
+                <span style={{ padding:'1px 8px', borderRadius:20, background:'#eef2ff', color:'#4338ca', fontWeight:700 }}>
+                  {r.campus || 'Main Campus'}
+                </span>
+                {r.status === 'pending' && (
+                  <button onClick={() => handleChangeCampus(r)} disabled={actionId === r._id}
+                    title={`Move this request to ${(r.campus || 'Main Campus') === 'City Campus' ? 'Main Campus' : 'City Campus'}`}
+                    style={{ marginLeft:'auto', padding:'5px 12px', borderRadius:8, border:'1.5px solid #635BFF',
+                      background:'#fff', color:'#635BFF', fontWeight:700, fontSize:12, cursor:'pointer' }}>
+                    Change campus
+                  </button>
+                )}
               </div>
               {r.status === 'pending' && (
                 <div style={{ marginTop:16, display:'flex', gap:10 }}>
