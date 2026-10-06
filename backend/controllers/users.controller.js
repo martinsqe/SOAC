@@ -681,8 +681,23 @@ const buildActivity = async (email, { includeAnswers = false } = {}) => {
     [email]
   );
 
-  if (!regRows.length) {
-    return { participated: false, clubs };
+  /* Events this person volunteered at (recorded when the event report was submitted) */
+  const { rows: volRows } = await pgPool.query(
+    `SELECT v.event_id, v.event_title, v.role, v.created_at, e.start_date AS event_date, e.venue, c.name AS club_name
+     FROM event_volunteers v
+     LEFT JOIN events e ON e.id = v.event_id
+     LEFT JOIN clubs c ON c.id = e.club_id
+     WHERE LOWER(v.email) = $1
+     ORDER BY COALESCE(e.start_date, v.created_at) DESC`,
+    [email]
+  ).catch(() => ({ rows: [] }));
+  const volunteering = volRows.map(v => ({
+    eventId: v.event_id, eventTitle: v.event_title, clubName: v.club_name || 'SOAC', role: v.role || '',
+    eventDate: v.event_date, venue: v.venue || '', recordedAt: v.created_at,
+  }));
+
+  if (!regRows.length && !volunteering.length) {
+    return { participated: false, clubs, volunteering };
   }
 
   const { rows: uRows } = await pgPool.query(
@@ -779,6 +794,7 @@ const buildActivity = async (email, { includeAnswers = false } = {}) => {
     participated: true,
     hasAccount: !!userId,
     clubs,
+    volunteering,
     attendanceSummary,
     categories: Object.entries(categories).map(([key, events]) => ({
       key, label: ACTIVITY_BUCKET_LABEL[key], events,

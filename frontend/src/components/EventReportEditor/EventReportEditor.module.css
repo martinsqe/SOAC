@@ -1,0 +1,91 @@
+/* Editable fields inside the report's own tables — they look like the printed
+   report, with a light outline only while hovering / typing. */
+.cell { padding: 2px 4px !important; vertical-align: middle !important; }
+.cellInput,
+.cellArea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px dashed #d9d5f5;
+  border-radius: 4px;
+  background: #fdfdff;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 14px;
+  color: #111;
+  line-height: 1.55;
+}
+.cellArea { display: block; min-height: 38px; }
+.cellInput:hover, .cellArea:hover { border-color: #a5a0f5; }
+.cellInput:focus, .cellArea:focus { outline: none; border-color: #635bff; background: #fafaff; }
+.cellInput:disabled, .cellArea:disabled { border-color: transparent; background: transparent; color: #111; }
+.cellInput::placeholder, .cellArea::placeholder { color: #a8a3c7; font-style: italic; }
+
+.hint { font-size: .75rem; color: #6b7280; font-family: Arial, Helvetica, sans-serif; font-weight: 400; }
+.placeholder { font-size: .82rem; color: #9ca3af; padding: 18px 0; font-family: Arial, Helvetica, sans-serif; }
+
+.boxed { border: 1px solid #333; border-top: none; padding: 10px; font-family: Arial, Helvetica, sans-serif; }
+
+/* Edit-only strips (not part of the printed report) */
+.editStrip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border: 1px dashed #d9d5f5;
+  border-radius: 8px;
+  background: #fafaff;
+  font-family: Arial, Helvetica, sans-serif;
+}
+.editStripLabel { font-size: .74rem; font-weight: 800; color: #1f1a4d; text-transform: uppercase; letter-spacing: .04em; }
+.logoChip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
+}
+.logoChip img { height: 36px; width: auto; max-width: 100px; object-fit: contain; }
+.logoChip button,
+.removeBtn,
+.photoTools button {
+  border: 1px solid #fecaca;
+  background: #fff5f5;
+  color: #dc2626;
+  border-radius: 6px;
+  font-size: .72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.fileBtn {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border: 1.5px dashed #a5a0f5;
+  border-radius: 8px;
+  background: #f5f3ff;
+  color: #635bff;
+  font-size: .8rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: Arial, Helvetica, sans-serif;
+}
+.actionsRow { display: flex; justify-content: center; gap: 8px; margin-top: 10px; }
+.mvpLine { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: .82rem; }
+.photoTools { position: absolute; bottom: 6px; right: 6px; display: flex; gap: 4px; }
+.photoTools label {
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: .72rem;
+  font-weight: 700;
+  color: #374151;
+  cursor: pointer;
+  font-family: Arial, Helvetica, sans-serif;
+}

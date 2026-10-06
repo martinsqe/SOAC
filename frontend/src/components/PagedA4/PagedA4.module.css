@@ -1,0 +1,33 @@
+.wrap {
+  overflow-x: auto;            /* narrow screens scroll the A4 sheets sideways, never squash them */
+  padding: 8px 0 16px;
+  background: #eceef3;
+  border-radius: 12px;
+}
+.doc {
+  position: relative;
+  margin: 0 auto;
+}
+.sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(15, 10, 46, .12);
+}
+.flow { position: relative; }
+.chrome { position: relative; }
+.footer { }
+.block {
+  position: relative;
+  display: flow-root;           /* contain child margins so measured height is exact */
+  padding: 0 40px;
+}
+.gap { }
+
+@media print {
+  @page { size: A4; margin: 0; }
+  .wrap { background: none; padding: 0; overflow: visible; border-radius: 0; }
+  .sheet { display: none; }
+  .gap { display: none; }
+}

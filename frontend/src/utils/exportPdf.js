@@ -7,7 +7,9 @@
   user picks "Save as PDF". Avoids pulling in a canvas/PDF library for something
   the browser already does losslessly (vector text, tables, and inline SVG).
 */
-export function downloadElementAsPdf(node, title = 'Report') {
+/* options.pageSize / options.pageMargin: e.g. { pageSize: 'A4', pageMargin: '0' } for
+   content that is already laid out as A4 pages with its own letterhead/footer. */
+export function downloadElementAsPdf(node, title = 'Report', { pageSize = '', pageMargin = '12mm' } = {}) {
   if (!node) return;
 
   const printWindow = window.open('', '_blank', 'width=900,height=1000');
@@ -37,7 +39,7 @@ export function downloadElementAsPdf(node, title = 'Report') {
     <style>
       * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       html, body { margin: 0; padding: 0; background: #fff; }
-      @page { margin: 12mm; }
+      @page { ${pageSize ? `size: ${pageSize}; ` : ''}margin: ${pageMargin}; }
     </style>
   </head>
   <body>${node.outerHTML}</body>

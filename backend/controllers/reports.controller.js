@@ -2,7 +2,8 @@ const { pgPool }    = require('../config/db');
 const { adminCampus } = require('../services/campus');
 const { getFileValue } = require('../config/multer');
 const { getChampion } = require('../services/bracketMath');
-const { notifyManyUsers } = require('../services/notify');
+const { notifyManyUsers, notifyUser } = require('../services/notify');
+const { sendVolunteerThanks } = require('../config/email');
 const { isSportsEvent, isSportsSql, CLUB_CATEGORY_SQL } = require('../services/eventKind');
 
 /* Add narrative column if it doesn't exist yet */
@@ -15,6 +16,25 @@ pgPool.query(
 pgPool.query(
   `ALTER TABLE event_reports ADD COLUMN IF NOT EXISTS highlight_photos TEXT[] DEFAULT '{}'`
 ).catch(() => {});
+
+/* Collaboration logos shown between the SOAC (left) and RK University (right)
+   logos at the top of every report page, and an optional event banner/brochure. */
+pgPool.query(`ALTER TABLE event_reports ADD COLUMN IF NOT EXISTS logos TEXT[] NOT NULL DEFAULT '{}'`).catch(() => {});
+pgPool.query(`ALTER TABLE event_reports ADD COLUMN IF NOT EXISTS banner TEXT NOT NULL DEFAULT ''`).catch(() => {});
+
+const MAX_REPORT_PHOTOS = 6;   // event photos, 2 per row like the university report format
+const MAX_REPORT_LOGOS  = 4;   // collaboration logos (besides SOAC + RK University)
+
+/* Supporting-documents table rows (same order as the university report format) */
+const SUPPORTING_DOC_KEYS = ['proceedings', 'banner', 'collaboration', 'guests', 'participants', 'awardees', 'photographs', 'media', 'publications'];
+
+/* Uploads and edits are refused once a report has been submitted */
+const assertEditable = async (eventId, res) => {
+  const { rows } = await pgPool.query(`SELECT submitted_at FROM event_reports WHERE event_id = $1::bigint`, [eventId]);
+  if (!rows.length) { res.status(404).json({ message: 'Generate the report first.' }); return false; }
+  if (rows[0].submitted_at) { res.status(409).json({ message: 'This report has already been submitted and can no longer be edited.' }); return false; }
+  return true;
+};
 
 /* Non-club (SOAC-wide) events have no club — admin writes their report, so a
    report's club is optional. */
@@ -38,10 +58,75 @@ const sanitizeVolunteers = (raw) => {
     .map(v => ({
       name:       String(v?.name || '').trim().slice(0, 100),
       enrollment: String(v?.enrollment || '').trim().slice(0, 40),
+      dept:       String(v?.dept || '').trim().slice(0, 60),
+      email:      String(v?.email || '').trim().toLowerCase().slice(0, 200),
+      user_id:    Number.isInteger(Number(v?.user_id)) && Number(v?.user_id) > 0 ? Number(v.user_id) : null,
       role:       String(v?.role || '').trim().slice(0, 100),
     }))
     .filter(v => v.name)
     .slice(0, 200);
+};
+
+/* Volunteers recorded per event once its report is submitted — feeds the
+   volunteer's activity ("Volunteer of <event>"). One row per person per event. */
+pgPool.query(`
+  CREATE TABLE IF NOT EXISTS event_volunteers (
+    id           BIGSERIAL    PRIMARY KEY,
+    event_id     BIGINT       NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    user_id      INTEGER      REFERENCES users(id) ON DELETE SET NULL,
+    name         TEXT         NOT NULL,
+    email        TEXT         NOT NULL,
+    enrollment   TEXT         NOT NULL DEFAULT '',
+    role         TEXT         NOT NULL DEFAULT '',
+    event_title  TEXT         NOT NULL DEFAULT '',
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    UNIQUE (event_id, email)
+  )
+`).then(() => pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_volunteers_email ON event_volunteers (email)`))
+  .catch(err => console.error('[reports] event_volunteers migration failed:', err.message));
+
+/* After a report is submitted: record each volunteer who has an account/email,
+   then thank them by email and in-app. Fire-and-forget — never blocks submission. */
+const thankVolunteers = async (report) => {
+  const vols = sanitizeVolunteers(report.narrative?.volunteers).filter(v => v.email);
+  if (!vols.length) return;
+  const { rows: evRows } = await pgPool.query(
+    `SELECT e.id, e.title, e.start_date, e.date, c.name AS club_name
+     FROM events e LEFT JOIN clubs c ON c.id = e.club_id WHERE e.id = $1::bigint`,
+    [report.event_id]
+  );
+  const ev = evRows[0];
+  if (!ev) return;
+  const seen = new Set();
+  for (const v of vols) {
+    if (seen.has(v.email)) continue;
+    seen.add(v.email);
+    try {
+      const { rows } = await pgPool.query(
+        `INSERT INTO event_volunteers (event_id, user_id, name, email, enrollment, role, event_title)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (event_id, email) DO NOTHING
+         RETURNING id`,
+        [ev.id, v.user_id, v.name, v.email, v.enrollment, v.role, ev.title]
+      );
+      if (!rows.length) continue; // already thanked for this event
+      sendVolunteerThanks({
+        toEmail: v.email, toName: v.name, role: v.role,
+        event: { title: ev.title, club: ev.club_name, date: report.narrative?.event_date || ev.date, startDate: ev.start_date },
+      }).catch(err => console.error(`[reports] volunteer thank-you email failed for ${v.email}:`, err.message));
+      if (v.user_id) {
+        notifyUser({
+          userId: v.user_id,
+          title:  'Thank you for volunteering',
+          body:   `Thank you for volunteering at "${ev.title}". It has been added to your activity.`,
+          type:   'volunteer',
+          url:    '/student/profile',
+        }).catch(() => {});
+      }
+    } catch (err) {
+      console.error(`[reports] could not record volunteer ${v.email}:`, err.message);
+    }
+  }
 };
 
 /* ── Helpers ── */
@@ -414,13 +499,14 @@ const autoRefreshReportIfExists = async (eventId) => {
 const uploadReportPhotos = async (req, res, next) => {
   try {
     if (!req.files?.length) return res.status(400).json({ message: 'No photos uploaded.' });
+    if (!await assertEditable(req.params.eventId, res)) return;
     const { rows: existing } = await pgPool.query(
       `SELECT photos FROM event_reports WHERE event_id = $1::bigint`,
       [req.params.eventId]
     );
     const current = existing[0]?.photos || [];
     const newUrls = req.files.map(f => getFileValue(f));
-    const merged  = [...current, ...newUrls].slice(-4);
+    const merged  = [...current, ...newUrls].slice(-MAX_REPORT_PHOTOS);
 
     const { rows } = await pgPool.query(
       `UPDATE event_reports SET photos = $1, updated_at = NOW()
@@ -439,8 +525,9 @@ const uploadReportPhotos = async (req, res, next) => {
 const replaceReportPhoto = async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ message: 'No photo uploaded.' });
+    if (!await assertEditable(req.params.eventId, res)) return;
     const idx = parseInt(req.params.index, 10);
-    if (isNaN(idx) || idx < 0 || idx > 3) return res.status(400).json({ message: 'Invalid photo index (0-3).' });
+    if (isNaN(idx) || idx < 0 || idx >= MAX_REPORT_PHOTOS) return res.status(400).json({ message: `Invalid photo index (0-${MAX_REPORT_PHOTOS - 1}).` });
     const photoUrl = getFileValue(req.file);
 
     const { rows: existing } = await pgPool.query(
@@ -689,6 +776,8 @@ const submitReport = async (req, res, next) => {
     );
     res.json({ report: rows[0] });
 
+    thankVolunteers(rows[0]).catch(err => console.error('[reports] thanking volunteers failed:', err.message));
+
     /* An admin saving a non-club event's report to Reports needs no heads-up */
     if (req.user?.role === 'admin') return;
 
@@ -731,14 +820,110 @@ const getSubmittedReports = async (req, res, next) => {
 };
 
 /* ══════════════════════════════════════════════
+   PATCH  /api/reports/events/:eventId/logos          (add, field "logos")
+   DELETE /api/reports/events/:eventId/logos/:index
+   Collaboration logos for the report letterhead.
+══════════════════════════════════════════════ */
+const uploadReportLogos = async (req, res, next) => {
+  try {
+    if (!req.files?.length) return res.status(400).json({ message: 'No logo uploaded.' });
+    if (!await assertEditable(req.params.eventId, res)) return;
+    const { rows: cur } = await pgPool.query(`SELECT logos FROM event_reports WHERE event_id = $1::bigint`, [req.params.eventId]);
+    const current = cur[0].logos || [];
+    if (current.length + req.files.length > MAX_REPORT_LOGOS) {
+      return res.status(400).json({ message: `You can add up to ${MAX_REPORT_LOGOS} collaboration logos (SOAC and RK University are always shown).` });
+    }
+    const { rows } = await pgPool.query(
+      `UPDATE event_reports SET logos = $1, updated_at = NOW() WHERE event_id = $2::bigint RETURNING *`,
+      [[...current, ...req.files.map(f => getFileValue(f))], req.params.eventId]
+    );
+    res.json({ report: rows[0] });
+  } catch (err) { next(err); }
+};
+
+const removeReportLogo = async (req, res, next) => {
+  try {
+    if (!await assertEditable(req.params.eventId, res)) return;
+    const idx = parseInt(req.params.index, 10);
+    const { rows: cur } = await pgPool.query(`SELECT logos FROM event_reports WHERE event_id = $1::bigint`, [req.params.eventId]);
+    const logos = [...(cur[0].logos || [])];
+    if (isNaN(idx) || idx < 0 || idx >= logos.length) return res.status(400).json({ message: 'Logo not found.' });
+    logos.splice(idx, 1);
+    const { rows } = await pgPool.query(
+      `UPDATE event_reports SET logos = $1, updated_at = NOW() WHERE event_id = $2::bigint RETURNING *`,
+      [logos, req.params.eventId]
+    );
+    res.json({ report: rows[0] });
+  } catch (err) { next(err); }
+};
+
+/* DELETE /api/reports/events/:eventId/photos/:index — remove one event photo */
+const removeReportPhoto = async (req, res, next) => {
+  try {
+    if (!await assertEditable(req.params.eventId, res)) return;
+    const idx = parseInt(req.params.index, 10);
+    const { rows: cur } = await pgPool.query(`SELECT photos FROM event_reports WHERE event_id = $1::bigint`, [req.params.eventId]);
+    const photos = [...(cur[0].photos || [])];
+    if (isNaN(idx) || idx < 0 || idx >= photos.length) return res.status(400).json({ message: 'Photo not found.' });
+    photos.splice(idx, 1);
+    const { rows } = await pgPool.query(
+      `UPDATE event_reports SET photos = $1, updated_at = NOW() WHERE event_id = $2::bigint RETURNING *`,
+      [photos, req.params.eventId]
+    );
+    res.json({ report: rows[0] });
+  } catch (err) { next(err); }
+};
+
+/* ══════════════════════════════════════════════
+   PATCH  /api/reports/events/:eventId/banner   (field "banner")
+   DELETE /api/reports/events/:eventId/banner
+   Optional event banner / brochure page.
+══════════════════════════════════════════════ */
+const uploadReportBanner = async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No banner uploaded.' });
+    if (!await assertEditable(req.params.eventId, res)) return;
+    const { rows } = await pgPool.query(
+      `UPDATE event_reports SET banner = $1, updated_at = NOW() WHERE event_id = $2::bigint RETURNING *`,
+      [getFileValue(req.file), req.params.eventId]
+    );
+    res.json({ report: rows[0] });
+  } catch (err) { next(err); }
+};
+
+const removeReportBanner = async (req, res, next) => {
+  try {
+    if (!await assertEditable(req.params.eventId, res)) return;
+    const { rows } = await pgPool.query(
+      `UPDATE event_reports SET banner = '', updated_at = NOW() WHERE event_id = $1::bigint RETURNING *`,
+      [req.params.eventId]
+    );
+    res.json({ report: rows[0] });
+  } catch (err) { next(err); }
+};
+
+/* ══════════════════════════════════════════════
    PATCH /api/reports/events/:eventId/narrative
    Coordinator saves written narrative sections
 ══════════════════════════════════════════════ */
 const updateNarrative = async (req, res, next) => {
   try {
-    const allowed = ['event_date', 'participants_count', 'association', 'objective', 'key_highlights', 'outcome', 'acknowledgments', 'remarks'];
+    const allowed = ['event_name', 'academic_year', 'event_date', 'event_place', 'participants_count', 'volunteers_count', 'association', 'objective',
+                     'key_highlights', 'outcome', 'acknowledgments', 'remarks', 'photos_title'];
     const narrative = {};
     allowed.forEach(k => { if (req.body[k] !== undefined) narrative[k] = String(req.body[k] || ''); });
+    /* Supporting documents: { proceedings: 'text or link', … } — blank rows print as N.A. */
+    if (req.body.supporting_docs !== undefined) {
+      const src = req.body.supporting_docs && typeof req.body.supporting_docs === 'object' ? req.body.supporting_docs : {};
+      narrative.supporting_docs = Object.fromEntries(SUPPORTING_DOC_KEYS.map(k => [k, String(src[k] || '').trim().slice(0, 500)]));
+    }
+    /* Signatories at the end of the report: up to 3 × { name, designation } */
+    if (req.body.signatories !== undefined) {
+      narrative.signatories = (Array.isArray(req.body.signatories) ? req.body.signatories : [])
+        .map(sg => ({ name: String(sg?.name || '').trim().slice(0, 120), designation: String(sg?.designation || '').trim().slice(0, 300) }))
+        .filter(sg => sg.name)
+        .slice(0, 3);
+    }
     if (req.body.volunteers !== undefined) narrative.volunteers = sanitizeVolunteers(req.body.volunteers);
     const { rows } = await pgPool.query(
       `UPDATE event_reports
@@ -757,4 +942,4 @@ const updateNarrative = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, uploadHighlightPhotos, replaceHighlightPhoto, updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto, updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears, regenerateReport, autoRefreshReportIfExists };
+module.exports = { removeReportPhoto, uploadReportLogos, removeReportLogo, uploadReportBanner, removeReportBanner, getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, uploadHighlightPhotos, replaceHighlightPhoto, updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto, updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears, regenerateReport, autoRefreshReportIfExists };

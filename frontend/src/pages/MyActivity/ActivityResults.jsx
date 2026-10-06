@@ -142,6 +142,18 @@ export default function ActivityResults({ result, emptyMessage, emptyTo, emptyCt
         )}
       </div>
 
+      {result.volunteering?.length > 0 && (<>
+        <div className={s.actSectionTitle}>Volunteering ({result.volunteering.length})</div>
+        {result.volunteering.map((v, i) => (
+          <div key={`vol-${v.eventId}-${i}`} style={{ padding: '10px 14px', border: '1px solid #e5e7eb', borderRadius: 10, marginBottom: 8, background: '#fff' }}>
+            <div style={{ fontWeight: 700, color: '#1f1a4d' }}>Volunteer of {v.eventTitle}</div>
+            <div style={{ fontSize: '.8rem', color: '#6b7280', marginTop: 2 }}>
+              {[v.clubName, v.role && `Role: ${v.role}`, v.eventDate && new Date(v.eventDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })].filter(Boolean).join(' · ')}
+            </div>
+          </div>
+        ))}
+      </>)}
+
       <div className={s.tabBar}>
         {TABS.map(t => {
           const cat = result.categories.find(c => c.key === t.key);

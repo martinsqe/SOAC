@@ -1,13 +1,14 @@
 const express = require('express');
 const router  = express.Router();
 const { verifyToken } = require('../middleware/auth');
-const { uploadReportPhoto } = require('../config/multer');
+const { uploadReportPhoto, uploadLogo } = require('../config/multer');
 const { uploadMvpPhoto } = require('../config/multer');
 const {
   getEventReport, listReports, generateReport, deleteReport,
   uploadReportPhotos, replaceReportPhoto, uploadHighlightPhotos, replaceHighlightPhoto,
   updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto,
   updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears,
+  uploadReportLogos, removeReportLogo, uploadReportBanner, removeReportBanner, removeReportPhoto,
 } = require('../controllers/reports.controller');
 
 /* List all reports for a club */
@@ -28,11 +29,22 @@ router.post('/events/:eventId/generate', verifyToken, generateReport);
 /* Delete a report (only before submission) */
 router.delete('/events/:eventId', verifyToken, deleteReport);
 
-/* Upload photos for a report (max 5 at a time) */
+/* Collaboration logos for the letterhead — same upload pipeline as club logos */
+router.patch('/events/:eventId/logos', verifyToken, uploadLogo.array('logos', 4), uploadReportLogos);
+router.delete('/events/:eventId/logos/:index', verifyToken, removeReportLogo);
+
+/* Optional event banner / brochure */
+router.patch('/events/:eventId/banner', verifyToken, uploadReportPhoto.single('banner'), uploadReportBanner);
+router.delete('/events/:eventId/banner', verifyToken, removeReportBanner);
+
+/* Upload event photos (up to 6 in total, 2 per row in the report) */
 router.patch('/events/:eventId/photos', verifyToken,
-  uploadReportPhoto.array('photos', 4),
+  uploadReportPhoto.array('photos', 6),
   uploadReportPhotos,
 );
+
+/* Remove one event photo */
+router.delete('/events/:eventId/photos/:index', verifyToken, removeReportPhoto);
 
 /* Replace a single photo at a specific slot index */
 router.patch('/events/:eventId/photos/:index', verifyToken,

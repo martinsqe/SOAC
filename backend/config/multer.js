@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const multer = require('multer');
 const path   = require('path');
 const fs     = require('fs');
@@ -27,7 +28,9 @@ const diskStorage = (subfolder) =>
       cb(null, dir);
     },
     filename: (req, file, cb) => {
-      cb(null, `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`);
+      /* timestamp + random part: two uploads with the same name (e.g. two events'
+         "logo.png") can never overwrite each other */
+      cb(null, `${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`);
     },
   });
 

@@ -547,6 +547,32 @@ const sendEventPublishedToCoordinator = async ({ toEmail, toName, event, reason 
   });
 };
 
+/* Sent to each volunteer once the event's report is submitted to the admin */
+const sendVolunteerThanks = async ({ toEmail, toName, role = '', event }) => {
+  const t = escapeHtml(event.title);
+  await send({
+    to:      toEmail,
+    subject: `Thank you for volunteering — ${event.title} — SOAC RKU`,
+    html: plainEmail({
+      category: 'Thank you',
+      title:    event.title,
+      toName,
+      intro: [
+        `Thank you for volunteering at <strong>${t}</strong>${event.club ? ` organised by <strong>${escapeHtml(event.club)}</strong>` : ''}. Your help made the event possible.`,
+        `It has been added to your SOAC activity as <strong>Volunteer of ${t}</strong>.`,
+      ],
+      sections: detailTable('Event details', [
+        ['Event',  event.title],
+        ['Club',   event.club],
+        ['Date',   event.date || fmtLongDate(event.startDate)],
+        ['Your role', role],
+      ]),
+      outro: ['We hope to see you at the next one.'],
+      button: { href: `${APP_URL}/student/profile`, label: 'View your activity' },
+    }),
+  });
+};
+
 /* ── Direct messages — content deliberately not included ──────────────────── */
 const sendDirectMessageNotice = async ({ toEmail, toName, fromLabel, senderName, url }) => {
   await send({
@@ -1021,6 +1047,7 @@ module.exports = {
   sendTeamAssignment,
   sendGaloreActivityAssignment,
   sendEventPublishedToCoordinator,
+  sendVolunteerThanks,
   sendActivityReport,
   sendTestEmail,
 };
