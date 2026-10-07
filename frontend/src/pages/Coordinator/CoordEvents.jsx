@@ -8,6 +8,7 @@ import s from './CoordSubPage.module.css';
 import es from './CoordEvents.module.css';
 import TournamentBracket from '../../components/TournamentBracket/TournamentBracket';
 import EventReportEditor from '../../components/EventReportEditor/EventReportEditor';
+import CoordMakeReport from './CoordMakeReport';
 import { isSportsEvent, hasTeams } from '../../utils/eventKind';
 
 /* Long description cut to `limit` characters with an inline "…read more"
@@ -1232,9 +1233,13 @@ export default function CoordEvents() {
               : 'No club assigned'}
           </p>
         </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {/* Report for any club event — also ones held before they were on SOAC */}
+          <CoordMakeReport club={club} showToast={showToast} />
         <button className={s.addBtn} onClick={openRequest} disabled={!club}>
-          + Request Event
-        </button>
+            + Request Event
+          </button>
+        </div>
       </div>
 
       {/* Tab bar */}

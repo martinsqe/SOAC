@@ -292,6 +292,10 @@
   justify-content: center;
   padding: 16px;
 }
+/* Big screens: event windows sit beside the sidebar (240px), which stays visible */
+@media (min-width: 769px) {
+  .overlay { left: 240px; }
+}
 .modal {
   background: #fff;
   border-radius: 4px;
@@ -521,7 +525,7 @@
   background: #fff;
   border-radius: 4px;
   width: 100%;
-  max-width: 1000px;
+  max-width: 100%;  /* uses all the space beside the sidebar — room for the A4 report pages */
   max-height: 92vh;
   overflow: hidden;
   display: flex;

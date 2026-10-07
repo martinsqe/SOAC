@@ -1011,6 +1011,7 @@ const asEvent = (row) => ({
   registrationUrl: row.registration_url || '',
   registrationType: row.registration_type || 'internal',
   registrationNote: row.registration_note || '',
+  isReportOnly: !!row.is_report_only,
   isFree: row.is_free !== false,
   feeAmount: Number(row.fee_amount || 0),
   isActive: !!row.is_active,

@@ -91,14 +91,17 @@ export function reportBlocks(data, { isSports: isSportsProp } = {}) {
 
   /* ── Participants (SOAC registrations) ── */
   if (data.participants?.length) {
-    const statCols = isSports ? ['PTS', 'AST', 'REB', 'STL'] : [];
-    const n = 6 + qCols.length + statCols.length;
-    const PC = ['6%', ...Array(n - 1).fill(`${(94 / (n - 1)).toFixed(2)}%`)];
+    /* Sports keep points only (AST/REB/STL dropped so the other columns have room) */
+    const statCols = isSports ? ['PTS'] : [];
+    /* Column widths weighted by what each holds, so names and enrollment numbers fit */
+    const weights = [4, 20, 15, 8, 7, 14, ...qCols.map(() => 14), ...statCols.map(() => 6)];
+    const total = weights.reduce((a, b) => a + b, 0);
+    const PC = weights.map(w => `${((w / total) * 100).toFixed(2)}%`);
     add('p-head', <Row cols={['100%']} first><tr><th className={d.tableHead}>List of Participants ({data.participants.length})</th></tr></Row>);
     add('p-cols', (
-      <Row cols={PC}><tr>
+      <Row cols={PC} compact><tr>
         <th className={d.srCol}>#</th><th>Name</th><th>Enrollment</th><th>Gender</th><th>Dept</th><th>Course</th>
-        {qCols.map(c => <th key={c.id} style={{ overflowWrap: 'anywhere' }}>{c.label}</th>)}
+        {qCols.map(c => <th key={c.id} style={{ overflowWrap: 'break-word' }}>{c.label}</th>)}
         {statCols.map(k => <th key={k}>{k}</th>)}
       </tr></Row>
     ));
@@ -106,10 +109,10 @@ export function reportBlocks(data, { isSports: isSportsProp } = {}) {
       const st = statMap[pt.name?.trim().toLowerCase()] || {};
       const gLbl = pt.gender === 'M' ? 'Male' : pt.gender === 'F' ? 'Female' : pt.gender === 'O' ? 'Other' : '—';
       add(`p-${i}`, (
-        <Row cols={PC}><tr>
+        <Row cols={PC} compact><tr>
           <td className={d.srCol}>{i + 1}</td><td>{pt.name}</td><td>{pt.enrollment_no || '—'}</td><td>{gLbl}</td>
           <td>{pt.dept || '—'}</td><td>{pt.course || '—'}</td>
-          {qCols.map(c => <td key={c.id} style={{ whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{answerOf(pt, c.id)}</td>)}
+          {qCols.map(c => <td key={c.id} style={{ whiteSpace: 'pre-line', overflowWrap: 'break-word' }}>{answerOf(pt, c.id)}</td>)}
           {statCols.map(k => <td key={k}>{st[k] || '—'}</td>)}
         </tr></Row>
       ));

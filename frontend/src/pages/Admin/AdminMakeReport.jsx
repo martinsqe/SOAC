@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import EventReportEditor from '../../components/EventReportEditor/EventReportEditor';
 import { isSportsEvent } from '../../utils/eventKind';
 import s from './AdminEvents.module.css';
+import rw from '../../components/EventReportEditor/ReportWindow.module.css';
 
 /* Admin → Events → "Make Report": pick any created/published event from a
    searchable list and fill in its report in the standard format. "Save to
@@ -35,14 +36,14 @@ export default function AdminMakeReport({ events = [], clubs = [], showToast }) 
           style={{ background: '#fff', color: '#635bff', border: '1.5px solid #635bff' }}>
           Make Report
         </button>
+        {open && <div className={rw.dropdownBackdrop} onClick={() => setOpen(false)} />}
         {open && (
-          <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 60, width: 380, maxWidth: '90vw',
-            background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, boxShadow: '0 16px 40px rgba(15,10,46,.18)', overflow: 'hidden' }}>
+          <div className={rw.dropdown}>
             <div style={{ padding: 10, borderBottom: '1px solid #f0f0f5' }}>
               <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search events by name, club, date or venue…"
                 style={{ width: '100%', boxSizing: 'border-box', padding: '8px 11px', borderRadius: 8, border: '1.5px solid #e5e7eb', fontSize: '.85rem', fontFamily: 'inherit' }} />
             </div>
-            <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+            <div className={rw.dropdownList}>
               {list.length === 0 ? (
                 <div style={{ padding: 14, fontSize: '.84rem', color: '#6b7280' }}>{events.length ? 'No events match your search.' : 'No events created yet.'}</div>
               ) : list.map(ev => (
@@ -63,11 +64,9 @@ export default function AdminMakeReport({ events = [], clubs = [], showToast }) 
       </div>
 
       {selected && (
-        <div className={s.overlay} onClick={() => setSelected(null)}>
-          <div onClick={e => e.stopPropagation()}
-            style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 900, maxHeight: '92vh', overflowY: 'auto',
-              padding: '18px 20px 22px', boxShadow: '0 24px 64px rgba(0,0,0,.25)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
+        <div className={rw.overlay} onClick={() => setSelected(null)}>
+          <div className={rw.window} onClick={e => e.stopPropagation()}>
+            <div className={rw.head}>
               <div>
                 <div className={s.modalTag}>Event Report</div>
                 <h2 className={s.modalTitle} style={{ margin: '2px 0 0' }}>{selected.title}</h2>

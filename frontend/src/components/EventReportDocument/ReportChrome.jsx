@@ -42,8 +42,8 @@ export const Linkified = ({ text }) => String(text).split(/(https?:\/\/[^\s]+)/g
 
 
 /* One table row on its own — consecutive rows share a border line */
-export const Row = ({ cols, first, children }) => (
-  <table className={`${d.table} ${d.rowTable} ${first ? '' : d.rowCont}`}>
+export const Row = ({ cols, first, compact, children }) => (
+  <table className={`${d.table} ${d.rowTable} ${first ? '' : d.rowCont} ${compact ? d.compact : ''}`}>
     <colgroup>{cols.map((w, i) => <col key={i} style={{ width: w }} />)}</colgroup>
     <tbody>{children}</tbody>
   </table>

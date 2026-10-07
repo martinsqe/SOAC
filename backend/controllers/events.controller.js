@@ -1,9 +1,9 @@
 const { pgPool }   = require('../config/db');
 const { ensureSoacTables, asEvent } = require('../services/soacData');
-const { assertCoordOwnsEvent, getEventCoordinatorIds } = require('../services/coordAuth');
+const { assertCoordOwnsEvent, getEventCoordinatorIds, assertCoordOwnsClub } = require('../services/coordAuth');
 const { destroyImage } = require('../config/cloudinary');
 const { getFileValue, uploadImageBuffer } = require('../config/multer');
-const { autoRefreshReportIfExists } = require('./reports.controller');
+const { autoRefreshReportIfExists, regenerateReport } = require('./reports.controller');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
 const { sendGaloreActivityAssignment, sendEventReminder, sendEventPublishedToCoordinator } = require('../config/email');
 const { clubStaff, emailEach } = require('../services/mailRecipients');
@@ -23,6 +23,7 @@ const EVENT_COLS = [
   'event_format', 'captain_name', 'captain_email', 'captain_phone',
   'team_members', 'payment_link', 'team_size', 'min_team_size',
   'parent_event_id', 'custom_fields', 'campus', 'registration_type', 'registration_note',
+  'is_report_only',
 ].join(', ');
 
 const cleanNote = (raw) => String(raw || '').trim().slice(0, 150);
@@ -199,6 +200,9 @@ function normalizePaymentLink(raw) {
     await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS registration_type VARCHAR(10) NOT NULL DEFAULT 'internal'`);
     /* Optional note shown to students on an announcement-only event, in place of a Register button */
     await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS registration_note VARCHAR(150) NOT NULL DEFAULT ''`);
+    /* A past event added only so its report can be written (e.g. held before the
+       system existed) — never listed, announced or open for registration. */
+    await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS is_report_only BOOLEAN NOT NULL DEFAULT false`);
     console.log('[events] migrations ready');
   } catch (err) {
     console.error('[events] migration failed:', err.message);
@@ -282,9 +286,12 @@ const getAll = async (req, res, next) => {
     await syncPastEvents();
     const { status, category, club, clubId } = req.query;
     const { page, limit, offset }            = parsePage(req.query);
+    /* Report-only past events appear only in a club's own list when asked for
+       (the coordinator's "Make Report" picker) — never in public/event listings */
+    const includeReportOnly = req.query.includeReportOnly === '1' && !!clubId;
 
     const campus   = adminCampus(req);
-    const cacheKey = cache.hashKey('events', { status, category, club, clubId, page, limit, campus });
+    const cacheKey = cache.hashKey('events', { status, category, club, clubId, page, limit, campus, includeReportOnly });
     const cached   = await cache.get(cacheKey);
     if (cached) return res.json(cached);
 
@@ -295,6 +302,7 @@ const getAll = async (req, res, next) => {
        every activity would leak into the general events list as its own
        separately-registerable card, right alongside the umbrella itself. */
     const clauses = ['e.is_active = true', 'e.parent_event_id IS NULL'];
+    if (!includeReportOnly) clauses.push('e.is_report_only = false');
 
     if (status   && status   !== 'all') { values.push(status);        clauses.push(`e.status   = $${values.length}`); }
     if (category && category !== 'all') { values.push(category);      clauses.push(`e.category = $${values.length}`); }
@@ -658,6 +666,59 @@ const create = async (req, res, next) => {
           });
         }).catch(() => {});
     }
+  } catch (err) { next(err); }
+};
+
+/* POST /api/events/past-report  (coordinator / Faculty Advisor / admin)
+   Adds a past event that never went through the system (e.g. held before it
+   existed) so its report can be written, saved and submitted like any other.
+   The event is report-only: status past, no registration, never listed or announced. */
+const createPastEventForReport = async (req, res, next) => {
+  try {
+    await ensureSoacTables();
+    const { title, clubId, startDate, venue, category, description } = req.body || {};
+    if (!String(title || '').trim()) return res.status(400).json({ message: 'Event name is required.' });
+    if (!startDate || Number.isNaN(Date.parse(startDate))) return res.status(400).json({ message: 'Event date is required.' });
+    const held = new Date(startDate);
+    if (held > new Date()) return res.status(400).json({ message: 'Pick the date the event was held — this is for events that have already happened.' });
+
+    const isCoord = req.user.role === 'coordinator' || req.user.role === 'faculty_coordinator';
+    if (isCoord && !clubId) return res.status(400).json({ message: 'Choose your club.' });
+    let clubName = '';
+    let resolvedClubId = null;
+    if (clubId) {
+      if (isCoord && !(await assertCoordOwnsClub(req.user.id, clubId))) {
+        return res.status(403).json({ message: 'You can only add reports for your own club.' });
+      }
+      const { rows: c } = await pgPool.query('SELECT id, name, category FROM clubs WHERE id = $1 AND is_active = true', [clubId]);
+      if (!c.length) return res.status(404).json({ message: 'Club not found.' });
+      resolvedClubId = c[0].id; clubName = c[0].name;
+    }
+    const dateLabel = held.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kolkata' });
+    const cat = ['tech', 'sports', 'cultural', 'annual-fest', 'health', 'leadership', 'community', 'general'].includes(category) ? category : 'general';
+
+    const { rows } = await pgPool.query(
+      `INSERT INTO events
+         (title, club, club_id, category, status, date, start_date, time, venue, description, image, tags,
+          event_format, registration_type, is_report_only, registration_closed, campus)
+       VALUES ($1, $2, $3, $4, 'past', $5, $6, '', $7, $8, '', '{}', 'other', 'none', true, true, $9)
+       RETURNING ${EVENT_COLS}`,
+      [String(title).trim().slice(0, 255), clubName, resolvedClubId, cat, dateLabel, held,
+       String(venue || '').trim().slice(0, 255), String(description || '').trim(), adminCampus(req) || MAIN_CAMPUS]
+    );
+    const event = asEvent(rows[0]);
+    await logAudit(req.user.id, req.user.name, 'CREATE_PAST_EVENT_REPORT', 'event', event.id, { title: event.title, club: clubName });
+
+    let report = await regenerateReport(event.id, resolvedClubId, req.user.id);
+    /* Start the report with what we already know */
+    const { rows: rep } = await pgPool.query(
+      `UPDATE event_reports SET narrative = COALESCE(narrative, '{}'::jsonb) || $1::jsonb, updated_at = NOW()
+       WHERE event_id = $2::bigint RETURNING *`,
+      [JSON.stringify({ event_date: dateLabel, event_place: String(venue || '').trim() }), event.id]
+    );
+    report = rep[0] || report;
+    await cache.delPattern('events:*');
+    res.status(201).json({ event: withImageUrl(event), report });
   } catch (err) { next(err); }
 };
 
@@ -1758,5 +1819,5 @@ module.exports = {
   getAll, getLiveScores, getPastScores, getOne, getActivities,
   getGaloreDepartments, getGaloreCatalog, getGaloreCoordinators, createGaloreEvent, getDepartmentRegistrations,
   getMyAssignments,
-  create, update, remove, toggleRegistration, register, submitTeamRoster, listRegistrations, updateRegistration, deleteRegistration,
+  create, createPastEventForReport, update, remove, toggleRegistration, register, submitTeamRoster, listRegistrations, updateRegistration, deleteRegistration,
 };

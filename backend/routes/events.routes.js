@@ -29,6 +29,7 @@ router.get('/:id',               ctrl.getOne);
 router.get('/:id/activities',    ctrl.getActivities); /* public — Galore umbrella's child activities */
 router.get('/:id/department-registrations', verifyToken, requireCoordOrAdmin, ctrl.getDepartmentRegistrations);
 router.post('/',       verifyToken, requireCoordOrAdmin, uploadEvent.single('image'), ctrl.create);
+router.post('/past-report', verifyToken, requireCoordOrAdmin, ctrl.createPastEventForReport); /* report for an event held outside the system */
 router.put('/:id',     verifyToken, requireAdmin, uploadEvent.single('image'), ctrl.update);
 router.patch('/:id/registration', verifyToken, requireAdmin, ctrl.toggleRegistration);
 /* Admin emails a reminder about the event (venue update, days to go, register now, custom) */

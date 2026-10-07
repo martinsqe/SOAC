@@ -1,0 +1,101 @@
+/* The "Make Report" window (admin + coordinator / Faculty Advisor dashboards).
+   Big screens: fills the space beside the 240px sidebar, which stays visible.
+   Phones (sidebar hidden): full screen. */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 10px;
+  background: rgba(15, 10, 46, .55);
+  backdrop-filter: blur(2px);
+  overflow-y: auto;
+}
+@media (min-width: 769px) {
+  .overlay { left: 240px; padding: 16px 18px; }
+}
+
+.window {
+  width: 100%;
+  max-height: calc(100vh - 20px);
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .25);
+  padding: 14px 14px 18px;
+  box-sizing: border-box;
+}
+@media (min-width: 769px) {
+  .window { max-height: calc(100vh - 32px); }
+}
+.narrow { max-width: 620px; padding: 20px 22px 22px; margin: auto; }
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.headActions { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+.secondaryBtn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1.5px solid #e5e7eb;
+  background: #fff;
+  font-weight: 700;
+  font-size: .8rem;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+@media (max-width: 480px) {
+  .window { padding: 12px 10px 16px; border-radius: 10px; }
+  .narrow { padding: 16px 14px 18px; }
+}
+
+/* ── Admin: event list under the Make Report button ── */
+.dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  width: 380px;
+  max-width: 90vw;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(15, 10, 46, .18);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.dropdownList { max-height: 360px; overflow-y: auto; }
+/* Phones: a sheet along the bottom of the screen, never cut off at the side */
+@media (max-width: 640px) {
+  .dropdown {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    top: auto;
+    bottom: 10px;
+    width: auto;
+    max-width: none;
+    max-height: 75vh;
+    z-index: 1001;
+    border-radius: 14px;
+  }
+  .dropdownList { max-height: calc(75vh - 64px); }
+  .dropdownBackdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(15, 10, 46, .35);
+  }
+}
+@media (min-width: 641px) {
+  .dropdownBackdrop { display: none; }
+}

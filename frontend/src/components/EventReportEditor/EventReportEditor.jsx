@@ -16,7 +16,8 @@ import { buildEditorBlocks } from './editorBlocks';
      canSubmit      show "Save to Reports" (admin, for non-club events)
      isSports       sports event (see utils/eventKind.js): teams, matches and MVPs;
                     otherwise a volunteers list instead */
-export default function EventReportEditor({ event, showToast = () => {}, onReportChange, canSubmit = false, isSports: isSportsProp }) {
+export default function EventReportEditor({ event, showToast = () => {}, onReportChange, canSubmit = false, isSports: isSportsProp,
+  submitLabel = 'Save to Reports', submitDoneMessage = 'Report saved to the Reports page.' }) {
   const regEvent = event;
   const isSports = isSportsProp ?? (regEvent?.category === 'sports' || regEvent?.eventFormat === 'sports_fiesta');
   const [eventReport, setEventReportState] = useState(null);
@@ -258,7 +259,7 @@ export default function EventReportEditor({ event, showToast = () => {}, onRepor
       lastSaved.current = JSON.stringify(reportNarrative);
       const d = await api.post(`/reports/events/${regEvent._id}/submit`);
       setEventReport(d.report);
-      showToast('Report saved to the Reports page.');
+      showToast(submitDoneMessage);
     } catch (err) {
       showToast(err.message || 'Could not save the report.', 'err');
     } finally { setSubmitting(false); }
@@ -266,7 +267,7 @@ export default function EventReportEditor({ event, showToast = () => {}, onRepor
 
   return (
     <>
-              <div className={es.reportPanel}>
+              <div className={es.reportPanel} style={{ padding: '8px 0' }}>
                 {reportLoading ? (
                   <div className={es.reportPlaceholder}>Loading report…</div>
                 ) : !eventReport ? (
@@ -340,7 +341,7 @@ export default function EventReportEditor({ event, showToast = () => {}, onRepor
       {canSubmit && eventReport && !eventReport.submitted_at && (
         <div className={es.reportActions} style={{ marginTop: 12 }}>
           <button className={es.reportGenBtn} onClick={handleSaveToReports} disabled={submitting}>
-            {submitting ? 'Saving…' : 'Save to Reports'}
+            {submitting ? 'Saving…' : submitLabel}
           </button>
           <span className={es.reportSavedAt}>
             Fill in every section and add photos first — once saved to Reports it can no longer be edited.

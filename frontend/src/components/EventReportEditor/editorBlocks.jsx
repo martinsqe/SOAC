@@ -73,7 +73,7 @@ export function buildEditorBlocks(ctx) {
       <input className={ed.cellInput} value={nav.volunteers_count || ''} maxLength={20} disabled={locked}
         placeholder={volunteersAuto ? `${volunteersAuto} (from the volunteers list)` : 'e.g. 9'} onChange={set('volunteers_count')} />
     )],
-    ['Objective of the Event', area('objective', 'Purpose and goals of the event — one point per line')],
+    ['Objective of the Event', area('objective', 'Purpose and goals of the event — write it as paragraphs or as points, whichever suits', 8000)],
     ['Academic Year', text('academic_year', 'e.g. 2025-26', 20)],
   ].forEach(([label, field], i) => add(`ed-row-${i}`, (
     <Row cols={TWO}><tr><td className={d.label}>{label}</td><td className={ed.cell}>{field}</td></tr></Row>
@@ -86,7 +86,7 @@ export function buildEditorBlocks(ctx) {
     ['Key Highlights', area('key_highlights', 'Notable moments, activities and achievements…')],
     ['Outcomes:', area('outcome', 'What participants and volunteers gained…')],
     ['Acknowledgments:', area('acknowledgments', 'Thank faculty, partners, volunteers…')],
-    ['Remarks:', area('remarks', 'Optional', 1000)],
+    ['Remarks:', area('remarks', 'Anything else the SOAC office should know — challenges faced, feedback from participants, suggestions for next time, follow-up planned…', 3000)],
   ].forEach(([label, field], i) => add(`fa-row-${i}`, (
     <Row cols={FOCUS}><tr><td className={d.focusLabel}>{label}</td><td className={ed.cell}>{field}</td></tr></Row>
   )));

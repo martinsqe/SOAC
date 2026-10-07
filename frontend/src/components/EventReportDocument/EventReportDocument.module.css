@@ -73,8 +73,12 @@
   vertical-align: top;
   text-align: left;
   line-height: 1.55;
-  overflow-wrap: anywhere;
+  word-break: normal;
+  overflow-wrap: break-word;   /* break inside a word only when it can't fit at all */
+  hyphens: manual;
 }
+/* Dense tables (participants): smaller text and padding so every column fits */
+.compact th, .compact td { font-size: 12.5px; padding: 6px 7px; line-height: 1.4; }
 .rowTable { margin: 0; }
 .rowCont  { margin-top: -1px; }   /* share the border line with the row above */
 .tableHead {

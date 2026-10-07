@@ -1,8 +1,8 @@
 .wrap {
   overflow-x: auto;            /* narrow screens scroll the A4 sheets sideways, never squash them */
-  padding: 8px 0 16px;
+  padding: 0 0 16px;
   background: #eceef3;
-  border-radius: 12px;
+  border-radius: 8px;
 }
 .doc {
   position: relative;
@@ -28,6 +28,7 @@
 @media print {
   @page { size: A4; margin: 0; }
   .wrap { background: none; padding: 0; overflow: visible; border-radius: 0; }
+  .doc { zoom: var(--print-zoom, 1); }   /* wider screen pages print as exact A4 */
   .sheet { display: none; }
   .gap { display: none; }
 }

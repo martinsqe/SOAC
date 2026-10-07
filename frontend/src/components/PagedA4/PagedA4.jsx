@@ -16,6 +16,12 @@ import p from './PagedA4.module.css';
 
 export const PAGE_W   = 794;   // A4 width  at 96 dpi (210 mm)
 export const PAGE_H   = 1122;  // A4 height at 96 dpi (297 mm, rounded down so print never spills)
+const DESIGN_W        = 1040;  // every report page is drawn at this width on screen
+/* One fixed page width everywhere a report appears (Manage Event, Make Report,
+   Reports pages), so every report looks the same — only its content differs.
+   Pages keep A4 proportions and are centred; a narrower space (e.g. a phone) falls
+   back to its own width (never below true A4, scrolling sideways instead).
+   Printing zooms the pages back to exact A4 — the same content lands on the same pages. */
 const GAP             = 28;    // grey space between pages on screen (not printed)
 const BODY_PAD_TOP    = 18;
 const BODY_PAD_BOTTOM = 14;
@@ -24,6 +30,16 @@ export default function PagedA4({ header, footer, blocks, innerRef }) {
   const [heights, setHeights] = useState({});
   const [chrome, setChrome] = useState({ header: 96, footer: 76 });
   const [elements] = useState(() => new Map()); // key -> observed element
+  const [avail, setAvail] = useState(PAGE_W);   // width available for the pages
+  const [wrapObserver] = useState(() => (typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(entries => {
+    const w = Math.floor(entries[0].contentRect.width);
+    if (w > 0) setAvail(prev => (Math.abs(prev - w) < 2 ? prev : w));
+  })));
+  useEffect(() => () => wrapObserver?.disconnect(), [wrapObserver]);
+  const trackWrap = (el) => { if (el) wrapObserver?.observe(el); };
+  const pageW = Math.max(PAGE_W, Math.min(DESIGN_W, avail));
+  const scale = pageW / PAGE_W;
+  const pageH = Math.floor(PAGE_H * scale);
 
   /* Measures every block, the header and the footer, and re-paginates whenever
      one of them changes size (typing in a textarea, an image loading…) */
@@ -63,7 +79,7 @@ export default function PagedA4({ header, footer, blocks, innerRef }) {
   };
 
   /* ── Pagination ── */
-  const avail = PAGE_H - chrome.header - chrome.footer - BODY_PAD_TOP - BODY_PAD_BOTTOM;
+  const bodyH = pageH - chrome.header - chrome.footer - BODY_PAD_TOP - BODY_PAD_BOTTOM;
   const items = [];   // the continuous column: headers, blocks, fillers, footers, gaps
   const pages = [];   // sheet rectangles drawn behind the column
   let page = 0;
@@ -80,7 +96,7 @@ export default function PagedA4({ header, footer, blocks, innerRef }) {
     used = 0;
   };
   const closePage = (last) => {
-    const fill = Math.max(0, avail - used) + BODY_PAD_BOTTOM;
+    const fill = Math.max(0, bodyH - used) + BODY_PAD_BOTTOM;
     items.push({ type: 'space', key: `fill-${page}`, height: fill });
     y += fill;
     items.push({ type: 'footer', key: `ftr-${page}`, page });
@@ -96,7 +112,7 @@ export default function PagedA4({ header, footer, blocks, innerRef }) {
   openPage();
   blocks.forEach((b) => {
     const h = heights[b.key] ?? 0;
-    if (used > 0 && (b.breakBefore || used + h > avail)) { closePage(false); openPage(); }
+    if (used > 0 && (b.breakBefore || used + h > bodyH)) { closePage(false); openPage(); }
     items.push({ type: 'block', key: b.key, node: b.node });
     used += h;
     y += h;
@@ -104,8 +120,8 @@ export default function PagedA4({ header, footer, blocks, innerRef }) {
   closePage(true);
 
   return (
-    <div className={p.wrap}>
-      <div ref={innerRef} className={p.doc} style={{ width: PAGE_W }}>
+    <div ref={trackWrap} className={p.wrap}>
+      <div ref={innerRef} className={p.doc} style={{ width: pageW, '--print-zoom': (1 / scale).toFixed(4) }}>
         {pages.map((pg, i) => (
           <div key={`sheet-${i}`} className={p.sheet} style={{ top: pg.top, height: pg.height }} aria-hidden="true" />
         ))}
