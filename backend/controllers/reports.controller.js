@@ -4,6 +4,7 @@ const { getFileValue } = require('../config/multer');
 const { getChampion } = require('../services/bracketMath');
 const { notifyManyUsers, notifyUser } = require('../services/notify');
 const { sendVolunteerThanks } = require('../config/email');
+const { buildReportDocx } = require('../services/reportDocx');
 const { isSportsEvent, isSportsSql, CLUB_CATEGORY_SQL } = require('../services/eventKind');
 
 /* Add narrative column if it doesn't exist yet */
@@ -151,6 +152,32 @@ const getEventReport = async (req, res, next) => {
       [req.params.eventId]
     );
     res.json({ report: rows[0] || null });
+  } catch (err) { next(err); }
+};
+
+/* ══════════════════════════════════════════════
+   GET /api/reports/events/:eventId/download/docx
+   The saved report as a Word file, in the same format as the PDF.
+══════════════════════════════════════════════ */
+const downloadReportDocx = async (req, res, next) => {
+  try {
+    const { rows } = await pgPool.query(
+      `SELECT er.*, ev.category AS event_category, ${IS_SPORTS_SQL} AS is_sports
+       FROM event_reports er
+       LEFT JOIN events ev ON ev.id = er.event_id
+       LEFT JOIN clubs c ON c.id = COALESCE(er.club_id, ev.club_id)
+       WHERE er.event_id = $1::bigint`,
+      [req.params.eventId]
+    );
+    if (!rows.length) return res.status(404).json({ message: 'No report for this event yet.' });
+    const report = rows[0];
+    const buffer = await buildReportDocx(report);
+    const name = String(report.narrative?.event_name || report.event_title || 'Event')
+      .replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) || 'Event';
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/"/g, '')} - Report.docx"; filename*=UTF-8''${encodeURIComponent(name)}%20-%20Report.docx`);
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
   } catch (err) { next(err); }
 };
 
@@ -557,6 +584,7 @@ const replaceReportPhoto = async (req, res, next) => {
 ══════════════════════════════════════════════ */
 const uploadHighlightPhotos = async (req, res, next) => {
   try {
+    if (!await assertEditable(req.params.eventId, res)) return; // submitted reports stay as submitted
     if (!req.files?.length) return res.status(400).json({ message: 'No photos uploaded.' });
     const { rows: existing } = await pgPool.query(
       `SELECT highlight_photos FROM event_reports WHERE event_id = $1::bigint`,
@@ -582,6 +610,7 @@ const uploadHighlightPhotos = async (req, res, next) => {
 ══════════════════════════════════════════════ */
 const replaceHighlightPhoto = async (req, res, next) => {
   try {
+    if (!await assertEditable(req.params.eventId, res)) return; // submitted reports stay as submitted
     if (!req.file) return res.status(400).json({ message: 'No photo uploaded.' });
     const idx = parseInt(req.params.index, 10);
     if (isNaN(idx) || idx < 0 || idx > 3) return res.status(400).json({ message: 'Invalid photo index (0-3).' });
@@ -660,6 +689,7 @@ const getReportYears = async (req, res, next) => {
 ══════════════════════════════════════════════ */
 const updateMvpPhoto = async (req, res, next) => {
   try {
+    if (!await assertEditable(req.params.eventId, res)) return; // submitted reports stay as submitted
     if (!req.file) return res.status(400).json({ message: 'No photo uploaded.' });
     const photoUrl = getFileValue(req.file);
     const { rows } = await pgPool.query(
@@ -680,6 +710,7 @@ const updateMvpPhoto = async (req, res, next) => {
 ══════════════════════════════════════════════ */
 const updateMatchMvpPhoto = async (req, res, next) => {
   try {
+    if (!await assertEditable(req.params.eventId, res)) return; // submitted reports stay as submitted
     if (!req.file) return res.status(400).json({ message: 'No photo uploaded.' });
     const { eventId, scoreId } = req.params;
     const photoUrl = getFileValue(req.file);
@@ -724,6 +755,7 @@ const updateMatchMvpPhoto = async (req, res, next) => {
 ══════════════════════════════════════════════ */
 const updateMvpSidePhoto = async (req, res, next) => {
   try {
+    if (!await assertEditable(req.params.eventId, res)) return; // submitted reports stay as submitted
     if (!req.file) return res.status(400).json({ message: 'No photo uploaded.' });
     const { eventId, side } = req.params;
     if (side !== 'left' && side !== 'right') return res.status(400).json({ message: 'side must be left or right.' });
@@ -746,6 +778,11 @@ const updateMvpSidePhoto = async (req, res, next) => {
 ══════════════════════════════════════════════ */
 const deleteReport = async (req, res, next) => {
   try {
+    /* A submitted report is the record of the event — only the admin can remove it */
+    const { rows: cur } = await pgPool.query(`SELECT submitted_at FROM event_reports WHERE event_id = $1::bigint`, [req.params.eventId]);
+    if (cur[0]?.submitted_at && req.user?.role !== 'admin') {
+      return res.status(409).json({ message: 'This report has been submitted to the admin and can no longer be deleted.' });
+    }
     const { rows } = await pgPool.query(
       `DELETE FROM event_reports WHERE event_id = $1::bigint RETURNING id`,
       [req.params.eventId]
@@ -942,4 +979,4 @@ const updateNarrative = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { removeReportPhoto, uploadReportLogos, removeReportLogo, uploadReportBanner, removeReportBanner, getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, uploadHighlightPhotos, replaceHighlightPhoto, updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto, updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears, regenerateReport, autoRefreshReportIfExists };
+module.exports = { downloadReportDocx, removeReportPhoto, uploadReportLogos, removeReportLogo, uploadReportBanner, removeReportBanner, getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, uploadHighlightPhotos, replaceHighlightPhoto, updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto, updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears, regenerateReport, autoRefreshReportIfExists };

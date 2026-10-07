@@ -3,6 +3,7 @@ import { useCoordClub } from '../../context/CoordClubContext';
 import api from '../../api/client';
 import EventReportDocument from '../../components/EventReportDocument/EventReportDocument';
 import { downloadElementAsPdf } from '../../utils/exportPdf';
+import { downloadReportWord } from '../../utils/downloadReportWord';
 import s from './CoordSubPage.module.css';
 import r from './CoordReports.module.css';
 
@@ -143,6 +144,7 @@ function ReportDetail({ eventId }) {
   const [loading,    setLoading]    = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const printRef = useRef(null);
+  const [wordBusy, setWordBusy] = useState(false);
 
   useEffect(() => {
     api.get(`/reports/events/${eventId}`)
@@ -167,11 +169,20 @@ function ReportDetail({ eventId }) {
 
   /* The report is already laid out as A4 pages with its own letterhead and footer */
   const handleDownloadPdf = () => downloadElementAsPdf(printRef.current, data.event_title || 'Event Report', { pageSize: 'A4', pageMargin: '0' });
+  const handleDownloadWord = async () => {
+    setWordBusy(true);
+    try { await downloadReportWord(eventId, data.narrative?.event_name || data.event_title || 'Event'); }
+    catch (err) { alert(err.message || 'Could not create the Word file.'); }
+    finally { setWordBusy(false); }
+  };
 
   return (
     <div className={r.reportDetail}>
       <div className={r.detailToolbar}>
-        <button className={r.downloadPdfBtn} onClick={handleDownloadPdf}>⬇ Download PDF</button>
+        <button className={r.downloadPdfBtn} onClick={handleDownloadPdf}>Download PDF</button>
+        <button className={r.downloadPdfBtn} onClick={handleDownloadWord} disabled={wordBusy} style={{ marginLeft: 8 }}>
+          {wordBusy ? 'Preparing Word file…' : 'Download Word'}
+        </button>
       </div>
 
       <EventReportDocument data={data} printRef={printRef} />

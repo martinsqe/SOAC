@@ -8,7 +8,7 @@ const {
   uploadReportPhotos, replaceReportPhoto, uploadHighlightPhotos, replaceHighlightPhoto,
   updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto,
   updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears,
-  uploadReportLogos, removeReportLogo, uploadReportBanner, removeReportBanner, removeReportPhoto,
+  uploadReportLogos, removeReportLogo, uploadReportBanner, removeReportBanner, removeReportPhoto, downloadReportDocx,
 } = require('../controllers/reports.controller');
 
 /* List all reports for a club */
@@ -22,6 +22,9 @@ router.get('/annual', verifyToken, getAnnualReport);
 
 /* Single event report */
 router.get('/events/:eventId', verifyToken, getEventReport);
+
+/* Download the report as a Word (.docx) file */
+router.get('/events/:eventId/download/docx', verifyToken, downloadReportDocx);
 
 /* Generate / regenerate report for an event */
 router.post('/events/:eventId/generate', verifyToken, generateReport);
