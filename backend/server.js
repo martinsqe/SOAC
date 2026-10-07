@@ -21,7 +21,7 @@ const { Server }   = require('socket.io');
 const { connectPG, poolHealth } = require('./config/db');
 require('./config/redis');   // triggers auto-connect on startup; graceful quit on SIGTERM below
 const autoSeed = require('./scripts/autoSeed');
-const { ensureBaseIndexes } = require('./services/soacData');
+const { ensureBaseIndexes, ensureSoacTables } = require('./services/soacData');
 const { ensureCampusSchema } = require('./services/campus');
 const { ensureDataIntegrity } = require('./services/dataIntegrity');
 const { ensureAccountsSchema } = require('./services/accounts');
@@ -228,6 +228,9 @@ server.listen(PORT, () => {
     await ensureDataIntegrity();
     await ensureAccountsSchema();
     await ensureBaseIndexes();
+    /* All app tables/columns (incl. event-request registration type) ready before
+       the first request needs them, not lazily on whichever endpoint runs first */
+    await ensureSoacTables().catch(err => console.error('⚠️  App table check failed (endpoints retry it on demand):', err.message));
     console.log('✅  DB initialisation complete');
   })().catch(err => {
     console.error('❌  DB initialisation failed:', err.message);

@@ -585,6 +585,7 @@ const sendJoinRequestCampusChanged = async ({ toEmail, toName, clubName, fromCam
       intro: [
         `Your request to join <strong>${escapeHtml(clubName)}</strong> has been changed from <strong>${escapeHtml(fromCampus)}</strong> to <strong>${escapeHtml(toCampus)}</strong> by the SOAC admin.`,
         `It is now with the ${escapeHtml(toCampus)} club team, who will review it. You don't need to send it again.`,
+        `From now on, any club requests you send must be made through <strong>${escapeHtml(toCampus)}</strong> — requests through ${escapeHtml(fromCampus)} won't be accepted.`,
       ],
       sections: detailTable('Request details', [
         ['Club', clubName],

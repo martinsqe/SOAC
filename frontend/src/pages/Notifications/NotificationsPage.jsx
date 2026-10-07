@@ -28,6 +28,9 @@ const CATEGORY_OF = {
   event:                   'events',
   registration:            'events',
   report_submitted:        'events',
+  event_update:            'events',        // event published to a club / registration opened-closed
+  volunteer:               'achievements',  // thank-you after volunteering at an event
+  galore_coordinator_assignment: 'achievements',
 };
 
 const CATEGORIES = [

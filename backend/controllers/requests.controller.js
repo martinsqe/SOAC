@@ -228,29 +228,47 @@ const hasPendingRequestForClub = async (email, clubId, db = pgPool) => {
   return rows.length > 0;
 };
 
-/* The campus this email is already committed to — the campus of a club they're an
-   active member of, or have a pending request for — or null if neither. A student
-   joins clubs at one campus only; a declined request doesn't commit them. */
-const committedCampus = async (email, db = pgPool) => {
+/* When the admin moves a student's request to the other campus, that student is
+   assigned to the new campus for good — they can only send requests there, even if
+   the moved request is later declined. One row per email; moving again updates it. */
+pgPool.query(`
+  CREATE TABLE IF NOT EXISTS student_campus_assignments (
+    email        TEXT         PRIMARY KEY,
+    campus       VARCHAR(20)  NOT NULL,
+    assigned_by  INTEGER      REFERENCES users(id) ON DELETE SET NULL,
+    assigned_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+  )
+`).catch(err => console.error('[requests] student_campus_assignments migration failed:', err.message));
+
+/* The campus this email is committed to, and why — or null if none:
+     1. a club they're an active member of        (source 'member')
+     2. the campus the admin moved them to         (source 'admin')
+     3. a club they have a pending request for     (source 'pending')
+   A student joins clubs at one campus only; a declined request alone doesn't commit them. */
+const committedCampusInfo = async (email, db = pgPool) => {
   const { rows } = await db.query(
-    `SELECT c.campus FROM (
-       SELECT sc.club_id, 0 AS pri FROM student_clubs sc
+    `SELECT campus, source FROM (
+       SELECT c.campus, 'member' AS source, 0 AS pri FROM student_clubs sc
        JOIN users u ON u.id = sc.user_id AND u.role = 'student'
+       JOIN clubs c ON c.id = sc.club_id
        WHERE LOWER(u.email) = $1 AND sc.is_active = true
        UNION ALL
-       SELECT jr.club_id, 1 FROM join_requests jr
+       SELECT a.campus, 'admin', 1 FROM student_campus_assignments a WHERE a.email = $1
+       UNION ALL
+       SELECT c.campus, 'pending', 2 FROM join_requests jr
+       JOIN clubs c ON c.id = jr.club_id
        WHERE LOWER(jr.email) = $1 AND jr.status = 'pending'
      ) x
-     JOIN clubs c ON c.id = x.club_id
-     ORDER BY x.pri
+     ORDER BY pri
      LIMIT 1`,
     [String(email || '').toLowerCase()]
   );
-  return rows[0]?.campus || null;
+  return rows[0] || null;
 };
 
-const wrongCampusMsg = (campus) =>
-  `You can only send requests to ${campus}. If you made wrong selection of campus, please contact your club coordinator.`;
+const wrongCampusMsg = (campus, source) => (source === 'admin'
+  ? `Your club request was moved to ${campus} by the SOAC admin, so you can only send requests to ${campus}. Please choose ${campus} and try again.`
+  : `You can only send requests to ${campus}. If you made wrong selection of campus, please contact your club coordinator.`);
 
 /* GET /api/requests/check-club-limit?email=X&clubId=Y  (public)
    Lets the join form ask "is this student already using all 3 club slots (active
@@ -274,12 +292,14 @@ const checkClubLimit = async (req, res, next) => {
       countUsedClubSlots(email),
       isActiveMemberOfClub(email, clubId),
       hasPendingRequestForClub(email, clubId),
-      committedCampus(email),
+      committedCampusInfo(email.toLowerCase()),
     ]);
-    const wrongCampus = !!lockedCampus && CAMPUSES.includes(req.query.campus) && lockedCampus !== req.query.campus;
+    const lockedName = lockedCampus?.campus || null;
+    const wrongCampus = !!lockedName && CAMPUSES.includes(req.query.campus) && lockedName !== req.query.campus;
     res.json({
       count: cnt, atLimit: cnt >= MAX_CLUB_SLOTS, alreadyMember, alreadyPending,
-      wrongCampus, campusMessage: wrongCampus ? wrongCampusMsg(lockedCampus) : undefined,
+      wrongCampus, campusMessage: wrongCampus ? wrongCampusMsg(lockedName, lockedCampus.source) : undefined,
+      allowedCampus: lockedName,
     });
   } catch (err) { next(err); }
 };
@@ -325,9 +345,9 @@ const create = async (req, res, next) => {
       await client.query('BEGIN');
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`join_request:${emailLc}`]);
 
-      const lockedCampus = await committedCampus(emailLc, client);
-      if (lockedCampus && lockedCampus !== campus) {
-        blocked = { status: 409, message: wrongCampusMsg(lockedCampus) };
+      const locked = await committedCampusInfo(emailLc, client);
+      if (locked && locked.campus !== campus) {
+        blocked = { status: 409, message: wrongCampusMsg(locked.campus, locked.source) };
       } else if (await isActiveMemberOfClub(emailLc, clubId, client)) {
         blocked = { status: 400, message: "You're already a member of this club." };
       } else if (await hasPendingRequestForClub(emailLc, clubId, client)) {
@@ -815,6 +835,13 @@ const changeCampus = async (req, res, next) => {
     await client.query(
       `UPDATE join_requests SET club_id = $1, club_name = $2, campus = $3, updated_at = NOW() WHERE id = $4`,
       [target.id, target.name, toCampus, jr.id]
+    );
+    /* From now on this student can only send requests to the new campus */
+    await client.query(
+      `INSERT INTO student_campus_assignments (email, campus, assigned_by, assigned_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (email) DO UPDATE SET campus = EXCLUDED.campus, assigned_by = EXCLUDED.assigned_by, assigned_at = NOW()`,
+      [email, toCampus, req.user.id]
     );
     await client.query(
       `INSERT INTO audit_log (user_id, user_name, action, entity_type, entity_id, meta)

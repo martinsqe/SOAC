@@ -38,6 +38,8 @@ export default function JoinModal({ club, onClose }) {
         }
         if (limitRes.ok && limitData.wrongCampus) {
           alert(limitData.campusMessage);
+          /* switch the form to the campus they're allowed, ready to resubmit */
+          if (limitData.allowedCampus) setForm(p => ({ ...p, campus: limitData.allowedCampus }));
           setSubmitting(false);
           return;
         }
