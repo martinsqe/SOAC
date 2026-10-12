@@ -13,6 +13,7 @@ export default function EventReportDocument({ data, printRef, isSports }) {
   return (
     <div className={d.doc}>
       <PagedA4
+        mode="pages"
         innerRef={printRef}
         header={<ReportLetterhead logos={data.logos} />}
         footer={<ReportFooter />}

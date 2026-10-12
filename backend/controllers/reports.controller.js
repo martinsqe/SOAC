@@ -60,7 +60,8 @@ const sanitizeVolunteers = (raw) => {
       name:       String(v?.name || '').trim().slice(0, 100),
       enrollment: String(v?.enrollment || '').trim().slice(0, 40),
       dept:       String(v?.dept || '').trim().slice(0, 60),
-      email:      String(v?.email || '').trim().toLowerCase().slice(0, 200),
+      /* kept only when it looks like an email — it's where the appreciation goes */
+      email:      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v?.email || '').trim()) ? String(v.email).trim().toLowerCase().slice(0, 200) : '',
       user_id:    Number.isInteger(Number(v?.user_id)) && Number(v?.user_id) > 0 ? Number(v.user_id) : null,
       role:       String(v?.role || '').trim().slice(0, 100),
     }))
@@ -115,9 +116,13 @@ const thankVolunteers = async (report) => {
         toEmail: v.email, toName: v.name, role: v.role,
         event: { title: ev.title, club: ev.club_name, date: report.narrative?.event_date || ev.date, startDate: ev.start_date },
       }).catch(err => console.error(`[reports] volunteer thank-you email failed for ${v.email}:`, err.message));
-      if (v.user_id) {
+      /* in-app thanks too, for anyone with an account (picked from the members, or typed in) */
+      const userId = v.user_id || (await pgPool.query(
+        `SELECT id FROM users WHERE LOWER(email) = $1 AND is_active = true ORDER BY (role = 'student') DESC LIMIT 1`, [v.email]
+      ).catch(() => ({ rows: [] }))).rows[0]?.id;
+      if (userId) {
         notifyUser({
-          userId: v.user_id,
+          userId,
           title:  'Thank you for volunteering',
           body:   `Thank you for volunteering at "${ev.title}". It has been added to your activity.`,
           type:   'volunteer',

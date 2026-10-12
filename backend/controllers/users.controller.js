@@ -851,7 +851,7 @@ const activityByEmail = async (req, res, next) => {
     }
 
     const data = await buildActivity(email);
-    if (!data.participated && !data.clubs?.length) {
+    if (!data.participated && !data.clubs?.length && !data.volunteering?.length) {
       return res.json(data);
     }
 
@@ -862,6 +862,7 @@ const activityByEmail = async (req, res, next) => {
     await sendActivityReport({
       toEmail: email, toName,
       clubs: data.clubs, attendanceSummary: data.attendanceSummary, categories: data.categories,
+      volunteering: data.volunteering || [],
     });
     await pgPool.query(
       `INSERT INTO activity_email_requests (email, last_sent_at) VALUES ($1, NOW())

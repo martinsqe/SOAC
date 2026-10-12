@@ -25,10 +25,27 @@
 }
 .gap { }
 
+/* 'pages' mode: each page is its own A4 box */
+.docPages { display: flex; flex-direction: column; }
+.page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(15, 10, 46, .12);
+  box-sizing: border-box;
+}
+.pageBody { flex: 1 0 auto; }
+.pageFooter { margin-top: auto; }
+.chrome { break-inside: avoid; page-break-inside: avoid; }
+
 @media print {
   @page { size: A4; margin: 0; }
   .wrap { background: none; padding: 0; overflow: visible; border-radius: 0; }
   .doc { zoom: var(--print-zoom, 1); }   /* wider screen pages print as exact A4 */
   .sheet { display: none; }
   .gap { display: none; }
+  /* one A4 box per printed sheet — the letterhead always starts a page whole */
+  .page { margin: 0 !important; box-shadow: none; break-after: page; page-break-after: always; break-inside: avoid; }
+  .page:last-child { break-after: auto; page-break-after: auto; }
 }

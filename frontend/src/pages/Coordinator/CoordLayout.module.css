@@ -258,6 +258,7 @@
   overflow-x: auto;
   min-height: 0;
   -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;   /* width never changes when the scrollbar comes and goes */
 }
 
 /* Mobile */

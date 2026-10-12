@@ -369,6 +369,7 @@
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
+  scrollbar-gutter: stable;   /* width never changes when the scrollbar comes and goes */
 }
 
 /* ══ SHARED CARD STYLES (used by child pages) ══ */

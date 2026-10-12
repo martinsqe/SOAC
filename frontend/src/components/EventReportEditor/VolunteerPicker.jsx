@@ -86,22 +86,31 @@ export default function VolunteerPicker({ volunteers = [], onChange, clubId, dis
 
       {volunteers.length > 0 ? (
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '28px 1.4fr 1fr 0.8fr 1.4fr 70px', gap: 8, padding: '7px 10px',
+          <div style={{ display: 'grid', gridTemplateColumns: '28px 1.3fr 1.6fr 1fr 0.7fr 1.3fr 70px', gap: 8, padding: '7px 10px',
             background: '#f9fafb', fontSize: '.72rem', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.03em' }}>
-            <span>#</span><span>Name</span><span>Enrollment</span><span>Dept</span><span>Role</span><span />
+            <span>#</span><span>Name</span><span>Email</span><span>Enrollment</span><span>Dept</span><span>Role</span><span />
           </div>
           {volunteers.map((v, i) => {
-            const fromList = !!v.email;
+            /* picked from the member list (has an account) vs typed in by hand */
+            const fromList = !!v.user_id;
+            const emailBad = !fromList && v.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email.trim());
+            const emailDup = !fromList && v.email && volunteers.some((x, j) => j !== i && (x.email || '').toLowerCase() === v.email.trim().toLowerCase());
             return (
-              <div key={i} style={{ display: 'grid', gridTemplateColumns: '28px 1.4fr 1fr 0.8fr 1.4fr 70px', gap: 8, padding: '7px 10px',
+              <div key={i} style={{ display: 'grid', gridTemplateColumns: '28px 1.3fr 1.6fr 1fr 0.7fr 1.3fr 70px', gap: 8, padding: '7px 10px',
                 alignItems: 'center', borderTop: '1px solid #f3f4f6' }}>
                 <span style={{ ...cell, color: '#6b7280' }}>{i + 1}</span>
                 {fromList ? (<>
-                  <span style={{ ...cell, fontWeight: 700 }}>{v.name}<span style={{ display: 'block', fontWeight: 400, fontSize: '.72rem', color: '#6b7280' }}>{v.email}</span></span>
+                  <span style={{ ...cell, fontWeight: 700 }}>{v.name}</span>
+                  <span style={{ ...cell, color: '#4b5563' }}>{v.email}</span>
                   <span style={cell}>{v.enrollment || '—'}</span>
                   <span style={cell}>{v.dept || '—'}</span>
                 </>) : (<>
                   <input style={input} placeholder="Name" value={v.name} maxLength={100} disabled={disabled} onChange={e => update(i, { name: e.target.value })} />
+                  <input style={{ ...input, borderColor: emailBad || emailDup ? '#f87171' : '#e5e7eb' }} type="email"
+                    placeholder="Email" value={v.email || ''} maxLength={200} disabled={disabled}
+                    title={emailBad ? 'Enter a valid email address.' : emailDup ? 'This email is already in the list.' : 'They get the thank-you email and activity entry here'}
+                    aria-invalid={emailBad || emailDup || undefined}
+                    onChange={e => update(i, { email: e.target.value })} />
                   <input style={input} placeholder="Enrollment" value={v.enrollment} maxLength={40} disabled={disabled} onChange={e => update(i, { enrollment: e.target.value })} />
                   <input style={input} placeholder="Dept" value={v.dept} maxLength={60} disabled={disabled} onChange={e => update(i, { dept: e.target.value })} />
                 </>)}
@@ -124,7 +133,7 @@ export default function VolunteerPicker({ volunteers = [], onChange, clubId, dis
       {!disabled && (
         <button type="button" onClick={addManual}
           style={{ marginTop: 8, border: 'none', background: 'none', color: '#635BFF', fontSize: '.78rem', fontWeight: 700, cursor: 'pointer', padding: 0 }}>
-          + Add someone who isn't in the member list
+          + Add a student who isn't in the member list (name, email, role)
         </button>
       )}
     </div>

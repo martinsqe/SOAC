@@ -955,7 +955,7 @@ const actEventStatus = (achievements) => {
   return ACT_STATUS_LABEL[best.category] || 'Registered';
 };
 
-const sendActivityReport = async ({ toEmail, toName, clubs = [], attendanceSummary, categories = [] }) => {
+const sendActivityReport = async ({ toEmail, toName, clubs = [], attendanceSummary, categories = [], volunteering = [] }) => {
   /* Two-column rows (name/title left, status right) use a <table> rather than flexbox —
      flexbox is unreliable across email clients (notably the Gmail mobile app), and would
      otherwise render the status jammed right up against the name with no separation. */
@@ -1028,6 +1028,18 @@ const sendActivityReport = async ({ toEmail, toName, clubs = [], attendanceSumma
       <p style="color:#555;line-height:1.6">You asked to see your activity on the SOAC platform, so here it is — the clubs you're part of, every event you've taken part in, and your attendance record, all in one place.</p>
       ${clubsHtml}
       ${attHtml}
+      ${volunteering.length ? `
+      <p style="margin:24px 0 6px;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#1a1040">Volunteering (${volunteering.length})</p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:6px">
+        ${volunteering.map(v => `
+        <tr>
+          <td style="padding:8px 0;border-bottom:1px solid #f0f0f3;vertical-align:top">
+            <div style="font-size:14px;font-weight:700;color:#1f2937">Volunteer of ${escapeHtml(v.eventTitle || '')}</div>
+            <div style="font-size:12px;color:#6b7280">${escapeHtml([v.clubName, v.eventDate ? actFmtDate(v.eventDate) : ''].filter(Boolean).join(' · '))}</div>
+          </td>
+          <td style="padding:8px 0;border-bottom:1px solid #f0f0f3;text-align:right;vertical-align:top;font-size:13px;color:#4b5563;white-space:nowrap">${escapeHtml(v.role ? `Role: ${v.role}` : 'Volunteer')}</td>
+        </tr>`).join('')}
+      </table>` : ''}
       ${catsHtml || '<p style="color:#888;font-size:13px;line-height:1.6">You have not participated in any events yet — keep an eye on your club for upcoming ones.</p>'}
       <p style="color:#888;font-size:13px;line-height:1.6;margin-top:24px">Thanks for being part of SOAC — keep up the great work!</p>
       ${footer()}
