@@ -2,18 +2,17 @@ import { Fragment, useEffect, useState } from 'react';
 import api from '../../api/client';
 import s from '../Coordinator/CoordSubPage.module.css';
 import a from './AdminActivity.module.css';
+import { Activity, Num, PersonDetail } from './activityParts';
+import ClubActivity from './ClubActivity';
 
 const TABS = [
-  { key: 'members',      label: 'Members'      },
   { key: 'clubs',        label: 'Clubs'        },
+  { key: 'members',      label: 'Members'      },
   { key: 'coordinators', label: 'Coordinators' },
 ];
 
 const PAGE_SIZE = 25;
 const EMPTY_FILTERS = { search: '', dept: '', course: '', clubId: '' };
-
-const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
-const cap = (t) => t ? t.charAt(0).toUpperCase() + t.slice(1) : '—';
 
 function useDebounced(value, ms) {
   const [v, setV] = useState(value);
@@ -29,98 +28,8 @@ const Ratio = ({ attended, registered }) => (
   <span className={attended || registered ? '' : a.zero}>{attended} / {registered}</span>
 );
 
-/* Zero reads as a faint numeral so real activity stands out. */
-const Num = ({ value }) => <span className={value ? '' : a.zero}>{value}</span>;
-
-function MemberDetail({ memberId, cache, setCache }) {
-  const detail = cache[memberId];
-
-  useEffect(() => {
-    if (detail) return;
-    let live = true;
-    api.get(`/activity-monitor/members/${memberId}`)
-      .then(d => live && setCache(c => ({ ...c, [memberId]: d })))
-      .catch(err => live && setCache(c => ({ ...c, [memberId]: { error: err.message || 'Failed to load details.' } })));
-    return () => { live = false; };
-  }, [memberId, detail, setCache]);
-
-  if (!detail) return <div className={a.detail}><span className={a.detailEmpty}>Loading…</span></div>;
-  if (detail.error) return <div className={a.detail}><div className={s.errBox}>{detail.error}</div></div>;
-
-  return (
-    <div className={a.detail}>
-      <div>
-        <h4 className={a.detailTitle}>Club contributions</h4>
-        {detail.clubs.length === 0 ? (
-          <span className={a.detailEmpty}>Not an active member of any club.</span>
-        ) : (
-          <table className={a.miniTable}>
-            <thead>
-              <tr><th>Club</th><th>Role</th><th>Sessions attended</th><th>Attendance</th><th>Tasks completed</th></tr>
-            </thead>
-            <tbody>
-              {detail.clubs.map(c => (
-                <tr key={c.id}>
-                  <td>{c.name}</td>
-                  <td>{c.role || 'Member'}</td>
-                  <td>{c.sessionsAttended} of {c.totalSessions}</td>
-                  <td>{c.attendancePct === null ? '—' : `${c.attendancePct}%`}</td>
-                  <td>{c.tasksCompleted}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      <div>
-        <h4 className={a.detailTitle}>Events participated ({detail.events.length})</h4>
-        {detail.events.length === 0 ? (
-          <span className={a.detailEmpty}>No event registrations.</span>
-        ) : (
-          <div className={a.scroll}>
-            {detail.events.map((e, i) => (
-              <div key={`${e.eventId}-${i}`} className={a.listItem}>
-                {e.title}
-                <div className={a.listSub}>
-                  {cap(e.category)}{e.clubName ? ` · ${e.clubName}` : ''} · {fmtDate(e.date)}
-                </div>
-                <div className={a.listSub}>
-                  {e.registered ? 'Registered' : 'Not registered'} · {
-                    e.totalSessions === 0
-                      ? 'No attendance sessions held'
-                      : `Present at ${e.presentSessions} of ${e.totalSessions} session${e.totalSessions === 1 ? '' : 's'}`
-                  }
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div>
-        <h4 className={a.detailTitle}>Achievements ({detail.achievements.length})</h4>
-        {detail.achievements.length === 0 ? (
-          <span className={a.detailEmpty}>No achievements recorded.</span>
-        ) : (
-          <div className={a.scroll}>
-            {detail.achievements.map((x, i) => (
-              <div key={i} className={a.listItem}>
-                {x.title}
-                <div className={a.listSub}>
-                  {x.type}{x.detail ? ` · ${x.detail}` : ''}{x.clubName ? ` · ${x.clubName}` : ''}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export default function AdminActivity() {
-  const [tab, setTab]         = useState('members');
+  const [tab, setTab]         = useState('clubs');
   const [summary, setSummary] = useState(null);
   const [options, setOptions] = useState({ departments: [], courses: [], clubs: [] });
 
@@ -139,6 +48,9 @@ export default function AdminActivity() {
 
   const [expandedId, setExpandedId]   = useState(null);
   const [detailCache, setDetailCache] = useState({});
+  /* The club opened from the club table; while one is open the search box filters its people */
+  const [openClub, setOpenClub]       = useState(null);
+  const [clubSearch, setClubSearch]   = useState('');
 
   const query = (() => {
     const params = new URLSearchParams();
@@ -169,13 +81,14 @@ export default function AdminActivity() {
   }, [query]);
 
   const changeTab = (key) => {
-    setTab(key); setFilters(EMPTY_FILTERS); setPage(1); setExpandedId(null);
+    setTab(key); setFilters(EMPTY_FILTERS); setPage(1); setExpandedId(null); setOpenClub(null); setClubSearch('');
   };
   const setFilter = (key) => (e) => {
     setFilters(f => ({ ...f, [key]: e.target.value })); setPage(1); setExpandedId(null);
   };
   const clearFilters = () => { setFilters(EMPTY_FILTERS); setPage(1); setExpandedId(null); };
   const hasFilters = Object.values(filters).some(Boolean);
+  const openClubRow = (c) => { setOpenClub(c); setClubSearch(''); };
 
   const clubSelect = (
     <select className={a.select} value={filters.clubId} onChange={setFilter('clubId')} aria-label="Filter by club">
@@ -185,13 +98,14 @@ export default function AdminActivity() {
   );
 
   const pg = data.pagination;
+  const inClub = tab === 'clubs' && openClub;
 
   return (
     <div className={s.page}>
       <div className={s.header}>
         <div>
           <h1 className={s.title}>Activity Monitor</h1>
-          <p className={s.sub}>Member, club and coordinator activity across the platform.</p>
+          <p className={s.sub}>Club, member and coordinator activity, collected from everything that happens on the portal.</p>
         </div>
       </div>
 
@@ -221,12 +135,21 @@ export default function AdminActivity() {
       </div>
 
       <div className={a.filterRow}>
-        <input
-          className={a.searchInput}
-          placeholder={tab === 'clubs' ? 'Search by club name…' : 'Search by name or email…'}
-          value={filters.search}
-          onChange={setFilter('search')}
-        />
+        {inClub ? (
+          <input
+            className={a.searchInput}
+            placeholder={`Search people in ${openClub.name}…`}
+            value={clubSearch}
+            onChange={e => setClubSearch(e.target.value)}
+          />
+        ) : (
+          <input
+            className={a.searchInput}
+            placeholder={tab === 'clubs' ? 'Search by club name…' : 'Search by name or email…'}
+            value={filters.search}
+            onChange={setFilter('search')}
+          />
+        )}
         {tab === 'members' && (
           <>
             <select className={a.select} value={filters.dept} onChange={setFilter('dept')} aria-label="Filter by department">
@@ -241,7 +164,7 @@ export default function AdminActivity() {
           </>
         )}
         {tab === 'coordinators' && clubSelect}
-        {hasFilters && <button className={a.clearBtn} onClick={clearFilters}>Clear filters</button>}
+        {!inClub && hasFilters && <button className={a.clearBtn} onClick={clearFilters}>Clear filters</button>}
       </div>
 
       {tab === 'members' && (
@@ -250,10 +173,18 @@ export default function AdminActivity() {
           Event attendance is the average of a student's attendance percentage across every event, from all clubs, that held attendance sessions.
         </p>
       )}
+      {tab === 'clubs' && !openClub && (
+        <p className={a.hint}>
+          Click a club to see its faculty advisor, student coordinators and members with their activity and contribution.
+          Active means something happened in the last 30 days, Quiet in the last 90.
+        </p>
+      )}
 
-      {error && <div className={s.errBox} style={{ marginBottom: 14 }}>{error}</div>}
+      {error && !inClub && <div className={s.errBox} style={{ marginBottom: 14 }}>{error}</div>}
 
-      {loading ? (
+      {inClub ? (
+        <ClubActivity key={openClub.id} club={openClub} search={clubSearch} onBack={() => setOpenClub(null)} />
+      ) : loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {[1, 2, 3, 4, 5].map(i => <div key={i} className={s.shimmer} style={{ height: 52, borderRadius: 10 }} />)}
         </div>
@@ -314,7 +245,7 @@ export default function AdminActivity() {
                       {open && (
                         <tr>
                           <td colSpan={13} className={a.detailCell}>
-                            <MemberDetail memberId={m.id} cache={detailCache} setCache={setDetailCache} />
+                            <PersonDetail personId={m.id} cache={detailCache} setCache={setDetailCache} />
                           </td>
                         </tr>
                       )}
@@ -341,28 +272,43 @@ export default function AdminActivity() {
           <div className={s.empty}><p>No clubs match this search</p></div>
         ) : (
           <div className={s.tableCard}>
-            <table className={`${s.table} ${a.mid} ${a.centered}`}>
+            <table className={`${s.table} ${a.clubTable} ${a.centered}`}>
               <thead>
                 <tr>
                   <th>Club</th>
-                  <th>Category</th>
+                  <th>Faculty advisor</th>
+                  <th>Student coordinator</th>
                   <th className={a.num}>Members</th>
                   <th className={a.num}>Events conducted</th>
-                  <th className={a.num}>Upcoming events</th>
-                  <th className={a.num}>Reports generated</th>
                   <th className={a.num}>Reports submitted</th>
+                  <th>Activity</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {data.clubs.map(c => (
-                  <tr key={c.id}>
-                    <td><div className={a.cellName}>{c.name}</div></td>
-                    <td className={a.category}>{c.category || '—'}</td>
+                  <tr key={c.id} className={a.clickRow} tabIndex={0}
+                    onClick={() => openClubRow(c)}
+                    onKeyDown={e => { if (e.key === 'Enter') openClubRow(c); }}>
+                    <td>
+                      <div className={a.cellName}>{c.name}</div>
+                      <div className={`${a.cellEmail} ${a.category}`}>{c.category}</div>
+                    </td>
+                    <td>{c.facultyAdvisor || <span className={a.muted}>Not assigned</span>}</td>
+                    <td>{c.studentCoordinator || <span className={a.muted}>Not assigned</span>}</td>
                     <td className={a.num}><Num value={c.members} /></td>
-                    <td className={a.num}><Num value={c.eventsConducted} /></td>
-                    <td className={a.num}><Num value={c.eventsUpcoming} /></td>
-                    <td className={a.num}><Num value={c.reportsGenerated} /></td>
-                    <td className={a.num}><Num value={c.reportsSubmitted} /></td>
+                    <td className={a.num}>
+                      <Num value={c.eventsConducted} />
+                      {c.eventsUpcoming > 0 && <div className={a.cellEmail}>{c.eventsUpcoming} upcoming</div>}
+                    </td>
+                    <td className={a.num} title={`${c.reportsGenerated} report${c.reportsGenerated === 1 ? '' : 's'} started`}>
+                      <Num value={c.reportsSubmitted} />
+                      {c.reportsGenerated > c.reportsSubmitted && (
+                        <div className={a.cellEmail}>{c.reportsGenerated - c.reportsSubmitted} in draft</div>
+                      )}
+                    </td>
+                    <td><Activity date={c.lastActivity} /></td>
+                    <td><span className={a.viewBtn}>Open</span></td>
                   </tr>
                 ))}
               </tbody>

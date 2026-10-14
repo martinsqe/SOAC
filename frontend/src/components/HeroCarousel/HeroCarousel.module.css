@@ -1,0 +1,56 @@
+/* Photos: right side of the header, edge to edge, sharp corners */
+.carousel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 64%;
+  z-index: 0;
+  overflow: hidden;
+}
+.img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  opacity: 0;
+  transform: scale(1);          /* outgoing photo keeps its settled size while it fades */
+  transition: opacity .9s ease;
+}
+/* The slow settle is an animation (not a transition) so it also plays on the very
+   first photo the moment the page opens — a transition would only run on later slides. */
+.on {
+  opacity: 1;
+  animation: heroSettle 6s ease forwards;
+}
+@keyframes heroSettle {
+  from { transform: scale(1.08); }
+  to   { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .on { animation: none; transform: none; }
+}
+
+/* Solid black under the heading, fading out around the middle into the photos */
+.fade {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(to right,
+    #050000 0%, #050000 36%,
+    rgba(5, 0, 0, .86) 44%,
+    rgba(5, 0, 0, .5) 54%,
+    rgba(5, 0, 0, .15) 66%,
+    rgba(5, 0, 0, 0) 78%);
+}
+
+/* Tablets and phones: photos behind the whole header, darker so the text stays readable */
+@media (max-width: 900px) {
+  .carousel { width: 100%; }
+  .fade {
+    background: linear-gradient(to right, rgba(5, 0, 0, .92) 0%, rgba(5, 0, 0, .78) 45%, rgba(5, 0, 0, .45) 100%);
+  }
+}

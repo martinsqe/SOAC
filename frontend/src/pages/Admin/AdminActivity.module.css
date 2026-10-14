@@ -94,11 +94,26 @@
 /* Expanded member detail */
 .detailCell { padding: 0 !important; background: #fafafe; }
 .detail {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr;
-  gap: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   padding: 18px 20px 22px;
 }
+/* Sections of the expanded view: wide tables span the row, lists sit side by side */
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.panel {
+  background: #fff;
+  border: 1.5px solid #f0f0f5;
+  border-radius: 12px;
+  padding: 14px 16px;
+  min-width: 0;
+  overflow-x: auto;
+}
+.panel:has(.miniTable) { grid-column: 1 / -1; }
 .detailTitle {
   font-size: .68rem;
   font-weight: 700;
@@ -118,8 +133,75 @@
 .detailEmpty { font-size: .8rem; color: #9ca3af; font-style: italic; }
 .scroll { max-height: 220px; overflow-y: auto; }
 
-@media (max-width: 900px) {
-  .detail { grid-template-columns: 1fr; gap: 18px; }
+/* Summary tiles (club header and expanded person) */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+.tile {
+  background: #fff;
+  border: 1.5px solid #f0f0f5;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.tileNum   { font-size: 1.25rem; font-weight: 800; color: #0f0a2e; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.tileLabel { font-size: .68rem; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: .05em; margin-top: 4px; }
+
+/* Activity level */
+.lvl { display: inline-block; font-size: .7rem; font-weight: 700; padding: 3px 9px; border-radius: 10px; white-space: nowrap; }
+.lvlActive   { background: #00c89618; color: #059669; }
+.lvlQuiet    { background: #f59e0b1a; color: #b45309; }
+.lvlInactive { background: #f3f4f6;   color: #6b7280; }
+.lvlNone     { background: #f9fafb;   color: #9ca3af; }
+
+/* Club table and drill-down */
+.clubTable   { min-width: 960px; }
+.peopleTable { min-width: 1040px; }
+.clickRow { cursor: pointer; }
+.clickRow:focus-visible td { background: #f5f4ff; outline: none; }
+.clubHead { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
+.backBtn {
+  padding: 7px 14px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 9px;
+  background: #fff;
+  color: #374151;
+  font-size: .8rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.backBtn:hover { border-color: #635bff; color: #635bff; }
+.clubTitle { font-size: 1.2rem; font-weight: 800; color: #0f0a2e; margin: 0 0 3px; }
+.clubMeta  { font-size: .8rem; color: #6b7280; line-height: 1.5; }
+.sectionTitle { font-size: .95rem; font-weight: 700; color: #0f0a2e; margin: 0 0 10px; }
+.role { display: inline-block; font-size: .7rem; font-weight: 700; padding: 3px 9px; border-radius: 10px; white-space: nowrap; }
+.role_fa     { background: #6b3fa018; color: #6b3fa0; }
+.role_sc     { background: #635bff14; color: #635bff; }
+.role_member { background: #f3f4f6;   color: #4b5563; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; max-width: 360px; }
+.chip  { font-size: .72rem; color: #4b5563; background: #f6f6fb; border-radius: 7px; padding: 3px 8px; white-space: nowrap; }
+.chip b { color: #0f0a2e; font-weight: 700; }
+.rep { display: inline-block; font-size: .7rem; font-weight: 700; padding: 3px 9px; border-radius: 10px; white-space: nowrap; }
+.rep_submitted { background: #00c89618; color: #059669; }
+.rep_draft     { background: #f59e0b1a; color: #b45309; }
+.rep_none      { background: #f3f4f6;   color: #9ca3af; }
+
+/* Things in the expanded view that belong to the club it was opened from */
+.hereRow td { background: #f5f4ff; }
+.listHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hereTag { font-size: .62rem; font-weight: 700; color: #635bff; background: #635bff14; border-radius: 6px; padding: 2px 6px; white-space: nowrap; }
+.bar { display: inline-flex; align-items: center; gap: 6px; }
+.barTrack { display: inline-block; width: 50px; height: 5px; border-radius: 4px; background: #f0f0f5; overflow: hidden; }
+.barFill  { display: block; height: 100%; border-radius: 4px; background: #635bff; }
+
+@media (max-width: 1100px) {
+  .detailGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .detailGrid { grid-template-columns: 1fr; }
+  .detail { padding: 14px 12px 16px; }
 }
 @media (max-width: 560px) {
   .searchInput, .select { max-width: 100%; width: 100%; }

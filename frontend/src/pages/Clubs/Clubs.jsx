@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useStats } from '../../context/StatsContext';
 import styles from './Clubs.module.css';
+import ClubsCarousel from './ClubsCarousel';
 import JoinModal from '../../components/JoinModal/JoinModal';
 import api from '../../api/client';
 
@@ -570,12 +571,20 @@ const Clubs = () => {
     <div className={styles.clubs}>
 
       {/* ── HERO / TOP ── */}
+      {/* Dark band: black behind the heading, fading into the photo carousel on the right */}
+      <div className={styles.clubsHero}>
+        <ClubsCarousel />
+        <div className="wrap" style={{ position: 'relative', zIndex: 2, width: '100%' }}>
+          <div className={styles.heroText}>
+            <div className={styles.heroTag}><span className={styles.heroDot} />{clubs.length || totalFromStats} Active Clubs</div>
+            <h1 className={`${styles.clubsTitle} fade`}>Find Your<br /><span>Community</span></h1>
+            <p className={`${styles.clubsSub} fade`}>Browse all {clubs.length || totalFromStats} SOAC-recognised clubs across 4 categories.</p>
+          </div>
+        </div>
+      </div>
+
       <div className={styles.clubsTop}>
         <div className="wrap">
-          <div className="tag">{clubs.length || totalFromStats} Active Clubs</div>
-          <h1 className={`${styles.clubsTitle} fade`}>Find Your<br />Community</h1>
-          <p className={`${styles.clubsSub} fade`}>Browse all {clubs.length || totalFromStats} SOAC-recognised clubs across 4 categories.</p>
-
           <div className={styles.filterRow}>
             <div className={styles.filterBtns}>
               {Object.entries(CAT_LABELS).map(([key, label]) => (

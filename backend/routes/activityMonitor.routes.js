@@ -10,6 +10,7 @@ router.get('/summary',          ctrl.getSummary);
 router.get('/members',          ctrl.getMembers);
 router.get('/members/:userId',  ctrl.getMemberDetail);
 router.get('/clubs',            ctrl.getClubs);
+router.get('/clubs/:clubId',    ctrl.getClubPeople);
 router.get('/coordinators',     ctrl.getCoordinators);
 
 module.exports = router;

@@ -1,6 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import styles from './Events.module.css';
+import HeroCarousel from '../../components/HeroCarousel/HeroCarousel';
+
+/* Header photos, in this order */
+const EVENT_HERO_SLIDES = [
+  { src: '/i.png',         caption: 'Pharmaspectrum 2026 — group dance on stage' },
+  { src: '/rolem1.png',    caption: 'Role Model Series 2025' },
+  { src: '/Rasotsav3.png', caption: 'Rasotsav — Garba under the lights' },
+  { src: '/g4.png',        caption: 'Traditional dance pose — Ganesh Utsav' },
+  { src: '/rolem2.png',    caption: 'Role Model Series 2025 — folk dance performance' },
+  { src: '/g3.png',        caption: 'Ganesh Aarti with faculty and students' },
+  { src: '/g4.png',        caption: 'Traditional dance pose — Ganesh Utsav' },
+  { src: '/Rasotsav2.png', caption: 'Rasotsav — men in traditional Garba attire' },
+];
 import { useAuth } from '../../context/AuthContext';
 import { useStats } from '../../context/StatsContext';
 import api from '../../api/client';
@@ -774,10 +787,11 @@ const Events = () => {
 
       {/* ── HERO ── */}
       <div className={styles.evHero}>
-        <div className={styles.evHeroBg} />
-        <div className="wrap" style={{ position: 'relative', zIndex: 1 }}>
-          <div className="tag" style={{ color: 'rgba(255,120,120,.8)' }}>Events @ SOAC</div>
-          <h1 className={`${styles.evTitle} fade`}>Campus Life,<br />Unforgettable.</h1>
+        {/* photos on the right, black fade from the left (same as the Clubs page) */}
+        <HeroCarousel slides={EVENT_HERO_SLIDES} />
+        <div className="wrap" style={{ position: 'relative', zIndex: 2, width: '100%' }}>
+          <div className={styles.evHeroTag}><span className={styles.evHeroDot} />Events @ SOAC</div>
+          <h1 className={`${styles.evTitle} fade`}>Campus Life,<br /><span>Unforgettable.</span></h1>
           <p className={`${styles.evSub} fade`}>
             From Galore and Sports Fiesta to Singing Finals and MUN Summits — every event is a memory waiting to happen.
           </p>
