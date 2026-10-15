@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useCoordClub } from '../../context/CoordClubContext';
 import api from '../../api/client';
 import s from './CoordMyClub.module.css';
 import { getSocket } from '../../realtime/socket';
+import LeadershipTeam from '../../components/LeadershipTeam/LeadershipTeam';
 import AssignStudentCoordinatorModal from '../../components/AssignStudentCoordinatorModal/AssignStudentCoordinatorModal';
 
 const BASE_TABS   = ['Overview', 'Attendance', 'Tasks', 'Leadership', 'Progress'];
@@ -369,7 +371,7 @@ export default function CoordMyClub() {
       {tab === 'Overview'    && <OverviewTab    club={club} clubId={clubId} refetchClub={refetchClub} showToast={showToast} />}
       {tab === 'Attendance'  && <AttendanceTab  clubId={clubId} members={members} showToast={showToast} />}
       {tab === 'Tasks'       && <TasksTab       clubId={clubId} user={user} showToast={showToast} />}
-      {tab === 'Leadership'  && <LeadershipTab  clubId={clubId} showToast={showToast} />}
+      {tab === 'Leadership'  && <LeadershipTab  clubId={clubId} />}
       {tab === 'Progress'    && <ProgressTab    clubId={clubId} members={members} showToast={showToast} />}
       {isSportsClub && tab === 'Live Scoreboard' && <LiveScoreboardTab clubId={clubId} club={club} showToast={showToast} />}
 
@@ -390,7 +392,11 @@ export default function CoordMyClub() {
    OVERVIEW TAB
 ══════════════════════════════════════════════════════════ */
 function OverviewTab({ club, clubId, refetchClub, showToast }) {
+  const { user } = useAuth();
+  const isFA = user?.role === 'faculty_coordinator';
   const parsed = parseScheduleToDays(club.schedule || '');
+  /* Established year — only the Faculty Advisor changes it */
+  const [foundedYear, setFoundedYear] = useState(club.foundedYear || '');
 
   const [form, setForm]         = useState({ description: club.description || '', vision: club.vision || '' });
   const [schedDays, setSchedDays] = useState(parsed.days);
@@ -432,12 +438,13 @@ function OverviewTab({ club, clubId, refetchClub, showToast }) {
         fd.append('schedule', schedule);
         fd.append('rules', JSON.stringify(rules));
         fd.append('tags', JSON.stringify(tags));
+        if (isFA) fd.append('foundedYear', foundedYear.trim());
         fd.append('logo', logoFile);
         await api.patchForm(`/clubs/${clubId}/overview`, fd);
         setLogoFile(null);
         setLogoPrev('');
       } else {
-        await api.patch(`/clubs/${clubId}/overview`, { ...form, schedule, rules, tags });
+        await api.patch(`/clubs/${clubId}/overview`, { ...form, schedule, rules, tags, ...(isFA ? { foundedYear: foundedYear.trim() } : {}) });
       }
       refetchClub();
       showToast('Overview saved ✓');
@@ -494,8 +501,19 @@ function OverviewTab({ club, clubId, refetchClub, showToast }) {
           <div className={s.sectionIcon}>📝</div>
           <div>
             <p className={s.cardTitle}>About the Club</p>
-            <p className={s.cardSub}>Public description and vision — visible to all students on the Overview tab.</p>
+            <p className={s.cardSub}>Established year, description and vision — shown on the guest Clubs page and to every student.</p>
           </div>
+        </div>
+        <div className={s.field}>
+          <label>Established year</label>
+          {isFA ? (
+            <input type="text" inputMode="numeric" maxLength={4} value={foundedYear} placeholder="e.g. 2019"
+              onChange={e => setFoundedYear(e.target.value.replace(/\D/g, ''))} style={{ maxWidth: 160 }} />
+          ) : (
+            <div style={{ fontSize: '.9rem', color: '#374151', padding: '6px 0' }}>
+              {club.foundedYear || '—'} <span style={{ fontSize: '.75rem', color: '#9ca3af' }}>(set by the Faculty Advisor)</span>
+            </div>
+          )}
         </div>
         <div className={s.field}>
           <label>Description</label>
@@ -1122,126 +1140,18 @@ function TasksTab({ clubId, user, showToast }) {
 /* ══════════════════════════════════════════════════════════
    LEADERSHIP TAB
 ══════════════════════════════════════════════════════════ */
-const EMPTY_POS = { role_title: '', holder_name: '', holder_email: '', phone: '', responsibilities: '', photo_url: '' };
-
-const LEADER_GRADIENTS = [
-  'linear-gradient(135deg,#635BFF,#A259FF)',
-  'linear-gradient(135deg,#FF6B9D,#A259FF)',
-  'linear-gradient(135deg,#3DDC84,#635BFF)',
-  'linear-gradient(135deg,#FF9500,#FF6B9D)',
-  'linear-gradient(135deg,#06D6A0,#00AADD)',
-  'linear-gradient(135deg,#FFD166,#FF9500)',
-];
-
-function leaderInitials(name = '') {
-  return name.trim().split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase() || '?';
-}
-
-function LeadershipTab({ clubId, showToast }) {
-  const [leadership,    setLeadership]    = useState([]);
-  const [loading,       setLoading]       = useState(true);
-  const [editing,       setEditing]       = useState(false);
-  const [positions,     setPositions]     = useState([]);
-  const [photoFiles,    setPhotoFiles]    = useState({});      // index → File
-  const [photoPreviews, setPhotoPreviews] = useState({});      // index → object URL
-  const [saving,        setSaving]        = useState(false);
-  const fileRefs = useRef({});
+function LeadershipTab({ clubId }) {
+  const { user } = useAuth();
+  const [leadership, setLeadership] = useState([]);
+  const [staff,      setStaff]      = useState([]);
+  const [loading,    setLoading]    = useState(true);
 
   useEffect(() => {
     api.get(`/clubs/${clubId}/leadership`)
-      .then(r => setLeadership(r.leadership || []))
+      .then(r => { setLeadership(r.leadership || []); setStaff(r.staff || []); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [clubId]);
-
-  // Revoke blob URLs on cleanup
-  useEffect(() => {
-    return () => { Object.values(photoPreviews).forEach(URL.revokeObjectURL); };
-  }, [photoPreviews]);
-
-  const startEdit = () => {
-    setPositions(leadership.length
-      ? leadership.map(l => ({
-          role_title:      l.role_title      || '',
-          holder_name:     l.holder_name     || '',
-          holder_email:    l.holder_email    || '',
-          phone:           l.phone           || '',
-          responsibilities: l.responsibilities || '',
-          photo_url:       l.photo_url       || '',
-        }))
-      : [{ ...EMPTY_POS }]
-    );
-    setPhotoFiles({});
-    setPhotoPreviews({});
-    setEditing(true);
-  };
-
-  const updatePos = (i, field, value) =>
-    setPositions(ps => ps.map((x, j) => j === i ? { ...x, [field]: value } : x));
-
-  const removePos = (i) => {
-    setPositions(ps => ps.filter((_, j) => j !== i));
-    setPhotoFiles(prev => {
-      const next = {};
-      Object.entries(prev).forEach(([k, v]) => {
-        const ki = parseInt(k, 10);
-        if (ki < i) next[ki] = v;
-        else if (ki > i) next[ki - 1] = v;
-      });
-      return next;
-    });
-    setPhotoPreviews(prev => {
-      if (prev[i]) URL.revokeObjectURL(prev[i]);
-      const next = {};
-      Object.entries(prev).forEach(([k, v]) => {
-        const ki = parseInt(k, 10);
-        if (ki < i) next[ki] = v;
-        else if (ki > i) next[ki - 1] = v;
-      });
-      return next;
-    });
-  };
-
-  const handlePhotoChange = (i, file) => {
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    setPhotoFiles(prev => ({ ...prev, [i]: file }));
-    setPhotoPreviews(prev => {
-      if (prev[i]) URL.revokeObjectURL(prev[i]);
-      return { ...prev, [i]: url };
-    });
-  };
-
-  const removePhoto = (i) => {
-    setPhotoFiles(prev => { const n = { ...prev }; delete n[i]; return n; });
-    setPhotoPreviews(prev => {
-      if (prev[i]) URL.revokeObjectURL(prev[i]);
-      const n = { ...prev }; delete n[i]; return n;
-    });
-    updatePos(i, 'photo_url', '');
-    if (fileRefs.current[i]) fileRefs.current[i].value = '';
-  };
-
-  const save = async () => {
-    if (!positions.some(p => p.role_title.trim())) {
-      showToast('Add at least one role title before saving.');
-      return;
-    }
-    setSaving(true);
-    try {
-      const fd = new FormData();
-      fd.append('positions', JSON.stringify(positions));
-      Object.entries(photoFiles).forEach(([idx, file]) => fd.append(`photo_${idx}`, file));
-      const res = await api.putForm(`/clubs/${clubId}/leadership`, fd);
-      setLeadership(res.leadership || []);
-      // Clear stale blob URLs
-      setPhotoPreviews(prev => { Object.values(prev).forEach(u => URL.revokeObjectURL(u)); return {}; });
-      setPhotoFiles({});
-      setEditing(false);
-      showToast('Leadership saved ✓');
-    } catch (e) { showToast(e.message || 'Save failed.'); }
-    finally { setSaving(false); }
-  };
 
   if (loading) return <div className={s.loading}><div className={s.spinner} /></div>;
 
@@ -1249,158 +1159,20 @@ function LeadershipTab({ clubId, showToast }) {
     <div className={s.card}>
       <div className={s.cardHead}>
         <div>
-          <p className={s.cardTitle}>Leadership Positions</p>
-          <p className={s.cardSub}>{leadership.length} position{leadership.length !== 1 ? 's' : ''} defined</p>
+          <p className={s.cardTitle}>Leadership</p>
+          <p className={s.cardSub}>{leadership.length} role{leadership.length !== 1 ? 's' : ''} assigned</p>
         </div>
-        {!editing && (
-          <button className={`${s.btn} ${s.btnPrimary} ${s.btnSmall}`} onClick={startEdit}>
-            {leadership.length > 0 ? 'Edit' : '+ Add'}
-          </button>
-        )}
+        {/* Roles are assigned (Faculty Advisor only) on the Leadership page, where each
+            member is picked from the club and told by email and notification */}
+        <Link to="/coordinator/leaders" className={`${s.btn} ${s.btnPrimary} ${s.btnSmall}`} style={{ textDecoration: 'none' }}>
+          {user?.role === 'faculty_coordinator' ? 'Manage roles' : 'Open Leadership'}
+        </Link>
       </div>
-
-      {/* ── Read view ── */}
-      {!editing && (
-        leadership.length === 0 ? (
-          <div className={s.empty}>
-            <div className={s.emptyIco}>👑</div>
-            <p>No positions defined yet. Click Add to set up leadership roles.</p>
-          </div>
-        ) : (
-          <div className={s.leaderGrid}>
-            {leadership.map((l, i) => (
-              <div key={l.id || i} className={s.leaderCard}>
-                {l.photo_url ? (
-                  <div className={s.leaderAv} style={{ padding: 0 }}>
-                    <img
-                      src={l.photo_url}
-                      alt={l.holder_name || l.role_title}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center', display: 'block', borderRadius: '50%' }}
-                    />
-                  </div>
-                ) : (
-                  <div className={s.leaderAv}
-                    style={{ background: LEADER_GRADIENTS[i % LEADER_GRADIENTS.length] }}>
-                    {leaderInitials(l.holder_name || l.role_title)}
-                  </div>
-                )}
-                <div className={s.leaderRole}>{l.role_title}</div>
-                <div className={s.leaderName}>{l.holder_name || '—'}</div>
-                <div className={s.leaderContactRow}>
-                  {l.holder_email && (
-                    <div className={s.leaderContact}>
-                      <span className={s.leaderContactIcon}>✉</span>
-                      <span>{l.holder_email}</span>
-                    </div>
-                  )}
-                  {l.phone && (
-                    <div className={s.leaderContact}>
-                      <span className={s.leaderContactIcon}>📞</span>
-                      <span>{l.phone}</span>
-                    </div>
-                  )}
-                </div>
-                {l.responsibilities && (
-                  <div className={s.leaderResp}>{l.responsibilities}</div>
-                )}
-              </div>
-            ))}
-          </div>
-        )
-      )}
-
-      {/* ── Edit view ── */}
-      {editing && (
-        <>
-          {positions.map((p, i) => {
-            const preview = photoPreviews[i] || p.photo_url || null;
-            return (
-              <div key={i} className={s.posCard}>
-                {/* Photo row */}
-                <div className={s.posPhotoRow}>
-                  <div className={s.posPhotoCircle}>
-                    {preview
-                      ? <img src={preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      : <span style={{ fontSize: 20, color: '#9ca3af' }}>👤</span>
-                    }
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                    <button type="button" className={s.photoUploadBtn}
-                      onClick={() => fileRefs.current[i]?.click()}>
-                      {preview ? '🔄 Change Photo' : '📷 Upload Photo'}
-                    </button>
-                    {preview && (
-                      <button type="button" className={s.photoRemoveBtn} onClick={() => removePhoto(i)}>
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                  <input type="file" accept="image/*" style={{ display: 'none' }}
-                    ref={el => fileRefs.current[i] = el}
-                    onChange={e => handlePhotoChange(i, e.target.files[0])} />
-                  {/* Remove position button pushed to right */}
-                  <button className={`${s.btn} ${s.btnDanger} ${s.btnSmall}`}
-                    style={{ marginLeft: 'auto', alignSelf: 'flex-start' }}
-                    onClick={() => removePos(i)}>✕</button>
-                </div>
-
-                {/* Fields grid */}
-                <div className={s.posGrid}>
-                  <div className={s.field} style={{ margin: 0 }}>
-                    <label>Role Title *</label>
-                    <input value={p.role_title} placeholder="e.g. President"
-                      onChange={e => updatePos(i, 'role_title', e.target.value)} />
-                  </div>
-                  <div className={s.field} style={{ margin: 0 }}>
-                    <label>Holder Name</label>
-                    <input value={p.holder_name} placeholder="Member name"
-                      onChange={e => updatePos(i, 'holder_name', e.target.value)} />
-                  </div>
-                  <div className={s.field} style={{ margin: 0 }}>
-                    <label>Email</label>
-                    <input value={p.holder_email} placeholder="email@rku.ac.in"
-                      onChange={e => updatePos(i, 'holder_email', e.target.value)} />
-                  </div>
-                  <div className={s.field} style={{ margin: 0 }}>
-                    <label>Phone / WhatsApp</label>
-                    <input value={p.phone} placeholder="+91 9876543210"
-                      onChange={e => updatePos(i, 'phone', e.target.value)} />
-                  </div>
-                </div>
-
-                {/* Responsibilities */}
-                <div className={s.field} style={{ margin: '8px 0 0' }}>
-                  <label>Roles & Responsibilities</label>
-                  <textarea rows={2} value={p.responsibilities}
-                    placeholder="Describe this position's duties and responsibilities…"
-                    onChange={e => updatePos(i, 'responsibilities', e.target.value)}
-                    style={{ resize: 'vertical', lineHeight: 1.5 }} />
-                </div>
-              </div>
-            );
-          })}
-
-          <div className={s.btnRow} style={{ marginTop: 8 }}>
-            <button className={`${s.btn} ${s.btnOutline} ${s.btnSmall}`}
-              onClick={() => setPositions(ps => [...ps, { ...EMPTY_POS }])}>
-              + Add Position
-            </button>
-          </div>
-          <div className={s.btnRow} style={{ marginTop: 12 }}>
-            <button className={`${s.btn} ${s.btnPrimary}`} onClick={save} disabled={saving}>
-              {saving ? 'Saving…' : 'Save Leadership'}
-            </button>
-            <button className={`${s.btn} ${s.btnOutline}`} onClick={() => setEditing(false)}>Cancel</button>
-          </div>
-        </>
-      )}
+      <LeadershipTeam leadership={leadership} staff={staff}
+        emptyText="No roles assigned yet. The Faculty Advisor assigns them on the Leadership page." />
     </div>
   );
 }
-
-/* ══════════════════════════════════════════════════════════
-   PROGRESS TAB — Advanced Performance Tracking
-══════════════════════════════════════════════════════════ */
 
 /* ── Period / date helpers (pure, no hooks) ── */
 function fmtIso(d) {

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import api from '../../api/client';
 import { plainName } from '../../utils/names';
 import ProposalDetails from './ProposalDetails';
+import LeadershipTeam from '../../components/LeadershipTeam/LeadershipTeam';
 import { formatDate } from './proposalUtils';
 import s from './AdminClubs.module.css';
 
@@ -181,6 +182,7 @@ export default function AdminClubs() {
   const [leaderClub,    setLeaderClub]    = useState(null);
   const [leaderItems,   setLeaderItems]   = useState([]);
   const [leaderLoading, setLeaderLoading] = useState(false);
+  const [leaderStaff,   setLeaderStaff]   = useState([]);
   const fileRef = useRef();
 
   const load = () => {
@@ -505,8 +507,9 @@ export default function AdminClubs() {
     setLeaderClub(club);
     setLeaderItems([]);
     setLeaderLoading(true);
+    setLeaderStaff([]);
     api.get(`/clubs/${club._id}/leadership`)
-      .then(d => setLeaderItems(d.leadership || []))
+      .then(d => { setLeaderItems(d.leadership || []); setLeaderStaff(d.staff || []); })
       .catch(() => setLeaderItems([]))
       .finally(() => setLeaderLoading(false));
   };
@@ -1322,7 +1325,7 @@ export default function AdminClubs() {
                 <div className={s.modalTag}>Leadership Team</div>
                 <h2 className={s.modalTitle}>{leaderClub.name}</h2>
                 <p className={s.panelSub}>
-                  {leaderLoading ? 'Loading…' : `${leaderItems.length} position${leaderItems.length !== 1 ? 's' : ''} defined`}
+                  {leaderLoading ? 'Loading…' : `${leaderItems.length} role${leaderItems.length !== 1 ? 's' : ''} assigned`}
                 </p>
               </div>
               <button className={s.closeBtn} onClick={() => setLeaderClub(null)}>✕</button>
@@ -1331,54 +1334,9 @@ export default function AdminClubs() {
             <div style={{ padding: '0 24px 24px' }}>
               {leaderLoading ? (
                 <div className={s.panelEmpty}>Loading leadership…</div>
-              ) : leaderItems.length === 0 ? (
-                <div className={s.panelEmpty}>
-                  <p>No leadership positions defined yet for this club.</p>
-                  <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>
-                    The coordinator can add them from their dashboard → Leadership tab.
-                  </p>
-                </div>
               ) : (
-                <div className={s.leaderGrid}>
-                  {leaderItems.map((pos, i) => {
-                    const GRADIENTS = [
-                      'linear-gradient(135deg,#635BFF,#A259FF)',
-                      'linear-gradient(135deg,#FF6B9D,#A259FF)',
-                      'linear-gradient(135deg,#3DDC84,#635BFF)',
-                      'linear-gradient(135deg,#FF9500,#FF6B9D)',
-                      'linear-gradient(135deg,#06D6A0,#00AADD)',
-                      'linear-gradient(135deg,#FFD166,#FF9500)',
-                    ];
-                    const initials = (n = '') =>
-                      n.trim().split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase() || '?';
-                    return (
-                      <div key={pos.id || i} className={s.leaderCard}>
-                        {/* Avatar */}
-                        {pos.photo_url ? (
-                          <img src={pos.photo_url} alt={pos.holder_name || pos.role_title}
-                            className={s.leaderAv} style={{ objectFit: 'cover' }} />
-                        ) : (
-                          <div className={s.leaderAv}
-                            style={{ background: GRADIENTS[i % GRADIENTS.length], display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: '1.1rem' }}>
-                            {initials(pos.holder_name || pos.role_title)}
-                          </div>
-                        )}
-                        {/* Role badge */}
-                        <div className={s.leaderRole}
-                          style={{ background: (leaderClub.color || '#635bff') + '18', color: leaderClub.color || '#635bff' }}>
-                          {pos.role_title}
-                        </div>
-                        <div className={s.leaderName}>
-                          {pos.holder_name || <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>Vacant</span>}
-                        </div>
-                        {pos.holder_email && <div className={s.leaderEmail}>{pos.holder_email}</div>}
-                        {pos.responsibilities && (
-                          <div className={s.leaderDesc}>{pos.responsibilities}</div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                <LeadershipTeam leadership={leaderItems} staff={leaderStaff} accent={leaderClub.color || '#635bff'}
+                  emptyText="No leadership roles assigned yet. The club's Faculty Advisor assigns them from their dashboard → Leadership." />
               )}
             </div>
           </div>

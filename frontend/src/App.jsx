@@ -50,6 +50,7 @@ import {
 } from './pages/Student/StudentPages';
 import StudentMessages from './pages/Student/StudentMessages';
 import ClubsFeed from './pages/Student/ClubsFeed';
+import StudentLeadership from './pages/Student/StudentLeadership';
 import WallOfFame from './pages/WallOfFame/WallOfFame';
 import NotificationsPage from './pages/Notifications/NotificationsPage';
 
@@ -173,6 +174,7 @@ function AppInner() {
           <Route path="clubs"           element={<StudentClubs />} />
           <Route path="clubs/:id"       element={<StudentClubDetail />} />
           <Route path="soac-updates"  element={<StudentSOACUpdates />} />
+          <Route path="leadership"    element={<StudentLeadership />} />
           <Route path="clubs-feed"    element={<ClubsFeed />} />
           <Route path="fame"          element={<WallOfFame />} />
           <Route path="messages"      element={<StudentMessages />} />

@@ -56,6 +56,10 @@ router.get('/:id/membership', verifyToken, cd.getMembership);
 /* ── Leadership (public read, coord/admin write) ── */
 router.get('/:id/leadership', cd.getLeadership);
 router.put('/:id/leadership', verifyToken, requireCoordinatorOwnership, uploadLeadership.any(), cd.setLeadership);
+/* One role at a time (Faculty Advisor): assign a member, edit (incl. photo), remove */
+router.post  ('/:id/leadership/assign',     verifyToken, requireCoordinatorOwnership, cd.assignLeadershipRole);
+router.patch ('/:id/leadership/:leaderId',  verifyToken, requireCoordinatorOwnership, uploadLeadership.single('photo'), cd.updateLeadershipRole);
+router.delete('/:id/leadership/:leaderId',  verifyToken, requireCoordinatorOwnership, cd.removeLeadershipRole);
 
 /* ── Chat messages ── */
 router.get('/:id/messages',  verifyToken, cd.getMessages);

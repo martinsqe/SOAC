@@ -10,6 +10,7 @@ const bracketEngine = require('../services/bracketEngine');
 const { autoRefreshReportIfExists } = require('./reports.controller');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
 const { sendClubChatNotice } = require('../config/email');
+const cache = require('../services/cache');
 
 /* Tells every admin whenever a Student or Faculty Coordinator changes something
    on their club's dashboard — leadership, the overview (description/logo/etc.),
@@ -55,18 +56,196 @@ const getMembership = async (req, res, next) => {
    LEADERSHIP
 ══════════════════════════════════════════════════════════════════════════ */
 
+/* ══════════════════════════════════════════════════════════════════════════
+   LEADERSHIP — roles in the club (Convener, Treasurer, …) given to members by
+   the club's Faculty Advisor. A role is a position, not a dashboard account:
+   Student Coordinators (with their own dashboard) are assigned separately, from
+   "Assign Student Coordinator", and show on the leadership page automatically.
+══════════════════════════════════════════════════════════════════════════ */
+pgPool.query(`ALTER TABLE club_leadership ADD COLUMN IF NOT EXISTS enrollment_no VARCHAR(50) NOT NULL DEFAULT ''`).catch(() => {});
+pgPool.query(`ALTER TABLE club_leadership ADD COLUMN IF NOT EXISTS dept VARCHAR(100) NOT NULL DEFAULT ''`).catch(() => {});
+pgPool.query(`ALTER TABLE club_leadership ADD COLUMN IF NOT EXISTS year VARCHAR(20) NOT NULL DEFAULT ''`).catch(() => {});
+
+const LEADER_COLS = `id, role_title, holder_name, holder_email, phone, responsibilities, photo_url, user_id,
+                     enrollment_no, dept, year, sort_order, updated_at`;
+
+/* Only the club's Faculty Advisor assigns, edits or removes roles */
+const requireFacultyAdvisor = (req, res) => {
+  if (req.user?.role === 'faculty_coordinator') return true;
+  res.status(403).json({ message: "Only the club's Faculty Advisor can assign leadership roles." });
+  return false;
+};
+
+/* The club's Faculty Advisor(s) and Student Coordinator(s) — the people with a
+   dashboard for it — shown at the top of every leadership view */
+const clubStaff = async (clubId) => {
+  const { rows } = await pgPool.query(
+    `SELECT DISTINCT ON (u.id) u.id, u.name, u.email, u.avatar, u.role
+     FROM users u
+     LEFT JOIN coordinator_club_assignments cca ON cca.user_id = u.id AND cca.club_id = $1::bigint AND cca.is_active = true
+     WHERE u.is_active = true AND u.role IN ('coordinator', 'faculty_coordinator')
+       AND (cca.id IS NOT NULL OR u.managed_club_id = $1::bigint)
+     ORDER BY u.id`,
+    [clubId]
+  );
+  return rows
+    .map(r => ({
+      id: r.id, name: r.name, email: r.email,
+      avatar: r.avatar ? (/^https?:\/\//.test(r.avatar) || r.avatar.startsWith('/') ? r.avatar : `/uploads/avatars/${r.avatar}`) : '',
+      role: r.role === 'faculty_coordinator' ? 'Faculty Advisor' : 'Student Coordinator',
+    }))
+    .sort((a, b) => (a.role === 'Faculty Advisor' ? 0 : 1) - (b.role === 'Faculty Advisor' ? 0 : 1) || a.name.localeCompare(b.name));
+};
+
+const leadershipOf = async (clubId) => (await pgPool.query(
+  `SELECT ${LEADER_COLS} FROM club_leadership WHERE club_id = $1::bigint ORDER BY sort_order ASC, id ASC`, [clubId]
+)).rows;
+
+/* Tell the new role holder (email + notification, no login details) and every
+   other active member of the club (notification + email). Fire-and-forget. */
+const announceRole = async (req, clubId, leader) => {
+  try {
+    const { rows: [club] } = await pgPool.query(`SELECT name FROM clubs WHERE id = $1::bigint`, [clubId]);
+    const clubName = club?.name || 'your club';
+    const { sendLeadershipAssigned, sendLeadershipAnnouncement } = require('../config/email');
+    const { emailEach } = require('../services/mailRecipients');
+
+    if (leader.user_id) {
+      notifyUser({
+        userId: leader.user_id, clubId,
+        title: `You are now ${leader.role_title}`,
+        body:  `You have been assigned the role of ${leader.role_title} in ${clubName}.`,
+        type:  'leadership', url: '/student/leadership',
+      }).catch(() => {});
+    }
+    if (leader.holder_email) {
+      sendLeadershipAssigned({
+        toEmail: leader.holder_email, toName: leader.holder_name, clubName,
+        roleTitle: leader.role_title, assignedBy: req.user?.name || '',
+      }).catch(err => console.error('[leadership] assignment email failed:', err.message));
+    }
+
+    const { rows: members } = await pgPool.query(
+      `SELECT u.id, u.name, u.email FROM student_clubs sc
+       JOIN users u ON u.id = sc.user_id AND u.is_active = true
+       WHERE sc.club_id = $1::bigint AND sc.is_active = true AND u.id IS DISTINCT FROM $2`,
+      [clubId, leader.user_id || null]
+    );
+    if (members.length) {
+      notifyManyUsers({
+        userIds: members.map(m => m.id), clubId,
+        title: `New ${leader.role_title} for ${clubName}`,
+        body:  `${leader.holder_name} has been assigned the role of ${leader.role_title}.`,
+        type:  'leadership', url: '/student/leadership',
+      }).catch(() => {});
+      emailEach(members, (m) => sendLeadershipAnnouncement({
+        toEmail: m.email, toName: m.name, clubName, memberName: leader.holder_name, roleTitle: leader.role_title,
+      }), 'leadership announcement', [leader.holder_email]);
+    }
+  } catch (err) { console.error('[leadership] announcement failed:', err.message); }
+};
+
+/* POST /api/clubs/:id/leadership/assign  (Faculty Advisor)
+   { userId, roleTitle, responsibilities? } — the member's details are taken from
+   their account and join request, so nothing about them is typed in. */
+const assignLeadershipRole = async (req, res, next) => {
+  try {
+    if (!requireFacultyAdvisor(req, res)) return;
+    const clubId = req.params.id;
+    const userId = parseInt(req.body.userId, 10);
+    const roleTitle = String(req.body.roleTitle || '').trim().slice(0, 100);
+    if (!userId) return res.status(400).json({ message: 'Choose the member to assign.' });
+    if (!roleTitle) return res.status(400).json({ message: 'Enter the role (e.g. Convener, Treasurer).' });
+
+    const { rows: [m] } = await pgPool.query(
+      `SELECT u.id, u.name, u.email,
+              COALESCE(jr.enrollment_no, '') AS enrollment_no, COALESCE(jr.dept, '') AS dept,
+              COALESCE(jr.year, '') AS year, COALESCE(jr.phone, '') AS phone
+       FROM student_clubs sc
+       JOIN users u ON u.id = sc.user_id
+       LEFT JOIN LATERAL (
+         SELECT enrollment_no, dept, year, phone FROM join_requests
+         WHERE LOWER(email) = LOWER(u.email)
+         ORDER BY (club_id = $1::bigint) DESC, (status = 'approved') DESC, updated_at DESC LIMIT 1
+       ) jr ON true
+       WHERE sc.club_id = $1::bigint AND sc.user_id = $2 AND sc.is_active = true`,
+      [clubId, userId]
+    );
+    if (!m) return res.status(400).json({ message: 'That student is not an active member of this club.' });
+
+    const { rows: dup } = await pgPool.query(
+      `SELECT 1 FROM club_leadership WHERE club_id = $1::bigint AND user_id = $2 AND LOWER(role_title) = LOWER($3)`,
+      [clubId, userId, roleTitle]
+    );
+    if (dup.length) return res.status(409).json({ message: `${m.name} is already ${roleTitle}.` });
+
+    const { rows: [leader] } = await pgPool.query(
+      `INSERT INTO club_leadership
+         (club_id, role_title, holder_name, holder_email, phone, responsibilities, photo_url, user_id,
+          enrollment_no, dept, year, sort_order)
+       VALUES ($1::bigint, $2, $3, $4, $5, $6, '', $7, $8, $9, $10,
+               (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM club_leadership WHERE club_id = $1::bigint))
+       RETURNING ${LEADER_COLS}`,
+      [clubId, roleTitle, m.name, m.email, m.phone, String(req.body.responsibilities || '').trim(),
+       m.id, String(m.enrollment_no).trim(), String(m.dept).trim().toUpperCase(), String(m.year).trim()]
+    );
+    res.status(201).json({ leader, leadership: await leadershipOf(clubId) });
+    announceRole(req, clubId, leader);
+    notifyAdminsOfClubChange(req, clubId, `assigned ${m.name} as ${roleTitle}`).catch(() => {});
+  } catch (err) { next(err); }
+};
+
+/* PATCH /api/clubs/:id/leadership/:leaderId  (Faculty Advisor) — multipart:
+   roleTitle?, responsibilities?, phone?, photo (file)?, removePhoto=1? */
+const updateLeadershipRole = async (req, res, next) => {
+  try {
+    if (!requireFacultyAdvisor(req, res)) return;
+    const clubId = req.params.id;
+    const { rows: [cur] } = await pgPool.query(
+      `SELECT ${LEADER_COLS} FROM club_leadership WHERE id = $1::bigint AND club_id = $2::bigint`,
+      [req.params.leaderId, clubId]
+    );
+    if (!cur) return res.status(404).json({ message: 'Role not found.' });
+    const photo = req.file ? getFileValue(req.file) : (req.body.removePhoto === '1' ? '' : cur.photo_url);
+    const roleTitle = req.body.roleTitle !== undefined ? String(req.body.roleTitle).trim().slice(0, 100) : cur.role_title;
+    if (!roleTitle) return res.status(400).json({ message: 'The role cannot be empty.' });
+    const { rows: [leader] } = await pgPool.query(
+      `UPDATE club_leadership
+       SET role_title = $1, responsibilities = $2, phone = $3, photo_url = $4, updated_at = NOW()
+       WHERE id = $5::bigint RETURNING ${LEADER_COLS}`,
+      [
+        roleTitle,
+        req.body.responsibilities !== undefined ? String(req.body.responsibilities).trim() : cur.responsibilities,
+        req.body.phone !== undefined ? String(req.body.phone).trim().slice(0, 50) : cur.phone,
+        photo, cur.id,
+      ]
+    );
+    res.json({ leader, leadership: await leadershipOf(clubId) });
+    /* a new role for the same person is announced like a fresh assignment */
+    if (roleTitle.toLowerCase() !== cur.role_title.toLowerCase() && leader.holder_name) announceRole(req, clubId, leader);
+  } catch (err) { next(err); }
+};
+
+/* DELETE /api/clubs/:id/leadership/:leaderId  (Faculty Advisor) */
+const removeLeadershipRole = async (req, res, next) => {
+  try {
+    if (!requireFacultyAdvisor(req, res)) return;
+    const { rows } = await pgPool.query(
+      `DELETE FROM club_leadership WHERE id = $1::bigint AND club_id = $2::bigint RETURNING holder_name, role_title`,
+      [req.params.leaderId, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ message: 'Role not found.' });
+    res.json({ leadership: await leadershipOf(req.params.id) });
+    notifyAdminsOfClubChange(req, req.params.id, `removed ${rows[0].holder_name || 'a member'} as ${rows[0].role_title}`).catch(() => {});
+  } catch (err) { next(err); }
+};
+
 /* GET /api/clubs/:id/leadership  (public) */
 const getLeadership = async (req, res, next) => {
   try {
     await ensureSoacTables();
-    const { rows } = await pgPool.query(
-      `SELECT id, role_title, holder_name, holder_email, phone, responsibilities, photo_url, user_id, sort_order, updated_at
-       FROM club_leadership
-       WHERE club_id = $1::bigint
-       ORDER BY sort_order ASC, id ASC`,
-      [req.params.id]
-    );
-    res.json({ leadership: rows });
+    const [leadership, staff] = await Promise.all([leadershipOf(req.params.id), clubStaff(req.params.id)]);
+    res.json({ leadership, staff });
   } catch (err) { next(err); }
 };
 
@@ -76,6 +255,7 @@ const getLeadership = async (req, res, next) => {
      photo_<i>  — optional image file for position at index i             */
 const setLeadership = async (req, res, next) => {
   try {
+    if (!requireFacultyAdvisor(req, res)) return;
     await ensureSoacTables();   // guarantees phone column exists before INSERT
     let positions;
     try {
@@ -477,11 +657,26 @@ const saveTaskCompletions = async (req, res, next) => {
 const updateOverview = async (req, res, next) => {
   try {
     const { rows: cur } = await pgPool.query(
-      `SELECT name, description, vision, schedule, rules, tags, logo FROM clubs WHERE id = $1::bigint`,
+      `SELECT name, description, vision, schedule, rules, tags, logo, founded_year FROM clubs WHERE id = $1::bigint`,
       [req.params.id]
     );
     if (!cur.length) return res.status(404).json({ message: 'Club not found.' });
     const current = cur[0];
+
+    /* Established year — the Faculty Advisor's (or admin's) to change; a 4-digit
+       year no later than this one. It belongs to the club, so both campus copies get it. */
+    const rawYear = req.body.foundedYear ?? req.body.founded_year;
+    let foundedYear;
+    if (rawYear !== undefined) {
+      if (!['faculty_coordinator', 'admin'].includes(req.user?.role)) {
+        return res.status(403).json({ message: "Only the club's Faculty Advisor can change the established year." });
+      }
+      foundedYear = String(rawYear).trim();
+      const y = Number(foundedYear);
+      if (!/^\d{4}$/.test(foundedYear) || y < 1900 || y > new Date().getFullYear()) {
+        return res.status(400).json({ message: `Enter the year the club was established, e.g. 2019 (up to ${new Date().getFullYear()}).` });
+      }
+    }
 
     const { description, vision, schedule, rules, tags } = req.body;
     const parsedRules = rules ? (Array.isArray(rules) ? rules : JSON.parse(rules)) : null;
@@ -518,6 +713,17 @@ const updateOverview = async (req, res, next) => {
         [nextLogo, req.params.id]
       );
     }
+    if (foundedYear !== undefined) {
+      await pgPool.query(
+        `UPDATE clubs SET founded_year = $1, updated_at = NOW()
+         WHERE id = $2::bigint OR id = (SELECT main_club_id FROM clubs WHERE id = $2::bigint) OR main_club_id = $2::bigint`,
+        [foundedYear, req.params.id]
+      );
+      rows[0].founded_year = foundedYear;
+    }
+    /* The guest Clubs page and every club view are cached — drop them so the
+       change shows everywhere straight away */
+    await cache.delPattern('clubs:*').catch(() => {});
     res.json({ club: rows[0] });
 
     /* Tell admin exactly which fields actually changed. */
@@ -528,6 +734,7 @@ const updateOverview = async (req, res, next) => {
     if (parsedRules && JSON.stringify(parsedRules) !== JSON.stringify(current.rules || [])) changed.push('rules');
     if (parsedTags  && JSON.stringify(parsedTags)  !== JSON.stringify(current.tags  || [])) changed.push('tags');
     if (req.file) changed.push('logo');
+    if (foundedYear !== undefined && foundedYear !== current.founded_year) changed.push('established year');
     if (changed.length) {
       notifyAdminsOfClubChange(req, req.params.id, `updated the ${changed.join(', ')}`).catch(() => {});
     }
@@ -1560,7 +1767,7 @@ const deleteLiveScore = async (req, res, next) => {
 
 module.exports = {
   getMembership,
-  getLeadership, setLeadership,
+  getLeadership, setLeadership, assignLeadershipRole, updateLeadershipRole, removeLeadershipRole,
   getMessages, postMessage,
   getTasks, createTask, updateTask, deleteTask, getTaskCompletions, saveTaskCompletions,
   updateOverview,

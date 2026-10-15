@@ -17,6 +17,7 @@ const ROLE_HOME = { student: '/student', coordinator: '/coordinator', admin: '/a
    explicitly listed falls into "Other" rather than being dropped. */
 const CATEGORY_OF = {
   announcement:            'announcements',
+  leadership:              'announcements', // a member given a club role (and the club told)
   join_request:            'requests',
   event_request:           'requests',
   message:                 'messages',

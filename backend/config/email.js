@@ -583,6 +583,45 @@ const sendEventPublishedToCoordinator = async ({ toEmail, toName, event, reason 
   });
 };
 
+/* A club member was given a leadership role by the Faculty Advisor. No login
+   details — the role is a position in the club, not a dashboard account. */
+const sendLeadershipAssigned = async ({ toEmail, toName, clubName, roleTitle, assignedBy = '' }) => {
+  const role = escapeHtml(roleTitle);
+  const club = escapeHtml(clubName);
+  await send({
+    to:      toEmail,
+    subject: `You are now ${roleTitle} of ${clubName} — SOAC RKU`,
+    html: plainEmail({
+      category: 'Club leadership',
+      title:    `${roleTitle} — ${clubName}`,
+      toName,
+      intro: [
+        `Congratulations! You have been assigned the role of <strong>${role}</strong> in <strong>${club}</strong>${assignedBy ? ` by the club's Faculty Advisor, ${escapeHtml(assignedBy)}` : ''}.`,
+        "Your role now appears on the club's leadership team, which every member can see in their dashboard.",
+      ],
+      outro: ['We wish you all the best in your new role.'],
+      button: { href: `${APP_URL}/student/leadership`, label: 'View the leadership team' },
+    }),
+  });
+};
+
+/* Every other member of the club hears about a new leadership role */
+const sendLeadershipAnnouncement = async ({ toEmail, toName, clubName, memberName, roleTitle }) => {
+  await send({
+    to:      toEmail,
+    subject: `${memberName} is the new ${roleTitle} of ${clubName} — SOAC RKU`,
+    html: plainEmail({
+      category: 'Club leadership',
+      title:    `New ${roleTitle} for ${clubName}`,
+      toName,
+      intro: [
+        `<strong>${escapeHtml(memberName)}</strong> has been assigned the role of <strong>${escapeHtml(roleTitle)}</strong> in <strong>${escapeHtml(clubName)}</strong>.`,
+      ],
+      button: { href: `${APP_URL}/student/leadership`, label: 'View the leadership team' },
+    }),
+  });
+};
+
 /* Sent to each volunteer once the event's report is submitted to the admin */
 const sendVolunteerThanks = async ({ toEmail, toName, role = '', event }) => {
   const t = escapeHtml(event.title);
@@ -1136,6 +1175,8 @@ module.exports = {
   sendGaloreActivityAssignment,
   sendEventPublishedToCoordinator,
   sendVolunteerThanks,
+  sendLeadershipAssigned,
+  sendLeadershipAnnouncement,
   sendJoinRequestCampusChanged,
   sendActivityReport,
   sendTestEmail,
