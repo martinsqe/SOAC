@@ -945,6 +945,59 @@ const removeReportBanner = async (req, res, next) => {
 };
 
 /* ══════════════════════════════════════════════
+   PATCH  /api/reports/events/:eventId/signatures/:index   (field "signature")
+   DELETE /api/reports/events/:eventId/signatures/:index
+   Digital signature image for signatory slot 0–2, printed above their name.
+══════════════════════════════════════════════ */
+const SIGNATORY_SLOTS = 3;
+
+/* The report's signatories as exactly 3 slots, in the order they appear */
+const storedSignatories = async (eventId) => {
+  const { rows } = await pgPool.query(
+    `SELECT narrative->'signatories' AS s FROM event_reports WHERE event_id = $1::bigint`, [eventId]
+  );
+  const s = Array.isArray(rows[0]?.s) ? rows[0].s : [];
+  return Array.from({ length: SIGNATORY_SLOTS }, (_, i) => ({
+    name:        String(s[i]?.name || ''),
+    designation: String(s[i]?.designation || ''),
+    signature:   typeof s[i]?.signature === 'string' ? s[i].signature : '',
+  }));
+};
+/* Slots keep their positions; only empty slots at the end are dropped */
+const trimSignatories = (list) => {
+  const out = [...list];
+  while (out.length && !out[out.length - 1].name && !out[out.length - 1].signature) out.pop();
+  return out;
+};
+
+const setSignature = async (req, res, value) => {
+  const index = parseInt(req.params.index, 10);
+  if (isNaN(index) || index < 0 || index >= SIGNATORY_SLOTS) return res.status(400).json({ message: 'Invalid signatory.' });
+  if (!await assertEditable(req.params.eventId, res)) return;
+  const list = await storedSignatories(req.params.eventId);
+  list[index].signature = value;
+  const { rows } = await pgPool.query(
+    `UPDATE event_reports
+     SET narrative = COALESCE(narrative, '{}'::jsonb) || jsonb_build_object('signatories', $1::jsonb), updated_at = NOW()
+     WHERE event_id = $2::bigint AND submitted_at IS NULL RETURNING *`,
+    [JSON.stringify(trimSignatories(list)), req.params.eventId]
+  );
+  if (!rows.length) return res.status(409).json({ message: 'This report has already been submitted and can no longer be edited.' });
+  res.json({ report: rows[0] });
+};
+
+const uploadReportSignature = async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No signature uploaded.' });
+    await setSignature(req, res, getFileValue(req.file));
+  } catch (err) { next(err); }
+};
+
+const removeReportSignature = async (req, res, next) => {
+  try { await setSignature(req, res, ''); } catch (err) { next(err); }
+};
+
+/* ══════════════════════════════════════════════
    PATCH /api/reports/events/:eventId/narrative
    Coordinator saves written narrative sections
 ══════════════════════════════════════════════ */
@@ -959,12 +1012,17 @@ const updateNarrative = async (req, res, next) => {
       const src = req.body.supporting_docs && typeof req.body.supporting_docs === 'object' ? req.body.supporting_docs : {};
       narrative.supporting_docs = Object.fromEntries(SUPPORTING_DOC_KEYS.map(k => [k, String(src[k] || '').trim().slice(0, 500)]));
     }
-    /* Signatories at the end of the report: up to 3 × { name, designation } */
+    /* Signatories at the end of the report: up to 3 × { name, designation, signature }.
+       Signature images only change through the signature upload — here each slot
+       keeps whatever signature it already has. */
     if (req.body.signatories !== undefined) {
-      narrative.signatories = (Array.isArray(req.body.signatories) ? req.body.signatories : [])
-        .map(sg => ({ name: String(sg?.name || '').trim().slice(0, 120), designation: String(sg?.designation || '').trim().slice(0, 300) }))
-        .filter(sg => sg.name)
-        .slice(0, 3);
+      const stored = await storedSignatories(req.params.eventId);
+      const src = Array.isArray(req.body.signatories) ? req.body.signatories : [];
+      narrative.signatories = trimSignatories(stored.map((sg, i) => ({
+        name:        String(src[i]?.name || '').trim().slice(0, 120),
+        designation: String(src[i]?.designation || '').trim().slice(0, 300),
+        signature:   sg.signature,
+      })));
     }
     if (req.body.volunteers !== undefined) narrative.volunteers = sanitizeVolunteers(req.body.volunteers);
     const { rows } = await pgPool.query(
@@ -984,4 +1042,4 @@ const updateNarrative = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { downloadReportDocx, removeReportPhoto, uploadReportLogos, removeReportLogo, uploadReportBanner, removeReportBanner, getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, uploadHighlightPhotos, replaceHighlightPhoto, updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto, updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears, regenerateReport, autoRefreshReportIfExists };
+module.exports = { downloadReportDocx, removeReportPhoto, uploadReportLogos, removeReportLogo, uploadReportBanner, removeReportBanner, uploadReportSignature, removeReportSignature, getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, uploadHighlightPhotos, replaceHighlightPhoto, updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto, updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears, regenerateReport, autoRefreshReportIfExists };

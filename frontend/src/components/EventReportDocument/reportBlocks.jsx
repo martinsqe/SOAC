@@ -20,7 +20,7 @@ export function reportBlocks(data, { isSports: isSportsProp } = {}) {
   const isSports = isSportsProp ?? data.is_sports ?? data.event_category === 'sports';
   const volunteers = Array.isArray(nav.volunteers) ? nav.volunteers.filter(v => v?.name) : [];
   const docs = nav.supporting_docs || {};
-  const signatories = (Array.isArray(nav.signatories) ? nav.signatories : []).filter(sg => sg?.name);
+  const signatories = (Array.isArray(nav.signatories) ? nav.signatories : []).filter(sg => sg?.name || sg?.signature);
   const photos = [...(data.photos || []), ...(data.highlight_photos || [])].filter(Boolean).slice(0, 6); // up to 6, 2 per row
   const participantsCount = nav.participants_count || data.summary_stats?.totalParticipants || data.participants?.length || '';
   const volunteersCount = nav.volunteers_count || (volunteers.length ? String(volunteers.length) : '');
@@ -377,6 +377,9 @@ export function reportBlocks(data, { isSports: isSportsProp } = {}) {
       <div className={d.signatures}>
         {signatories.map((sg, i) => (
           <div key={i} className={d.signatory}>
+            <div className={d.signArea}>
+              {sg.signature && <img src={sg.signature} alt={`Signature of ${sg.name || `signatory ${i + 1}`}`} className={d.signImg} />}
+            </div>
             <div className={d.signLine} />
             <div className={d.signName}>{sg.name}</div>
             <div className={d.signDesignation}>{sg.designation}</div>

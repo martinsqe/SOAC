@@ -246,6 +246,33 @@ export default function EventReportEditor({ event, showToast = () => {}, onRepor
     } catch (err) { showToast(err?.message || 'Failed to remove banner.', 'err'); }
   };
 
+  /* Digital signatures: stored per signatory slot (0–2) by their own upload; the
+     form keeps a copy so the preview and the printed report show them. */
+  const [signatureUploading, setSignatureUploading] = useState(null);
+  const syncSignatures = (report) => setReportNarrative(p => {
+    const saved = report?.narrative?.signatories || [];
+    const list = [0, 1, 2].map(j => ({ name: '', designation: '', ...(p.signatories?.[j] || {}), signature: saved[j]?.signature || '' }));
+    return { ...p, signatories: list };
+  });
+  const handleUploadSignature = async (index, file) => {
+    const fd = new FormData();
+    fd.append('signature', file);
+    setSignatureUploading(index);
+    try {
+      const d = await api.patchForm(`/reports/events/${regEvent._id}/signatures/${index}`, fd);
+      setEventReport(d.report);
+      syncSignatures(d.report);
+    } catch (err) { showToast(err?.message || 'Failed to upload signature.', 'err'); }
+    finally { setSignatureUploading(null); }
+  };
+  const handleRemoveSignature = async (index) => {
+    try {
+      const d = await api.delete(`/reports/events/${regEvent._id}/signatures/${index}`);
+      setEventReport(d.report);
+      syncSignatures(d.report);
+    } catch (err) { showToast(err?.message || 'Failed to remove signature.', 'err'); }
+  };
+
   /* Preview shows the report exactly as saved/printed, with unsaved text included */
   const previewData = eventReport ? { ...eventReport, narrative: { ...(eventReport.narrative || {}), ...reportNarrative } } : null;
 
@@ -296,6 +323,7 @@ export default function EventReportEditor({ event, showToast = () => {}, onRepor
                               logoUploading, bannerUploading, photosUploading, mvpPhotoUploading,
                               onUploadLogos: handleUploadLogos, onRemoveLogo: handleRemoveLogo,
                               onUploadBanner: handleUploadBanner, onRemoveBanner: handleRemoveBanner,
+                              signatureUploading, onUploadSignature: handleUploadSignature, onRemoveSignature: handleRemoveSignature,
                               onUploadPhotos: handleUploadReportPhotos, onReplacePhoto: handleReplaceSidePhoto, onRemovePhoto: handleRemoveReportPhoto,
                               onMatchMvpPhoto: handleMatchMvpPhotoUpload, onTournamentMvpPhoto: handleMvpPhotoUpload,
                             })}

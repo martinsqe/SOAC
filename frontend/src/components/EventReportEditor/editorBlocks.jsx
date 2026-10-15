@@ -15,6 +15,7 @@ export function buildEditorBlocks(ctx) {
     report, nav, setNav, locked, isSports, clubId,
     logoUploading, bannerUploading, photosUploading, mvpPhotoUploading,
     onUploadLogos, onRemoveLogo, onUploadBanner, onRemoveBanner,
+    signatureUploading, onUploadSignature, onRemoveSignature,
     onUploadPhotos, onReplacePhoto, onRemovePhoto, onMatchMvpPhoto, onTournamentMvpPhoto,
   } = ctx;
   const set = (key) => (e) => setNav(p => ({ ...p, [key]: e.target.value }));
@@ -220,6 +221,17 @@ export function buildEditorBlocks(ctx) {
         });
         return (
           <div key={i} className={d.signatory}>
+            <div className={d.signArea}>
+              {sg.signature
+                ? <img src={sg.signature} alt={`Signature ${i + 1}`} className={d.signImg} />
+                : !locked && <span className={ed.placeholder} style={{ padding: 0 }}>Digital signature</span>}
+            </div>
+            {!locked && (
+              <div className={ed.actionsRow} style={{ margin: '0 0 6px' }}>
+                {fileBtn(sg.signature ? 'Replace' : '+ Upload signature', (f) => onUploadSignature(i, f[0]), { busy: signatureUploading === i })}
+                {sg.signature && <button type="button" className={ed.removeBtn} onClick={() => onRemoveSignature(i)}>Remove</button>}
+              </div>
+            )}
             <div className={d.signLine} />
             <input className={ed.cellInput} style={{ textAlign: 'center', fontWeight: 700, fontSize: 15 }} placeholder={`Signatory ${i + 1} name`}
               maxLength={120} value={sg.name} disabled={locked} onChange={e => setSg({ name: e.target.value })} />

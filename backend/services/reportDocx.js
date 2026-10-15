@@ -158,15 +158,16 @@ async function buildReportDocx(report) {
   const isSports = !!report.is_sports;
   const volunteers = (Array.isArray(nav.volunteers) ? nav.volunteers : []).filter(v => v?.name);
   const docs = nav.supporting_docs || {};
-  const signatories = (Array.isArray(nav.signatories) ? nav.signatories : []).filter(sg => sg?.name);
+  const signatories = (Array.isArray(nav.signatories) ? nav.signatories : []).filter(sg => sg?.name || sg?.signature);
   const participants = report.participants || [];
   const photosSrc = [...(report.photos || []), ...(report.highlight_photos || [])].filter(Boolean).slice(0, 6);
   const participantsCount = nav.participants_count || report.summary_stats?.totalParticipants || participants.length || '';
   const volunteersCount = nav.volunteers_count || (volunteers.length ? String(volunteers.length) : '');
 
   /* load every image up front, in parallel */
-  const [soac, rku, banner, ...rest] = await Promise.all([
+  const [soac, rku, banner, signatureImgs, ...rest] = await Promise.all([
     loadImage(SOAC_LOGO), loadImage(RKU_LOGO), loadImage(report.banner),
+    Promise.all(signatories.map(sg => loadImage(sg.signature))),
     ...(report.logos || []).map(loadImage), ...photosSrc.map(loadImage),
   ]);
   const collabLogos = rest.slice(0, (report.logos || []).length).filter(Boolean);
@@ -381,9 +382,11 @@ async function buildReportDocx(report) {
   /* Signatures */
   if (signatories.length) {
     body.push(new Paragraph({ spacing: { before: 720 }, children: [] }));
-    body.push(table([new TableRow({ children: signatories.map(sg => new TableCell({
+    body.push(table([new TableRow({ children: signatories.map((sg, i) => new TableCell({
       borders: NO_BORDERS,
+      verticalAlign: VerticalAlign.BOTTOM,
       children: [
+        ...(signatureImgs[i] ? [new Paragraph({ alignment: AlignmentType.CENTER, children: [fitImage(signatureImgs[i], 150, 60)] })] : []),
         new Paragraph({ alignment: AlignmentType.CENTER, border: { top: { style: BorderStyle.SINGLE, size: 6, color: '555555', space: 6 } },
           children: [new TextRun({ text: sg.name, bold: true, font: FONT, size: 24 })] }),
         para(sg.designation || '', { align: AlignmentType.CENTER, size: 19 }),

@@ -8,7 +8,7 @@ const {
   uploadReportPhotos, replaceReportPhoto, uploadHighlightPhotos, replaceHighlightPhoto,
   updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto,
   updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears,
-  uploadReportLogos, removeReportLogo, uploadReportBanner, removeReportBanner, removeReportPhoto, downloadReportDocx,
+  uploadReportLogos, removeReportLogo, uploadReportBanner, removeReportBanner, uploadReportSignature, removeReportSignature, removeReportPhoto, downloadReportDocx,
 } = require('../controllers/reports.controller');
 
 /* List all reports for a club */
@@ -39,6 +39,10 @@ router.delete('/events/:eventId/logos/:index', verifyToken, removeReportLogo);
 /* Optional event banner / brochure */
 router.patch('/events/:eventId/banner', verifyToken, uploadReportPhoto.single('banner'), uploadReportBanner);
 router.delete('/events/:eventId/banner', verifyToken, removeReportBanner);
+
+/* Digital signature of signatory 0–2, shown above their name */
+router.patch('/events/:eventId/signatures/:index', verifyToken, uploadReportPhoto.single('signature'), uploadReportSignature);
+router.delete('/events/:eventId/signatures/:index', verifyToken, removeReportSignature);
 
 /* Upload event photos (up to 6 in total, 2 per row in the report) */
 router.patch('/events/:eventId/photos', verifyToken,
