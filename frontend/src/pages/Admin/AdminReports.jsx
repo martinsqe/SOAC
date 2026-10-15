@@ -20,7 +20,15 @@ export default function AdminReports() {
       .finally(() => setLoading(false));
   }, []);
 
-  const toggle = (id) => setExpanded(p => p === id ? null : id);
+  /* Opening a new report marks it seen (the server records it when the report
+     loads) — drop its "New" tag and let the sidebar badge recount */
+  const toggle = (id) => {
+    setExpanded(p => p === id ? null : id);
+    const rep = reports.find(x => x.id === id);
+    if (rep && !rep.admin_viewed_at) {
+      setReports(list => list.map(x => (x.id === id ? { ...x, admin_viewed_at: new Date().toISOString() } : x)));
+    }
+  };
 
   return (
     <div className={s.page}>
@@ -41,7 +49,10 @@ export default function AdminReports() {
             <div key={rep.id} className={r.card}>
               <div className={r.cardHeader} onClick={() => toggle(rep.id)}>
                 <div className={r.cardLeft}>
-                  <div className={r.cardTitle}>{rep.event_title || 'Untitled Event'}</div>
+                  <div className={r.cardTitle}>
+                    {rep.event_title || 'Untitled Event'}
+                    {!rep.admin_viewed_at && <span className={r.newTag}>New</span>}
+                  </div>
                   <div className={r.cardMeta}>
                     {rep.club_name || 'SOAC · RK University (non-club event)'} · {rep.academic_year} · Submitted {new Date(rep.submitted_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </div>
@@ -73,7 +84,7 @@ function ReportDetail({ eventId }) {
 
   useEffect(() => {
     api.get(`/reports/events/${eventId}`)
-      .then(d => setData(d.report))
+      .then(d => { setData(d.report); window.dispatchEvent(new Event('soac:reports-seen')); })
       .catch(() => setData(null))
       .finally(() => setLoading(false));
   }, [eventId]);

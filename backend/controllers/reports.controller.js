@@ -23,6 +23,17 @@ pgPool.query(
 pgPool.query(`ALTER TABLE event_reports ADD COLUMN IF NOT EXISTS logos TEXT[] NOT NULL DEFAULT '{}'`).catch(() => {});
 pgPool.query(`ALTER TABLE event_reports ADD COLUMN IF NOT EXISTS banner TEXT NOT NULL DEFAULT ''`).catch(() => {});
 
+/* When the admin first opened a submitted report — drives the "new reports" badge
+   on the admin sidebar. Added once: reports already submitted before this
+   column existed count as seen, so the badge starts from zero. */
+pgPool.query(
+  `SELECT 1 FROM information_schema.columns WHERE table_name = 'event_reports' AND column_name = 'admin_viewed_at'`
+).then(async ({ rows }) => {
+  if (rows.length) return;
+  await pgPool.query(`ALTER TABLE event_reports ADD COLUMN IF NOT EXISTS admin_viewed_at TIMESTAMPTZ`);
+  await pgPool.query(`UPDATE event_reports SET admin_viewed_at = submitted_at WHERE submitted_at IS NOT NULL`);
+}).catch(err => console.error('[reports] admin_viewed_at migration failed:', err.message));
+
 const MAX_REPORT_PHOTOS = 6;   // event photos, 2 per row like the university report format
 const MAX_REPORT_LOGOS  = 4;   // collaboration logos (besides SOAC + RK University)
 
@@ -191,7 +202,13 @@ const getEventReport = async (req, res, next) => {
        WHERE er.event_id = $1::bigint`,
       [req.params.eventId]
     );
-    res.json({ report: rows[0] || null });
+    /* The admin opening a submitted report clears it from the sidebar badge */
+    const report = rows[0];
+    if (report?.submitted_at && !report.admin_viewed_at && req.user?.role === 'admin') {
+      await pgPool.query(`UPDATE event_reports SET admin_viewed_at = NOW() WHERE id = $1`, [report.id]).catch(() => {});
+      report.admin_viewed_at = new Date();
+    }
+    res.json({ report: report || null });
   } catch (err) { next(err); }
 };
 
@@ -852,10 +869,12 @@ const submitReport = async (req, res, next) => {
 
     const { rows } = await pgPool.query(
       `UPDATE event_reports
-       SET submitted_at = NOW(), submitted_by = $1, updated_at = NOW()
+       SET submitted_at = NOW(), submitted_by = $1, updated_at = NOW(),
+           admin_viewed_at = CASE WHEN $3 THEN NOW() ELSE NULL END  -- the admin's own report isn't "new" to them
        WHERE event_id = $2::bigint RETURNING *`,
-      [req.user?.id, req.params.eventId]
+      [req.user?.id, req.params.eventId, req.user?.role === 'admin']
     );
+    reportsIo?.emit('report:submitted', { eventId: String(req.params.eventId) });
     res.json({ report: rows[0] });
 
     thankVolunteers(rows[0]).catch(err => console.error('[reports] thanking volunteers failed:', err.message));
@@ -886,7 +905,7 @@ const getSubmittedReports = async (req, res, next) => {
     const { rows } = await pgPool.query(
       `SELECT er.id, er.event_id, er.event_title, er.academic_year,
               er.summary_stats, er.photos, er.tournament_mvp,
-              er.generated_at, er.submitted_at, er.club_id,
+              er.generated_at, er.submitted_at, er.admin_viewed_at, er.club_id,
               c.name AS club_name, ev.category AS event_category,
               ${IS_SPORTS_SQL} AS is_sports, ${VOLUNTEERS_COUNT_SQL} AS volunteers_count
        FROM event_reports er
@@ -898,6 +917,24 @@ const getSubmittedReports = async (req, res, next) => {
       [adminCampus(req)]
     );
     res.json({ reports: rows });
+  } catch (err) { next(err); }
+};
+
+/* GET /api/reports/submitted/unseen-count — submitted reports of the admin's
+   campus that the admin hasn't opened yet (the sidebar badge) */
+const getUnseenReportCount = async (req, res, next) => {
+  try {
+    if (req.user?.role !== 'admin') return res.json({ count: 0 });
+    const { rows } = await pgPool.query(
+      `SELECT COUNT(*)::int AS count
+       FROM event_reports er
+       LEFT JOIN clubs c ON c.id = er.club_id
+       LEFT JOIN events ev ON ev.id = er.event_id
+       WHERE er.submitted_at IS NOT NULL AND er.admin_viewed_at IS NULL
+         AND ($1::text IS NULL OR COALESCE(c.campus, ev.campus) = $1)`,
+      [adminCampus(req)]
+    );
+    res.json({ count: rows[0].count });
   } catch (err) { next(err); }
 };
 
@@ -1082,4 +1119,4 @@ const updateNarrative = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { setReportsIo, downloadReportDocx, removeReportPhoto, uploadReportLogos, removeReportLogo, uploadReportBanner, removeReportBanner, uploadReportSignature, removeReportSignature, getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, uploadHighlightPhotos, replaceHighlightPhoto, updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto, updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears, regenerateReport, autoRefreshReportIfExists };
+module.exports = { setReportsIo, getUnseenReportCount, downloadReportDocx, removeReportPhoto, uploadReportLogos, removeReportLogo, uploadReportBanner, removeReportBanner, uploadReportSignature, removeReportSignature, getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, uploadHighlightPhotos, replaceHighlightPhoto, updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto, updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears, regenerateReport, autoRefreshReportIfExists };

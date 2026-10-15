@@ -8,7 +8,7 @@ const {
   uploadReportPhotos, replaceReportPhoto, uploadHighlightPhotos, replaceHighlightPhoto,
   updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto,
   updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears,
-  uploadReportLogos, removeReportLogo, uploadReportBanner, removeReportBanner, uploadReportSignature, removeReportSignature, removeReportPhoto, downloadReportDocx,
+  uploadReportLogos, removeReportLogo, getUnseenReportCount, uploadReportBanner, removeReportBanner, uploadReportSignature, removeReportSignature, removeReportPhoto, downloadReportDocx,
 } = require('../controllers/reports.controller');
 
 /* List all reports for a club */
@@ -97,5 +97,8 @@ router.post('/events/:eventId/submit', verifyToken, submitReport);
 
 /* Admin: list all submitted reports */
 router.get('/submitted', verifyToken, getSubmittedReports);
+
+/* Admin: how many submitted reports haven't been opened yet (sidebar badge) */
+router.get('/submitted/unseen-count', verifyToken, getUnseenReportCount);
 
 module.exports = router;

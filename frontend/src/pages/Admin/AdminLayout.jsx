@@ -5,6 +5,7 @@ import AnimatedOutlet from '../../components/AnimatedOutlet/AnimatedOutlet';
 import ProfileModal from '../../components/ProfileModal/ProfileModal';
 import PushOptInModal from '../../components/PushOptInModal/PushOptInModal';
 import { refreshAppBadge } from '../../utils/badge';
+import { getSocket } from '../../realtime/socket';
 import { syncFcmToken, onForegroundMessage, fcmSupported, registerFcmServiceWorker } from '../../firebaseMessaging';
 import api from '../../api/client';
 import { CAMPUSES, getAdminCampus, setAdminCampus } from '../../utils/adminCampus';
@@ -100,6 +101,28 @@ export default function AdminLayout() {
     const t = setInterval(load, 20000);
     window.addEventListener('soac:approvals-changed', load);
     return () => { clearInterval(t); window.removeEventListener('soac:approvals-changed', load); };
+  }, [campus]);
+
+  /* Submitted event reports the admin hasn't opened yet — polled every 15 s,
+     instantly when one is submitted, and recounted as soon as one is opened. */
+  const [unseenReports, setUnseenReports] = useState(0);
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { count } = await api.get('/reports/submitted/unseen-count');
+        setUnseenReports(count || 0);
+      } catch { /* keep the last count until the next poll */ }
+    };
+    load();
+    const t = setInterval(load, 15000);
+    const socket = getSocket();
+    socket.on('report:submitted', load);
+    window.addEventListener('soac:reports-seen', load);
+    return () => {
+      clearInterval(t);
+      socket.off('report:submitted', load);
+      window.removeEventListener('soac:reports-seen', load);
+    };
   }, [campus]);
 
   /* Clear badge immediately when admin opens Notifications */
@@ -205,6 +228,11 @@ export default function AdminLayout() {
                 {to === '/admin/approvals' && pendingApprovals > 0 && (
                   <span className={styles.navBadge} title="Pending club proposals + join requests">
                     {pendingApprovals > 99 ? '99+' : pendingApprovals}
+                  </span>
+                )}
+                {to === '/admin/reports' && unseenReports > 0 && (
+                  <span className={styles.navBadge} title="New submitted reports">
+                    {unseenReports > 99 ? '99+' : unseenReports}
                   </span>
                 )}
                 {to === '/admin/notifications' && unreadNotifs > 0 && (
