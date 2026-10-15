@@ -4,6 +4,8 @@ import api from '../../api/client';
 import { fetchAllPages } from '../../utils/pagination';
 import s from '../Coordinator/CoordSubPage.module.css';
 import a from './AdminApprovals.module.css';
+import ev from './AdminEvents.module.css';
+import ReadMore from '../../components/ReadMore/ReadMore';
 import ProposalDetails from './ProposalDetails';
 import { proposalAccent, formatDate } from './proposalUtils';
 import { useJoinStatus, refreshJoinStatus, formatOpensOn } from '../../utils/joinStatus';
@@ -602,6 +604,16 @@ const StatusChip = ({ status }) => {
   );
 };
 
+/* Same status pills as the Event Requests tab */
+const PROPOSAL_STATUS_META = {
+  pending:  { label: 'Pending',  color: '#d97706', bg: '#fffbeb' },
+  approved: { label: 'Approved', color: '#059669', bg: '#ecfdf5' },
+  rejected: { label: 'Rejected', color: '#dc2626', bg: '#fef2f2' },
+};
+/* Who sent it, for the "Student → Admin" review chain */
+const ROLE_NAME = { student: 'Student', coordinator: 'Student Coordinator', faculty_coordinator: 'Faculty Advisor', admin: 'Admin', guest: 'Visitor' };
+const proposerRole = (p) => ROLE_NAME[p.proposed_by_role] || 'Visitor';
+
 const btnPrimary = (accent = '#635BFF') => ({
   padding:'9px 14px', borderRadius:10, border:'none', background:accent, color:'#fff',
   fontWeight:700, fontSize:13, cursor:'pointer', whiteSpace:'nowrap',
@@ -614,18 +626,6 @@ const btnDanger = {
   padding:'9px 14px', borderRadius:10, border:'1.5px solid #fecaca', background:'#fff', color:'#dc2626',
   fontWeight:700, fontSize:13, cursor:'pointer', whiteSpace:'nowrap',
 };
-
-function ClubMark({ p, size = 44 }) {
-  const accent = proposalAccent(p);
-  return (
-    <div style={{ width:size, height:size, borderRadius:size * 0.3, flexShrink:0,
-      background:`linear-gradient(135deg, ${accent}, ${accent}aa)`, color:'#fff',
-      display:'flex', alignItems:'center', justifyContent:'center',
-      fontWeight:900, fontSize:size * 0.36, letterSpacing:'.02em' }}>
-      {initials(p.club_name)}
-    </div>
-  );
-}
 
 function ClubProposalsPanel({ counts }) {
   const navigate = useNavigate();
@@ -686,16 +686,16 @@ function ClubProposalsPanel({ counts }) {
         </div>
       )}
 
-      <div className={a.proposalsBar}>
-        <div className={s.tabsWrap} style={{ marginBottom:0 }}>
-          <div className={s.tabs}>
-            {['pending', 'approved', 'rejected', 'all'].map(t => (
-              <button key={t} onClick={() => setFilter(t)}
-                className={`${s.tab} ${filter === t ? s.tabOn : ''}`}>
-                {t.charAt(0).toUpperCase() + t.slice(1)}{counts ? ` (${counts[t] ?? 0})` : ''}
-              </button>
-            ))}
-          </div>
+      {/* Filter strip — same as the Event Requests tab */}
+      <div style={{ display:'flex', alignItems:'flex-end', gap:12, flexWrap:'wrap', marginBottom:20 }}>
+        <div className={ev.statusTabs} style={{ minWidth:280 }}>
+          {[['all','All'],['pending','Pending'],['approved','Approved'],['rejected','Rejected']].map(([val, label]) => (
+            <button key={val}
+              className={`${ev.statusTab} ${filter === val ? ev.statusTabOn : ''}`}
+              onClick={() => setFilter(val)}>
+              {label}{counts ? ` (${counts[val] ?? 0})` : ''}
+            </button>
+          ))}
         </div>
         <input
           value={search}
@@ -708,108 +708,151 @@ function ClubProposalsPanel({ counts }) {
       </div>
 
       {loading ? (
-        <div style={{ display:'grid', gap:12 }}>
-          {[1,2,3].map(i => <div key={i} className={s.shimmer} style={{ height:150, borderRadius:16 }} />)}
+        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          {[1,2,3].map(i => <div key={i} className={ev.skeleton} style={{ height:160 }} />)}
         </div>
       ) : shown.length === 0 ? (
-        <div style={{ textAlign:'center', padding:'56px 20px', background:'#f8f7ff', borderRadius:20 }}>
-          <div style={{ fontSize:34, marginBottom:8 }}>📭</div>
-          <div style={{ fontWeight:800, color:'#0f0a2e', marginBottom:4 }}>
-            {q ? 'No proposals match your search' : `No ${filter !== 'all' ? filter : ''} proposals`}
-          </div>
-          <p style={{ color:'#6b7280', margin:0, fontSize:13 }}>
-            New club proposals from students and visitors will appear here.
-          </p>
+        <div className={ev.empty}>
+          <div style={{ fontSize:'2rem', marginBottom:10 }}>📋</div>
+          <p>{q ? 'No proposals match your search' : `No ${filter !== 'all' ? filter : ''} proposals`}</p>
+          <span>Students and visitors propose new clubs here for your review.</span>
         </div>
       ) : (
-        <div className={a.proposalGrid}>
+        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
           {shown.map(p => {
-            const accent = proposalAccent(p);
+            const st = PROPOSAL_STATUS_META[p.status] || PROPOSAL_STATUS_META.pending;
             const d = p.details || {};
-            const facts = [
-              d.advisor?.Name && ['Advisor', d.advisor.Name],
-              d.plan?.['Expected Membership'] && ['Members', d.plan['Expected Membership']],
-              (p.schedule || d.plan?.['Meeting Frequency']) && ['Meets', p.schedule || d.plan['Meeting Frequency']],
-            ].filter(Boolean);
+            const advisor = d.advisor || {};
+            const coord = d.coordinator || {};
+            const plan = d.plan || {};
+            const org = d.organization || {};
+            const person = (o) => [o.Name, o.Email].filter(v => v && v.trim()).join(' · ');
+            const why = p.reason && p.reason !== p.vision ? p.reason : '';
             return (
-              <div key={p.id} style={{ background:'#fff', borderRadius:16, border:'1px solid #ece9fb',
-                boxShadow:'0 2px 10px rgba(15,10,46,.05)', overflow:'hidden', display:'flex', flexDirection:'column' }}>
-                <div style={{ height:4, background:accent }} />
-                <div style={{ padding:'16px 18px', display:'flex', flexDirection:'column', gap:12, flex:1 }}>
-                  {/* Header */}
-                  <div style={{ display:'flex', gap:12, alignItems:'flex-start' }}>
-                    <ClubMark p={p} />
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontWeight:800, fontSize:15.5, color:'#0f0a2e', lineHeight:1.25 }}>{p.club_name}</div>
-                      <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:4, fontSize:12, color:'#6b7280' }}>
-                        <span style={{ fontWeight:700, color:accent, textTransform:'capitalize' }}>{p.category}</span>
-                        <span>·</span>
-                        <span title={formatDate(p.created_at)}>{timeAgo(p.created_at)}</span>
-                      </div>
+              <div key={p.id} style={{
+                background:'#fff', border:'1.5px solid #f0f0f5',
+                borderRadius:12, padding:'18px 20px',
+                boxShadow:'0 1px 6px rgba(0,0,0,.04)'
+              }}>
+                {/* Proposal head */}
+                <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:10, flexWrap:'wrap' }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap', marginBottom:4 }}>
+                      <span style={{ fontSize:'.95rem', fontWeight:700, color:'#0f172a' }}>{p.club_name}</span>
+                      <span style={{ fontSize:'.7rem', fontWeight:700, padding:'2px 10px', borderRadius:20, background:st.bg, color:st.color }}>
+                        {st.label}
+                      </span>
+                      <span style={{ fontSize:'.7rem', fontWeight:800, padding:'2px 9px', borderRadius:20,
+                        background:'#eef2ff', color:'#4338ca', textTransform:'uppercase' }}>
+                        {p.category}
+                      </span>
                     </div>
-                    <StatusChip status={p.status} />
-                  </div>
-
-                  {/* Description */}
-                  <div style={{ fontSize:13, color:'#374151', lineHeight:1.55,
-                    display:'-webkit-box', WebkitLineClamp:3, WebkitBoxOrient:'vertical', overflow:'hidden' }}>
-                    {p.description}
-                  </div>
-
-                  {/* Quick facts */}
-                  {facts.length > 0 && (
-                    <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
-                      {facts.map(([k, v]) => (
-                        <span key={k} style={{ fontSize:11.5, padding:'4px 9px', borderRadius:8, background:'#f5f3ff',
-                          color:'#4b5563', maxWidth:'100%', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                          <strong style={{ color:'#4c44d4' }}>{k}:</strong> {v}
-                        </span>
-                      ))}
+                    <div style={{ fontSize:'.78rem', color:'#6b7280' }}>
+                      From <strong>{p.proposed_by_name}</strong>
+                      {p.proposed_by_email && <> · {p.proposed_by_email}</>}
+                      {' · '}{new Date(p.created_at).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' })}
                     </div>
-                  )}
-
-                  {p.admin_note && (
-                    <div style={{ fontSize:12, padding:'7px 10px', background:'#fef9c3', borderRadius:8, color:'#854d0e' }}>
-                      <strong>Admin note:</strong> {p.admin_note}
-                    </div>
-                  )}
-
-                  {/* Proposer */}
-                  <div style={{ display:'flex', alignItems:'center', gap:10, paddingTop:12, borderTop:'1px solid #f3f4f6', marginTop:'auto' }}>
-                    <div className={s.av} style={{ background:AVS[p.id % AVS.length], width:30, height:30, fontSize:11 }}>
-                      {initials(p.proposed_by_name)}
-                    </div>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:12.5, fontWeight:700, color:'#111827' }}>
-                        {p.proposed_by_name}
-                        <span style={{ marginLeft:6, fontSize:10, fontWeight:700, padding:'1px 6px', borderRadius:6,
-                          background:'#f3f4f6', color:'#6b7280', textTransform:'capitalize' }}>
-                          {p.proposed_by_role?.replace('_', ' ')}
-                        </span>
-                      </div>
-                      <div style={{ fontSize:11.5, color:'#9ca3af', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                        {p.proposed_by_email}
-                      </div>
+                    <div style={{ display:'flex', alignItems:'center', gap:5, marginTop:5, fontSize:'.72rem', color:'#7c3aed', fontWeight:600 }}>
+                      {proposerRole(p)}  →  Admin
                     </div>
                   </div>
-
-                  {/* Actions */}
-                  <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                    <button onClick={() => setViewProp(p)} style={{ ...btnGhost, flex:1 }}>View application</button>
+                  {/* Action buttons */}
+                  <div style={{ display:'flex', gap:8, flexShrink:0, flexWrap:'wrap' }}>
+                    <button onClick={() => setViewProp(p)} style={{
+                      padding:'7px 14px', background:'#fff', color:'#374151',
+                      border:'1.5px solid #e5e7eb', borderRadius:8, fontSize:'.82rem', fontWeight:600, cursor:'pointer'
+                    }}>
+                      Full application
+                    </button>
                     {p.status === 'pending' && (<>
-                      <button onClick={() => reviewAndCreate(p)} style={{ ...btnPrimary(), flex:1.4 }}>
-                        Review &amp; Create →
+                      <button onClick={() => reviewAndCreate(p)} style={{
+                        padding:'7px 16px', background:'#635bff', color:'#fff',
+                        border:'none', borderRadius:8, fontSize:'.82rem', fontWeight:700, cursor:'pointer'
+                      }}>
+                        Review &amp; Create
                       </button>
-                      <button onClick={() => { setRejectProp(p); setRejectNote(''); }}
-                        disabled={actionId === p.id} style={btnDanger}>
+                      <button onClick={() => { setRejectProp(p); setRejectNote(''); }} disabled={actionId === p.id} style={{
+                        padding:'7px 14px', background:'#fff', color:'#dc2626',
+                        border:'1.5px solid #fca5a5', borderRadius:8, fontSize:'.82rem', fontWeight:600, cursor:'pointer'
+                      }}>
                         Reject
                       </button>
                     </>)}
                     {p.status === 'approved' && p.club_id && (
-                      <button onClick={() => navigate('/admin/clubs')} style={{ ...btnGhost, flex:1 }}>Go to club</button>
+                      <button onClick={() => navigate('/admin/clubs')} style={{
+                        padding:'7px 14px', background:'#fff', color:'#635bff',
+                        border:'1.5px solid #c7c2ff', borderRadius:8, fontSize:'.82rem', fontWeight:600, cursor:'pointer'
+                      }}>
+                        Go to club
+                      </button>
                     )}
                   </div>
                 </div>
+
+                {/* Description */}
+                <ReadMore text={p.description} limit={200}
+                  style={{ fontSize:'.83rem', color:'#4b5563', lineHeight:1.5, margin:'0 0 10px' }} />
+
+                {/* Details row */}
+                <div style={{ display:'flex', flexWrap:'wrap', gap:'8px 18px', fontSize:'.78rem', color:'#6b7280' }}>
+                  <span>Category: {p.category ? p.category[0].toUpperCase() + p.category.slice(1) : '—'}</span>
+                  {plan['Expected Membership'] && <span>Expected members: {plan['Expected Membership']}</span>}
+                  {(p.schedule || plan['Meeting Frequency']) && <span>Meets: {p.schedule || plan['Meeting Frequency']}</span>}
+                  {p.founded_year && <span>Founded: {p.founded_year}</span>}
+                  {org['Type of Organization'] && <span>Type: {org['Type of Organization']}</span>}
+                  {p.tags?.length > 0 && <span>Tags: {p.tags.join(', ')}</span>}
+                </div>
+
+                {/* Proposal details — everything the proposer submitted */}
+                <div style={{ marginTop:10, background:'#f9fafb', border:'1px solid #e5e7eb',
+                  borderRadius:8, padding:'10px 12px', display:'flex', flexDirection:'column', gap:6 }}>
+                  <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                    <strong>Objectives:</strong> {p.vision || '—'}
+                  </div>
+                  {why && (
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Why this club:</strong> {why}
+                    </div>
+                  )}
+                  <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                    <strong>Faculty advisor:</strong> {person(advisor) || '—'}
+                    {advisor.Department && <> ({advisor.Department})</>}
+                  </div>
+                  <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                    <strong>Student coordinator:</strong> {person(coord) || '—'}
+                  </div>
+                  <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                    <strong>First-year events:</strong> {plan['First-Year Events'] || '—'}
+                  </div>
+                  <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                    <strong>Resources needed:</strong> {plan['Resource Requirements'] || '—'}
+                  </div>
+                  {org['Nature of Affiliation'] && (
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Affiliation:</strong> {org['Nature of Affiliation']}{org['Parent Organization'] && <> — {org['Parent Organization']}</>}
+                    </div>
+                  )}
+                  {p.rules?.length > 0 && (
+                    <div style={{ fontSize:'.78rem', color:'#4b5563' }}>
+                      <strong>Proposed rules:</strong> {p.rules.join('; ')}
+                    </div>
+                  )}
+                </div>
+
+                {/* Decision note */}
+                {p.status === 'rejected' && p.admin_note && (
+                  <div style={{ marginTop:10, background:'#fef2f2', border:'1px solid #fecaca',
+                    borderRadius:8, padding:'8px 12px', fontSize:'.8rem', color:'#7f1d1d' }}>
+                    <strong>Rejected by Admin:</strong> {p.admin_note}
+                  </div>
+                )}
+                {p.status === 'approved' && (
+                  <div style={{ marginTop:10, background:'#ecfdf5', border:'1px solid #a7f3d0',
+                    borderRadius:8, padding:'8px 12px', fontSize:'.8rem', color:'#065f46' }}>
+                    <strong>Approved</strong>{p.reviewed_at ? ` on ${new Date(p.reviewed_at).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' })}` : ''} — the club has been created.
+                    {p.admin_note && <> Note: {p.admin_note}</>}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -830,10 +873,6 @@ function ClubProposalsPanel({ counts }) {
             <div style={{ padding:'22px 24px', color:'#fff',
               background:`linear-gradient(135deg, ${proposalAccent(viewProp)}, #1a1040)` }}>
               <div style={{ display:'flex', gap:14, alignItems:'flex-start' }}>
-                <div style={{ width:54, height:54, borderRadius:16, background:'rgba(255,255,255,.18)',
-                  display:'flex', alignItems:'center', justifyContent:'center', fontWeight:900, fontSize:19, flexShrink:0 }}>
-                  {initials(viewProp.club_name)}
-                </div>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontSize:11, fontWeight:700, letterSpacing:'.08em', textTransform:'uppercase', opacity:.8 }}>
                     Club Proposal
