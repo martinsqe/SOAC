@@ -857,6 +857,29 @@ const updateLiveScore = async (req, res, next) => {
     const score = mapLiveScore(withTimerComputed(rows[0]));
     emitScoreUpdate(req, req.params.scoreId, { score });
 
+    /* A score corrected after the match ended: carry it onto the fixture and the MVP
+       card, and refresh the report (the winner itself only changes by ending again). */
+    const scoreChanged = ['teamScore', 'opponentScore', 'scoreData'].some(k => updates[k] !== undefined);
+    if (rows[0].status === 'ended' && scoreChanged) {
+      (async () => {
+        const fin = computeFinalScore(rows[0]);
+        if (rows[0].fixture_id) {
+          await pgPool.query(
+            `UPDATE event_fixtures
+             SET score_a = CASE WHEN team_a_name = $3 THEN $1::int ELSE $2::int END,
+                 score_b = CASE WHEN team_a_name = $3 THEN $2::int ELSE $1::int END
+             WHERE id = $4::bigint AND winner_name IS NOT NULL`,
+            [fin.home, fin.away, rows[0].home_team || '', rows[0].fixture_id]
+          );
+        }
+        await pgPool.query(
+          `UPDATE match_mvp SET home_score = $1, away_score = $2, updated_at = NOW() WHERE score_id = $3::bigint`,
+          [fin.home, fin.away, req.params.scoreId]
+        );
+        await refreshReportForScore(req.params.scoreId);
+      })().catch(err => console.error('[live-scores] post-match score sync failed:', err.message));
+    }
+
     res.json({ score });
   } catch (err) { next(err); }
 };
@@ -896,6 +919,12 @@ const endLiveScore = async (req, res, next) => {
     if (!currentRows.length) return res.status(404).json({ message: 'Scoreboard not found.' });
     const current = withTimerComputed(currentRows[0]);
     const winnerName = req.body.winnerName ? String(req.body.winnerName).trim() : null;
+    /* The winner feeds the bracket, the report and the certificates, so it has to be
+       one of the two teams on this scoreboard. */
+    if (winnerName && current.home_team && current.opponent_name
+        && ![current.home_team, current.opponent_name].includes(winnerName)) {
+      return res.status(400).json({ message: `The winner must be ${current.home_team} or ${current.opponent_name}.` });
+    }
     const { rows } = await pgPool.query(
       `UPDATE club_live_scores
        SET status = 'ended',
@@ -914,41 +943,45 @@ const endLiveScore = async (req, res, next) => {
 
     const { home: finalHomeScore, away: finalAwayScore } = computeFinalScore(current);
 
-    /* Write winner back to event_fixtures and broadcast bracket update */
-    if (winnerName) {
-      const broadcastResult = (fixtureId, eventId) => {
-        const io = req.app.get('io');
-        if (io && eventId) {
-          io.emit('bracket:result:updated', {
-            eventId:   String(eventId),
-            fixtureId: String(fixtureId),
-            winner:    winnerName,
-            teamA:     current.home_team     || '',
-            teamB:     current.opponent_name || '',
-          });
-        }
-        if (eventId) bracketEngine.advanceBracket({ eventId, io }).catch(() => {});
-      };
-
-      if (current.fixture_id) {
-        /* Explicitly linked fixture — update winner + scores */
-        pgPool.query(
-          `UPDATE event_fixtures SET winner_name = $1, score_a = $2, score_b = $3 WHERE id = $4::bigint`,
-          [winnerName, finalHomeScore, finalAwayScore, current.fixture_id]
-        ).then(() => broadcastResult(current.fixture_id, current.event_id)).catch(() => {});
-      } else if (current.home_team && current.opponent_name) {
-        /* No fixture link — find by team names and write scores too */
-        pgPool.query(
-          `SELECT id, event_id FROM event_fixtures
-           WHERE winner_name IS NULL AND team_a_name = $1 AND team_b_name = $2`,
-          [current.home_team, current.opponent_name]
-        ).then(({ rows: fx }) => {
-          if (fx.length !== 1) return;
-          return pgPool.query(
-            `UPDATE event_fixtures SET winner_name = $1, score_a = $2, score_b = $3 WHERE id = $4::bigint`,
-            [winnerName, finalHomeScore, finalAwayScore, fx[0].id]
-          ).then(() => broadcastResult(fx[0].id, fx[0].event_id));
-        }).catch(() => {});
+    /* Write the result onto its fixture: the linked one, or else the one in this
+       event between these two teams (either way round, scores swapped to match) */
+    let fixture = null;
+    if (current.fixture_id) {
+      const { rows: fx } = await pgPool.query(
+        `SELECT id, event_id, team_a_name, team_b_name, winner_name, division FROM event_fixtures WHERE id = $1::bigint`,
+        [current.fixture_id]
+      );
+      fixture = fx[0] || null;
+    } else if (current.home_team && current.opponent_name) {
+      const { rows: fx } = await pgPool.query(
+        `SELECT id, event_id, team_a_name, team_b_name, winner_name, division FROM event_fixtures
+         WHERE ($3::bigint IS NULL OR event_id = $3::bigint)
+           AND ((team_a_name = $1 AND team_b_name = $2) OR (team_a_name = $2 AND team_b_name = $1))
+         ORDER BY (winner_name IS NULL) DESC, id DESC`,
+        [current.home_team, current.opponent_name, current.event_id || null]
+      );
+      /* only when it's unambiguous: one unplayed match between them (or exactly one match) */
+      const open = fx.filter(f => !f.winner_name);
+      fixture = open.length === 1 ? open[0] : (fx.length === 1 ? fx[0] : null);
+    }
+    const resultEventId = fixture?.event_id || current.event_id || null;
+    const previousWinner = fixture?.winner_name || null;
+    if (fixture && winnerName) {
+      const homeIsA = fixture.team_a_name === current.home_team;
+      await pgPool.query(
+        `UPDATE event_fixtures SET winner_name = $1, score_a = $2, score_b = $3 WHERE id = $4::bigint`,
+        [winnerName, homeIsA ? finalHomeScore : finalAwayScore, homeIsA ? finalAwayScore : finalHomeScore, fixture.id]
+      );
+      const io = req.app.get('io');
+      if (io && resultEventId) {
+        io.emit('bracket:result:updated', {
+          eventId:   String(resultEventId),
+          fixtureId: String(fixture.id),
+          winner:    winnerName,
+          teamA:     fixture.team_a_name || '',
+          teamB:     fixture.team_b_name || '',
+          division:  fixture.division,
+        });
       }
     }
 
@@ -1003,6 +1036,16 @@ const endLiveScore = async (req, res, next) => {
       console.error('[mvp] auto-detect error:', mvpErr.message, mvpErr.stack);
     }
 
+    /* Now that the result and the MVP are saved: move the bracket on (undoing the
+       old winner's next match if this re-ended match changed the winner) and bring
+       the report up to date — in that order, in the background. */
+    if (resultEventId) {
+      bracketEngine.syncAfterResult({
+        eventId: resultEventId, io: req.app.get('io'), division: fixture?.division || current.division,
+        oldWinner: fixture && winnerName ? previousWinner : null, newWinner: fixture && winnerName ? winnerName : null,
+      }).catch(() => {});
+    }
+
     const score = mapLiveScore(withTimerComputed(rows[0]));
     emitScoreUpdate(req, req.params.scoreId, { score });
     res.json({ score });
@@ -1048,6 +1091,7 @@ const uploadMvpPhotoCtrl = async (req, res, next) => {
       [photoUrl, req.params.scoreId, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'MVP record not found — end the game first.' });
+    refreshReportForScore(req.params.scoreId).catch(() => {});
     res.json({ mvp: rows[0] });
   } catch (err) { next(err); }
 };
@@ -1091,6 +1135,7 @@ const setMvpPlayer = async (req, res, next) => {
         live.home_team || '', live.opponent_name || '', sc.sport || 'general',
       ]
     );
+    refreshReportForScore(req.params.scoreId).catch(() => {});
     res.json({ mvp: rows[0] });
   } catch (err) { next(err); }
 };
@@ -1219,6 +1264,20 @@ function computeFinalScore(row) {
   }
   return { home: Number(row.team_score || 0), away: Number(row.opponent_score || 0) };
 }
+
+/* The event a scoreboard belongs to (its own link, else its MVP record's), then
+   bring that event's report up to date — after an MVP or a final score changes. */
+const refreshReportForScore = async (scoreId) => {
+  const { rows } = await pgPool.query(
+    `SELECT COALESCE(cls.event_id, m.event_id, f.event_id) AS event_id
+     FROM club_live_scores cls
+     LEFT JOIN match_mvp m ON m.score_id = cls.id
+     LEFT JOIN event_fixtures f ON f.id = cls.fixture_id
+     WHERE cls.id = $1::bigint`,
+    [scoreId]
+  );
+  if (rows[0]?.event_id) await autoRefreshReportIfExists(rows[0].event_id);
+};
 
 const BASKET_EVENT_TYPES = new Set([
   'shot_made', 'shot_missed', 'assist', 'rebound_off', 'rebound_def', 'foul', 'turnover', 'steal', 'block',
@@ -1474,19 +1533,25 @@ const deleteLiveScore = async (req, res, next) => {
        fixture that was only auto-created because of the now-undone winner. Scoped to
        this scoreboard's own division so an identically-named team in the other
        division is never touched. */
+    let fixtureWinner = null;
+    let fixtureEventId = null;
     if (deleted.fixture_id) {
-      await pgPool.query(
-        `UPDATE event_fixtures SET score_a = NULL, score_b = NULL, winner_name = NULL WHERE id = $1::bigint`,
+      const { rows: fx } = await pgPool.query(
+        `UPDATE event_fixtures f SET score_a = NULL, score_b = NULL, winner_name = NULL
+         FROM (SELECT id, winner_name, event_id FROM event_fixtures WHERE id = $1::bigint) old
+         WHERE f.id = old.id
+         RETURNING old.winner_name, old.event_id`,
         [deleted.fixture_id]
-      ).catch(() => {});
+      ).catch(() => ({ rows: [] }));
+      fixtureWinner = fx[0]?.winner_name || null;
+      fixtureEventId = fx[0]?.event_id || null;
     }
-    if (deleted.event_id && deleted.winner_name) {
-      bracketEngine.retractDownstream({
-        eventId: deleted.event_id, teamName: deleted.winner_name, division: deleted.division, io: req.app.get('io'),
+    const eventId = deleted.event_id || fixtureEventId;
+    if (eventId) {
+      bracketEngine.syncAfterResult({
+        eventId, io: req.app.get('io'), division: deleted.division,
+        oldWinner: fixtureWinner || deleted.winner_name, newWinner: null,
       }).catch(() => {});
-    }
-    if (deleted.event_id) {
-      autoRefreshReportIfExists(deleted.event_id).catch(() => {});
     }
 
     res.json({ message: 'Scoreboard deleted.' });

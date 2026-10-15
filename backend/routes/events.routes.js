@@ -16,6 +16,16 @@ const requireCoordOrAdmin = (req, res, next) => {
   next();
 };
 
+/* After a successful change to teams, members, groups or the stage schedule, bring
+   the event's report up to date (only if one has been generated and not submitted) */
+const { autoRefreshReportIfExists } = require('../controllers/reports.controller');
+const refreshReportAfter = (req, res, next) => {
+  res.on('finish', () => {
+    if (res.statusCode < 400) autoRefreshReportIfExists(req.params.id).catch(() => {});
+  });
+  next();
+};
+
 /* Public, but reads the token when sent so an admin gets their campus's events */
 router.get('/',                  optionalAuth, ctrl.getAll);
 router.get('/live-scores',       ctrl.getLiveScores);
@@ -48,12 +58,12 @@ router.get   ('/:id/my-status',                          verifyToken, teamCtrl.g
 
 /* Team routes (coordinator/admin) */
 router.get   ('/:id/teams',                              verifyToken, requireCoordOrAdmin, teamCtrl.getTeams);
-router.post  ('/:id/teams',                              verifyToken, requireCoordOrAdmin, teamCtrl.createTeam);
-router.put   ('/:id/teams/:teamId',                      verifyToken, requireCoordOrAdmin, teamCtrl.updateTeam);
-router.delete('/:id/teams/:teamId',                      verifyToken, requireCoordOrAdmin, teamCtrl.deleteTeam);
+router.post  ('/:id/teams',                              verifyToken, requireCoordOrAdmin, refreshReportAfter, teamCtrl.createTeam);
+router.put   ('/:id/teams/:teamId',                      verifyToken, requireCoordOrAdmin, refreshReportAfter, teamCtrl.updateTeam);
+router.delete('/:id/teams/:teamId',                      verifyToken, requireCoordOrAdmin, refreshReportAfter, teamCtrl.deleteTeam);
 router.patch ('/:id/teams/:teamId/clear',                verifyToken, requireCoordOrAdmin, teamCtrl.toggleClear);
-router.post  ('/:id/teams/:teamId/members',              verifyToken, requireCoordOrAdmin, teamCtrl.addMember);
-router.delete('/:id/teams/:teamId/members/:memberId',    verifyToken, requireCoordOrAdmin, teamCtrl.removeMember);
+router.post  ('/:id/teams/:teamId/members',              verifyToken, requireCoordOrAdmin, refreshReportAfter, teamCtrl.addMember);
+router.delete('/:id/teams/:teamId/members/:memberId',    verifyToken, requireCoordOrAdmin, refreshReportAfter, teamCtrl.removeMember);
 
 /* Fixtures routes */
 router.get  ('/:id/public-fixtures',                    teamCtrl.getPublicFixtures);                                    /* public */
@@ -64,18 +74,18 @@ router.delete('/:id/fixtures/:fixtureId',               verifyToken, requireCoor
 
 /* Stage schedule routes (estimated date/venue per later bracket round) */
 router.get('/:id/stage-schedule', verifyToken, requireCoordOrAdmin, teamCtrl.getStageSchedule);
-router.put('/:id/stage-schedule', verifyToken, requireCoordOrAdmin, teamCtrl.saveStageSchedule);
+router.put('/:id/stage-schedule', verifyToken, requireCoordOrAdmin, refreshReportAfter, teamCtrl.saveStageSchedule);
 
 router.get('/:id/mvp', cd.getEventMvp); /* public — MVP card for any completed match in this event */
 
 /* Groups routes */
 router.get   ('/:id/public-groups',                       groupCtrl.getPublicGroups);                              /* public */
 router.get   ('/:id/groups',                              verifyToken, requireCoordOrAdmin, groupCtrl.getGroups);   /* coord  */
-router.post  ('/:id/groups',                              verifyToken, requireCoordOrAdmin, groupCtrl.createGroup);
-router.patch ('/:id/groups/:groupId',                     verifyToken, requireCoordOrAdmin, groupCtrl.renameGroup);
-router.delete('/:id/groups/:groupId',                     verifyToken, requireCoordOrAdmin, groupCtrl.deleteGroup);
-router.post  ('/:id/groups/:groupId/assign',              verifyToken, requireCoordOrAdmin, groupCtrl.assignTeam);
-router.delete('/:id/groups/:groupId/teams/:teamId',       verifyToken, requireCoordOrAdmin, groupCtrl.unassignTeam);
+router.post  ('/:id/groups',                              verifyToken, requireCoordOrAdmin, refreshReportAfter, groupCtrl.createGroup);
+router.patch ('/:id/groups/:groupId',                     verifyToken, requireCoordOrAdmin, refreshReportAfter, groupCtrl.renameGroup);
+router.delete('/:id/groups/:groupId',                     verifyToken, requireCoordOrAdmin, refreshReportAfter, groupCtrl.deleteGroup);
+router.post  ('/:id/groups/:groupId/assign',              verifyToken, requireCoordOrAdmin, refreshReportAfter, groupCtrl.assignTeam);
+router.delete('/:id/groups/:groupId/teams/:teamId',       verifyToken, requireCoordOrAdmin, refreshReportAfter, groupCtrl.unassignTeam);
 
 /* Certificate template routes (admin only — only AdminEvents.jsx does event creation/uploads) */
 router.get ('/:id/certificate-templates',                   verifyToken, requireAdmin, certCtrl.listTemplates);

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../../api/client';
+import { getSocket } from '../../realtime/socket';
 import es from '../../pages/Coordinator/CoordEvents.module.css';
 import PagedA4 from '../PagedA4/PagedA4';
 import EventReportDocument from '../EventReportDocument/EventReportDocument';
@@ -60,6 +61,22 @@ export default function EventReportEditor({ event, showToast = () => {}, onRepor
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [regEvent._id]);
 
+
+  /* The server rebuilds a draft report whenever teams, groups, results, scores or
+     MVPs change — reload it so this editor shows the latest. Only the generated
+     data changes; the text being typed here is kept (it syncs per report id). */
+  useEffect(() => {
+    const socket = getSocket();
+    const onUpdated = ({ eventId }) => {
+      if (String(eventId) !== String(regEvent._id)) return;
+      api.get(`/reports/events/${regEvent._id}`)
+        .then(d => { if (d.report) setEventReport(d.report); })
+        .catch(() => {});
+    };
+    socket.on('report:updated', onUpdated);
+    return () => socket.off('report:updated', onUpdated);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [regEvent._id]);
 
   /* Sync narrative form whenever a different report loads. participants_count
      defaults to the auto-counted registration total but can be overridden

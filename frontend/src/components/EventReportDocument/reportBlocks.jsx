@@ -3,6 +3,7 @@ import { SUPPORTING_DOCS } from './reportConstants';
 import { Linkified, Row } from './ReportChrome';
 import r from '../../pages/Coordinator/CoordReports.module.css';
 import d from './EventReportDocument.module.css';
+import GameMvpCard from './GameMvpCard';
 
 /* The finished report as a list of A4 page blocks (see PagedA4) — shared by the
    Reports pages and the editor's preview. Tables are one block per row so they
@@ -14,7 +15,8 @@ const DIVISION_LABEL = { boys: 'Boys', girls: 'Girls' };
 const orNA = (v) => (v === undefined || v === null || String(v).trim() === '' ? 'N.A.' : v);
 
 /* The report as a list of page blocks (also used by the editor's preview) */
-export function reportBlocks(data, { isSports: isSportsProp } = {}) {
+/* mvpAction(m) — the editor's photo button under each game MVP card */
+export function reportBlocks(data, { isSports: isSportsProp, mvpAction = null } = {}) {
   const mvpCardRef = undefined; // the lifted MVP card markup expects this name
   const nav = data.narrative || {};
   const isSports = isSportsProp ?? data.is_sports ?? data.event_category === 'sports';
@@ -188,46 +190,26 @@ export function reportBlocks(data, { isSports: isSportsProp } = {}) {
       add(`res-${division}-gap`, <div className={d.spacer} />);
     });
 
-    /* ── Game MVPs ── */
-    add('sp-mvps', <div className={d.sportsBlock}>
-      {/* ── GAME MVPs — sports only ── */}
-      {isSports && data.match_mvps?.length > 0 && (
-        <div className={r.detailSection}>
-          <div className={r.detailSectionTitle}>Game MVPs</div>
-          <div className={r.gameMvpRow}>
-            {data.match_mvps.map((m, i) => (
-              <div key={m.score_id || i} className={r.gameMvpCard}>
-                {m.player_photo
-                  ? <img src={m.player_photo} alt="" className={r.gameMvpBg} />
-                  : <div className={r.gameMvpBgFallback} />
-                }
-                <div className={r.gameMvpOverlay} />
-                <div className={r.gameMvpContent}>
-                  <div className={r.gameMvpLabel}>MVP</div>
-                  <div className={r.gameMvpName}>
-                    {(m.player_name || '').split(' ').map((w, wi) => (
-                      <span key={wi} style={{ display: 'block' }}>{w}</span>
-                    ))}
-                  </div>
-                  <div className={r.gameMvpMeta}>{m.home_team} vs {m.opponent_name}</div>
-                  <div className={r.gameMvpStats}>
-                    {[['PTS', m.stats?.PTS], ['AST', m.stats?.AST],
-                      ['REB', m.stats?.REB], ['STL', m.stats?.STL]]
-                      .filter(([, v]) => v > 0).map(([k, v]) => (
-                        <div key={k} className={r.gameMvpChip}>
-                          <span className={r.gameMvpVal}>{v}</span>
-                          <span className={r.gameMvpKey}>{k}</span>
-                        </div>
-                      ))}
-                  </div>
-                </div>
+    /* ── Game MVPs — photo grid like the event photos: 2 per row, 6 to a page, a
+       new page (heading repeated) for every further 6 games ── */
+    const gameMvps = data.match_mvps || [];
+    for (let i = 0; i < gameMvps.length; i += 2) {
+      const pageStart = i % 6 === 0;
+      add(`sp-mvp-${i}`, (
+        <div>
+          {pageStart && <div className={d.photoBoxTitle}>{i === 0 ? 'Game MVPs' : 'Game MVPs (continued)'}</div>}
+          <div className={d.photoRow}>
+            {gameMvps.slice(i, i + 2).map((m, j) => (
+              <div key={m.score_id || i + j} className={d.mvpCell}>
+                <GameMvpCard m={m} />
+                {mvpAction && mvpAction(m)}
               </div>
             ))}
           </div>
         </div>
-      )}
-
-    </div>);
+      ), { breakBefore: pageStart });
+    }
+    if (gameMvps.length) add('sp-mvp-gap', <div className={d.spacer} />);
 
     /* ── Bracket + Boys/Girls tournament winners ── */
     add('sp-bracket', <div className={d.sportsBlock}>

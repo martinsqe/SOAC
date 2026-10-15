@@ -135,6 +135,46 @@
 }
 .photoRowSingle .photo { height: 320px; }
 
+/* ── Game MVP cards (sports) — same grid and height as the event photos ── */
+.mvpCell { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mvpCard {
+  position: relative;
+  height: 270px;
+  overflow: hidden;
+  background: #1e1b4b;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.mvpNoPhoto { background: linear-gradient(160deg, #1e1b4b 0%, #312e81 100%); }
+.mvpPhoto { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+.mvpShade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, rgba(0,0,0,.55) 0%, rgba(0,0,0,.05) 38%, rgba(0,0,0,.72) 100%);
+}
+.mvpInfo {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 12px;
+  color: #fff;
+  text-align: center;
+}
+.mvpTag   { font-size: 13px; font-weight: 900; letter-spacing: .25em; color: #fde68a; text-shadow: 0 1px 3px rgba(0,0,0,.5); }
+.mvpName  { font-size: 20px; font-weight: 900; text-transform: uppercase; line-height: 1.15; margin-top: 2px; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.mvpMatch { font-size: 12px; font-weight: 600; color: rgba(255,255,255,.82); margin-top: 4px; }
+.mvpStats { margin-top: auto; display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.mvpChip  {
+  display: flex; flex-direction: column; align-items: center; min-width: 44px; padding: 4px 10px;
+  background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.25);
+}
+.mvpVal { font-size: 16px; font-weight: 800; line-height: 1.1; }
+.mvpKey { font-size: 10px; letter-spacing: .08em; opacity: .85; }
+
 /* ── Supporting documents ── */
 .docsHead {
   background: #b4c6e7;

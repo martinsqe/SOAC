@@ -50,6 +50,7 @@ const io = new Server(server, {
   },
 });
 app.set('io', io);
+require('./controllers/reports.controller').setReportsIo(io);
 
 // Socket.io authentication middleware
 io.use((socket, next) => {

@@ -48,6 +48,13 @@ pgPool.query(
    Needs `ev` = events and `c` = the report's club joined in. Mirrors
    frontend/src/utils/eventKind.js. */
 const IS_SPORTS_SQL = isSportsSql('ev', 'c');
+/* A scoreboard's final score for one side — volleyball counts sets won once a set
+   has finished (team_score/opponent_score restart every set); same rule as
+   computeFinalScore() in clubDetail.controller.js */
+const FINAL_SCORE_SQL = (s, side) => `CASE
+  WHEN ${s}.sport = 'volleyball' AND jsonb_array_length(COALESCE(${s}.score_data->'sets', '[]'::jsonb)) > 0
+    THEN COALESCE((${s}.score_data->'${side}'->>'setsWon')::int, 0)
+  ELSE COALESCE(${s}.${side === 'home' ? 'team_score' : 'opponent_score'}, 0) END`;
 const VOLUNTEERS_COUNT_SQL = `COALESCE(jsonb_array_length(CASE WHEN jsonb_typeof(er.narrative->'volunteers') = 'array' THEN er.narrative->'volunteers' END), 0)`;
 
 /* Volunteers the coordinator / FA adds to a non-sports report: [{ name, enrollment, role }] */
@@ -336,25 +343,40 @@ const regenerateReport = async (eventId, clubId, userId) => {
       }));
       const groupsByDivision = (division) => groupRowsWithMembers.filter(g => g.division === division);
 
-      /* ── Fixtures / Results — live scores always win over stored fixture scores ── */
+      /* ── Fixtures / Results. Ending a scoreboard writes the final score and winner
+         onto its fixture, and a coordinator can correct a fixture by hand, so the
+         fixture is the record. An ended scoreboard only fills in a fixture that was
+         never given a result (e.g. older matches); its score is volleyball-aware
+         (sets won once a set has finished). Done before reading, so this very
+         report already shows it. ── */
+      const { rowCount: backfilled } = await pgPool.query(
+        `UPDATE event_fixtures f
+         SET score_a = CASE WHEN ls.home_team = f.team_a_name THEN ls.fin_home ELSE ls.fin_away END,
+             score_b = CASE WHEN ls.home_team = f.team_a_name THEN ls.fin_away ELSE ls.fin_home END,
+             winner_name = ls.winner_name
+         FROM (
+           SELECT DISTINCT ON (COALESCE(s.fixture_id::text, s.home_team || '|' || s.opponent_name))
+                  s.fixture_id, s.event_id, s.home_team, s.opponent_name, s.winner_name,
+                  ${FINAL_SCORE_SQL('s', 'home')} AS fin_home, ${FINAL_SCORE_SQL('s', 'away')} AS fin_away
+           FROM club_live_scores s
+           WHERE s.status = 'ended' AND s.winner_name IS NOT NULL AND s.event_id = $1::bigint
+           ORDER BY COALESCE(s.fixture_id::text, s.home_team || '|' || s.opponent_name), s.ended_at DESC NULLS LAST
+         ) ls
+         WHERE f.event_id = $1::bigint AND f.winner_name IS NULL
+           AND ls.winner_name IN (f.team_a_name, f.team_b_name)
+           AND (ls.fixture_id = f.id
+                OR (ls.fixture_id IS NULL
+                    AND ((ls.home_team = f.team_a_name AND ls.opponent_name = f.team_b_name)
+                      OR (ls.home_team = f.team_b_name AND ls.opponent_name = f.team_a_name))))`,
+        [eventId]
+      );
+      /* a result filled in here may complete a round — let the bracket move on */
+      if (backfilled) setImmediate(() => require('../services/bracketEngine').advanceBracket({ eventId }).catch(() => {}));
+
       const { rows: fixturesQ } = await pgPool.query(
-        `SELECT f.id, f.team_a_name, f.team_b_name,
-                COALESCE(cls_id.team_score,     cls_nm.team_score,     f.score_a) AS score_a,
-                COALESCE(cls_id.opponent_score, cls_nm.opponent_score, f.score_b) AS score_b,
-                COALESCE(cls_id.winner_name, cls_nm.winner_name, f.winner_name)   AS winner_name,
+        `SELECT f.id, f.team_a_name, f.team_b_name, f.score_a, f.score_b, f.winner_name,
                 f.match_date, f.match_time, f.round, f.venue, f.division
          FROM event_fixtures f
-         -- primary: match by explicit fixture_id link
-         LEFT JOIN club_live_scores cls_id
-           ON cls_id.fixture_id = f.id
-           AND cls_id.status = 'ended'
-         -- fallback: match by team names within same event
-         LEFT JOIN club_live_scores cls_nm
-           ON cls_nm.event_id  = f.event_id
-           AND cls_nm.home_team     = f.team_a_name
-           AND cls_nm.opponent_name = f.team_b_name
-           AND cls_nm.status        = 'ended'
-           AND cls_id.id IS NULL
          WHERE f.event_id = $1::bigint
          ORDER BY f.match_date, f.sort_order`,
         [eventId]
@@ -447,36 +469,6 @@ const regenerateReport = async (eventId, clubId, userId) => {
       venue:             ev.venue || null,
     };
 
-    if (isSports) {
-      /* ── Backfill fixture scores from live scores — always overwrite with latest live result ── */
-      await pgPool.query(
-        `UPDATE event_fixtures f
-         SET score_a = ls.team_score,
-             score_b = ls.opponent_score,
-             winner_name = COALESCE(ls.winner_name, f.winner_name)
-         FROM club_live_scores ls
-         WHERE ls.fixture_id = f.id
-           AND ls.status = 'ended'
-           AND f.event_id = $1::bigint`,
-        [eventId]
-      );
-      /* Backfill by team name for scoreboards not linked to a fixture_id */
-      await pgPool.query(
-        `UPDATE event_fixtures f
-         SET score_a = ls.team_score,
-             score_b = ls.opponent_score,
-             winner_name = COALESCE(ls.winner_name, f.winner_name)
-         FROM club_live_scores ls
-         WHERE ls.event_id      = f.event_id
-           AND ls.home_team     = f.team_a_name
-           AND ls.opponent_name = f.team_b_name
-           AND ls.status        = 'ended'
-           AND ls.fixture_id    IS NULL
-           AND f.event_id       = $1::bigint`,
-        [eventId]
-      );
-    }
-
     /* ── Keep existing photos, narrative, and coordinator-chosen MVP photos ── */
     const { rows: existing } = await pgPool.query(
       `SELECT photos, highlight_photos, tournament_mvp, narrative FROM event_reports WHERE event_id = $1::bigint`,
@@ -540,17 +532,37 @@ const regenerateReport = async (eventId, clubId, userId) => {
    after every bracket-affecting event (fixture created/retracted, match ended,
    scoreboard deleted). Never creates a report the coordinator hasn't started, and
    never touches one that's already been submitted to admin. */
-const autoRefreshReportIfExists = async (eventId) => {
-  try {
-    const { rows } = await pgPool.query(
-      `SELECT club_id, submitted_at FROM event_reports WHERE event_id = $1::bigint`,
-      [eventId]
-    );
-    if (!rows.length || rows[0].submitted_at) return;
-    await regenerateReport(eventId, rows[0].club_id, null);
-  } catch (err) {
-    console.error('[reports] autoRefreshReportIfExists error:', err.message);
-  }
+/* One refresh per event at a time: a request that arrives while one is running
+   just asks for another pass afterwards, so the report always ends up built from
+   the latest data — an older, slower refresh can never overwrite a newer one. */
+const reportRefreshes = new Map(); // eventId → { again, promise }
+/* Socket.IO server (set from server.js) — tells open report editors to reload */
+let reportsIo = null;
+const setReportsIo = (io) => { reportsIo = io; };
+const refreshReportOnce = async (eventId) => {
+  const { rows } = await pgPool.query(
+    `SELECT club_id, submitted_at FROM event_reports WHERE event_id = $1::bigint`,
+    [eventId]
+  );
+  if (!rows.length || rows[0].submitted_at) return;
+  await regenerateReport(eventId, rows[0].club_id, null);
+  reportsIo?.emit('report:updated', { eventId: String(eventId) });
+};
+const autoRefreshReportIfExists = (eventId) => {
+  const key = String(eventId);
+  const running = reportRefreshes.get(key);
+  if (running) { running.again = true; return running.promise; }
+  const state = { again: false };
+  state.promise = (async () => {
+    try {
+      do {
+        state.again = false;
+        await refreshReportOnce(eventId).catch(err => console.error('[reports] autoRefreshReportIfExists error:', err.message));
+      } while (state.again);
+    } finally { reportRefreshes.delete(key); }
+  })();
+  reportRefreshes.set(key, state);
+  return state.promise;
 };
 
 /* ══════════════════════════════════════════════
@@ -1070,4 +1082,4 @@ const updateNarrative = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { downloadReportDocx, removeReportPhoto, uploadReportLogos, removeReportLogo, uploadReportBanner, removeReportBanner, uploadReportSignature, removeReportSignature, getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, uploadHighlightPhotos, replaceHighlightPhoto, updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto, updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears, regenerateReport, autoRefreshReportIfExists };
+module.exports = { setReportsIo, downloadReportDocx, removeReportPhoto, uploadReportLogos, removeReportLogo, uploadReportBanner, removeReportBanner, uploadReportSignature, removeReportSignature, getEventReport, listReports, generateReport, deleteReport, uploadReportPhotos, replaceReportPhoto, uploadHighlightPhotos, replaceHighlightPhoto, updateMvpPhoto, updateMvpSidePhoto, updateMatchMvpPhoto, updateNarrative, submitReport, getSubmittedReports, getAnnualReport, getReportYears, regenerateReport, autoRefreshReportIfExists };

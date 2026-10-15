@@ -110,28 +110,28 @@ export function buildEditorBlocks(ctx) {
   add('ed-vol-gap', <div className={d.spacer} />);
 
   /* ── Participants + sports sections: the finished report's own blocks ── */
-  const docBlocks = reportBlocks({ ...report, narrative: nav }, { isSports });
+  const docBlocks = reportBlocks({ ...report, narrative: nav }, {
+    isSports,
+    /* each game MVP's photo is added right under their card */
+    mvpAction: locked ? null : (m) => (
+      <div style={{ textAlign: 'center' }}>
+        {fileBtn(m.player_photo ? 'Replace MVP photo' : '+ Add MVP photo', (f) => onMatchMvpPhoto(m.score_id, f[0]))}
+      </div>
+    ),
+  });
   docBlocks
     .filter(b => /^(p-|sp-|res-)/.test(b.key))
     .forEach(b => add(`doc-${b.key}`, b.node));
 
-  /* ── MVP photos (sports) ── */
-  if (isSports && !locked && (report.match_mvps?.length > 0 || report.tournament_mvp)) {
+  /* ── Tournament MVP photo (sports) — game MVP photos are added on their cards ── */
+  if (isSports && !locked && report.tournament_mvp) {
     add('ed-mvp-photos', (
       <div className={ed.editStrip} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-        <span className={ed.editStripLabel}>MVP photos</span>
-        {(report.match_mvps || []).map((m, i) => (
-          <div key={m.score_id || i} className={ed.mvpLine}>
-            <span>Game MVP — <strong>{m.player_name || 'Unnamed'}</strong> ({m.home_team} vs {m.opponent_name})</span>
-            {fileBtn(m.player_photo ? 'Replace photo' : '+ Add photo', (f) => onMatchMvpPhoto(m.score_id, f[0]))}
-          </div>
-        ))}
-        {report.tournament_mvp && (
-          <div className={ed.mvpLine}>
-            <span>Tournament MVP — <strong>{report.tournament_mvp.player_name || 'Unnamed'}</strong></span>
-            {fileBtn(report.tournament_mvp.photo ? 'Replace photo' : '+ Add photo', (f) => onTournamentMvpPhoto(f[0]), { busy: mvpPhotoUploading })}
-          </div>
-        )}
+        <span className={ed.editStripLabel}>MVP photo</span>
+        <div className={ed.mvpLine}>
+          <span>Tournament MVP — <strong>{report.tournament_mvp.player_name || 'Unnamed'}</strong></span>
+          {fileBtn(report.tournament_mvp.photo ? 'Replace photo' : '+ Add photo', (f) => onTournamentMvpPhoto(f[0]), { busy: mvpPhotoUploading })}
+        </div>
       </div>
     ));
   }

@@ -173,4 +173,20 @@ async function retractDownstream({ eventId, teamName, division, io }) {
   }
 }
 
-module.exports = { advanceBracket, retractDownstream, ...bracketMath };
+/* After any result changes (a scoreboard ends, a result is typed in, corrected or
+   cleared): undo the old winner's not-yet-played later matches if the winner changed,
+   then advance the bracket, then refresh the report — strictly in that order, so each
+   step sees the previous one's changes. Never throws. */
+async function syncAfterResult({ eventId, io, division, oldWinner = null, newWinner = null }) {
+  if (!eventId) return;
+  try {
+    if (oldWinner && oldWinner !== newWinner) {
+      await retractDownstream({ eventId, teamName: oldWinner, division, io });
+    }
+    if (newWinner) await advanceBracket({ eventId, io });
+  } finally {
+    await autoRefreshReportIfExists(eventId).catch(() => {});
+  }
+}
+
+module.exports = { advanceBracket, retractDownstream, syncAfterResult, ...bracketMath };

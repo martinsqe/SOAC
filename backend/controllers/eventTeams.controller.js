@@ -608,7 +608,7 @@ const recordResult = async (req, res, next) => {
        two teams (it feeds the bracket, winners, certificates and the report), and
        scores must be whole numbers, zero or more. */
     const { rows: fxRows } = await pgPool.query(
-      `SELECT team_a_name, team_b_name FROM event_fixtures WHERE id = $1 AND event_id = $2`,
+      `SELECT team_a_name, team_b_name, winner_name, division FROM event_fixtures WHERE id = $1 AND event_id = $2`,
       [req.params.fixtureId, req.params.id]
     );
     if (!fxRows.length) return res.status(404).json({ message: 'Fixture not found.' });
@@ -649,10 +649,12 @@ const recordResult = async (req, res, next) => {
         division:  r.division,
       });
     }
-    if (r.winner_name) {
-      /* Processes both divisions internally — a no-op for whichever one didn't change. */
-      bracketEngine.advanceBracket({ eventId: req.params.id, io }).catch(() => {});
-    }
+    /* Move the bracket on — undoing the old winner's not-yet-played next match if the
+       winner was changed or cleared — then refresh the report (scores-only edits too). */
+    bracketEngine.syncAfterResult({
+      eventId: req.params.id, io, division: r.division,
+      oldWinner: fxRows[0].winner_name || null, newWinner: r.winner_name || null,
+    }).catch(() => {});
     res.json({ fixtureId: String(r.id), scoreA: r.score_a, scoreB: r.score_b, winner: r.winner_name });
   } catch (err) { next(err); }
 };

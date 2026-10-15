@@ -165,9 +165,11 @@ async function buildReportDocx(report) {
   const volunteersCount = nav.volunteers_count || (volunteers.length ? String(volunteers.length) : '');
 
   /* load every image up front, in parallel */
-  const [soac, rku, banner, signatureImgs, ...rest] = await Promise.all([
+  const gameMvps = isSports ? (report.match_mvps || []) : [];
+  const [soac, rku, banner, signatureImgs, mvpImgs, ...rest] = await Promise.all([
     loadImage(SOAC_LOGO), loadImage(RKU_LOGO), loadImage(report.banner),
     Promise.all(signatories.map(sg => loadImage(sg.signature))),
+    Promise.all(gameMvps.map(m => loadImage(m.player_photo))),
     ...(report.logos || []).map(loadImage), ...photosSrc.map(loadImage),
   ]);
   const collabLogos = rest.slice(0, (report.logos || []).length).filter(Boolean);
@@ -310,15 +312,30 @@ async function buildReportDocx(report) {
       ], [1620, 2160, 1260, 2160, 1800]));
       body.push(gap());
     }
-    if ((report.match_mvps || []).length) {
-      body.push(table([
-        headRow('Game MVPs', 3),
-        new TableRow({ tableHeader: true, children: ['Player', 'Match', 'Stats'].map(h => cell(h, { bold: true, size: 20 })) }),
-        ...report.match_mvps.map(m => new TableRow({ children: [
-          m.player_name || '—', `${m.home_team || ''} vs ${m.opponent_name || ''}`,
-          Object.entries(m.stats || {}).filter(([, v]) => Number(v) > 0).map(([k, v]) => `${k} ${v}`).join(' · ') || '—',
-        ].map(t => cell(t, { size: 20 })) })),
-      ], [3000, 3600, 2400]));
+    /* Game MVPs — photo grid like the event photos: 2 per row, 6 to a page */
+    const STAT_ORDER = ['PTS', 'GLS', 'RUNS', 'WKTS', 'ATK', 'AST', 'REB', 'BLK', 'STL', 'TKLS', 'RAIDS', 'WIN', 'BALLS'];
+    const mvpStatsText = (stats = {}) => Object.entries(stats)
+      .filter(([k, v]) => !['YC', 'ERR'].includes(k) && Number(v) > 0)
+      .sort(([x], [y]) => ((STAT_ORDER.indexOf(x) + 1) || 99) - ((STAT_ORDER.indexOf(y) + 1) || 99))
+      .slice(0, 4).map(([k, v]) => `${k} ${v}`).join('  ·  ');
+    const mvpCell = (m, img) => cell([
+      img ? new Paragraph({ alignment: AlignmentType.CENTER, children: [fitImage(img, 290, 175)] })
+          : para('No photo', { align: AlignmentType.CENTER, size: 18, before: 500, after: 500 }),
+      para('MVP', { align: AlignmentType.CENTER, bold: true, size: 18, before: 80 }),
+      para(m.player_name || 'Unnamed', { align: AlignmentType.CENTER, bold: true, size: 24 }),
+      para(`${m.home_team || ''} vs ${m.opponent_name || ''}`, { align: AlignmentType.CENTER, size: 18 }),
+      ...(mvpStatsText(m.stats) ? [para(mvpStatsText(m.stats), { align: AlignmentType.CENTER, size: 18 })] : []),
+    ], { width: 50 });
+    for (let p = 0; p < gameMvps.length; p += 6) {
+      body.push(new Paragraph({ children: [new PageBreak()] }));
+      const rows = [headRow(p === 0 ? 'Game MVPs' : 'Game MVPs (continued)', 2, 'F5F5F5')];
+      for (let i = p; i < Math.min(p + 6, gameMvps.length); i += 2) {
+        rows.push(new TableRow({ cantSplit: true, children: [
+          mvpCell(gameMvps[i], mvpImgs[i]),
+          gameMvps[i + 1] ? mvpCell(gameMvps[i + 1], mvpImgs[i + 1]) : cell('', { width: 50 }),
+        ] }));
+      }
+      body.push(table(rows, [4500, 4500]));
       body.push(gap());
     }
     const winners = DIVISIONS.map(([div, label]) => {
