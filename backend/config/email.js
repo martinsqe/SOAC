@@ -45,8 +45,33 @@ async function getGmailAccessToken() {
   return _gmailAccessToken;
 }
 
-async function sendViaGmailApi({ to, subject, html }) {
-  const mime = await new MailComposer({ from: FROM, to, subject, html, replyTo: REPLY_TO }).compile().build();
+/* Plain-text twin of an HTML email. Spam filters distrust HTML-only mail, and it is
+   what a text-only mail app shows. Links keep their address. */
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", apos: "'", nbsp: ' ', middot: '·', rarr: '→', mdash: '—', ndash: '–' };
+const stripTags = (s) => s.replace(/<[^>]+>/g, '');
+const htmlToText = (html) => stripTags(String(html)
+  .replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, '')
+  .replace(/<img[^>]*>/gi, '')
+  .replace(/<a\s[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (_, href, label) => {
+    const text = stripTags(label).trim();
+    return !text || text === href ? href : `${text} (${href})`;
+  })
+  .replace(/<br\s*\/?>/gi, '\n')
+  .replace(/<\/(p|div|tr|h[1-6]|li|table|hr)>|<hr[^>]*>/gi, '\n')
+  .replace(/<\/t[dh]>/gi, '   '))
+  .replace(/&(#\d+|#x[0-9a-f]+|\w+);/gi, (m, e) =>
+    ENTITIES[e.toLowerCase()] ?? (e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10)) : m))
+  .split('\n').map(l => l.replace(/[ \t]+/g, ' ').trim()).join('\n')
+  .replace(/\n{3,}/g, '\n\n')
+  .trim();
+
+/* Every message: HTML and its plain-text twin */
+const message = ({ to, subject, html }) => ({
+  from: FROM, to, subject, html, text: htmlToText(html), replyTo: REPLY_TO,
+});
+
+async function sendViaGmailApi(payload) {
+  const mime = await new MailComposer(message(payload)).compile().build();
   const raw  = mime.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   const res  = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method:  'POST',
@@ -89,8 +114,8 @@ function getSmtpTransport() {
   return _smtpTransport;
 }
 
-async function sendViaSmtp({ to, subject, html }) {
-  await getSmtpTransport().sendMail({ from: FROM, to, subject, html, replyTo: REPLY_TO });
+async function sendViaSmtp(payload) {
+  await getSmtpTransport().sendMail(message(payload));
 }
 
 /* Provider chain, in priority order. */
@@ -174,10 +199,21 @@ async function send({ to, subject, html }) {
 }
 
 /* ── HTML header / footer helpers ────────────────────────────────────────── */
-const header = (gradient = '#635BFF,#a78bfa') => `
-  <div style="background:linear-gradient(135deg,${gradient});border-radius:12px;padding:20px 24px;margin-bottom:24px;text-align:center">
-    <p style="margin:0;font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.5px">SOAC · RK University</p>
-    <p style="margin:4px 0 0;font-size:12px;color:rgba(255,255,255,0.7)">Student Organizations Advisory Council</p>
+/* The SOAC (RKU) logo in every email's header, loaded from Cloudinary (the same
+   image host the portal uses for uploads): a permanent public address, so it shows
+   the moment the email opens, never as an attachment, and doesn't depend on any
+   deploy. Source file: backend/assets/email-logo.png — if the logo changes, upload
+   it again and update this address (or set EMAIL_LOGO_URL). */
+const LOGO_SRC = process.env.EMAIL_LOGO_URL
+  || 'https://res.cloudinary.com/dcb9lt8wm/image/upload/v1792046376/soac-email/email-logo.png';
+/* Brand red (from the logo) for every button */
+const BTN_RED   = '#D92E1D';
+/* SOAC (RKU) logo — the image is 1008×322 (cleaned up from images/logo.png), shown
+   at 260px wide so it is razor sharp even on high-density phone screens */
+const header = () => `
+  <div style="text-align:center;padding:4px 0 18px;margin-bottom:24px;border-bottom:1px solid #eee">
+    <img src="${LOGO_SRC}" width="260" height="83" alt="SOAC RKU — Student Organizations Advisory Council"
+      style="display:inline-block;width:260px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none"/>
   </div>`;
 const footer = () => `
   <hr style="border:none;border-top:1px solid #eee;margin:24px 0"/>
@@ -261,7 +297,7 @@ const sendRequestsRemoved = async ({ toEmail, toName, clubNames = [] }) => {
       </div>
       <p style="color:#555;line-height:1.6">This doesn't stop you from joining. Please contact the club coordinator, or send a new request to join the ${clubNames.length === 1 ? 'club' : 'clubs'} again.</p>
       <div style="text-align:center;margin:28px 0">
-        <a href="${APP_URL}/clubs" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:10px">Request to Join Again</a>
+        <a href="${APP_URL}/clubs" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:10px">Request to Join Again</a>
       </div>
       ${footer()}
     `),
@@ -288,7 +324,7 @@ const sendJoinRequestsReopening = async ({ toEmail, toName, opensOnLabel = null 
       </div>
       <p style="color:#555;line-height:1.6">To renew your membership, send a new request to join your club${opensOnLabel ? ' from that date' : ''}. Once it's approved you'll receive a fresh account with new login details by email.</p>
       <div style="text-align:center;margin:28px 0">
-        <a href="${APP_URL}/clubs" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:10px">View Clubs</a>
+        <a href="${APP_URL}/clubs" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:10px">View Clubs</a>
       </div>
       ${footer()}
     `),
@@ -320,7 +356,7 @@ const sendBroadcastEmail = async ({ toEmail, toName, title, body, category = 'An
       ${body ? `<p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">${asParagraphs(body)}</p>` : ''}
       <p style="color:#333;font-size:15px;line-height:1.7;margin:22px 0 4px">Regards,<br/>SOAC RKU</p>
       <div style="margin:26px 0">
-        <a href="${APP_URL}/student/soac-updates" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">View SOAC Updates</a>
+        <a href="${APP_URL}/student/soac-updates" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">View SOAC Updates</a>
       </div>
       ${footer()}
     `),
@@ -367,7 +403,7 @@ const sendEventReminder = async ({ toEmail, toName, kind, event, daysToGo = null
       </p>
       <p style="color:#333;font-size:15px;line-height:1.7;margin:22px 0 4px">Regards,<br/>SOAC RKU</p>
       <div style="margin:26px 0">
-        <a href="${escapeHtml(eventUrl)}" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">${kind === 'register' ? (external ? 'Register on website' : 'Register now') : 'View event'}</a>
+        <a href="${escapeHtml(eventUrl)}" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">${kind === 'register' ? (external ? 'Register on website' : 'Register now') : 'View event'}</a>
       </div>
       ${footer()}
     `),
@@ -382,7 +418,7 @@ const para = (html) => `<p style="color:#333;font-size:15px;line-height:1.7;marg
 const signOff = () => para('Regards,<br/>SOAC RKU');
 const actionButton = (href, label) => `
   <div style="margin:26px 0">
-    <a href="${href}" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">${escapeHtml(label)}</a>
+    <a href="${href}" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">${escapeHtml(label)}</a>
   </div>`;
 const isBlank = (v) => v === undefined || v === null || String(v).trim() === '';
 
@@ -717,7 +753,7 @@ const sendClubChatNotice = async ({ toEmail, toName, clubName, clubId, senderRol
       <p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">${escapeHtml(senderRole)} has posted a new message in the ${escapeHtml(clubName)} group chat. Log in to SOAC to read it and reply.</p>
       <p style="color:#333;font-size:15px;line-height:1.7;margin:22px 0 4px">Regards,<br/>SOAC RKU</p>
       <div style="margin:26px 0">
-        <a href="${APP_URL}/student/clubs/${clubId}" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">Open club chat</a>
+        <a href="${APP_URL}/student/clubs/${clubId}" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">Open club chat</a>
       </div>
       ${footer()}
     `),
@@ -774,7 +810,7 @@ const sendClubFeedUpdate = async ({ toEmail, toName, clubName, mediaType = 'imag
       <h2 style="color:#1a1040;margin-bottom:8px">Hi ${toName || 'there'},</h2>
       <p style="color:#555;line-height:1.6">A new ${what} was just added to the <strong style="color:#635BFF">${clubName}</strong> Club Feed. Take a look at what your club has been up to!</p>
       <div style="text-align:center;margin:26px 0">
-        <a href="${APP_URL}/student/clubs-feed" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:10px">Open the Club Feed</a>
+        <a href="${APP_URL}/student/clubs-feed" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:10px">Open the Club Feed</a>
       </div>
       <div style="background:#f8f7ff;border:1.5px solid #e8e5ff;border-radius:12px;padding:16px 20px;margin:0 0 20px">
         <p style="margin:0;font-size:14px;font-weight:800;color:#1a1040">Got something to share?</p>
@@ -800,7 +836,7 @@ const sendClubFeedPostLive = async ({ toEmail, toName, clubName, mediaType = 'im
         <p style="margin:6px 0 0;font-size:13px;color:#555;line-height:1.6">The Club Feed is where your club's story gets told. Share more from your practice sessions, events and wins — showcase what you do, inspire your teammates and get your work seen.</p>
       </div>
       <div style="text-align:center;margin:26px 0">
-        <a href="${APP_URL}/student/clubs-feed" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:10px">See it &amp; add more</a>
+        <a href="${APP_URL}/student/clubs-feed" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:10px">See it &amp; add more</a>
       </div>
       ${footer()}
     `),
@@ -817,7 +853,7 @@ const sendCoordinatorCredentials = async ({ toEmail, toName, password, clubName,
     to:      toEmail,
     subject: `You've been appointed ${roleLabel} of ${clubName} — SOAC RKU`,
     html: wrap(`
-      ${header('#4c44e0,#a78bfa')}
+      ${header()}
       <h2 style="color:#1a1040;margin-bottom:8px">Congratulations, ${toName}!</h2>
       <p style="color:#555;line-height:1.6">You have been appointed as <strong style="color:#4c44e0">${roleLabel}</strong> for <strong style="color:#4c44e0">${clubName}</strong> on the SOAC RKU Platform.</p>
       <div style="background:#f5f3ff;border:1.5px solid #c4b5fd;border-radius:12px;padding:20px 24px;margin:24px 0">
@@ -842,7 +878,7 @@ const sendCoordinatorAssignment = async ({ toEmail, toName, clubName, roleLabel 
     to:      toEmail,
     subject: `You've been assigned as ${roleLabel} of ${clubName} — SOAC RKU`,
     html: wrap(`
-      ${header('#4c44e0,#a78bfa')}
+      ${header()}
       <h2 style="color:#1a1040;margin-bottom:8px">Hello, ${toName}!</h2>
       <p style="color:#555;line-height:1.6">You have been appointed as <strong style="color:#4c44e0">${roleLabel}</strong> for <strong style="color:#4c44e0">${clubName}</strong>.</p>
       <div style="background:#f0fff8;border:1.5px solid #86efac;border-radius:12px;padding:20px 24px;margin:24px 0;text-align:center">
@@ -869,7 +905,7 @@ const sendPasswordReset = async ({ toEmail, toName, token, accountLabel = null }
       <p style="color:#555;line-height:1.6">Hi ${toName || 'there'}, we received a request to reset your SOAC account password.</p>
       ${accountLabel ? `<p style="color:#555;line-height:1.6">This link resets your <strong>${accountLabel}</strong>. Your other SOAC account has its own reset email, and the two accounts must have different passwords.</p>` : ''}
       <div style="background:#f8f7ff;border:1.5px solid #e8e5ff;border-radius:12px;padding:20px 24px;margin:24px 0;text-align:center">
-        <a href="${resetUrl}" style="display:inline-block;padding:12px 20px;background:#635BFF;color:#fff;text-decoration:none;border-radius:10px;font-weight:700">Reset Password</a>
+        <a href="${resetUrl}" style="display:inline-block;padding:12px 20px;background:${BTN_RED};color:#fff;text-decoration:none;border-radius:10px;font-weight:700">Reset Password</a>
         <p style="margin:14px 0 0;font-size:12px;color:#6b7280;line-height:1.6">This link expires in 30 minutes. If the button does not work, copy and paste:</p>
         <p style="margin:8px 0 0;font-size:12px;color:#4f46e5;word-break:break-all">${resetUrl}</p>
       </div>
@@ -891,7 +927,7 @@ const sendTeamAssignment = async ({ toEmail, toName, eventTitle, division, group
     to:      toEmail,
     subject: `Your team for ${eventTitle} is set — SOAC RKU`,
     html: wrap(`
-      ${header('#10b981,#059669')}
+      ${header()}
       <h2 style="color:#1a1040;margin-bottom:8px">Hi ${toName},</h2>
       <p style="color:#555;line-height:1.6">Groups, teams, and fixtures for <strong style="color:#059669">${eventTitle}</strong> have just been declared. Here's your team:</p>
       <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:12px;padding:20px 24px;margin:24px 0">
@@ -904,7 +940,7 @@ const sendTeamAssignment = async ({ toEmail, toName, eventTitle, division, group
       </div>
       <p style="color:#555;line-height:1.6">Log in to your SOAC dashboard and open this event to see the other teams, groups, full fixture schedule, and bracket.</p>
       <div style="text-align:center;margin:24px 0">
-        <a href="${liveScoresUrl}" style="display:inline-block;padding:12px 20px;background:#059669;color:#fff;text-decoration:none;border-radius:10px;font-weight:700">🔴 Watch Live Scores</a>
+        <a href="${liveScoresUrl}" style="display:inline-block;padding:12px 20px;background:${BTN_RED};color:#fff;text-decoration:none;border-radius:10px;font-weight:700">🔴 Watch Live Scores</a>
       </div>
       ${footer()}
     `),
@@ -921,7 +957,7 @@ const sendGaloreActivityAssignment = async ({ toEmail, toName, activityTitle, ca
     to:      toEmail,
     subject: `You've been assigned to coordinate ${activityTitle} — ${umbrellaTitle}`,
     html: wrap(`
-      ${header('#4c44e0,#a78bfa')}
+      ${header()}
       <h2 style="color:#1a1040;margin-bottom:8px">Hello, ${toName}!</h2>
       <p style="color:#555;line-height:1.6">You have been assigned as <strong style="color:#4c44e0">Coordinator</strong> for <strong style="color:#4c44e0">${activityTitle}</strong>${categoryLabel ? ` (${categoryLabel})` : ''}, part of <strong>${umbrellaTitle}</strong>.</p>
       <div style="background:#f0fff8;border:1.5px solid #86efac;border-radius:12px;padding:20px 24px;margin:24px 0;text-align:center">
@@ -955,7 +991,7 @@ const actEventStatus = (achievements) => {
   return ACT_STATUS_LABEL[best.category] || 'Registered';
 };
 
-const sendActivityReport = async ({ toEmail, toName, clubs = [], attendanceSummary, categories = [], volunteering = [] }) => {
+const sendActivityReport = async ({ toEmail, toName, clubs = [], attendanceSummary, categories = [], volunteering = [], coordinatorRoles = [] }) => {
   /* Two-column rows (name/title left, status right) use a <table> rather than flexbox —
      flexbox is unreliable across email clients (notably the Gmail mobile app), and would
      otherwise render the status jammed right up against the name with no separation. */
@@ -1028,6 +1064,20 @@ const sendActivityReport = async ({ toEmail, toName, clubs = [], attendanceSumma
       <p style="color:#555;line-height:1.6">You asked to see your activity on the SOAC platform, so here it is — the clubs you're part of, every event you've taken part in, and your attendance record, all in one place.</p>
       ${clubsHtml}
       ${attHtml}
+      ${coordinatorRoles.length ? `
+      <p style="margin:24px 0 6px;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#1a1040">Club roles (${coordinatorRoles.length})</p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:6px">
+        ${coordinatorRoles.map(r => `
+        <tr>
+          <td style="padding:8px 0;border-bottom:1px solid #f0f0f3;vertical-align:top">
+            <div style="font-size:14px;font-weight:700;color:#1f2937">${escapeHtml(r.role)} of ${escapeHtml(r.clubName || '')}</div>
+            <div style="font-size:12px;color:#6b7280">${escapeHtml(r.campus || '')}</div>
+          </td>
+          <td style="padding:8px 0;border-bottom:1px solid #f0f0f3;text-align:right;vertical-align:top;font-size:13px;color:#4b5563;white-space:nowrap">${escapeHtml(r.active
+            ? `Since ${r.since ? actFmtDate(r.since) : ''}`.trim()
+            : `${r.since ? actFmtDate(r.since) : ''} – ${r.until ? actFmtDate(r.until) : ''}`)}</td>
+        </tr>`).join('')}
+      </table>` : ''}
       ${volunteering.length ? `
       <p style="margin:24px 0 6px;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#1a1040">Volunteering (${volunteering.length})</p>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:6px">

@@ -87,10 +87,38 @@ pgPool.query(`
 `).then(() => pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_volunteers_email ON event_volunteers (email)`))
   .catch(err => console.error('[reports] event_volunteers migration failed:', err.message));
 
-/* After a report is submitted: record each volunteer who has an account/email,
-   then thank them by email and in-app. Fire-and-forget — never blocks submission. */
+/* A volunteer listed without an email (picked from the members, or typed in with
+   just an enrollment number): find it from their account, else from their latest
+   join request or event registration under that enrollment number. */
+const resolveVolunteerEmail = async (v) => {
+  const valid = (e) => e && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && !e.endsWith('@roster.internal') ? e.trim().toLowerCase() : '';
+  if (v.user_id) {
+    const { rows } = await pgPool.query(`SELECT email FROM users WHERE id = $1`, [v.user_id]);
+    if (valid(rows[0]?.email)) return valid(rows[0].email);
+  }
+  if (v.enrollment) {
+    const { rows } = await pgPool.query(
+      `SELECT email FROM (
+         SELECT email, updated_at AS at FROM join_requests WHERE LOWER(TRIM(enrollment_no)) = LOWER($1)
+         UNION ALL
+         SELECT email, registered_at FROM event_registrations WHERE LOWER(TRIM(enrollment_no)) = LOWER($1)
+       ) x WHERE email NOT LIKE '%@roster.internal' ORDER BY at DESC LIMIT 1`,
+      [v.enrollment.trim()]
+    );
+    if (valid(rows[0]?.email)) return valid(rows[0].email);
+  }
+  return '';
+};
+
+/* After a report is submitted: record every volunteer whose email is known (club
+   member or not), then thank them by email and in-app. Fire-and-forget — never
+   blocks submission. */
 const thankVolunteers = async (report) => {
-  const vols = sanitizeVolunteers(report.narrative?.volunteers).filter(v => v.email);
+  const vols = [];
+  for (const v of sanitizeVolunteers(report.narrative?.volunteers)) {
+    if (!v.email) v.email = await resolveVolunteerEmail(v).catch(() => '');
+    if (v.email) vols.push(v);
+  }
   if (!vols.length) return;
   const { rows: evRows } = await pgPool.query(
     `SELECT e.id, e.title, e.start_date, e.date, c.name AS club_name

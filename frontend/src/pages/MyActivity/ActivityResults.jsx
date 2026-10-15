@@ -142,6 +142,18 @@ export default function ActivityResults({ result, emptyMessage, emptyTo, emptyCt
         )}
       </div>
 
+      {result.coordinatorRoles?.length > 0 && (<>
+        <div className={s.actSectionTitle}>Club roles ({result.coordinatorRoles.length})</div>
+        {result.coordinatorRoles.map((r, i) => (
+          <div key={`role-${r.clubId}-${i}`} style={{ padding: '10px 14px', border: '1px solid #e5e7eb', borderRadius: 10, marginBottom: 8, background: '#fff' }}>
+            <div style={{ fontWeight: 700, color: '#1f1a4d' }}>{r.role} of {r.clubName}</div>
+            <div style={{ fontSize: '.8rem', color: '#6b7280', marginTop: 2 }}>
+              {[r.campus, r.active ? (r.since && `Since ${fmt(r.since)}`) : `Former · ${fmt(r.since)} – ${fmt(r.until)}`].filter(Boolean).join(' · ')}
+            </div>
+          </div>
+        ))}
+      </>)}
+
       {result.volunteering?.length > 0 && (<>
         <div className={s.actSectionTitle}>Volunteering ({result.volunteering.length})</div>
         {result.volunteering.map((v, i) => (

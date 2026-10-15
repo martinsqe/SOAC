@@ -696,8 +696,28 @@ const buildActivity = async (email, { includeAnswers = false } = {}) => {
     eventDate: v.event_date, venue: v.venue || '', recordedAt: v.created_at,
   }));
 
-  if (!regRows.length && !volunteering.length) {
-    return { participated: false, clubs, volunteering };
+  /* Clubs this person has been appointed to run (Student Coordinator / Faculty
+     Advisor), current and past. An assignment row is reactivated in place, so for a
+     current role updated_at is when it last started; for a past one, when it ended. */
+  const { rows: roleRows } = await pgPool.query(
+    `SELECT a.club_id, c.name AS club_name, c.campus, u.role, a.is_active, a.created_at, a.updated_at
+     FROM coordinator_club_assignments a
+     JOIN users u ON u.id = a.user_id
+     JOIN clubs c ON c.id = a.club_id
+     WHERE LOWER(u.email) = $1
+     ORDER BY a.is_active DESC, a.updated_at DESC NULLS LAST`,
+    [email]
+  ).catch(() => ({ rows: [] }));
+  const coordinatorRoles = roleRows.map(r => ({
+    clubId: String(r.club_id), clubName: r.club_name, campus: r.campus || '',
+    role: r.role === 'faculty_coordinator' ? 'Faculty Advisor' : 'Student Coordinator',
+    active: r.is_active,
+    since: r.is_active ? (r.updated_at || r.created_at) : r.created_at,
+    until: r.is_active ? null : r.updated_at,
+  }));
+
+  if (!regRows.length && !volunteering.length && !coordinatorRoles.length) {
+    return { participated: false, clubs, volunteering, coordinatorRoles };
   }
 
   const { rows: uRows } = await pgPool.query(
@@ -795,6 +815,7 @@ const buildActivity = async (email, { includeAnswers = false } = {}) => {
     hasAccount: !!userId,
     clubs,
     volunteering,
+    coordinatorRoles,
     attendanceSummary,
     categories: Object.entries(categories).map(([key, events]) => ({
       key, label: ACTIVITY_BUCKET_LABEL[key], events,
@@ -851,7 +872,7 @@ const activityByEmail = async (req, res, next) => {
     }
 
     const data = await buildActivity(email);
-    if (!data.participated && !data.clubs?.length && !data.volunteering?.length) {
+    if (!data.participated && !data.clubs?.length && !data.volunteering?.length && !data.coordinatorRoles?.length) {
       return res.json(data);
     }
 
@@ -863,6 +884,7 @@ const activityByEmail = async (req, res, next) => {
       toEmail: email, toName,
       clubs: data.clubs, attendanceSummary: data.attendanceSummary, categories: data.categories,
       volunteering: data.volunteering || [],
+      coordinatorRoles: data.coordinatorRoles || [],
     });
     await pgPool.query(
       `INSERT INTO activity_email_requests (email, last_sent_at) VALUES ($1, NOW())
