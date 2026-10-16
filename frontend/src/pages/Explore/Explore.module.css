@@ -1,22 +1,50 @@
 .page { background: #fff; min-height: 100vh; }
 
-.header {
-  text-align: center;
-  margin-bottom: 60px;
+/* Video carousel band (components/VideoCarousel) with the heading at its foot.
+   Each tile is about 3/4 as tall as it is wide: 3 tiles on big screens (band 4:1),
+   2 on tablets (8:3), 1 on phones (4:3) — the same breakpoints the carousel uses. */
+.galleryHero {
+  position: relative;
+  overflow: hidden;
+  background: #050000;
+  aspect-ratio: 4 / 1;
+  padding: 0 0 28px;
+  display: flex;
+  align-items: flex-end;   /* the words sit at the bottom of the band */
 }
+.heroText { position: relative; max-width: 520px; }
 
 .title {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: clamp(24px, 3vw, 38px);
   font-weight: 900;
-  font-size: 2.5rem;
-  margin-bottom: 12px;
-  color: #0a0a0a;
+  letter-spacing: -1.2px;
+  line-height: 1.06;
+  margin: 10px 0 11px;
+  color: #fff;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, .35);
+}
+/* Big screens: the whole heading on one line, still from the left */
+@media (min-width: 900px) {
+  .heroText   { max-width: none; }
+  .title      { white-space: nowrap; }
+  .titleBreak { display: none; }
+}
+.title span {
+  background: linear-gradient(130deg, #ff9b9b, #ffe0e0);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
 }
 
 .sub {
-  color: #6b7280;
-  max-width: 600px;
-  margin: 0 auto;
-  line-height: 1.7;
+  font-size: 14px;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, .78);
+  max-width: 500px;
+  margin: 0;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, .4);
 }
 
 /* ── Justified collage: full-width rows, each photo at its own shape — no gaps ── */
@@ -46,10 +74,10 @@
 .card:hover .img { transform: scale(1.04); }
 
 /* ── Responsive ── */
-@media (max-width: 720px) {
-  .title { font-size: 2rem; }
+/* The same tile shape on smaller screens: 2 tiles on tablets, 1 on phones */
+@media (max-width: 899px) {
+  .galleryHero { aspect-ratio: 8 / 3; padding-bottom: 24px; }
 }
-
-@media (max-width: 420px) {
-  .title { font-size: 1.7rem; }
+@media (max-width: 599px) {
+  .galleryHero { aspect-ratio: 4 / 3; padding-bottom: 20px; }
 }

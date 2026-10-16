@@ -1,5 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import s from './Explore.module.css';
+import VideoCarousel from '../../components/VideoCarousel/VideoCarousel';
+
+/* Header videos, in this order — square, silent copies of the originals made for
+   the carousel (frontend/public/hero), so every tile shows the whole video */
+const HERO_VIDEOS = [
+  { src: '/hero/soac22.mp4',     label: 'SOAC 2022' },
+  { src: '/hero/rasotsav.mp4',   label: 'Rasotsav celebrations' },
+  { src: '/hero/rolemodel.mp4',  label: 'Role Model Series' },
+  { src: '/hero/basketball.mp4', label: 'Basketball' },
+  { src: '/hero/volleyball.mp4', label: 'Volleyball' },
+];
 
 // ar: the photo's own width ÷ height — every photo is shown at exactly this shape,
 //     so it appears whole, just as it looks when opened from the folder
@@ -152,12 +163,20 @@ export default function Explore() {
 
   return (
     <div className={s.page}>
-      <div className="wrap" style={{ padding: '120px 0 80px' }}>
-
-        <div className={s.header}>
-          <h1 className={s.title}>Discover, Invent and Create your Passion.</h1>
-          <p className={s.sub}>SOAC is here to make it possible. Explore your Interests and Join a Club.</p>
+      {/* Video band: the SOAC videos in a carousel (arrows, or on its own every 30 s),
+          each shown whole with a blurred copy around it and a black gradient rising
+          from the bottom; the heading stays put while the videos slide underneath. */}
+      <div className={s.galleryHero}>
+        <VideoCarousel videos={HERO_VIDEOS} />
+        <div className="wrap" style={{ position: 'relative', zIndex: 3, width: '100%', pointerEvents: 'none' }}>
+          <div className={s.heroText}>
+            <h1 className={s.title}>Discover, Invent and<br className={s.titleBreak} /> <span>Create your Passion.</span></h1>
+            <p className={s.sub}>SOAC is here to make it possible. Explore your Interests and Join a Club.</p>
+          </div>
         </div>
+      </div>
+
+      <div className="wrap" style={{ padding: '0 0 80px' }}>
 
         <div ref={boxRef} className={s.collage}>
           {rows.map(([from, to], r) => {

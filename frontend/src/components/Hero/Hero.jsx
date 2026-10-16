@@ -31,7 +31,7 @@ const Hero = () => {
       <div className={styles.hcontent}>
         <div className={`${styles.htag} fade`}>
           <div className={styles.hdot} />
-          SOAC &middot; RK University &middot; Est. 2019
+          SOAC &middot; RK University &middot; Est. 2015
         </div>
 
         <h1 className={`${styles.hh1} fade delay-1`}>
@@ -66,7 +66,7 @@ const Hero = () => {
             <div className={styles.hsl}>Events / Year</div>
           </div>
           <div className={styles.hs}>
-            <div className={styles.hsn}>{new Date().getFullYear() - 2019}+</div>
+            <div className={styles.hsn}>{new Date().getFullYear() - 2015}+</div>
             <div className={styles.hsl}>Years</div>
           </div>
         </div>

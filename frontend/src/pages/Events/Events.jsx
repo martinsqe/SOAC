@@ -409,7 +409,7 @@ const Events = () => {
   const { id: linkedEventId } = useParams(); // set when opened via a shared /events/:id link
   const { user } = useAuth();
   const stats = useStats();
-  const [filter, setFilter] = useState('all');
+  const filter = 'all'; // every category is shown (the category filter bar was removed)
   const [linkedEventMissing, setLinkedEventMissing] = useState(false);
   const [linkedEventClosed, setLinkedEventClosed] = useState(null); // null | the event's title
   const [copiedEventKey, setCopiedEventKey] = useState(null);
@@ -790,7 +790,6 @@ const Events = () => {
         {/* photos on the right, black fade from the left (same as the Clubs page) */}
         <HeroCarousel slides={EVENT_HERO_SLIDES} />
         <div className="wrap" style={{ position: 'relative', zIndex: 2, width: '100%' }}>
-          <div className={styles.evHeroTag}><span className={styles.evHeroDot} />Events @ SOAC</div>
           <h1 className={`${styles.evTitle} fade`}>Campus Life,<br /><span>Unforgettable.</span></h1>
           <p className={`${styles.evSub} fade`}>
             From Galore and Sports Fiesta to Singing Finals and MUN Summits — every event is a memory waiting to happen.
@@ -829,36 +828,13 @@ const Events = () => {
         </div>
       )}
 
-      {/* ── FILTER BAR ── */}
-      <div className={styles.filterBar}>
-        <div className="wrap">
-          <div className={styles.filterInner}>
-            <span className={styles.filterLabel}>Filter by</span>
-            <div className={styles.filterPills}>
-              {FILTERS.map(f => (
-                <button
-                  key={f.key}
-                  className={`${styles.fp} ${filter === f.key ? styles.fpOn : ''}`}
-                  onClick={() => setFilter(f.key)}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* ══════════════════════════════════════════
           UPCOMING EVENTS
       ══════════════════════════════════════════ */}
-      <div className={styles.section}>
+      <div className={`${styles.section} ${styles.sectionFirst}`}>
         <div className="wrap">
           <div className={styles.sectionHead}>
             <div>
-              <div className={styles.sectionPill} style={{ background: '#fff3f3', color: '#D32F2F' }}>
-                <span className={styles.liveDot} /> Upcoming
-              </div>
               <h2 className={styles.sectionTitle}>Register for upcoming events.</h2>
             </div>
             {upcoming.length > 0 && (

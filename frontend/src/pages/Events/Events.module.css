@@ -5,33 +5,12 @@
 /* ── HERO ── */
 .evHero {
   background: #050000;
-  padding: 96px 0 80px;
-  min-height: 440px;
+  padding: 88px 0 18px;   /* the band ends just below the numbers */
   position: relative;
   overflow: hidden;
   display: flex;
   align-items: center;
 }
-/* Text colours as on the home page hero */
-.evHeroTag {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, .5);
-}
-.evHeroDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--red);
-  animation: evHeroBlink 2s ease-in-out infinite;
-}
-@keyframes evHeroBlink { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 .evHero .evTitle span {
   background: linear-gradient(130deg, #ff9b9b, #ffe0e0);
   -webkit-background-clip: text;
@@ -62,7 +41,7 @@
 }
 
 .evStat {
-  padding: 16px 30px;
+  padding: 12px 30px 0;
   text-align: center;
 }
 .evStat:first-child { padding-left: 0; }
@@ -140,6 +119,8 @@
   background: #F8F8F8;
   padding: 48px 0 56px;
 }
+/* The first section, straight under the header band */
+.sectionFirst { padding-top: 32px; }
 
 .pastSection {
   background: var(--dark);
@@ -748,9 +729,11 @@ a.upRegBtn {
 }
 
 @media (max-width: 768px) {
-  .evStats { flex-wrap: wrap; }
-  .evStat { flex: 1; min-width: 100px; }
-  .evStat:first-child { padding-left: 30px; }
+  /* All four numbers on one line, however narrow the phone */
+  .evStats { display: flex; flex-wrap: nowrap; width: 100%; gap: 14px; }
+  .evStat, .evStat:first-child { flex: 0 1 auto; min-width: 0; padding: 10px 0 0; text-align: left; }
+  .evStatNum { font-size: clamp(17px, 5vw, 22px); white-space: nowrap; }
+  .evStatLabel { font-size: 9.5px; white-space: normal; line-height: 1.25; }
   .sectionHead { flex-direction: column; align-items: flex-start; }
   .evCtaInner { flex-direction: column; padding: 28px 24px; }
   .evCtaBtns { width: 100%; }
@@ -759,10 +742,11 @@ a.upRegBtn {
 }
 
 @media (max-width: 600px) {
-  .evHero { padding: 44px 0 36px; }
+  .evHero { padding: 44px 0 14px; }
   .evCta { padding: 40px 0; }
   .evCtaInner { padding: 24px 18px; border-radius: 14px; }
   .section { padding: 36px 0 44px; }
+  .sectionFirst { padding-top: 24px; }
   .pastSection { padding: 36px 0 44px; }
 }
 

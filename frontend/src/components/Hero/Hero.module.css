@@ -99,7 +99,7 @@
 
 .hs {
   padding: 12px 22px;
-  text-align: center;
+  text-align: left;
 }
 
 .hs:first-child {
@@ -125,22 +125,37 @@
 @media (max-width: 768px) {
   .hcontent {
     padding: 0 24px;
-    text-align: center;
+    text-align: left;
     max-width: 100%;
   }
 
-  .hctas, .hstats {
-    justify-content: center;
+  .hctas {
+    justify-content: flex-start;
   }
 
+  /* All four numbers on one line, however narrow the phone */
   .hstats {
-    flex-wrap: wrap;
+    display: flex;
+    flex-wrap: nowrap;
+    width: 100%;
+    gap: 14px;
   }
 
   .hs,
   .hs:first-child {
-    width: 50%;
-    padding: 10px;
+    flex: 0 1 auto;
+    min-width: 0;
+    padding: 10px 0;
+  }
+
+  .hsn {
+    font-size: clamp(17px, 5vw, 21px);
+    white-space: nowrap;
+  }
+
+  .hsl {
+    font-size: 8px;
+    letter-spacing: 0.6px;
   }
 
   .hgrad {
@@ -151,7 +166,7 @@
 @media (max-width: 480px) {
   .hctas {
     flex-direction: column;
-    align-items: center;
+    align-items: flex-start;
     gap: 10px;
   }
 
