@@ -19,15 +19,18 @@ const PHOTOS = [
      Spans picked from each photo's shape so the 14 fill a complete 4-column block. ── */
   { url: '/g7.png', ar: 1.235,  label: 'Classical Dance at the Ganesh Utsav Pandal', span: 'big' },
   { url: '/f.png', ar: 1.250,   label: 'Chess — Friendly Match' },
+  { url: '/art2.png', ar: 1.177, label: 'Art Club — Colour Painting Session' },
   { url: '/g3.png', ar: 1.237,  label: 'Ganesh Aarti with Faculty and Students', span: 'big' },
   { url: '/i.png', ar: 1.817,   label: 'Pharmaspectrum 2026 — Group Dance on Stage', span: 'wide' },
   { url: '/k.png', ar: 1.737,   label: "Girls' Volleyball Team with Coaches", span: 'big' },
+  { url: '/art1.png', ar: 1.347, label: 'Art Club — Painting Competition at SOE' },
   { url: '/g1.png', ar: 1.472,  label: 'Ganesh Idol Welcome Procession' },
   { url: '/g2.png', ar: 1.798,  label: 'Students Cheering at the Ganesh Procession', span: 'wide' },
   { url: '/g4.png', ar: 1.072,  label: 'Traditional Dance Pose — Ganesh Utsav', span: 'tall' },
   { url: '/f4.png', ar: 1.766,  label: 'Carrom Match — Inter-Department Games', span: 'big' },
   { url: '/g6.png', ar: 1.746,  label: 'Ganesh Puja — Students in Traditional Attire' },
   { url: '/f2.png', ar: 1.771,  label: 'Table Tennis Doubles Match' },
+  { url: '/art.png', ar: 1.277, label: 'Art Club — Painting with Watercolours' },
   { url: '/g5.png', ar: 1.887,  label: 'Group Folk Dance on Campus', span: 'wide' },
   { url: '/f3.png', ar: 1.242,  label: 'Chess — Focused Move at the Board', span: 'tall' },
   { url: '/f1.png', ar: 1.242,  label: 'Table Tennis — Forehand Return', span: 'tall' },
@@ -108,7 +111,7 @@ const mixThemes = (list) => {
   while (out.length < list.length) keys.forEach(k => { if (buckets[k].length) out.push(buckets[k].shift()); });
   return out;
 };
-const NEW_COUNT = 14;
+const NEW_COUNT = 17;
 const ORDERED = [...PHOTOS.slice(0, NEW_COUNT), ...mixThemes(PHOTOS.slice(NEW_COUNT))];
 
 /* Splits the photos (in order) into `k` rows whose widths are as even as possible

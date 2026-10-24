@@ -613,8 +613,9 @@ const Clubs = () => {
                   <button className={styles.searchClear} onClick={() => setSearch('')}>✕</button>
                 )}
               </div>
-              <button className={styles.proposeBtn} onClick={() => setShowModal(true)}>
-                + Propose a Club
+              {/* translate="no": browsers' automatic page translation was rewording this label */}
+              <button className={styles.proposeBtn} onClick={() => setShowModal(true)} translate="no">
+                + Propose Club
               </button>
             </div>
           </div>

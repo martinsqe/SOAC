@@ -270,14 +270,14 @@ export default function CoordLeaders() {
                 <div className={s.cellName}>{p.name}</div>
                 <div className={s.cellSub}>{p.email}</div>
                 <div className={s.staffTags}>
-                  <span className={s.roleTag}>{p.role}</span>
+                  <span className={s.roleTag}>{p.role === 'Student Coordinator' ? 'Convener' : p.role}</span>
                   <span className={s.assignedTag}>Assigned · dashboard access</span>
                 </div>
               </div>
             </div>
           ))}
         </div>
-        {isFA && <p className={s.hint}>Student Coordinators are assigned from “Assign Student Coordinator” at the bottom of the sidebar.</p>}
+        {isFA && <p className={s.hint}>Conveners are assigned from “Assign Convener” at the bottom of the sidebar.</p>}
       </div>
 
       {isFA && clubId && <AssignRow clubId={clubId} leadership={leadership} onAssigned={setLeadership} showToast={showToast} />}

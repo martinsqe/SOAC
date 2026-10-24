@@ -301,7 +301,7 @@ function CoordLayoutInner() {
             style={{ width: '100%', border: 'none', cursor: 'pointer', textAlign: 'left', background: 'none' }}
             onClick={() => { setAssignScOpen(true); setMobileOpen(false); }}
           >
-            <span className={s.navLabel}>Assign Student Coordinator</span>
+            <span className={s.navLabel}>Assign Convener</span>
           </button>
         </div>
       )}

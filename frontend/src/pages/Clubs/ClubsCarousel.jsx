@@ -2,6 +2,7 @@ import HeroCarousel from '../../components/HeroCarousel/HeroCarousel';
 
 /* Photos for the Clubs page header (shared HeroCarousel: right side, black fade from the left) */
 const SLIDES = [
+  { src: '/art2.png',             caption: 'Art Club — Painting Session' },
   { src: '/f9.png',               caption: 'Art Club — Drawing Session' },
   { src: '/f6.png',               caption: "Girls' Volleyball Match" },
   { src: '/f3.png',               caption: 'Chess — a focused move at the board' },
