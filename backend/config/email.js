@@ -766,7 +766,7 @@ const sendJoinRequestStats = async ({ toEmail, toName, clubName, campus, total, 
         ...(pending > 0 && pendingDays !== null && pendingDays !== undefined
           ? [`The last request sent to your club was <strong>${daysAgo(pendingDays)}</strong>.`] : []),
         pending > 0
-          ? `Kindly do the needful and review the <strong>${pending}</strong> pending request${pending === 1 ? '' : 's'} for ${club} at the earliest, approving or declining each one from your dashboard so the students can get started with the club.`
+          ? `Kindly take a review of the pending requests and do the needful as per your club strength and membership size so that students can get started with the club.`
           : `There are no pending requests for ${club} at the moment. Kindly keep checking your dashboard and do the needful as new requests come in.`,
       ],
       button: { href: `${APP_URL}/coordinator/requests`, label: 'Review requests' },
