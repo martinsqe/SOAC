@@ -42,6 +42,26 @@ const TAG_TEXT = {
   Update:'#007a5e', Finance:'#7c3aed', Announcement:'#c4005d', Achievement:'#007a5e',
 };
 
+/* Who a broadcast goes to, and how it reaches them */
+const AUDIENCES = [
+  { key: 'all',      label: 'Everyone (Students, FAs & SCs)', roles: ['student','coordinator','faculty_coordinator'] },
+  { key: 'students', label: 'Students only',                  roles: ['student'] },
+  { key: 'fa',       label: 'Faculty Advisors only',          roles: ['faculty_coordinator'] },
+  { key: 'sc',       label: 'Student Coordinators only',      roles: ['coordinator'] },
+  { key: 'staff',    label: 'Faculty Advisors & Student Coordinators', roles: ['faculty_coordinator','coordinator'] },
+];
+const DELIVERY = [
+  { key: 'both',   label: 'Dashboard + Email' },
+  { key: 'portal', label: 'Dashboard only' },
+  { key: 'email',  label: 'Email only' },
+];
+const ROLE_SHORT = { student: 'Students', faculty_coordinator: 'Faculty Advisors', coordinator: 'Student Coordinators' };
+const audienceLabel = (roles = []) => {
+  const match = AUDIENCES.find(a => a.roles.length === roles.length && a.roles.every(r => roles.includes(r)));
+  return match?.key === 'all' ? 'Everyone' : roles.map(r => ROLE_SHORT[r] || r).join(' & ');
+};
+const deliveryLabel = (d) => DELIVERY.find(x => x.key === d)?.label || 'Dashboard + Email';
+
 const CAL_TYPES = ['event','holiday','exam','deadline','academic'];
 const TYPE_META = {
   event:    { label:'Event',    color:'#635BFF', bg:'#f0f0ff' },
@@ -112,7 +132,8 @@ function BroadcastsTab({ showToast }) {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
   const [open,    setOpen]    = useState(false);
-  const [form,    setForm]    = useState({ title:'', body:'', tag:'Announcement', pinned:false });
+  const BLANK = { title:'', body:'', tag:'Announcement', pinned:false, audience:'all', delivery:'both' };
+  const [form,    setForm]    = useState(BLANK);
   const [posting, setPosting] = useState(false);
 
   const load = useCallback(() => {
@@ -131,11 +152,13 @@ function BroadcastsTab({ showToast }) {
     try {
       const { announcement } = await api.post('/announcements/soac', {
         title: form.title.trim(), body: form.body.trim(), tag: form.tag, pinned: form.pinned,
+        audience: AUDIENCES.find(a => a.key === form.audience).roles,
+        delivery: form.delivery,
       });
       setAnnouncements(p => [announcement, ...p]);
       setOpen(false);
-      setForm({ title:'', body:'', tag:'Announcement', pinned:false });
-      showToast('Announcement broadcasted!');
+      setForm(BLANK);
+      showToast(`Broadcast sent to ${audienceLabel(announcement.audience)} · ${deliveryLabel(announcement.delivery)}`);
     } catch (e) { showToast(e.message || 'Failed to broadcast.'); }
     finally { setPosting(false); }
   };
@@ -154,7 +177,7 @@ function BroadcastsTab({ showToast }) {
       <div className={s.sectionHead}>
         <div>
           <p className={s.sectionTitle}>SOAC Broadcasts</p>
-          <p className={s.sectionSub}>Campus-wide updates visible to all students and coordinators — and emailed to every SOAC member (students, Student Coordinators and Faculty Advisors), labelled with the category you choose.</p>
+          <p className={s.sectionSub}>Send updates to everyone or to one group — Students, Faculty Advisors or Student Coordinators — and choose whether each one appears on their dashboard, arrives by email, or both.</p>
         </div>
         <button className={s.btnPrimary} onClick={() => setOpen(true)}>+ New Broadcast</button>
       </div>
@@ -181,6 +204,10 @@ function BroadcastsTab({ showToast }) {
                     style={{ background: TAG_COLOR[a.tag], color: TAG_TEXT[a.tag] }}>{a.tag}</span>
                 </div>
                 {a.body && <p className={s.annoText}>{a.body}</p>}
+                <div className={s.annoTargets}>
+                  <span className={s.annoTarget}>To: {audienceLabel(a.audience)}</span>
+                  <span className={s.annoTarget}>Via: {deliveryLabel(a.delivery)}</span>
+                </div>
                 <div className={s.annoFoot}>
                   <span className={s.annoMeta}>Posted by {a.authorName} · {new Date(a.createdAt).toLocaleString()}</span>
                   <button className={s.btnDel} onClick={() => handleDelete(a._id)}>Delete</button>
@@ -200,6 +227,18 @@ function BroadcastsTab({ showToast }) {
           <div className={s.field}><label>Content</label>
             <textarea rows={4} value={form.body} onChange={e => setForm(p=>({...p, body:e.target.value}))}
               placeholder="Provide more details…" />
+          </div>
+          <div className={s.grid2}>
+            <div className={s.field}><label>Send to</label>
+              <select value={form.audience} onChange={e => setForm(p=>({...p, audience:e.target.value}))}>
+                {AUDIENCES.map(a => <option key={a.key} value={a.key}>{a.label}</option>)}
+              </select>
+            </div>
+            <div className={s.field}><label>Deliver via</label>
+              <select value={form.delivery} onChange={e => setForm(p=>({...p, delivery:e.target.value}))}>
+                {DELIVERY.map(d => <option key={d.key} value={d.key}>{d.label}</option>)}
+              </select>
+            </div>
           </div>
           <div className={s.grid2}>
             <div className={s.field}><label>Tag</label>

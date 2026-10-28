@@ -25,7 +25,7 @@ const crossCampusScope = (req, clubParam, campusParam) => {
 };
 
 const { findStudentAccount, unusablePasswordHash } = require('../services/accounts');
-const { notifyAdminsOfClubChange } = require('./clubDetail.controller');
+const { notifyAdminsOfClubChange, announceRole } = require('./clubDetail.controller');
 const { notifyManyUsers } = require('../services/notify');
 const { markApprovedWithClub, notifyProposalApproved } = require('./clubProposals.controller');
 
@@ -1263,6 +1263,11 @@ const assignClubStaff = (role) => async (req, res, next) => {
        itself, and notifyAdminsOfClubChange already no-ops for an admin actor. */
     if (role === 'coordinator') {
       notifyAdminsOfClubChange(req, req.params.id, `set ${staffName} as the Student Coordinator`).catch(() => {});
+      /* Every club member hears who their new Convener is (notification + email) */
+      announceRole(req, req.params.id, {
+        role_title: 'Convener', holder_name: staffName,
+        holder_email: String(email || '').trim().toLowerCase(), user_id: null,
+      }, { notifyHolder: false });
     }
   } catch (err) {
     if (err.code === '23505') {

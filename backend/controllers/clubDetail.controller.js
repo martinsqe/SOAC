@@ -102,15 +102,17 @@ const leadershipOf = async (clubId) => (await pgPool.query(
 )).rows;
 
 /* Tell the new role holder (email + notification, no login details) and every
-   other active member of the club (notification + email). Fire-and-forget. */
-const announceRole = async (req, clubId, leader) => {
+   other active member of the club (notification + email). Fire-and-forget.
+   notifyHolder=false when the holder was already told elsewhere (a Convener's
+   own assignment email comes from the staff-assignment flow). */
+const announceRole = async (req, clubId, leader, { notifyHolder = true } = {}) => {
   try {
     const { rows: [club] } = await pgPool.query(`SELECT name FROM clubs WHERE id = $1::bigint`, [clubId]);
     const clubName = club?.name || 'your club';
     const { sendLeadershipAssigned, sendLeadershipAnnouncement } = require('../config/email');
     const { emailEach } = require('../services/mailRecipients');
 
-    if (leader.user_id) {
+    if (notifyHolder && leader.user_id) {
       notifyUser({
         userId: leader.user_id, clubId,
         title: `You are now ${leader.role_title}`,
@@ -118,7 +120,7 @@ const announceRole = async (req, clubId, leader) => {
         type:  'leadership', url: '/student/leadership',
       }).catch(() => {});
     }
-    if (leader.holder_email) {
+    if (notifyHolder && leader.holder_email) {
       sendLeadershipAssigned({
         toEmail: leader.holder_email, toName: leader.holder_name, clubName,
         roleTitle: leader.role_title, assignedBy: req.user?.name || '',
@@ -128,8 +130,9 @@ const announceRole = async (req, clubId, leader) => {
     const { rows: members } = await pgPool.query(
       `SELECT u.id, u.name, u.email FROM student_clubs sc
        JOIN users u ON u.id = sc.user_id AND u.is_active = true
-       WHERE sc.club_id = $1::bigint AND sc.is_active = true AND u.id IS DISTINCT FROM $2`,
-      [clubId, leader.user_id || null]
+       WHERE sc.club_id = $1::bigint AND sc.is_active = true AND u.id IS DISTINCT FROM $2
+         AND LOWER(u.email) IS DISTINCT FROM LOWER($3)`,
+      [clubId, leader.user_id || null, leader.holder_email || null]
     );
     if (members.length) {
       notifyManyUsers({
@@ -1768,6 +1771,7 @@ const deleteLiveScore = async (req, res, next) => {
 module.exports = {
   getMembership,
   getLeadership, setLeadership, assignLeadershipRole, updateLeadershipRole, removeLeadershipRole,
+  announceRole,
   getMessages, postMessage,
   getTasks, createTask, updateTask, deleteTask, getTaskCompletions, saveTaskCompletions,
   updateOverview,

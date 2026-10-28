@@ -25,12 +25,6 @@ const DEFAULT_RULES = [
   'Active participation in at least one club initiative per semester.',
 ];
 
-const FIXED_STUDENT_ROLES = [
-  { label: 'Student Coordinator I',  desc: 'Leads student activities and club operations.' },
-  { label: 'Student Coordinator II', desc: 'Supports coordination and member engagement.'  },
-  { label: 'Club Treasurer',         desc: 'Manages club finances and budget tracking.'    },
-];
-
 const PRIORITY_COLOR = { high: '#ef4444', medium: '#f59e0b', low: '#22c55e' };
 const STATUS_LABEL   = { todo: 'To Do', in_progress: 'In Progress', done: 'Done' };
 const STATUS_COLOR   = { todo: '#6b7280', in_progress: '#f59e0b', done: '#22c55e' };
@@ -117,8 +111,9 @@ export default function StudentClubDetail() {
   const [membersLoaded, setMembersLoaded] = useState(false);
   const [mSearch,       setMSearch]       = useState('');
 
-  /* ── Leadership tab ── */
+  /* ── Leadership (Overview + Leadership tab) ── */
   const [leadership,   setLeadership]   = useState([]);
+  const [staff,        setStaff]        = useState([]);
   const [leaderLoaded, setLeaderLoaded] = useState(false);
 
   /* ── Chat tab ── */
@@ -147,13 +142,19 @@ export default function StudentClubDetail() {
       api.get(`/clubs/${id}`).catch(() => null),
       api.get(`/clubs/${id}/membership`).catch(() => ({ isMember: false })),
       api.get(`/clubs/${id}/members?limit=200`).catch(() => ({ members: [] })),
-    ]).then(([clubRes, memRes, mListRes]) => {
+      api.get(`/clubs/${id}/leadership`).catch(() => null),
+    ]).then(([clubRes, memRes, mListRes, leadRes]) => {
       /* Use live API data if available; fall back to the club passed via nav state */
       if (clubRes?.club) setClub(clubRes.club);
       /* if clubRes is null (API failed), keep whatever is already in state (nav state club) */
       setIsMember(!!memRes.isMember);
       setMembers(mListRes.members || []);
       setMembersLoaded(true);
+      if (leadRes) {
+        setLeadership(leadRes.leadership || []);
+        setStaff(leadRes.staff || []);
+        setLeaderLoaded(true);
+      }
     }).finally(() => setLoading(false));
   }, [id]);
 
@@ -171,7 +172,7 @@ export default function StudentClubDetail() {
 
     if (tab === 'Leadership' && !leaderLoaded) {
       api.get(`/clubs/${id}/leadership`)
-        .then(({ leadership }) => setLeadership(leadership || []))
+        .then(({ leadership, staff }) => { setLeadership(leadership || []); setStaff(staff || []); })
         .catch(() => {})
         .finally(() => setLeaderLoaded(true));
     }
@@ -285,7 +286,6 @@ export default function StudentClubDetail() {
     return (
       <div className={s.page}>
         <div className={s.empty}>
-          <div className={s.emptyIcon}>🏆</div>
           <p>Club not found</p>
           <button className={s.backBtn} onClick={() => navigate('/student/clubs')}>← Back to Clubs</button>
         </div>
@@ -307,6 +307,26 @@ export default function StudentClubDetail() {
     done:        tasks.filter(t => t.status === 'done'),
   };
 
+  /* Everyone actually assigned: Faculty Advisor, Convener(s), then the roles the
+     FA gave to members. Unfilled positions are left out entirely. */
+  const staffPeople = staff.length
+    ? staff.map(p => ({
+        key: `staff-${p.id}`, name: p.name, avatar: p.avatar,
+        role: p.role === 'Student Coordinator' ? 'Convener' : p.role,
+      }))
+    : [
+        club.facultyCoordinator && { key: 'fa', name: club.facultyCoordinator, avatar: avatarUrl(club.facultyCoordinatorAvatar), role: 'Faculty Advisor' },
+        club.coordinator        && { key: 'sc', name: club.coordinator,        avatar: avatarUrl(club.coordinatorAvatar),        role: 'Convener' },
+      ].filter(Boolean);
+  const rolePeople = leadership
+    .filter(l => l.holder_name)
+    .map(l => ({
+      key: `role-${l.id}`, name: l.holder_name, avatar: l.photo_url, role: l.role_title,
+      email: l.holder_email, phone: l.phone, desc: l.responsibilities,
+    }));
+  const leaders = [...staffPeople, ...rolePeople];
+  const conveners = staffPeople.filter(p => p.role === 'Convener').map(p => p.name);
+
   /* ──────────────────────────────────────────────────────────────────────
      Render
   ────────────────────────────────────────────────────────────────────── */
@@ -314,13 +334,12 @@ export default function StudentClubDetail() {
     <div className={s.page}>
 
       {/* ── Hero ── */}
-      <div className={s.hero}
-        style={{ background: `linear-gradient(135deg,${color}1a 0%,${color}06 100%)`, borderColor: color + '28' }}>
+      <div className={s.hero}>
         <button className={s.backLink} onClick={() => navigate('/student/clubs')}>← All Clubs</button>
 
         <div className={s.heroBody}>
           {/* Logo */}
-          <div className={s.heroLogo} style={{ background: color + '1a', borderColor: color + '40' }}>
+          <div className={s.heroLogo}>
             {club.logoUrl ? (
               <img src={club.logoUrl} alt={club.name}
                 onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
@@ -338,9 +357,9 @@ export default function StudentClubDetail() {
             <h1 className={s.heroName}>{club.name}</h1>
             {club.description && <p className={s.heroDesc}>{club.description}</p>}
             <div className={s.heroMeta}>
-              {club.coordinator && <span>👤 {club.coordinator}</span>}
-              {club.foundedYear  && <span>📅 Est. {club.foundedYear}</span>}
-              {isMember && <span className={s.memberBadge} style={{ background: color + '18', color }}>✓ Member</span>}
+              {conveners.length > 0 && <span>Convener: {conveners.join(', ')}</span>}
+              {club.foundedYear  && <span>Est. {club.foundedYear}</span>}
+              {isMember && <span className={s.memberBadge} style={{ background: color + '18', color }}>Member</span>}
             </div>
           </div>
 
@@ -392,7 +411,6 @@ export default function StudentClubDetail() {
 
             <div className={s.card}>
               <div className={s.cardHead}>
-                <span className={s.cardIcon} style={{ background: color + '18', color }}>ℹ</span>
                 <span className={s.cardTitle}>About</span>
               </div>
               <p className={s.cardText}>{club.description || 'No description available.'}</p>
@@ -406,7 +424,6 @@ export default function StudentClubDetail() {
             {club.tags?.length > 0 && (
               <div className={s.card}>
                 <div className={s.cardHead}>
-                  <span className={s.cardIcon} style={{ background: color + '18', color }}>⭐</span>
                   <span className={s.cardTitle}>Values & Focus Areas</span>
                 </div>
                 <div className={s.tagWrap}>
@@ -418,43 +435,27 @@ export default function StudentClubDetail() {
               </div>
             )}
 
-            <div className={s.card}>
-              <div className={s.cardHead}>
-                <span className={s.cardIcon} style={{ background: color + '18', color }}>👔</span>
-                <span className={s.cardTitle}>Faculty Advisor</span>
-              </div>
-              <div className={s.coordCard}>
-                <div className={s.coordAv} style={{ background: color }}>
-                  {club.facultyCoordinator?.charAt(0)?.toUpperCase() || 'F'}
+            {leaders.length > 0 && (
+              <div className={s.card}>
+                <div className={s.cardHead}>
+                  <span className={s.cardTitle}>Leadership Team</span>
                 </div>
-                <div>
-                  <div className={s.coordName}>{club.facultyCoordinator || 'TBA'}</div>
-                  <div className={s.coordRole}>Faculty Advisor</div>
-                  <div className={s.coordBadge} style={{ background: color + '18', color }}>Active</div>
+                <div className={s.overviewLeaders}>
+                  {leaders.map(p => (
+                    <div key={p.key} className={s.coordCard}>
+                      <Avatar name={p.name} src={p.avatar} size={44} color={color} />
+                      <div style={{ minWidth: 0 }}>
+                        <div className={s.coordName}>{p.name}</div>
+                        <div className={s.coordRole}>{p.role}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            </div>
+            )}
 
             <div className={s.card}>
               <div className={s.cardHead}>
-                <span className={s.cardIcon} style={{ background: color + '18', color }}>🎓</span>
-                <span className={s.cardTitle}>Student Coordinator</span>
-              </div>
-              <div className={s.coordCard}>
-                <div className={s.coordAv} style={{ background: color }}>
-                  {club.coordinator?.charAt(0)?.toUpperCase() || 'C'}
-                </div>
-                <div>
-                  <div className={s.coordName}>{club.coordinator || 'TBA'}</div>
-                  <div className={s.coordRole}>Student Coordinator</div>
-                  <div className={s.coordBadge} style={{ background: color + '18', color }}>Active</div>
-                </div>
-              </div>
-            </div>
-
-            <div className={s.card}>
-              <div className={s.cardHead}>
-                <span className={s.cardIcon} style={{ background: color + '18', color }}>📊</span>
                 <span className={s.cardTitle}>Quick Info</span>
               </div>
               <div className={s.infoList}>
@@ -504,24 +505,10 @@ export default function StudentClubDetail() {
           const activeDays    = new Set(Object.keys(dayMap));
           const hasStructured = activeDays.size > 0;
 
-          /* For generic lines that remain, give them icons */
-          const iconFor = (line) => {
-            const l = line.toLowerCase();
-            if (l.includes('hackathon') || l.includes('sprint'))  return '⚡';
-            if (l.includes('workshop'))                            return '🛠';
-            if (l.includes('showcase') || l.includes('demo'))     return '🎯';
-            if (l.includes('festival') || l.includes('fest'))     return '🎉';
-            if (l.includes('annual')   || l.includes('semester')) return '🏆';
-            if (l.includes('monthly')  || l.includes('month'))    return '📅';
-            if (l.includes('weekly')   || l.includes('every'))    return '🔄';
-            return '📌';
-          };
-
           return (
             <div className={s.scheduleWrap}>
               {!sched ? (
                 <div className={s.emptyCard}>
-                  <span style={{ fontSize: 36 }}>📆</span>
                   <p className={s.emptyCardTitle}>No schedule posted yet</p>
                   <p className={s.emptyCardSub}>Check back soon or ask your coordinator for meeting times.</p>
                 </div>
@@ -562,9 +549,6 @@ export default function StudentClubDetail() {
                     <div className={s.schedItems}>
                       {genericLines.map((line, i) => (
                         <div key={i} className={s.schedItem}>
-                          <div className={s.schedIconWrap} style={{ background: color + '14' }}>
-                            <span className={s.schedIcon}>{iconFor(line)}</span>
-                          </div>
                           <div className={s.schedBody}>
                             <p className={s.schedText}>{line.replace(/\.$/, '')}</p>
                           </div>
@@ -597,28 +581,41 @@ export default function StudentClubDetail() {
               <div className={s.loadWrap}><div className={s.spinner} /></div>
             ) : filteredMembers.length === 0 ? (
               <div className={s.empty}>
-                <div className={s.emptyIcon}>👥</div>
                 <p>{mSearch ? 'No members match your search' : 'No members yet'}</p>
               </div>
             ) : (
-              <div className={s.membersGrid}>
-                {filteredMembers.map((m, i) => {
-                  const COLORS = [color, '#FF6B35', '#3DDC84', '#FF6B9D', '#06D6A0', '#845EF7'];
-                  const av = COLORS[i % COLORS.length];
-                  return (
-                    <div key={m.id || i} className={s.memberCard}>
-                      <div className={s.memberAv} style={{ background: av }}>
-                        {m.name?.charAt(0)?.toUpperCase() || '?'}
-                      </div>
-                      <div className={s.memberInfo}>
-                        <div className={s.memberName}>{m.name}</div>
-                        <div className={s.memberMeta}>{[m.dept, m.year].filter(Boolean).join(' · ')}</div>
-                        {m.enrollmentNo && <div className={s.memberEnroll}>{m.enrollmentNo}</div>}
-                      </div>
-                      <div className={s.memberJoined}>{timeAgo(m.joined_at)}</div>
-                    </div>
-                  );
-                })}
+              <div className={s.memberTableWrap}>
+                <table className={s.memberTable}>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>Enrollment No.</th>
+                      <th>Department</th>
+                      <th>Year</th>
+                      <th>Joined</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredMembers.map((m, i) => (
+                      <tr key={m.id || i}>
+                        <td data-label="#" className={s.mtNum}>{i + 1}</td>
+                        <td data-label="Name">
+                          <div className={s.mtName}>
+                            <Avatar name={m.name} src={avatarUrl(m.avatar)} size={32} color={color} />
+                            <span>{m.name}</span>
+                          </div>
+                        </td>
+                        <td data-label="Email" className={s.mtMuted}>{m.email || '—'}</td>
+                        <td data-label="Enrollment No.">{m.enrollmentNo || '—'}</td>
+                        <td data-label="Department">{m.dept || '—'}</td>
+                        <td data-label="Year">{m.year || '—'}</td>
+                        <td data-label="Joined" className={s.mtMuted}>{timeAgo(m.joined_at) || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
@@ -631,7 +628,6 @@ export default function StudentClubDetail() {
             {/* ── Club Rules ── */}
             <div className={s.card} style={{ maxWidth: 680 }}>
               <div className={s.cardHead}>
-                <span className={s.cardIcon} style={{ background: color + '18', color }}>📋</span>
                 <span className={s.cardTitle}>Club Rules & Guidelines</span>
               </div>
               <ol className={s.ruleList}>
@@ -653,7 +649,6 @@ export default function StudentClubDetail() {
             {club.tags?.length > 0 && (
               <div className={s.card} style={{ maxWidth: 680 }}>
                 <div className={s.cardHead}>
-                  <span className={s.cardIcon} style={{ background: color + '18', color }}>⭐</span>
                   <span className={s.cardTitle}>Values & Standards</span>
                 </div>
                 <p style={{ fontSize: '.82rem', color: '#6b7280', margin: '0 0 14px' }}>
@@ -661,8 +656,7 @@ export default function StudentClubDetail() {
                 </p>
                 <div className={s.ruleStandardsList}>
                   {club.tags.map((tag, i) => (
-                    <div key={i} className={s.ruleStandardItem}
-                      style={{ borderLeftColor: color, background: color + '08' }}>
+                    <div key={i} className={s.ruleStandardItem}>
                       <span className={s.ruleStandardDot} style={{ background: color }} />
                       <span className={s.ruleStandardText}>{tag}</span>
                     </div>
@@ -680,118 +674,40 @@ export default function StudentClubDetail() {
             {!leaderLoaded ? (
               <div className={s.loadWrap}><div className={s.spinner} /></div>
             ) : (
+              leaders.length === 0 ? (
+                <div className={s.emptyCard}>
+                  <p className={s.emptyCardTitle}>No leadership assigned yet</p>
+                  <p className={s.emptyCardSub}>The Faculty Advisor will assign the club's leadership roles soon.</p>
+                </div>
+              ) : (
               <div className={s.leaderGrid}>
-
-                {/* 1 — Faculty Coordinator (always from club data) */}
-                {(() => {
-                  const fcAvatar = club.facultyCoordinatorAvatar
-                    ? (club.facultyCoordinatorAvatar.startsWith('http') ? club.facultyCoordinatorAvatar : AVATAR_BASE + club.facultyCoordinatorAvatar)
-                    : null;
-                  return (
-                    <div className={s.leaderCard} style={{ borderColor: color + '40' }}>
-                      {fcAvatar ? (
-                        <div className={s.leaderAv} style={{ padding: 0 }}>
-                          <img
-                            src={fcAvatar}
-                            alt={club.facultyCoordinator || 'Faculty Advisor'}
-                            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center', display: 'block', borderRadius: '50%' }}
-                          />
-                        </div>
-                      ) : (
-                        <div className={s.leaderAv}
-                          style={{ background: `linear-gradient(135deg,${color},${color}99)`, color: '#fff' }}>
-                          {club.facultyCoordinator?.charAt(0)?.toUpperCase() || 'F'}
-                        </div>
-                      )}
-                      <div className={s.leaderRole} style={{ color, background: color + '14' }}>
-                        Faculty Advisor
+                {leaders.map(p => (
+                  <div key={p.key} className={s.leaderCard} style={{ borderColor: color + '40' }}>
+                    {p.avatar ? (
+                      <div className={s.leaderAv} style={{ padding: 0 }}>
+                        <img
+                          src={p.avatar}
+                          alt={p.name}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center', display: 'block', borderRadius: '50%' }}
+                        />
                       </div>
-                      <div className={s.leaderName}>{club.facultyCoordinator || 'TBA'}</div>
-                      <div className={s.leaderDesc}>Oversees the club on behalf of the university.</div>
+                    ) : (
+                      <div className={s.leaderAv}
+                        style={{ background: `linear-gradient(135deg,${color},${color}99)`, color: '#fff' }}>
+                        {p.name?.charAt(0)?.toUpperCase() || '?'}
+                      </div>
+                    )}
+                    <div className={s.leaderRole} style={{ color, background: color + '14' }}>
+                      {p.role}
                     </div>
-                  );
-                })()}
-
-                {/* 2 — Student Coordinator (always from club data) */}
-                {(() => {
-                  const coordAvatar = club.coordinatorAvatar
-                    ? (club.coordinatorAvatar.startsWith('http') ? club.coordinatorAvatar : AVATAR_BASE + club.coordinatorAvatar)
-                    : null;
-                  return (
-                    <div className={s.leaderCard} style={{ borderColor: color + '40' }}>
-                      {coordAvatar ? (
-                        <div className={s.leaderAv} style={{ padding: 0 }}>
-                          <img
-                            src={coordAvatar}
-                            alt={club.coordinator || 'Student Coordinator'}
-                            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center', display: 'block', borderRadius: '50%' }}
-                          />
-                        </div>
-                      ) : (
-                        <div className={s.leaderAv}
-                          style={{ background: `linear-gradient(135deg,${color},${color}99)`, color: '#fff' }}>
-                          {club.coordinator?.charAt(0)?.toUpperCase() || 'C'}
-                        </div>
-                      )}
-                      <div className={s.leaderRole} style={{ color, background: color + '14' }}>
-                        Student Coordinator
-                      </div>
-                      <div className={s.leaderName}>{club.coordinator || 'TBA'}</div>
-                      <div className={s.leaderDesc}>Oversees all club operations and student welfare.</div>
-                    </div>
-                  );
-                })()}
-
-                {/* 3+ — Saved club leadership positions */}
-                {(leadership.length > 0 ? leadership : FIXED_STUDENT_ROLES).map((pos, i) => {
-                  const filled = !!pos.holder_name;
-                  return (
-                    <div key={pos.role_title || pos.label || i}
-                      className={`${s.leaderCard} ${!filled ? s.leaderCardOpen : ''}`}
-                      style={{ borderColor: color + '40' }}>
-                      {/* Avatar: real photo if available, else gradient initials */}
-                      {pos.photo_url ? (
-                        <div className={s.leaderAv} style={{ padding: 0 }}>
-                          <img
-                            src={pos.photo_url}
-                            alt={pos.holder_name || pos.role_title}
-                            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center', display: 'block', borderRadius: '50%' }}
-                          />
-                        </div>
-                      ) : (
-                        <div className={s.leaderAv} style={{
-                          background: filled ? `linear-gradient(135deg,${color},${color}99)` : '#f3f4f6',
-                          color: filled ? '#fff' : '#9ca3af',
-                        }}>
-                          {(pos.holder_name || pos.role_title || pos.label || '?').charAt(0)?.toUpperCase() || '?'}
-                        </div>
-                      )}
-                      <div className={s.leaderRole} style={{
-                        color: filled ? color : '#9ca3af',
-                        background: filled ? color + '14' : '#f3f4f6',
-                      }}>
-                        {pos.role_title || pos.label}
-                      </div>
-                      <div className={s.leaderName} style={{ color: filled ? '#0f0a2e' : '#9ca3af' }}>
-                        {pos.holder_name || 'Position Open'}
-                      </div>
-                      {pos.holder_email && (
-                        <div className={s.leaderEmail}>{pos.holder_email}</div>
-                      )}
-                      {pos.phone && (
-                        <div className={s.leaderPhone}>📞 {pos.phone}</div>
-                      )}
-                      {pos.responsibilities && (
-                        <div className={s.leaderDesc}>{pos.responsibilities}</div>
-                      )}
-                      {!filled && !pos.responsibilities && pos.desc && (
-                        <div className={s.leaderDesc}>{pos.desc}</div>
-                      )}
-                    </div>
-                  );
-                })}
-
+                    <div className={s.leaderName}>{p.name}</div>
+                    {p.email && <div className={s.leaderEmail}>{p.email}</div>}
+                    {p.phone && <div className={s.leaderPhone}>{p.phone}</div>}
+                    {p.desc  && <div className={s.leaderDesc}>{p.desc}</div>}
+                  </div>
+                ))}
               </div>
+              )
             )}
           </div>
         )}
@@ -807,7 +723,6 @@ export default function StudentClubDetail() {
                 )}
                 {chatLoaded && messages.length === 0 && (
                   <div className={s.chatEmpty}>
-                    <span>💬</span>
                     <p>No messages yet. Start the conversation!</p>
                   </div>
                 )}
@@ -883,13 +798,11 @@ export default function StudentClubDetail() {
               <div className={s.loadWrap}><div className={s.spinner} /></div>
             ) : tasksError ? (
               <div className={s.emptyCard} style={{ maxWidth: 420 }}>
-                <span style={{ fontSize: 36 }}>⚠️</span>
                 <p className={s.emptyCardTitle}>Could not load tasks</p>
                 <p className={s.emptyCardSub}>{tasksError}</p>
               </div>
             ) : tasks.length === 0 ? (
               <div className={s.emptyCard}>
-                <span style={{ fontSize: 36 }}>✅</span>
                 <p className={s.emptyCardTitle}>No tasks yet</p>
                 <p className={s.emptyCardSub}>Your coordinator will post tasks and to-dos here.</p>
               </div>
@@ -924,7 +837,7 @@ export default function StudentClubDetail() {
                           )}
                           <div className={s.taskMeta}>
                             {task.due_date && (
-                              <span className={s.taskDue}>📅 {formatDate(task.due_date)}</span>
+                              <span className={s.taskDue}>Due {formatDate(task.due_date)}</span>
                             )}
                             {task.created_by_name && (
                               <span className={s.taskBy}>by {task.created_by_name}</span>

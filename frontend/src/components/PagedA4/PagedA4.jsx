@@ -24,8 +24,9 @@ export const PAGE_H   = 1122;  // A4 height at 96 dpi (297 mm, rounded down so p
 const DESIGN_W        = 1040;  // every report page is drawn at this width on screen
 /* One fixed page width everywhere a report appears (Manage Event, Make Report,
    Reports pages), so every report looks the same — only its content differs.
-   Pages keep A4 proportions and are centred; a narrower space (e.g. a phone) falls
-   back to its own width (never below true A4, scrolling sideways instead).
+   Pages keep A4 proportions and are centred; a space narrower than true A4 (e.g. a
+   phone) keeps the A4 layout untouched and shrinks the whole document to fit the
+   width — no sideways scrolling, every detail intact (pinch-zoom to read closer).
    Printing zooms the pages back to exact A4 — the same content lands on the same pages. */
 const GAP             = 28;    // grey space between pages on screen (not printed)
 const WIDTH_STEP      = 24;    // width changes smaller than this are ignored (scrollbars)
@@ -51,6 +52,26 @@ export default function PagedA4({ header, footer, blocks, innerRef, mode = 'flow
   const pageW = Math.max(PAGE_W, Math.min(DESIGN_W, avail - WIDTH_STEP));
   const scale = pageW / PAGE_W;
   const pageH = Math.floor(PAGE_H * scale);
+  /* below true A4 the document is drawn at A4 and visually shrunk to fit */
+  const fit = Math.min(1, Math.max(0.1, (avail - WIDTH_STEP) / PAGE_W));
+
+  /* a transform doesn't change layout, so the box around the shrunk document is
+     sized to its scaled height — otherwise the full A4 height would stay blank */
+  const [docH, setDocH] = useState(0);
+  const [docObserver] = useState(() => (typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(entries => {
+    const h = entries[0].borderBoxSize?.[0]?.blockSize ?? entries[0].target.offsetHeight;
+    setDocH(prev => (Math.abs(prev - h) < 0.5 ? prev : h));
+  })));
+  useEffect(() => () => docObserver?.disconnect(), [docObserver]);
+  const docRef = (el) => {
+    if (typeof innerRef === 'function') innerRef(el);
+    else if (innerRef) innerRef.current = el;
+    if (el) docObserver?.observe(el);
+  };
+  const fitStyle = fit < 1 ? { transform: `scale(${fit})`, transformOrigin: 'top left' } : null;
+  const fitBox = (doc) => (fit < 1
+    ? <div className={p.fitBox} style={{ width: pageW * fit, height: docH * fit }}>{doc}</div>
+    : doc);
 
   /* Measures every block, the header and the footer — exact (fractional) heights,
      never rounded, so positions can't drift page after page — and re-paginates
@@ -59,7 +80,8 @@ export default function PagedA4({ header, footer, blocks, innerRef, mode = 'flow
     const changed = {};
     for (const e of entries) {
       const key = e.target.dataset.pageKey;
-      const h = e.target.getBoundingClientRect().height;
+      /* layout size, not on-screen size — unaffected by the fit-to-screen shrink */
+      const h = e.borderBoxSize?.[0]?.blockSize ?? e.target.getBoundingClientRect().height;
       if (key === '__header' || key === '__footer') {
         const k = key === '__header' ? 'header' : 'footer';
         setChrome(c => (Math.abs(c[k] - h) < 0.5 ? c : { ...c, [k]: h }));
@@ -107,7 +129,7 @@ export default function PagedA4({ header, footer, blocks, innerRef, mode = 'flow
   if (mode === 'pages') {
     return (
       <div ref={trackWrap} className={p.wrap}>
-        <div ref={innerRef} className={`${p.doc} ${p.docPages}`} style={{ width: pageW, '--print-zoom': printZoom }}>
+        {fitBox(<div ref={docRef} className={`${p.doc} ${p.docPages}`} style={{ width: pageW, '--print-zoom': printZoom, ...fitStyle }}>
           {pageBlocks.map((list, i) => (
             <section key={`page-${i}`} className={p.page} style={{ minHeight: pageH, marginBottom: i < pageBlocks.length - 1 ? GAP : 0 }}>
               <div ref={i === 0 ? track('__header') : undefined} className={p.chrome}>{header}</div>
@@ -117,7 +139,7 @@ export default function PagedA4({ header, footer, blocks, innerRef, mode = 'flow
               <div ref={i === 0 ? track('__footer') : undefined} className={`${p.chrome} ${p.pageFooter}`}>{footer}</div>
             </section>
           ))}
-        </div>
+        </div>)}
       </div>
     );
   }
@@ -147,7 +169,7 @@ export default function PagedA4({ header, footer, blocks, innerRef, mode = 'flow
 
   return (
     <div ref={trackWrap} className={p.wrap}>
-      <div ref={innerRef} className={p.doc} style={{ width: pageW, '--print-zoom': printZoom }}>
+      {fitBox(<div ref={docRef} className={p.doc} style={{ width: pageW, '--print-zoom': printZoom, ...fitStyle }}>
         {sheets.map((sh, i) => (
           <div key={`sheet-${i}`} className={p.sheet} style={{ top: sh.top, height: sh.height }} aria-hidden="true" />
         ))}
@@ -164,7 +186,7 @@ export default function PagedA4({ header, footer, blocks, innerRef, mode = 'flow
             return <div key={it.key} ref={track(it.key)} className={p.block}>{it.node}</div>;
           })}
         </div>
-      </div>
+      </div>)}
     </div>
   );
 }

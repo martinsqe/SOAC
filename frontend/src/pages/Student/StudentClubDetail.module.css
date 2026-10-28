@@ -51,7 +51,7 @@
 
 /* ════════════════════════════ HERO ════════════════════════════ */
 .hero {
-  border: 1px solid; border-radius: 20px;
+  background: #fff; border: 1px solid #ebebf0; border-radius: 20px;
   padding: 24px 28px 28px; margin-bottom: 8px;
 }
 .heroBody {
@@ -60,12 +60,13 @@
 }
 @media (max-width: 700px) {
   .heroBody { grid-template-columns: auto 1fr; }
+  .heroLogo { align-self: center; }
   .heroStats { grid-column: 1 / -1; }
 }
 
 .heroLogo {
   width: 80px; height: 80px; border-radius: 18px;
-  border: 2px solid; overflow: hidden;
+  overflow: hidden; background: #fff;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .heroLogo img { width: 100%; height: 100%; object-fit: contain; }
@@ -102,7 +103,7 @@
 
 .heroStats {
   display: flex; align-items: center;
-  background: rgba(255,255,255,.75); border: 1px solid rgba(0,0,0,.07);
+  background: #fff; border: 1px solid #ebebf0;
   border-radius: 14px; padding: 14px 20px; flex-shrink: 0; min-width: 200px;
 }
 .stat { text-align: center; flex: 1; padding: 0 12px; }
@@ -172,6 +173,7 @@
 }
 
 .coordCard { display: flex; align-items: center; gap: 14px; }
+.overviewLeaders { display: flex; flex-direction: column; gap: 14px; }
 .coordAv {
   width: 48px; height: 48px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
@@ -266,6 +268,48 @@
 .memberMeta   { font-size: .75rem; color: #6b7280; }
 .memberEnroll { font-size: .7rem; color: #9ca3af; margin-top: 2px; font-family: monospace; }
 .memberJoined { font-size: .7rem; color: #9ca3af; flex-shrink: 0; white-space: nowrap; }
+
+/* Members table — stacks into labelled cards on small screens */
+.memberTableWrap {
+  background: #fff; border: 1px solid #ebebf0; border-radius: 14px;
+  overflow-x: auto;
+}
+.memberTable { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.memberTable th {
+  text-align: left; padding: 12px 16px; white-space: nowrap;
+  font-size: .7rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+  color: #9ca3af; background: #fafafc; border-bottom: 1px solid #ebebf0;
+}
+.memberTable td {
+  padding: 12px 16px; color: #374151; border-bottom: 1px solid #f3f3f6;
+  vertical-align: middle;
+}
+.memberTable tbody tr:last-child td { border-bottom: none; }
+.memberTable tbody tr:hover td { background: #fafafc; }
+.mtNum   { color: #9ca3af !important; width: 40px; }
+.mtMuted { color: #6b7280 !important; word-break: break-word; }
+.mtName  { display: flex; align-items: center; gap: 10px; font-weight: 700; color: #0f0a2e; }
+
+@media (max-width: 760px) {
+  .memberTableWrap { background: transparent; border: none; overflow: visible; }
+  .memberTable, .memberTable tbody, .memberTable tr, .memberTable td { display: block; width: 100%; }
+  .memberTable thead { display: none; }
+  .memberTable tr {
+    background: #fff; border: 1px solid #ebebf0; border-radius: 12px;
+    padding: 6px 14px; margin-bottom: 10px; box-sizing: border-box;
+  }
+  .memberTable td {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    padding: 8px 0; text-align: right; box-sizing: border-box;
+  }
+  .memberTable td::before {
+    content: attr(data-label); flex-shrink: 0; text-align: left;
+    font-size: .68rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: #9ca3af;
+  }
+  .memberTable tbody tr:hover td { background: transparent; }
+  .mtNum { display: none !important; }
+  .mtMuted { min-width: 0; }
+}
 
 /* ════════════════════════════ RULES ════════════════════════════ */
 .rulesWrap { display: flex; flex-direction: column; gap: 18px; }
@@ -504,7 +548,7 @@
 .ruleStandardItem {
   display: flex; align-items: flex-start; gap: 10px;
   padding: 10px 14px; border-radius: 10px;
-  border-left: 3px solid;
+  background: #fff; border: 1px solid #f0f0f4;
 }
 .ruleStandardDot {
   width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 5px;

@@ -19,10 +19,30 @@ const { notifyManyUsers } = require('../services/notify');
 const { sendBroadcastEmail, sendClubAnnouncementEmail } = require('../config/email');
 const cache = require('../services/cache');
 
+/* SOAC broadcasts carry who they're for and how they're delivered:
+     audience — roles that receive it: student, coordinator (Student Coordinator),
+                faculty_coordinator (Faculty Advisor)
+     delivery — 'both' (dashboard + email), 'portal' (dashboard only), 'email' (email only) */
+const AUDIENCE_ROLES = ['student', 'coordinator', 'faculty_coordinator'];
+const DELIVERY_MODES = ['both', 'portal', 'email'];
+/* Adds the two columns once, after the base tables exist */
+let broadcastColsReady = null;
+const ensureTables = async () => {
+  await ensureSoacTables();
+  if (!broadcastColsReady) {
+    broadcastColsReady = pgPool.query(
+      `ALTER TABLE club_announcements
+         ADD COLUMN IF NOT EXISTS audience TEXT[]      NOT NULL DEFAULT '{student,coordinator,faculty_coordinator}',
+         ADD COLUMN IF NOT EXISTS delivery VARCHAR(10) NOT NULL DEFAULT 'both'`
+    ).catch(err => { broadcastColsReady = null; throw err; });
+  }
+  await broadcastColsReady;
+};
+
 const COLS = [
   'id', 'club_id', 'author_id', 'author_name',
   'title', 'body', 'tag', 'pinned', 'is_active',
-  'created_at', 'updated_at',
+  'created_at', 'updated_at', 'audience', 'delivery',
 ].join(', ');
 
 const toAnn = (r) => ({
@@ -38,12 +58,14 @@ const toAnn = (r) => ({
   isActive:   !!r.is_active,
   createdAt:  r.created_at,
   updatedAt:  r.updated_at,
+  audience:   r.audience || AUDIENCE_ROLES,
+  delivery:   r.delivery || 'both',
 });
 
 /* ── GET /api/announcements?clubId=<id>  (public — club news feed) ── */
 const getClubFeed = async (req, res, next) => {
   try {
-    await ensureSoacTables();
+    await ensureTables();
     const { clubId } = req.query;
     if (!clubId) {
       return res.status(400).json({ message: 'clubId query parameter is required.' });
@@ -68,32 +90,41 @@ const getClubFeed = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* ── GET /api/announcements/soac  (public — SOAC-wide feed) ── */
+/* ── GET /api/announcements/soac[?for=<role>]  (public — SOAC-wide feed)
+   ?for=student|coordinator|faculty_coordinator → only the broadcasts addressed to
+   that role and shown on the dashboard (not email-only). Without it (admin's
+   Broadcast page) every broadcast is listed. ── */
 const getSOACFeed = async (req, res, next) => {
   try {
-    await ensureSoacTables();
+    await ensureTables();
+    const role = AUDIENCE_ROLES.includes(req.query.for) ? req.query.for : null;
+    const cacheKey = role ? `announcements:soac:${role}` : 'announcements:soac';
 
-    const cached = await cache.get('announcements:soac');
+    const cached = await cache.get(cacheKey);
     if (cached) return res.json(cached);
 
     const { rows } = await pgPool.query(
       `SELECT ${COLS}
        FROM club_announcements
        WHERE club_id IS NULL AND is_active = true
+         ${role ? `AND $1 = ANY(audience) AND delivery <> 'email'` : ''}
        ORDER BY pinned DESC, created_at DESC
-       LIMIT 100`
+       LIMIT 100`,
+      role ? [role] : []
     );
 
     const result = { announcements: rows.map(toAnn) };
-    await cache.set('announcements:soac', result, 30);
+    await cache.set(cacheKey, result, 30);
     res.json(result);
   } catch (err) { next(err); }
 };
 
+const SOAC_CACHE_KEYS = ['announcements:soac', ...AUDIENCE_ROLES.map(r => `announcements:soac:${r}`)];
+
 /* ── POST /api/announcements  (coordinator → posts to own club) ── */
 const createClubAnnouncement = async (req, res, next) => {
   try {
-    await ensureSoacTables();
+    await ensureTables();
     const { title, body, tag, pinned } = req.body;
 
     if (!title?.trim()) {
@@ -190,7 +221,7 @@ const createClubAnnouncement = async (req, res, next) => {
 /* ── POST /api/announcements/soac  (admin → posts SOAC-wide) ── */
 const createSOACAnnouncement = async (req, res, next) => {
   try {
-    await ensureSoacTables();
+    await ensureTables();
     const { title, body, tag, pinned } = req.body;
 
     if (!title?.trim()) {
@@ -200,10 +231,15 @@ const createSOACAnnouncement = async (req, res, next) => {
     const validTags = ['Announcement','Event','Achievement','Update','Important','Deadline','Finance'];
     const safeTag   = validTags.includes(tag) ? tag : 'Announcement';
 
+    const audience = [...new Set((Array.isArray(req.body.audience) ? req.body.audience : AUDIENCE_ROLES)
+      .filter(r => AUDIENCE_ROLES.includes(r)))];
+    if (!audience.length) return res.status(400).json({ message: 'Choose who should receive this broadcast.' });
+    const delivery = DELIVERY_MODES.includes(req.body.delivery) ? req.body.delivery : 'both';
+
     const { rows } = await pgPool.query(
       `INSERT INTO club_announcements
-         (club_id, author_id, author_name, title, body, tag, pinned)
-       VALUES (NULL, $1, $2, $3, $4, $5, $6)
+         (club_id, author_id, author_name, title, body, tag, pinned, audience, delivery)
+       VALUES (NULL, $1, $2, $3, $4, $5, $6, $7::text[], $8)
        RETURNING ${COLS}`,
       [
         req.user.id,
@@ -212,52 +248,65 @@ const createSOACAnnouncement = async (req, res, next) => {
         (body || '').trim(),
         safeTag,
         !!pinned,
+        audience,
+        delivery,
       ]
     );
 
-    await cache.del('announcements:soac');
+    await cache.del(...SOAC_CACHE_KEYS);
     res.status(201).json({ announcement: toAnn(rows[0]) });
 
-    /* Fan out platform-wide — fire-and-forget. Students and coordinators land on
-       different routes, so this is two calls rather than one shared-url fan-out. */
-    pgPool.query(`SELECT id FROM users WHERE role = 'student' AND is_active = true`)
-      .then(({ rows: students }) => {
-        if (!students.length) return;
-        notifyManyUsers({
-          userIds: students.map(s => s.id),
-          title: title.trim(),
-          body:  (body || '').trim().slice(0, 150),
-          type:  'announcement',
-          url:   '/student/soac-updates',
-        });
-      }).catch(() => {});
-    /* Email every SOAC member — students, Student Coordinators and Faculty
-       Advisors, each address once — with the category (Event, Deadline,
-       Announcement…) clearly labelled. Background, paced by the shared email queue. */
-    pgPool.query(
-      `SELECT DISTINCT ON (LOWER(u.email)) u.email, u.name
-       FROM users u
-       WHERE u.is_active = true
-         AND u.role IN ('student', 'coordinator', 'faculty_coordinator')
-         AND COALESCE(u.email, '') <> ''
-       ORDER BY LOWER(u.email), COALESCE(u.linked_profile, false), u.id`
-    ).then(({ rows: members }) => {
-      for (const m of members) {
-        sendBroadcastEmail({ toEmail: m.email, toName: m.name, title: title.trim(), body: (body || '').trim(), category: safeTag })
-          .catch(err => console.error(`[announcements] broadcast email failed for ${m.email}:`, err.message));
+    /* Dashboard notifications — fire-and-forget. Students and coordinators land
+       on different routes, so this is one call per dashboard. */
+    if (delivery !== 'email') {
+      const staffRoles = audience.filter(r => r !== 'student');
+      if (audience.includes('student')) {
+        pgPool.query(`SELECT id FROM users WHERE role = 'student' AND is_active = true`)
+          .then(({ rows: students }) => {
+            if (!students.length) return;
+            notifyManyUsers({
+              userIds: students.map(s => s.id),
+              title: title.trim(),
+              body:  (body || '').trim().slice(0, 150),
+              type:  'announcement',
+              url:   '/student/soac-updates',
+            });
+          }).catch(() => {});
       }
-    }).catch(() => {});
-    pgPool.query(`SELECT id FROM users WHERE role IN ('coordinator', 'faculty_coordinator') AND is_active = true`)
-      .then(({ rows: coords }) => {
-        if (!coords.length) return;
-        notifyManyUsers({
-          userIds: coords.map(c => c.id),
-          title: title.trim(),
-          body:  (body || '').trim().slice(0, 150),
-          type:  'announcement',
-          url:   '/coordinator/soac',
-        });
+      if (staffRoles.length) {
+        pgPool.query(`SELECT id FROM users WHERE role = ANY($1::text[]) AND is_active = true`, [staffRoles])
+          .then(({ rows: coords }) => {
+            if (!coords.length) return;
+            notifyManyUsers({
+              userIds: coords.map(c => c.id),
+              title: title.trim(),
+              body:  (body || '').trim().slice(0, 150),
+              type:  'announcement',
+              url:   '/coordinator/soac',
+            });
+          }).catch(() => {});
+      }
+    }
+
+    /* Email the chosen roles — each address once — with the category (Event,
+       Deadline, Announcement…) clearly labelled. Background, paced by the shared
+       email queue. */
+    if (delivery !== 'portal') {
+      pgPool.query(
+        `SELECT DISTINCT ON (LOWER(u.email)) u.email, u.name
+         FROM users u
+         WHERE u.is_active = true
+           AND u.role = ANY($1::text[])
+           AND COALESCE(u.email, '') <> ''
+         ORDER BY LOWER(u.email), COALESCE(u.linked_profile, false), u.id`,
+        [audience]
+      ).then(({ rows: members }) => {
+        for (const m of members) {
+          sendBroadcastEmail({ toEmail: m.email, toName: m.name, title: title.trim(), body: (body || '').trim(), category: safeTag })
+            .catch(err => console.error(`[announcements] broadcast email failed for ${m.email}:`, err.message));
+        }
       }).catch(() => {});
+    }
   } catch (err) { next(err); }
 };
 
@@ -284,7 +333,7 @@ const remove = async (req, res, next) => {
     /* Bust both possible cache keys */
     const toDelete = ann.club_id
       ? [`announcements:club:${ann.club_id}`]
-      : ['announcements:soac'];
+      : SOAC_CACHE_KEYS;
     await cache.del(...toDelete);
 
     res.json({ message: 'Announcement deleted.' });

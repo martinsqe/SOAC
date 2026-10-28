@@ -8,6 +8,10 @@ import AdminMakeReport from './AdminMakeReport';
 import { isSportsEvent, hasTeams } from '../../utils/eventKind';
 import s from './AdminEvents.module.css';
 import ReadMore from '../../components/ReadMore/ReadMore';
+import GaloreFormBuilder from './GaloreFormBuilder';
+import StudentImportModal from '../../components/StudentImportModal/StudentImportModal';
+import { toBuilder, toPayload, builderProblems } from '../../utils/galoreForm';
+import { downloadGaloreCsv } from '../../utils/galoreCsv';
 
 
 
@@ -282,17 +286,17 @@ const EMPTY_SF = {
   minTeamSize: '', teamSize: '', paymentLink: '',
 };
 
-/* ── Galore: one umbrella event (Galore 2027) holding every pre-programmed
-   activity underneath it (parentEventId) — see events.controller.js's
-   GALORE_ACTIVITIES_CATALOG. Never a paid event: no fee fields at all, here
-   or on any activity. Admin's only real decision per activity is who
-   coordinates it — the event can't be created until every single one has a
-   coordinator assigned (enforced both here and server-side). ── */
+/* ── Galore: one umbrella event (Galore 2027) whose registration form the admin
+   builds like a Google Form — departments (each with a Faculty Advisor),
+   categories and activities (each with a coordinator); see GaloreFormBuilder
+   and backend services/galoreForm.js. Never a paid event: no fee fields at
+   all, here or on any activity. ── */
 const EMPTY_GALORE = {
   title: '', status: 'upcoming', date: '', startDate: '', time: '', venue: '',
   description: '', seats: '', highlight: '',
 };
-const GALORE_CATEGORY_LABEL = { sports: 'Sports', cultural: 'Cultural', academic: 'Academic' };
+const EMPTY_GALORE_BUILDER = { head: { name: '', email: '' }, departments: [], categories: [], rulesUrl: '', rulesName: '' };
+
 
 const REQ_STATUS_META = {
   pending_fc: { label: 'Pending Faculty Advisor Review', color: '#7c3aed', bg: '#f5f3ff' },
@@ -565,9 +569,9 @@ export default function AdminEvents() {
   const [sfError,   setSfError]   = useState('');
   const sfFileRef = useRef();
 
-  /* ── Galore: umbrella create modal (catalog + one coordinator picker per
-     activity, all created together) and the "activities" panel for a
-     selected umbrella (registrations list + department-wise registrant view). ── */
+  /* ── Galore: umbrella create/edit modal (event details + the form builder) and
+     the "activities" panel for a selected umbrella (registrations list +
+     department-wise registrant view). ── */
   const [galoreModal,   setGaloreModal]   = useState(false); // false | true
   const [galoreEditing, setGaloreEditing] = useState(null); // null = creating, else the umbrella id being edited
   const [galoreForm,    setGaloreForm]    = useState(EMPTY_GALORE);
@@ -577,9 +581,12 @@ export default function AdminEvents() {
   const [galoreError,   setGaloreError]   = useState('');
   const galoreFileRef = useRef();
 
-  const [galoreCatalog,      setGaloreCatalog]      = useState([]);
-  const [galoreCoordinators, setGaloreCoordinators] = useState([]);
-  const [galoreAssignments,  setGaloreAssignments]  = useState({}); // { [activityKey]: coordinatorUserId }
+  const [galoreBuilder,        setGaloreBuilder]        = useState(EMPTY_GALORE_BUILDER);
+  const [galoreBuilderLoading, setGaloreBuilderLoading] = useState(false);
+  const [galoreStaff,          setGaloreStaff]          = useState(null); // { clubs } — each activity's responsible club
+  const [galoreOriginalDetails, setGaloreOriginalDetails] = useState(''); // edit: the details as loaded, to tell if they changed
+  const [studentDirectory,     setStudentDirectory]     = useState(null); // directory departments, for the builder's "student list" badges
+  const [studentImportCode,    setStudentImportCode]    = useState(null); // department code being uploaded from the builder
 
   const [selectedGalore,    setSelectedGalore]    = useState(null); // umbrella event, when drilled into its activities
   const [activities,        setActivities]        = useState([]);
@@ -863,26 +870,36 @@ export default function AdminEvents() {
   };
 
   /* ── Galore handlers ── */
+  const loadStudentDirectory = () =>
+    api.get('/students/departments').then(d => setStudentDirectory(d.departments || [])).catch(() => setStudentDirectory([]));
+  const loadGaloreStaff = () => {
+    loadStudentDirectory();
+    if (galoreStaff) return;
+    api.get('/events/galore/coordinators')
+      .then(d => setGaloreStaff({ clubs: d.clubs || [] }))
+      .catch(() => setGaloreStaff({ clubs: [] }));
+  };
+  /* A new event starts from the template (the previous fixed departments,
+     categories and activities) — the admin edits, adds or removes anything. */
   const openAddGalore = () => {
     setGaloreEditing(null);
     setGaloreForm(EMPTY_GALORE);
     setGaloreImgFile(null); setGaloreImgPrev(''); setGaloreError('');
-    setGaloreAssignments({});
-    if (!galoreCatalog.length) {
-      api.get('/events/galore/catalog').then(d => setGaloreCatalog(d.activities || [])).catch(() => setGaloreCatalog([]));
-    }
-    if (!galoreCoordinators.length) {
-      api.get('/events/galore/coordinators').then(d => setGaloreCoordinators(d.coordinators || [])).catch(() => setGaloreCoordinators([]));
-    }
+    setGaloreBuilder(EMPTY_GALORE_BUILDER);
+    setGaloreBuilderLoading(true);
+    api.get('/events/galore/template')
+      .then(d => setGaloreBuilder(toBuilder(d)))
+      .catch(() => setGaloreError('Could not load the form template.'))
+      .finally(() => setGaloreBuilderLoading(false));
+    loadGaloreStaff();
     setGaloreModal(true);
   };
-  /* Edit an existing Galore umbrella's own details (title/venue/date/description/
-     image) — every activity's coordinator assignment was already locked in at
-     creation and isn't touched here; re-assigning coordinators is a separate,
-     later action, not part of editing the umbrella's info. */
+  /* Edit an existing umbrella — its own details and its whole form (departments,
+     FAs, categories, activities, coordinators). Anything students have already
+     registered under can't be removed (locked in the builder, enforced server-side). */
   const openEditGalore = (ev) => {
     setGaloreEditing(ev._id);
-    setGaloreForm({
+    const details = {
       title:       ev.title || '',
       status:      ev.status || 'upcoming',
       date:        ev.date || '',
@@ -892,8 +909,17 @@ export default function AdminEvents() {
       description: ev.description || '',
       seats:       ev.seats ?? '',
       highlight:   ev.highlight || '',
-    });
+    };
+    setGaloreForm(details);
+    setGaloreOriginalDetails(JSON.stringify(details));
     setGaloreImgFile(null); setGaloreImgPrev(ev.imageUrl || ''); setGaloreError('');
+    setGaloreBuilder(EMPTY_GALORE_BUILDER);
+    setGaloreBuilderLoading(true);
+    api.get(`/events/${ev._id}/galore-setup`)
+      .then(d => setGaloreBuilder(toBuilder(d)))
+      .catch(err => setGaloreError(err.message || 'Could not load this event\'s form.'))
+      .finally(() => setGaloreBuilderLoading(false));
+    loadGaloreStaff();
     setGaloreModal(true);
   };
   const closeGaloreModal = () => {
@@ -906,37 +932,41 @@ export default function AdminEvents() {
     setGaloreImgPrev(URL.createObjectURL(f));
   };
   const galoreSet = (k) => (e) => setGaloreForm(p => ({ ...p, [k]: e.target.value }));
-  const setActivityCoordinator = (key) => (e) => setGaloreAssignments(p => ({ ...p, [key]: e.target.value }));
 
-  const unassignedActivities = galoreCatalog.filter(a => !galoreAssignments[a.key]);
+  const galoreProblems = galoreBuilderLoading ? [] : builderProblems(galoreBuilder);
 
   const handleSaveGalore = async (e) => {
     e.preventDefault();
     if (!galoreForm.title.trim()) return setGaloreError('Event title is required.');
-    if (!galoreEditing && unassignedActivities.length) {
-      return setGaloreError(`Assign a coordinator for every activity first — missing: ${unassignedActivities.map(a => a.title).join(', ')}.`);
-    }
+    if (galoreBuilderLoading) return;
+    if (galoreProblems.length) return setGaloreError(galoreProblems[0]);
     setGaloreSaving(true); setGaloreError('');
     try {
+      const formPayload = toPayload(galoreBuilder);
       if (galoreEditing) {
+        /* Details first, so the update email coordinators and FAs receive carries
+           the new date/venue; the form save then sends it (if anything changed) */
+        const detailsChanged = JSON.stringify(galoreForm) !== galoreOriginalDetails;
         const fd = new FormData();
         Object.entries(galoreForm).forEach(([k, v]) => fd.append(k, v));
         if (galoreImgFile) fd.append('image', galoreImgFile);
         const { event } = await api.putForm(`/events/${galoreEditing}`, fd);
+        await api.put(`/events/${galoreEditing}/galore-form`, { form: formPayload, detailsChanged });
         setEvents(p => p.map(e => e._id === event._id ? event : e));
+        if (selectedGalore?._id === event._id) { setSelectedGalore(event); loadActivities(event._id); loadDeptRegs(event._id); }
         closeGaloreModal();
         showToast('Galore event updated!');
         return;
       }
       const fd = new FormData();
       Object.entries(galoreForm).forEach(([k, v]) => fd.append(k, v));
-      fd.append('activityCoordinators', JSON.stringify(galoreAssignments));
+      fd.append('form', JSON.stringify(formPayload));
       if (galoreImgFile) fd.append('image', galoreImgFile);
 
       const { event } = await api.postForm('/events/galore', fd);
       load();
       closeGaloreModal();
-      showToast('Galore event created with every activity staffed!');
+      showToast('Galore event created — FAs and coordinators have been notified.');
       openGaloreActivities(event);
     } catch (err) {
       setGaloreError(err.message || 'Failed to save.');
@@ -1027,8 +1057,14 @@ export default function AdminEvents() {
   const regClubCategory = clubs.find(c => String(c._id || c.id) === String(regEvent?.clubId))?.category;
   const evIsSports = isSportsEvent(regEvent, regClubCategory);
   const evHasTeams = hasTeams(regEvent, regClubCategory);
-  const DIVISIONS = evIsSports ? ['boys', 'girls'] : ['open'];
-  const DIVISION_LABEL = { boys: 'Boys', girls: 'Girls', open: 'Teams' };
+  /* A Galore activity's boys/girls split is an admin setting per activity; without
+     it, one section labelled "Open" that reuses the 'boys' bucket, so teams,
+     groups and fixtures all keep working unchanged. */
+  const galoreSingle = !!regEvent?.parentEventId && !regEvent?.genderSplit;
+  const DIVISIONS = regEvent?.parentEventId
+    ? (regEvent.genderSplit ? ['boys', 'girls'] : ['boys'])
+    : (evIsSports ? ['boys', 'girls'] : ['open']);
+  const DIVISION_LABEL = { boys: galoreSingle ? 'Teams' : 'Boys', girls: 'Girls', open: 'Teams' };
   const teamsByDiv = {
     boys:  teams.filter(t => t.division !== 'girls' && t.division !== 'open'),
     girls: teams.filter(t => t.division === 'girls'),
@@ -1449,7 +1485,7 @@ export default function AdminEvents() {
                         <div className={s.cardBody}>
                           <div className={s.cardTitle}>{act.title}</div>
                           <div className={s.cardClub}>
-                            {GALORE_CATEGORY_LABEL[act.category] || act.category} · {act.participationType === 'team' ? 'Team' : 'Individual'}
+                            {act.categoryName || act.category} · {act.participationType === 'team' ? `Team (${act.minTeamSize}–${act.teamSize})` : 'Individual'}{act.genderSplit ? ' · Boys/Girls' : ''}
                           </div>
                           <div className={s.cardMeta}>
                             <span>{act.registrationCount} registered</span>
@@ -1495,28 +1531,37 @@ export default function AdminEvents() {
                       if (list.length === 0) {
                         return <div className={s.regsEmpty}>No registrations for {activeDeptTab} yet.</div>;
                       }
+                      const downloadAll = (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: -12 }}>
+                          <button className={s.csvBtn} onClick={() => downloadGaloreCsv(`${selectedGalore.title} ${activeDeptTab} all activities`, list)}>
+                            Download all {activeDeptTab} (CSV)
+                          </button>
+                        </div>
+                      );
                       /* Group this department's registrants by activity — each
                          activity renders as its own heading + table, matching
                          how a coordinator would actually read a roster sheet. */
                       const byActivity = new Map();
                       for (const r of list) {
-                        if (!byActivity.has(r.eventTitle)) byActivity.set(r.eventTitle, { category: r.category, rows: [] });
+                        if (!byActivity.has(r.eventTitle)) byActivity.set(r.eventTitle, { categoryName: r.categoryName, order: r.categoryOrder, rows: [] });
                         byActivity.get(r.eventTitle).rows.push(r);
                       }
-                      const CAT_ORDER = { sports: 0, cultural: 1, academic: 2 };
-                      const groups = [...byActivity.entries()].sort(([aTitle, a], [bTitle, b]) => {
-                        const ca = CAT_ORDER[a.category] ?? 9, cb = CAT_ORDER[b.category] ?? 9;
-                        return ca !== cb ? ca - cb : aTitle.localeCompare(bTitle);
-                      });
+                      const groups = [...byActivity.entries()].sort(([aTitle, a], [bTitle, b]) =>
+                        a.order !== b.order ? a.order - b.order : aTitle.localeCompare(bTitle));
                       return (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
-                          {groups.map(([activityTitle, { category, rows }]) => (
+                          {downloadAll}
+                          {groups.map(([activityTitle, { categoryName, rows }]) => (
                             <div key={activityTitle}>
-                              <h3 style={{ margin: '0 0 8px', fontSize: '1.05rem' }}>
+                              <h3 style={{ margin: '0 0 8px', fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                 {activityTitle}
-                                <span style={{ marginLeft: 8, fontSize: '.75rem', fontWeight: 500, color: '#6b7280' }}>
-                                  {GALORE_CATEGORY_LABEL[category] || category} · {rows.length} registered
+                                <span style={{ fontSize: '.75rem', fontWeight: 500, color: '#6b7280' }}>
+                                  {categoryName} · {rows.length} registered
                                 </span>
+                                <button className={s.csvBtn} style={{ marginLeft: 'auto' }}
+                                  onClick={() => downloadGaloreCsv(`${selectedGalore.title} ${activeDeptTab} ${activityTitle}`, rows)}>
+                                  Download CSV
+                                </button>
                               </h3>
                               <div className={s.regsTableWrap}>
                                 <table className={s.regsTable}>
@@ -2222,7 +2267,7 @@ export default function AdminEvents() {
       {/* ══ Galore Umbrella Add Modal ══ */}
       {galoreModal && (
         <div className={s.overlay} onClick={closeGaloreModal}>
-          <div className={s.modal} onClick={e => e.stopPropagation()}>
+          <div className={s.modal} style={{ maxWidth: 880 }} onClick={e => e.stopPropagation()}>
             <div className={s.modalHeader}>
               <div>
                 <div className={s.modalTag}>{galoreEditing ? 'Edit Galore Event' : 'New Galore Event'}</div>
@@ -2294,44 +2339,30 @@ export default function AdminEvents() {
               </div>
 
               {/* Galore is never a paid event — no fee fields here or on any activity.
-                  Coordinator assignment only happens once, at creation — editing the
-                  umbrella's own info later doesn't touch who's assigned to what. */}
-              {!galoreEditing && (
-                <div style={{ background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:10, padding:'14px 16px' }}>
-                  <div style={{ fontSize:'.78rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:4 }}>
-                    Assign a Coordinator to Every Activity <span className={s.req}>*</span>
-                  </div>
-                  <p style={{ fontSize:'.76rem', color:'#9ca3af', margin:'0 0 12px' }}>
-                    Every activity is pre-programmed — this event can't be created until each one has a coordinator.
-                  </p>
-                  {galoreCatalog.length === 0 ? (
-                    <div style={{ fontSize:'.82rem', color:'#9ca3af' }}>Loading activities…</div>
-                  ) : (
-                    ['sports', 'cultural', 'academic'].map(cat => (
-                      <div key={cat} style={{ marginBottom: 14 }}>
-                        <div style={{ fontSize:'.72rem', fontWeight:700, color:'#635BFF', marginBottom:6, textTransform:'uppercase', letterSpacing:'.04em' }}>
-                          {GALORE_CATEGORY_LABEL[cat]}
-                        </div>
-                        {galoreCatalog.filter(a => a.category === cat).map(act => (
-                          <div key={act.key} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
-                            <span style={{ flex:'0 0 130px', fontSize:'.85rem', fontWeight:600 }}>{act.title}</span>
-                            <select
-                              style={{ flex:1, padding:'7px 10px', borderRadius:8, fontSize:'.83rem', border: galoreAssignments[act.key] ? '1.5px solid #e5e7eb' : '1.5px solid #fca5a5' }}
-                              value={galoreAssignments[act.key] || ''}
-                              onChange={setActivityCoordinator(act.key)}>
-                              <option value="">Select coordinator…</option>
-                              {galoreCoordinators.map(c => <option key={c.id} value={c.id}>{c.name} ({c.email})</option>)}
-                            </select>
-                          </div>
-                        ))}
-                      </div>
-                    ))
-                  )}
-                  {unassignedActivities.length > 0 && (
-                    <div style={{ fontSize:'.76rem', color:'#dc2626', marginTop:4 }}>
-                      {unassignedActivities.length} activit{unassignedActivities.length === 1 ? 'y' : 'ies'} still need a coordinator.
-                    </div>
-                  )}
+                  The builder below is the student registration form. */}
+              {galoreBuilderLoading || !galoreStaff ? (
+                <div style={{ fontSize: '.82rem', color: '#9ca3af' }}>Loading the registration form…</div>
+              ) : (
+                <GaloreFormBuilder
+                  value={galoreBuilder}
+                  onChange={setGaloreBuilder}
+                  clubs={galoreStaff.clubs}
+                  directory={studentDirectory}
+                  onUploadDept={setStudentImportCode}
+                />
+              )}
+              {studentImportCode && (
+                <StudentImportModal
+                  departmentCode={studentImportCode}
+                  departmentName={studentDirectory?.find(d => d.code.toUpperCase() === studentImportCode.toUpperCase())?.name || ''}
+                  departments={studentDirectory || []}
+                  onClose={() => setStudentImportCode(null)}
+                  onImported={loadStudentDirectory}
+                />
+              )}
+              {galoreProblems.length > 0 && (
+                <div style={{ fontSize: '.76rem', color: '#dc2626' }}>
+                  Still needed: {galoreProblems.slice(0, 3).join(' ')}{galoreProblems.length > 3 ? ` (+${galoreProblems.length - 3} more)` : ''}
                 </div>
               )}
 
@@ -2339,7 +2370,7 @@ export default function AdminEvents() {
 
               <div className={s.modalFooter}>
                 <button type="button" className={s.cancelBtn} onClick={closeGaloreModal}>Cancel</button>
-                <button type="submit" className={s.saveBtn} disabled={galoreSaving || (!galoreEditing && unassignedActivities.length > 0)}>
+                <button type="submit" className={s.saveBtn} disabled={galoreSaving || galoreBuilderLoading || galoreProblems.length > 0}>
                   {galoreSaving ? 'Saving…' : galoreEditing ? 'Save Changes' : 'Create Event'}
                 </button>
               </div>

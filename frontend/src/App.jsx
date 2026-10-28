@@ -33,6 +33,7 @@ import AdminFame           from './pages/Admin/AdminFame';
 import AdminMonitorChats   from './pages/Admin/AdminMonitorChats';
 import AdminActivity       from './pages/Admin/AdminActivity';
 import AdminReports        from './pages/Admin/AdminReports';
+import AdminStudents       from './pages/Admin/AdminStudents';
 import GuestGallery   from './pages/Guest/GuestGallery';
 import GuestContact   from './pages/Guest/GuestContact';
 
@@ -66,6 +67,8 @@ import CoordSOAC      from './pages/Coordinator/CoordSOAC';
 import CoordMessages  from './pages/Coordinator/CoordMessages';
 import CoordMyClub    from './pages/Coordinator/CoordMyClub';
 import CoordReports   from './pages/Coordinator/CoordReports';
+import GaloreLogin    from './pages/Galore/GaloreLogin';
+import GalorePortal   from './pages/Galore/GalorePortal';
 import CoordClubFeed  from './pages/Coordinator/CoordClubFeed';
 
 /* Shared calendar view (student + coordinator) */
@@ -147,6 +150,9 @@ function AppInner() {
         <Route path="/gallery" element={<GuestLayout><Gallery /></GuestLayout>} />
         <Route path="/contact" element={<GuestLayout><Contact /></GuestLayout>} />
         <Route path="/login"   element={<NavOnlyLayout><Login /></NavOnlyLayout>} />
+        {/* Galore portal — its own login and look, outside every SOAC layout (no navbar) */}
+        <Route path="/galore/login" element={<GaloreLogin />} />
+        <Route path="/galore"       element={<GalorePortal />} />
         <Route path="/reset-password" element={<NavOnlyLayout><ResetPassword /></NavOnlyLayout>} />
 
         {/* ── Admin routes (protected) ── */}
@@ -155,6 +161,7 @@ function AppInner() {
           <Route path="clubs"           element={<AdminClubs />} />
           <Route path="members"         element={<AdminMembers />} />
           <Route path="events"          element={<AdminEvents />} />
+          <Route path="students"        element={<AdminStudents />} />
           <Route path="coordinators"    element={<COORDINATORS_PAGE />} />
           <Route path="approvals"       element={<APPROVALS_PAGE />} />
           <Route path="fame"            element={<AdminFame />} />

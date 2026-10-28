@@ -25,6 +25,7 @@ const requireCoordOrAdmin = (req, res, next) => {
   next();
 };
 
+router.post('/send-stats',       verifyToken, requireAdmin,        ctrl.sendRequestStats);  /* admin: email request statistics */
 router.post('/bulk-approve',     verifyToken, requireCoordOrAdmin, ctrl.bulkApprove);
 router.post('/bulk-delete',      verifyToken, requireCoordOrAdmin, ctrl.bulkDelete);
 router.post('/:id/approve',     verifyToken, requireCoordOrAdmin, ctrl.approve);

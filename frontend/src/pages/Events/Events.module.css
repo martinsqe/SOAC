@@ -1992,3 +1992,31 @@ button.sportsPanelTrigger:hover {
 .fixtureMatchTeam { font-size: .88rem; font-weight: 700; color: #111827; flex: 1; text-align: center; }
 .fixtureMatchVs { font-size: .75rem; font-weight: 800; color: #9ca3af; flex-shrink: 0; }
 .fixtureMatchMeta { display: flex; align-items: center; gap: 10px; font-size: .75rem; color: #6b7280; flex-wrap: wrap; }
+
+/* ── Galore registration form — red instead of the default purple ── */
+.galoreTheme .modalClose { background: #fef2f2; color: #dc2626; }
+.galoreTheme .modalPill { background: linear-gradient(90deg, #dc2626, #f87171); }
+.galoreTheme .req { color: #dc2626; }
+.galoreTheme .regField input:focus,
+.galoreTheme .regField select:focus { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, .12); }
+.galoreTheme .regSubmitBtn { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); }
+.galoreTheme .regSuccessIcon { background: linear-gradient(135deg, #dc2626, #b91c1c); }
+
+/* Verified / looked-up student details — plain rows on the white background,
+   "LABEL : value", no box around them */
+.galoreInfo { padding: 2px 0; }
+.galoreInfoRow { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; font-size: 14px; }
+.galoreInfoLabel { flex: 0 0 130px; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #6b7280; }
+.galoreInfoLabel::after { content: ':'; float: right; color: #111827; font-weight: 700; }
+.galoreInfoValue { flex: 1; min-width: 0; color: #111827; font-weight: 600; overflow-wrap: anywhere; padding-left: 6px; }
+@media (max-width: 480px) { .galoreInfoLabel { flex-basis: 108px; } }
+
+/* ── Galore event the visitor has registered for ── */
+.galoreRegisteredRow { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.galoreRegisteredBadge { font-size: 13px; font-weight: 700; color: #15803d; background: #f0fdf4; border: 1px solid #86efac; border-radius: 999px; padding: 6px 12px; }
+.galoreLoginBtn {
+  display: inline-block; text-decoration: none; font-weight: 700; font-size: 13px; color: #fff;
+  background: linear-gradient(135deg, #dc2626, #b91c1c); border-radius: 10px; padding: 9px 16px;
+}
+.galoreLoginBtn:hover { opacity: .92; }
+.galoreAddBtn { border: none; background: none; color: #dc2626; font-weight: 600; font-size: 12.5px; cursor: pointer; padding: 4px 2px; font-family: inherit; }

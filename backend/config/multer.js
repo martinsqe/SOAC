@@ -171,4 +171,41 @@ const uploadMediaBuffer = async (file, folder, timeoutMs = 20000) => {
   return { url: `/uploads/${folder}/${fname}`, mediaType, width: 0, height: 0, thumbnailUrl: '' };
 };
 
-module.exports = { uploadLogo, uploadEvent, uploadEventMemory, uploadAvatar, uploadFame, uploadLeadership, uploadMvpPhoto, uploadReportPhoto, uploadExplore, uploadCertTemplate, uploadClubFeedMedia, getFileValue, uploadImageBuffer, uploadMediaBuffer, cloudinaryInstance, useCloudinary };
+/* Documents (Galore rules & regulations): PDF, Word or an image, kept in memory
+   and stored with uploadDocumentBuffer below. */
+const DOC_EXT = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'webp'];
+const uploadDocumentMemory = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ok = DOC_EXT.includes(file.originalname.split('.').pop().toLowerCase());
+    cb(ok ? null : Object.assign(new Error('Upload a PDF, Word document or image.'), { status: 400 }), ok);
+  },
+});
+/* Cloudinary keeps non-image files as 'raw' resources (served as-is, file
+   extension kept); disk fallback mirrors uploadImageBuffer. Returns the URL. */
+const uploadDocumentBuffer = async (file, folder, timeoutMs = 30000) => {
+  if (useCloudinary && cloudinaryInstance) {
+    const ext = file.originalname.split('.').pop().toLowerCase();
+    const isImage = ['jpg', 'jpeg', 'png', 'webp'].includes(ext);
+    const base = file.originalname.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60);
+    const result = await Promise.race([
+      new Promise((resolve, reject) => {
+        const stream = cloudinaryInstance.uploader.upload_stream(
+          { folder, resource_type: isImage ? 'image' : 'raw', public_id: `${Date.now()}-${base}${isImage ? '' : `.${ext}`}` },
+          (err, r) => (err ? reject(err) : resolve(r))
+        );
+        stream.end(file.buffer);
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timed out')), timeoutMs)),
+    ]);
+    return result.secure_url;
+  }
+  const dir = path.join(__dirname, '..', 'uploads', folder);
+  fs.mkdirSync(dir, { recursive: true });
+  const fname = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  fs.writeFileSync(path.join(dir, fname), file.buffer);
+  return `/uploads/${folder}/${fname}`;
+};
+
+module.exports = { uploadDocumentMemory, uploadDocumentBuffer, uploadLogo, uploadEvent, uploadEventMemory, uploadAvatar, uploadFame, uploadLeadership, uploadMvpPhoto, uploadReportPhoto, uploadExplore, uploadCertTemplate, uploadClubFeedMedia, getFileValue, uploadImageBuffer, uploadMediaBuffer, cloudinaryInstance, useCloudinary };

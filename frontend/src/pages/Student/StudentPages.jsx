@@ -57,7 +57,7 @@ export function StudentSOACUpdates() {
 
   useEffect(() => {
     Promise.all([
-      api.get('/announcements/soac'),
+      api.get('/announcements/soac?for=student'),
       api.get('/events?status=upcoming&limit=8').catch(() => ({ events: [] })),
     ])
       .then(([annRes, evRes]) => {

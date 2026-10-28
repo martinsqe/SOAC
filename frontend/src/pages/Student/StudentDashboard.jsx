@@ -123,7 +123,7 @@ export default function StudentDashboard() {
 
   /* ── SOAC Updates preview ── */
   useEffect(() => {
-    api.get('/announcements/soac')
+    api.get('/announcements/soac?for=student')
       .then(d => setSoacUpdates((d.announcements || []).slice(0, 4)))
       .catch(() => setSoacUpdates([]))
       .finally(() => setSoacLoading(false));

@@ -150,6 +150,8 @@ app.use('/api', (req, res, next) => {
 app.use('/api/auth',          authLimiter, require('./routes/auth.routes'));
 app.use('/api/clubs',         require('./routes/clubs.routes'));
 app.use('/api/events',        require('./routes/events.routes'));
+app.use('/api/students',      require('./routes/studentDirectory.routes'));
+app.use('/api/galore-portal', require('./routes/galorePortal.routes'));
 app.use('/api/users',         require('./routes/users.routes'));
 app.use('/api/requests',      require('./routes/requests.routes'));
 app.use('/api/messages',      require('./routes/messages.routes'));

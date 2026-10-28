@@ -1029,6 +1029,7 @@ const asEvent = (row) => ({
   teamSize: Number(row.team_size || 0),
   minTeamSize: Number(row.min_team_size || 0),
   parentEventId: row.parent_event_id ? String(row.parent_event_id) : null,
+  genderSplit: !!row.gender_split, // Galore activity: runs separate boys/girls divisions
   customFields: Array.isArray(row.custom_fields) ? row.custom_fields : [],
   objective: row.objective || '',
   expectedOutcome: row.expected_outcome || '',

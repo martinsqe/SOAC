@@ -256,8 +256,14 @@ export default function CoordEvents() {
      any event of a sports club) — see utils/eventKind.js */
   const evIsSports = isSportsEvent(regEvent, club?.category);
   const evHasTeams = hasTeams(regEvent, club?.category);
-  const DIVISIONS = evIsSports ? ['boys', 'girls'] : ['open'];
-  const DIVISION_LABEL = { boys: 'Boys', girls: 'Girls', open: 'Open' };
+  /* A Galore activity's boys/girls split is an admin setting per activity; without
+     it, one section labelled "Open" that reuses the 'boys' bucket, so teams,
+     groups and fixtures all keep working unchanged. */
+  const galoreSingle = !!regEvent?.parentEventId && !regEvent?.genderSplit;
+  const DIVISIONS = regEvent?.parentEventId
+    ? (regEvent.genderSplit ? ['boys', 'girls'] : ['boys'])
+    : (evIsSports ? ['boys', 'girls'] : ['open']);
+  const DIVISION_LABEL = { boys: galoreSingle ? 'Open' : 'Boys', girls: 'Girls', open: 'Open' };
 
   /* ── Groups state (single fetch, both divisions tagged — filtered per-section at render) ── */
   const [groups,       setGroups]      = useState([]);

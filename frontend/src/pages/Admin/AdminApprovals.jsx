@@ -195,6 +195,106 @@ function JoinRequestsSwitch() {
 /* ════════════════════════════════════════════════════════════
    JOIN REQUESTS PANEL  (unchanged behaviour)
 ════════════════════════════════════════════════════════════ */
+/* "Send request stats" — emails each chosen club's Faculty Advisor / Student
+   Coordinator their club's total / approved / pending numbers, plus a table of
+   every club to the SOAC office. Clubs with pending requests are pre-selected;
+   clubs that have handled everything can be left out. Black and white only. */
+function SendStatsMenu({ requests, disabled, onDone }) {
+  const [open,     setOpen]     = useState(false);
+  const [selected, setSelected] = useState(() => new Set());
+  const [sending,  setSending]  = useState(false);
+
+  const byClub = new Map();
+  requests.forEach(r => {
+    if (!byClub.has(r.clubId)) byClub.set(r.clubId, { id: r.clubId, name: r.clubName || r.club_name, total: 0, approved: 0, pending: 0 });
+    const c = byClub.get(r.clubId);
+    c.total++;
+    if (r.status === 'approved') c.approved++;
+    if (r.status === 'pending')  c.pending++;
+  });
+  const clubs = Array.from(byClub.values()).sort((x, y) => (x.name || '').localeCompare(y.name || ''));
+  const withPending = clubs.filter(c => c.pending > 0).map(c => c.id);
+
+  const toggleOpen = () => {
+    if (!open) setSelected(new Set(withPending)); // fresh default each time it opens
+    setOpen(o => !o);
+  };
+  const toggle = (id) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const send = async () => {
+    setSending(true);
+    try {
+      const res = await api.post('/requests/send-stats', { clubIds: [...selected] });
+      onDone(res.message || 'Statistics sent.');
+      setOpen(false);
+    } catch (err) { onDone(`Error: ${err.message}`); }
+    finally { setSending(false); }
+  };
+
+  const linkBtn = { background: 'none', border: 'none', padding: 0, font: 'inherit', fontSize: '.75rem', fontWeight: 700, color: '#000', textDecoration: 'underline', cursor: 'pointer' };
+
+  return (
+    <div style={{ position: 'relative', flexShrink: 0 }}>
+      <button onClick={toggleOpen} disabled={disabled || clubs.length === 0}
+        style={{ padding: '9px 16px', borderRadius: 9, border: '1.5px solid #000', background: '#fff', color: '#000',
+          fontWeight: 700, fontSize: '.85rem', whiteSpace: 'nowrap', fontFamily: 'inherit',
+          opacity: disabled || clubs.length === 0 ? .45 : 1, cursor: disabled || clubs.length === 0 ? 'not-allowed' : 'pointer' }}>
+        Send request stats ▾
+      </button>
+
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 900 }} />
+          <div style={{ position: 'fixed', zIndex: 901, top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+            width: 'min(420px, calc(100vw - 32px))', maxHeight: 'min(560px, calc(100vh - 48px))', display: 'flex', flexDirection: 'column',
+            background: '#fff', color: '#000', border: '1.5px solid #000', borderRadius: 12, boxShadow: '0 12px 40px rgba(0,0,0,.25)' }}>
+            <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid #000' }}>
+              <div style={{ fontWeight: 800, fontSize: '.95rem' }}>Send request statistics</div>
+              <div style={{ fontSize: '.75rem', marginTop: 4, lineHeight: 1.5 }}>
+                Each selected club's Faculty Advisor and Student Coordinator gets their club's numbers.
+                A table of all clubs goes to soac@rku.ac.in.
+              </div>
+              <div style={{ display: 'flex', gap: 14, marginTop: 8 }}>
+                <button type="button" style={linkBtn} onClick={() => setSelected(new Set(clubs.map(c => c.id)))}>All</button>
+                <button type="button" style={linkBtn} onClick={() => setSelected(new Set(withPending))}>Only with pending</button>
+                <button type="button" style={linkBtn} onClick={() => setSelected(new Set())}>None</button>
+              </div>
+            </div>
+
+            <div style={{ overflowY: 'auto', padding: '6px 0' }}>
+              {clubs.map(c => (
+                <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', cursor: 'pointer', fontSize: '.82rem' }}>
+                  <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)} style={{ accentColor: '#000' }} />
+                  <span style={{ flex: 1, minWidth: 0, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+                  <span style={{ whiteSpace: 'nowrap', fontSize: '.72rem' }}>
+                    {c.total} total · {c.approved} approved · <strong>{c.pending} pending</strong>
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '10px 16px', borderTop: '1px solid #000' }}>
+              <button type="button" onClick={() => setOpen(false)}
+                style={{ padding: '8px 14px', borderRadius: 8, border: '1.5px solid #000', background: '#fff', color: '#000', fontWeight: 700, fontSize: '.8rem', cursor: 'pointer', fontFamily: 'inherit' }}>
+                Cancel
+              </button>
+              <button type="button" onClick={send} disabled={sending || selected.size === 0}
+                style={{ padding: '8px 14px', borderRadius: 8, border: '1.5px solid #000', background: '#000', color: '#fff', fontWeight: 700, fontSize: '.8rem', fontFamily: 'inherit',
+                  opacity: selected.size === 0 ? .45 : 1, cursor: sending || selected.size === 0 ? 'not-allowed' : 'pointer' }}>
+                {sending ? 'Sending…' : `Send to ${selected.size} club${selected.size === 1 ? '' : 's'}`}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function JoinRequestsPanel() {
   const [allRequests, setAllRequests] = useState([]);
   const [loading,   setLoading]   = useState(true);
@@ -431,6 +531,7 @@ It will go to the ${to} club team, and ${req.name} will be emailed about the cha
             <option key={id} value={id}>{name} ({count})</option>
           ))}
         </select>
+        <SendStatsMenu requests={allRequests} disabled={loading} onDone={showToast} />
         {/* Always shown so the controls don't jump around; disabled when nothing pending is on screen */}
         {(() => {
           const off = !!bulkBusy || loading || bulkTargets.length === 0;

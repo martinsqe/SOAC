@@ -354,7 +354,7 @@ const sendBroadcastEmail = async ({ toEmail, toName, title, body, category = 'An
       <h2 style="color:#1a1040;margin:0 0 18px">${escapeHtml(title)}</h2>
       <p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">Hi ${escapeHtml(toName || 'there')},</p>
       ${body ? `<p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">${asParagraphs(body)}</p>` : ''}
-      <p style="color:#333;font-size:15px;line-height:1.7;margin:22px 0 4px">Regards,<br/>SOAC RKU</p>
+      <p style="color:#333;font-size:15px;line-height:1.7;margin:22px 0 4px">Regards,<br/>soac.notifications@rku.ac.in<br/>Students Organizations Advisory Council</p>
       <div style="margin:26px 0">
         <a href="${APP_URL}/student/soac-updates" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">View SOAC Updates</a>
       </div>
@@ -401,7 +401,7 @@ const sendEventReminder = async ({ toEmail, toName, kind, event, daysToGo = null
       <p style="color:#333;font-size:15px;line-height:1.9;margin:0 0 14px">
         ${row('Date', event.dateLabel)}${row('Time', event.time)}${row('Venue', event.venue, kind === 'venue')}${row('Organizer', event.organizer)}
       </p>
-      <p style="color:#333;font-size:15px;line-height:1.7;margin:22px 0 4px">Regards,<br/>SOAC RKU</p>
+      <p style="color:#333;font-size:15px;line-height:1.7;margin:22px 0 4px">Regards,<br/>soac.notifications@rku.ac.in<br/>Students Organizations Advisory Council</p>
       <div style="margin:26px 0">
         <a href="${escapeHtml(eventUrl)}" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">${kind === 'register' ? (external ? 'Register on website' : 'Register now') : 'View event'}</a>
       </div>
@@ -415,7 +415,7 @@ const sendEventReminder = async ({ toEmail, toName, kind, event, daysToGo = null
    a category line, heading, greeting, paragraphs, label-value tables and a
    sign-off — no coloured boxes or badges, so they read like a typed email. */
 const para = (html) => `<p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">${html}</p>`;
-const signOff = () => para('Regards,<br/>SOAC RKU');
+const signOff = () => para('Regards,<br/>soac.notifications@rku.ac.in<br/>Students Organizations Advisory Council');
 const actionButton = (href, label) => `
   <div style="margin:26px 0">
     <a href="${href}" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">${escapeHtml(label)}</a>
@@ -438,11 +438,11 @@ const detailTable = (heading, rows) => {
     <table role="presentation" style="width:100%;border-collapse:collapse;margin:0 0 6px">${body}</table>`;
 };
 
-const plainEmail = ({ category, title, toName, intro = [], sections = '', outro = [], button = null }) => wrap(`
+const plainEmail = ({ category, title, toName, greeting, intro = [], sections = '', outro = [], button = null }) => wrap(`
   ${header()}
   ${categoryLine(category)}
   <h2 style="color:#1a1040;margin:0 0 18px">${escapeHtml(title)}</h2>
-  ${para(`Hi ${escapeHtml(toName || 'there')},`)}
+  ${para(greeting || `Hi ${escapeHtml(toName || 'there')},`)}
   ${intro.map(para).join('')}
   ${sections}
   ${outro.length ? `<div style="margin-top:18px">${outro.map(para).join('')}</div>` : ''}
@@ -730,6 +730,75 @@ const sendJoinRequestsDigest = async ({ toEmail, toName, clubName, campus, names
   });
 };
 
+/* ── Join request statistics (admin's "Send request statistics") ──────────── */
+const statBox = (label, value) => `
+  <td style="width:33%;padding:6px">
+    <div style="padding:14px 8px;text-align:center">
+      <div style="font-size:30px;font-weight:900;line-height:1;color:#000">${Number(value) || 0}</div>
+      <div style="margin-top:6px;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#000">${label}</div>
+    </div>
+  </td>`;
+
+/* To a club's Faculty Advisor / Student Coordinator: their club's numbers */
+const sendJoinRequestStats = async ({ toEmail, toName, clubName, campus, total, approved, pending }) => {
+  const club = `<strong>${escapeHtml(clubName)}</strong>${campus ? ` (${escapeHtml(campus)})` : ''}`;
+  await send({
+    to:      toEmail,
+    subject: `Join request status for ${clubName}: ${pending} pending — SOAC RKU`,
+    html: plainEmail({
+      category: 'Join requests',
+      title:    `Join requests — ${clubName}`,
+      toName,
+      intro: [`Here is the current status of student join requests for ${club}:`],
+      sections: `
+        <table role="presentation" style="width:100%;border-collapse:collapse;margin:4px 0 14px"><tr>
+          ${statBox('Total requests', total)}
+          ${statBox('Approved', approved)}
+          ${statBox('Pending', pending)}
+        </tr></table>`,
+      outro: [
+        pending > 0
+          ? `Kindly do the needful and review the <strong>${pending}</strong> pending request${pending === 1 ? '' : 's'} for ${club} at the earliest, approving or declining each one from your dashboard so the students can get started with the club.`
+          : `There are no pending requests for ${club} at the moment. Kindly keep checking your dashboard and do the needful as new requests come in.`,
+      ],
+      button: { href: `${APP_URL}/coordinator/requests`, label: 'Review requests' },
+    }),
+  });
+};
+
+/* To the SOAC office: every club's numbers in one table */
+const sendJoinRequestStatsSummary = async ({ toEmail, campus, rows: allRows, sentTo = [] }) => {
+  /* only the clubs whose FAs / SCs were just reminded */
+  const sent = new Set(sentTo.map(String));
+  const rows = allRows.filter(r => sent.has(String(r.clubId)));
+  if (!rows.length) return;   /* nobody was reminded — nothing to report */
+  const td = (v, extra = '') => `<td style="padding:8px 6px;border-bottom:1px solid #ccc;font-size:13px;color:#000;${extra}">${v}</td>`;
+  const th = (v, extra = '') => `<th style="padding:8px 6px;border-bottom:2px solid #000;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#000;text-align:left;${extra}">${v}</th>`;
+  const num = 'text-align:center;font-weight:800';
+  const totals = rows.reduce((t, r) => ({ total: t.total + r.total, approved: t.approved + r.approved, pending: t.pending + r.pending }), { total: 0, approved: 0, pending: 0 });
+  const table = `
+    <table role="presentation" style="width:100%;border-collapse:collapse;margin:6px 0 10px">
+      <tr>${th('Club')}${th('Total', 'text-align:center')}${th('Approved', 'text-align:center')}${th('Pending', 'text-align:center')}</tr>
+      ${rows.map(r => `<tr>
+        ${td(`${escapeHtml(r.clubName)}${!campus && r.campus ? `<br/><span style="font-size:11px;color:#000">${escapeHtml(r.campus)}</span>` : ''}`)}
+        ${td(r.total, num)}${td(r.approved, `${num}`)}${td(r.pending, `${num}`)}
+      </tr>`).join('')}
+      <tr>${td('<strong>All clubs</strong>', '')}${td(totals.total, `${num}`)}${td(totals.approved, `${num}`)}${td(totals.pending, `${num}`)}</tr>
+    </table>`;
+  await send({
+    to:      toEmail,
+    subject: `Join request statistics${campus ? ` — ${campus}` : ''} — SOAC RKU`,
+    html: plainEmail({
+      category: 'Join requests',
+      title:    'Club join request statistics',
+      greeting: 'Hello Madam,',
+      intro: ['All the Faculty Advisors and Student Coordinators of the clubs mentioned in the table below have received a reminder regarding join requests from students to their respective clubs.'],
+      sections: table,
+      button: { href: `${APP_URL}/admin/approvals`, label: 'Open Approvals' },
+    }),
+  });
+};
+
 /* ── Club proposals — every section of the application form ───────────────── */
 const PROPOSAL_SECTION_TITLES = {
   organization: 'Organization',
@@ -790,7 +859,7 @@ const sendClubChatNotice = async ({ toEmail, toName, clubName, clubId, senderRol
       <h2 style="color:#1a1040;margin:0 0 18px">${escapeHtml(clubName)}</h2>
       <p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">Hi ${escapeHtml(toName || 'there')},</p>
       <p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">${escapeHtml(senderRole)} has posted a new message in the ${escapeHtml(clubName)} group chat. Log in to SOAC to read it and reply.</p>
-      <p style="color:#333;font-size:15px;line-height:1.7;margin:22px 0 4px">Regards,<br/>SOAC RKU</p>
+      <p style="color:#333;font-size:15px;line-height:1.7;margin:22px 0 4px">Regards,<br/>soac.notifications@rku.ac.in<br/>Students Organizations Advisory Council</p>
       <div style="margin:26px 0">
         <a href="${APP_URL}/student/clubs/${clubId}" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">Open club chat</a>
       </div>
@@ -1010,6 +1079,155 @@ const sendGaloreActivityAssignment = async ({ toEmail, toName, activityTitle, ca
   });
 };
 
+/* Verification link proving a student owns the directory record they looked
+   up — sent only to the email on that record. Opening it brings them back to
+   the registration, already verified. */
+const sendStudentVerificationLink = async ({ toEmail, toName, link, eventTitle, minutes = 30 }) => {
+  await send({
+    to:      toEmail,
+    subject: eventTitle ? `Continue your registration for ${eventTitle}` : 'Confirm it\'s you — SOAC registration',
+    html: wrap(`
+      ${header()}
+      <h2 style="color:#1a1040;margin-bottom:8px">Hello, ${escapeHtml(toName)}!</h2>
+      <p style="color:#555;line-height:1.6">Tap the button to confirm it's you${eventTitle ? ` and choose your activities for <strong>${escapeHtml(eventTitle)}</strong>` : ' and continue your registration'}.</p>
+      <div style="text-align:center;margin:28px 0">
+        <a href="${link}" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:13px 30px;border-radius:10px">Continue registration</a>
+      </div>
+      <p style="color:#888;font-size:13px;line-height:1.6">This link works for ${minutes} minutes. If you didn't ask for it, someone may have typed your enrollment number — you can ignore this email.</p>
+      ${footer()}
+    `),
+  });
+};
+
+/* ── Galore portal emails ────────────────────────────────────────────────────
+   The Galore portal has a login of its own (galore_accounts), separate from
+   the SOAC club accounts. A temporary password is included only the first time
+   (when the account is created); after that people use their own password, or
+   "Forgot password" on the Galore login page. */
+const GALORE_LOGIN = `${APP_URL}/galore/login`;
+
+/* An activity's date/time, or "To be announced" until the admin sets them */
+const galoreWhen = (a) => {
+  const when = [a.dateLabel, a.time].filter(Boolean).join(', ');
+  return when ? escapeHtml(when) : '<em>To be announced</em>';
+};
+
+const galoreLoginBlock = ({ email, tempPassword, loginUrl = GALORE_LOGIN, what }) => `
+  <div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:12px;padding:18px 22px;margin:22px 0">
+    <p style="margin:0 0 10px;font-size:15px;font-weight:800;color:#b91c1c">Your Galore portal login</p>
+    <p style="margin:0 0 6px;font-size:14px;color:#333"><strong>Email:</strong> ${escapeHtml(email)}</p>
+    ${tempPassword
+      ? `<p style="margin:0 0 6px;font-size:14px;color:#333"><strong>Temporary password:</strong> <span style="font-family:monospace;font-size:16px;font-weight:700;letter-spacing:1px;background:#fff;border:1px dashed #fca5a5;padding:2px 8px;border-radius:6px">${escapeHtml(tempPassword)}</span></p>
+         <p style="margin:0 0 12px;font-size:12px;color:#6b7280">You'll be asked to choose your own password the first time you log in.</p>`
+      : `<p style="margin:0 0 12px;font-size:13px;color:#6b7280">Log in with your Galore password. Forgot it? Use "Forgot password" on the login page.</p>`}
+    ${what ? `<p style="margin:0 0 14px;font-size:13px;color:#555">In the portal you'll see ${what}.</p>` : ''}
+    <a href="${loginUrl}" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:10px">Galore Login</a>
+  </div>`;
+
+/* A student finished registering: what they're in, who's in charge of each
+   activity (its activity coordinator and their department coordinator), and how
+   to get into the Galore portal for guidelines, timetable and fixtures. */
+const sendGaloreRegistrationConfirmation = async ({ toEmail, toName, event, department, activities = [], tempPassword = '' }) => {
+  const person = (p) => (p ? `${escapeHtml(p.name)}<br/><span style="color:#888;font-size:12px">${escapeHtml(p.email)}</span>` : '<span style="color:#aaa">—</span>');
+  const rows = activities.map(a => `
+    <tr>
+      <td style="padding:9px 10px;border-bottom:1px solid #f0f0f5;vertical-align:top">
+        <strong style="color:#1a1040">${escapeHtml(a.title)}</strong>${a.isNew ? ` <span style="background:${BTN_RED};color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:6px">NEW</span>` : ''}
+        <br/><span style="color:#888;font-size:12px">${escapeHtml(a.categoryName)} · ${a.participationType === 'team' ? 'Team' : 'Individual'} · ${galoreWhen(a)}</span>
+      </td>
+      <td style="padding:9px 10px;border-bottom:1px solid #f0f0f5;vertical-align:top;font-size:13px">${person(a.coordinator)}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #f0f0f5;vertical-align:top;font-size:13px">${person(a.deptCoordinator)}</td>
+    </tr>`).join('');
+  await send({
+    to:      toEmail,
+    subject: `You're registered for ${event.title}`,
+    html: `<div style="font-family:sans-serif;max-width:640px;margin:0 auto;padding:32px 24px">
+      ${header()}
+      <h2 style="color:#1a1040;margin-bottom:8px">You're in, ${escapeHtml(toName)}!</h2>
+      <p style="color:#555;line-height:1.6">Your registration for <strong>${escapeHtml(event.title)}</strong>${department ? ` (${escapeHtml(department)})` : ''} is confirmed. Here's everything you've signed up for and who to contact:</p>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0 6px">
+        <thead><tr style="background:#fef2f2;text-align:left">
+          <th style="padding:9px 10px;color:#b91c1c">Activity</th>
+          <th style="padding:9px 10px;color:#b91c1c">Coordinator</th>
+          <th style="padding:9px 10px;color:#b91c1c">Department coordinator</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${galoreLoginBlock({ email: toEmail, tempPassword, what: 'your activities, their guidelines, the timetable, fixtures and your team' })}
+      <p style="color:#888;font-size:13px;line-height:1.6">The Galore portal is separate from SOAC clubs — your club membership (if any) isn't affected.</p>
+      ${footer()}
+    </div>`,
+  });
+};
+
+/* Forgot password on the Galore login page */
+const sendGalorePasswordReset = async ({ toEmail, toName, tempPassword }) => {
+  await send({
+    to:      toEmail,
+    subject: 'Your new Galore portal password',
+    html: wrap(`
+      ${header()}
+      <h2 style="color:#1a1040;margin-bottom:8px">Hello, ${escapeHtml(toName || 'there')}!</h2>
+      <p style="color:#555;line-height:1.6">Here's a new temporary password for the Galore portal. Your old one no longer works.</p>
+      ${galoreLoginBlock({ email: toEmail, tempPassword })}
+      <p style="color:#888;font-size:13px;line-height:1.6">Didn't ask for this? Someone may have typed your email — your account is still safe, just use the password above next time.</p>
+      ${footer()}
+    `),
+  });
+};
+
+/* Galore: one email per person listing everything they're responsible for in
+   the event — sent to every activity coordinator and every department's
+   department coordinator (and the overall Galore coordinator) when the event is created, and again
+   whenever it's updated. New assignments are marked. */
+const sendGaloreAssignmentSummary = async ({ toEmail, toName, role, reason, event, departments = [], activities = [], tempPassword = '', loginUrl = GALORE_LOGIN }) => {
+  const isFa = role === 'dept' || role === 'fa'; // department coordinator
+  const isHead = role === 'head';
+  const showCoordinator = isFa || isHead;
+  const when = [event.date, event.time].filter(Boolean).join(' · ');
+  const rows = activities.map(a => `
+    <tr>
+      <td style="padding:9px 10px;border-bottom:1px solid #f0f0f5;font-weight:700;color:#1a1040">
+        ${escapeHtml(a.title)}${a.isNew ? ` <span style="background:${BTN_RED};color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:6px;margin-left:4px">NEW</span>` : ''}
+      </td>
+      <td style="padding:9px 10px;border-bottom:1px solid #f0f0f5;color:#555">${escapeHtml(a.categoryName)}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #f0f0f5;color:#555">${a.participationType === 'team' ? `Team (${a.minTeamSize}–${a.teamSize})` : 'Individual'}${a.genderSplit ? ' · Boys/Girls' : ''}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #f0f0f5;color:#555">${galoreWhen({ dateLabel: a.scheduleDate ? new Date(`${a.scheduleDate}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '', time: a.time })}</td>
+      ${showCoordinator ? `<td style="padding:9px 10px;border-bottom:1px solid #f0f0f5;color:#555">${escapeHtml(a.coordinatorName || '—')}</td>` : ''}
+    </tr>`).join('');
+  const intro = isHead
+    ? `You have been assigned as the <strong>overall Galore coordinator</strong> of <strong>${escapeHtml(event.title)}</strong>. From the Galore portal you can see the registrations for every activity in every department, set the schedule (dates, times, venues) and guidelines, open or close registration, and update the departments, activities and their coordinators.${departments.length ? `<br/><br/><strong>Departments:</strong> ${departments.map(escapeHtml).join(', ')}` : ''}`
+    : isFa
+    ? `You are the <strong>department coordinator</strong> for <strong>${departments.map(escapeHtml).join(', ')}</strong> in <strong>${escapeHtml(event.title)}</strong>. In the Galore portal you'll see every student from your department registered in each of these activities, and can download the lists.`
+    : `You are the <strong>activity coordinator</strong> of the ${activities.length === 1 ? 'activity' : `${activities.length} activities`} below in <strong>${escapeHtml(event.title)}</strong>. In the Galore portal you'll see ${activities.length === 1 ? 'its' : 'their'} registrations, teams and fixtures from every department.${activities.some(a => a.clubName) ? ` Run by: <strong>${activities.filter(a => a.clubName).map(a => `${escapeHtml(a.title)} — ${escapeHtml(a.clubName)}`).join('; ')}</strong>.` : ''}`;
+  await send({
+    to:      toEmail,
+    subject: isHead
+      ? `${reason === 'updated' ? 'Updated: ' : ''}You're the overall Galore coordinator — ${event.title}`
+      : `${reason === 'updated' ? 'Updated: ' : ''}Your ${isFa ? 'department' : 'activities'} in ${event.title}`,
+    html: `<div style="font-family:sans-serif;max-width:640px;margin:0 auto;padding:32px 24px">
+      ${header()}
+      <h2 style="color:#1a1040;margin-bottom:8px">Hello, ${escapeHtml(toName)}!</h2>
+      ${reason === 'updated' ? `<p style="color:#b91c1c;font-weight:700;margin:0 0 8px">${escapeHtml(event.title)} has been updated — here is your current list.</p>` : ''}
+      <p style="color:#555;line-height:1.6">${intro}</p>
+      ${when || event.venue ? `<p style="color:#555;font-size:14px;margin:0 0 16px">${when ? `<strong>When:</strong> ${escapeHtml(when)}` : ''}${when && event.venue ? ' &nbsp;·&nbsp; ' : ''}${event.venue ? `<strong>Where:</strong> ${escapeHtml(event.venue)}` : ''}</p>` : ''}
+      <table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0 20px">
+        <thead><tr style="background:#fef2f2;text-align:left">
+          <th style="padding:9px 10px;color:#b91c1c">${showCoordinator ? 'Activity' : 'Your activity'}</th>
+          <th style="padding:9px 10px;color:#b91c1c">Category</th>
+          <th style="padding:9px 10px;color:#b91c1c">Type</th>
+          <th style="padding:9px 10px;color:#b91c1c">When</th>
+          ${showCoordinator ? '<th style="padding:9px 10px;color:#b91c1c">Coordinator</th>' : ''}
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${galoreLoginBlock({ email: toEmail, tempPassword, loginUrl, what: isHead ? 'the whole event — every activity, every department, every registration' : isFa ? `every ${departments.join(' / ')} student registered` : 'the registrations, teams and fixtures of your activities' })}
+      <p style="color:#888;font-size:13px;line-height:1.6">The Galore portal has its own login — your SOAC club login is unchanged.</p>
+      ${footer()}
+    </div>`,
+  });
+};
+
 /* ── "My Activity" report email ──────────────────────────────────────────────
    Sent in place of showing the public lookup's results directly on the guest
    page — see activityByEmail in users.controller.js. Mirrors exactly what the
@@ -1167,12 +1385,18 @@ module.exports = {
   sendDirectMessageNotice,
   sendClubAnnouncementEmail,
   sendJoinRequestsDigest,
+  sendJoinRequestStats,
+  sendJoinRequestStatsSummary,
   sendClubProposalEmail,
   sendCoordinatorCredentials,
   sendCoordinatorAssignment,
   sendPasswordReset,
   sendTeamAssignment,
   sendGaloreActivityAssignment,
+  sendGaloreAssignmentSummary,
+  sendGaloreRegistrationConfirmation,
+  sendGalorePasswordReset,
+  sendStudentVerificationLink,
   sendEventPublishedToCoordinator,
   sendVolunteerThanks,
   sendLeadershipAssigned,

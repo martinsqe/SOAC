@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
 import s from './CoordSubPage.module.css';
 
 const TAG_COLOR = {
@@ -28,16 +29,19 @@ export default function CoordSOAC() {
   const [announcements, setAnnouncements] = useState([]);
   const [loading,       setLoading]       = useState(true);
   const [error,         setError]         = useState('');
+  const { user } = useAuth();
+  /* only broadcasts the admin addressed to this dashboard's role */
+  const role = user?.role === 'faculty_coordinator' ? 'faculty_coordinator' : 'coordinator';
 
   useEffect(() => {
-    api.get('/announcements/soac')
+    api.get(`/announcements/soac?for=${role}`)
       .then(({ announcements: data }) => {
         setAnnouncements(data || []);
         setError('');
       })
       .catch(err => setError(err.message || 'Could not load SOAC announcements.'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [role]);
 
   return (
     <div className={s.page}>

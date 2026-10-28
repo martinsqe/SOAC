@@ -20,6 +20,7 @@ const NAV = [
       { to: '/admin/clubs',   label: 'All Clubs'     },
       { to: '/admin/members', label: 'All Members'   },
       { to: '/admin/events',  label: 'Events'        },
+      { to: '/admin/students', label: 'Student Directory' },
       { to: '/admin/notifications', label: 'Notifications' },
     ],
   },

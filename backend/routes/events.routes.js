@@ -7,7 +7,7 @@ const attendCtrl  = require('../controllers/eventAttendance.controller');
 const cd          = require('../controllers/clubDetail.controller');
 const { verifyToken, optionalAuth } = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/requireAdmin');
-const { uploadEvent, uploadEventMemory, uploadCertTemplate } = require('../config/multer');
+const { uploadEvent, uploadEventMemory, uploadCertTemplate, uploadDocumentMemory } = require('../config/multer');
 
 const requireCoordOrAdmin = (req, res, next) => {
   if (req.user?.role !== 'coordinator' && req.user?.role !== 'faculty_coordinator' && req.user?.role !== 'admin') {
@@ -30,13 +30,16 @@ const refreshReportAfter = (req, res, next) => {
 router.get('/',                  optionalAuth, ctrl.getAll);
 router.get('/live-scores',       ctrl.getLiveScores);
 router.get('/past-scores',       ctrl.getPastScores);
-router.get('/galore/departments',   ctrl.getGaloreDepartments); /* public */
-router.get('/galore/catalog',       verifyToken, requireAdmin, ctrl.getGaloreCatalog);
-router.get('/galore/coordinators',  verifyToken, requireAdmin, ctrl.getGaloreCoordinators);
-router.post('/galore',              verifyToken, requireAdmin, uploadEventMemory.single('image'), ctrl.createGaloreEvent);
+router.get('/galore/template',       verifyToken, requireAdmin, ctrl.getGaloreTemplate);
+router.get('/galore/coordinators',   verifyToken, requireAdmin, ctrl.getGaloreCoordinators);
+router.post('/galore',               verifyToken, requireAdmin, uploadEventMemory.single('image'), ctrl.createGaloreEvent);
+router.post('/galore/rules-upload',  verifyToken, requireAdmin, uploadDocumentMemory.single('file'), ctrl.uploadGaloreRules);
 router.get('/my-assignments',       verifyToken, requireCoordOrAdmin, ctrl.getMyAssignments);
 router.get('/:id',               ctrl.getOne);
 router.get('/:id/activities',    ctrl.getActivities); /* public — Galore umbrella's child activities */
+router.get('/:id/galore-form',   ctrl.getGaloreFormPublic); /* public — builds the Galore registration form */
+router.get('/:id/galore-setup',  verifyToken, requireAdmin, ctrl.getGaloreSetup);
+router.put('/:id/galore-form',   verifyToken, requireAdmin, ctrl.updateGaloreForm);
 router.get('/:id/department-registrations', verifyToken, requireCoordOrAdmin, ctrl.getDepartmentRegistrations);
 router.post('/',       verifyToken, requireCoordOrAdmin, uploadEvent.single('image'), ctrl.create);
 router.post('/past-report', verifyToken, requireCoordOrAdmin, ctrl.createPastEventForReport); /* report for an event held outside the system */

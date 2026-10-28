@@ -1,6 +1,6 @@
 const bcrypt   = require('bcryptjs');
 const { pgPool } = require('../config/db');
-const { sendCredentials, sendApproval, sendRequestsRemoved, sendJoinRequestsDigest, sendJoinRequestCampusChanged } = require('../config/email');
+const { sendCredentials, sendApproval, sendRequestsRemoved, sendJoinRequestsDigest, sendJoinRequestCampusChanged, sendJoinRequestStats, sendJoinRequestStatsSummary } = require('../config/email');
 const { clubStaff, emailEach } = require('../services/mailRecipients');
 const { ensureSoacTables } = require('../services/soacData');
 const { getCoordClubIds, assertCoordOwnsClub, getClubCoordinatorIds } = require('../services/coordAuth');
@@ -1006,4 +1006,68 @@ const resendEmail = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getJoinStatus, setJoinStatus, getAll, create, checkClubLimit, approve, bulkApprove, bulkDelete, decline, resendEmail, changeCampus };
+/* POST /api/requests/send-stats  (admin) — { clubIds: [...] }
+   Emails each chosen club's Faculty Advisor(s) and Student Coordinator(s) their
+   club's total / approved / pending join requests, and sends the SOAC office a
+   table of every club's numbers (on the campus the admin is managing). */
+const SOAC_OFFICE_EMAIL = process.env.SOAC_OFFICE_EMAIL || 'soac@rku.ac.in';
+const sendRequestStats = async (req, res, next) => {
+  try {
+    await ensureSoacTables();
+    const clubIds = [...new Set((Array.isArray(req.body.clubIds) ? req.body.clubIds : []).map(String).filter(Boolean))];
+    if (!clubIds.length) return res.status(400).json({ message: 'Choose at least one club.' });
+
+    const campus = adminCampus(req);
+    const { rows: stats } = await pgPool.query(
+      `SELECT c.id AS club_id, c.name AS club_name, c.campus,
+              COUNT(jr.id)::int                                       AS total,
+              COUNT(jr.id) FILTER (WHERE jr.status = 'approved')::int AS approved,
+              COUNT(jr.id) FILTER (WHERE jr.status = 'pending')::int  AS pending
+       FROM clubs c
+       JOIN join_requests jr ON jr.club_id = c.id
+       ${campus ? 'WHERE c.campus = $1' : ''}
+       GROUP BY c.id, c.name, c.campus
+       ORDER BY c.name, c.campus`,
+      campus ? [campus] : []
+    );
+    const chosen = stats.filter(r => clubIds.includes(String(r.club_id)));
+    if (!chosen.length) return res.status(400).json({ message: 'None of the chosen clubs have join requests.' });
+
+    /* Faculty Advisors + Student Coordinators of each chosen club */
+    const { rows: staff } = await pgPool.query(
+      `SELECT DISTINCT c.id AS club_id, u.email, u.name
+       FROM clubs c
+       JOIN users u ON u.is_active = true AND u.role IN ('coordinator', 'faculty_coordinator')
+                   AND COALESCE(u.email, '') <> ''
+       LEFT JOIN coordinator_club_assignments cca ON cca.user_id = u.id AND cca.club_id = c.id AND cca.is_active = true
+       WHERE c.id = ANY($1::bigint[]) AND (cca.id IS NOT NULL OR u.managed_club_id = c.id)`,
+      [chosen.map(r => r.club_id)]
+    );
+
+    let emailsQueued = 0;
+    const clubsWithoutStaff = [];
+    for (const club of chosen) {
+      const people = staff.filter(p => String(p.club_id) === String(club.club_id));
+      if (!people.length) { clubsWithoutStaff.push(club.club_name); continue; }
+      emailsQueued += people.length;
+      emailEach(people, (p) => sendJoinRequestStats({
+        toEmail: p.email, toName: p.name, clubName: club.club_name, campus: club.campus,
+        total: club.total, approved: club.approved, pending: club.pending,
+      }), 'join request stats');
+    }
+
+    sendJoinRequestStatsSummary({
+      toEmail: SOAC_OFFICE_EMAIL, campus,
+      rows: stats.map(r => ({ clubId: r.club_id, clubName: r.club_name, campus: r.campus, total: r.total, approved: r.approved, pending: r.pending })),
+      sentTo: chosen.filter(c => !clubsWithoutStaff.includes(c.club_name)).map(c => c.club_id),
+    }).catch(err => console.error('[requests] stats summary email failed:', err.message));
+
+    res.json({
+      clubs: chosen.length, emailsQueued, clubsWithoutStaff,
+      message: `Statistics sent to ${emailsQueued} Faculty Advisor${emailsQueued === 1 ? '' : 's'} / Student Coordinator${emailsQueued === 1 ? '' : 's'} across ${chosen.length - clubsWithoutStaff.length} club${chosen.length - clubsWithoutStaff.length === 1 ? '' : 's'}, with a full copy to ${SOAC_OFFICE_EMAIL}.` +
+        (clubsWithoutStaff.length ? ` No FA/SC assigned for: ${clubsWithoutStaff.join(', ')}.` : ''),
+    });
+  } catch (err) { next(err); }
+};
+
+module.exports = { getJoinStatus, setJoinStatus, getAll, create, checkClubLimit, approve, bulkApprove, bulkDelete, decline, resendEmail, changeCampus, sendRequestStats };
