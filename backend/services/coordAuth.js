@@ -75,7 +75,7 @@ async function getCoordClubIds(userId) {
     }
   }
 
-  // ── Fallback 2: clubs.coordinator name match (trimmed / partial) ──
+  // ── Fallback 2: clubs.coordinator name match (exact, case-insensitive) ──
   // Main Campus clubs only: this rescues pre-campus legacy data, and a loose name
   // match must never hand a coordinator another campus's club (and its requests).
   // City Campus staff are always assigned through coordinator_club_assignments.
@@ -89,10 +89,10 @@ async function getCoordClubIds(userId) {
       `SELECT id FROM clubs
        WHERE is_active = true AND campus = 'Main Campus'
          AND ${NO_ROW('$2', 'clubs.id')}
-         AND (
-           trim(coordinator) ILIKE trim($1)
-           OR coordinator ILIKE '%' || trim($1) || '%'
-         )
+         /* exact (case-insensitive) name only — a partial match could hand
+            "Raj" the club run by "Rajesh Patel" */
+         AND length(trim($1)) >= 3
+         AND lower(trim(coordinator)) = lower(trim($1))
        ORDER BY created_at ASC`,
       [coordName, userId]
     );
@@ -180,10 +180,8 @@ async function assertCoordOwnsClub(userId, clubId) {
            SELECT 1 FROM coordinator_club_assignments a JOIN clubs c ON c.id = a.club_id
            WHERE a.user_id = $3 AND c.campus <> 'Main Campus'
          )
-         AND (
-           trim(coordinator) ILIKE trim($2)
-           OR coordinator ILIKE '%' || trim($2) || '%'
-         )`,
+         AND length(trim($2)) >= 3
+         AND lower(trim(coordinator)) = lower(trim($2))`,
       [clubId, coordName, userId]
     );
     if (nameMatch.length) {
@@ -250,10 +248,8 @@ async function getClubCoordinatorIds(clubId) {
     const { rows: nameMatch } = await pgPool.query(
       `SELECT id FROM users
        WHERE role = 'coordinator' AND is_active = true
-         AND (
-           trim(name) ILIKE trim($1)
-           OR $1 ILIKE '%' || trim(name) || '%'
-         )
+         AND length(trim(name)) >= 3
+         AND lower(trim(name)) = lower(trim($1))
          AND NOT EXISTS (
            SELECT 1 FROM coordinator_club_assignments a JOIN clubs c ON c.id = a.club_id
            WHERE a.user_id = users.id AND c.campus <> 'Main Campus'

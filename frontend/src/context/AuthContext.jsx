@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import api from '../api/client';
+import api, { restoreSession, setAccessToken, clearAccessToken } from '../api/client';
 
 const AuthContext = createContext(null);
 
@@ -7,30 +7,29 @@ function readCachedUser() {
   try { return JSON.parse(localStorage.getItem('soac_user') || 'null'); } catch (_) { return null; }
 }
 
+/* soac_user is only a display hint (name / role for the first paint) — not a
+   credential. The access token itself is kept in memory by the API client. */
+const forgetCachedUser = () => { try { localStorage.removeItem('soac_user'); } catch { /* storage blocked */ } };
+
 export const AuthProvider = ({ children }) => {
   // Lazy initializers run once on mount — no localStorage reads on re-renders.
-  const [user,    setUser]    = useState(() => {
-    if (!localStorage.getItem('soac_token')) return null;
-    return readCachedUser(); // null if not cached yet
-  });
-  const [loading, setLoading] = useState(() => {
-    const hasToken = !!localStorage.getItem('soac_token');
-    // Only block rendering if we have a token but no cached user to show immediately.
-    return hasToken && !readCachedUser();
-  });
+  const [user,    setUser]    = useState(() => readCachedUser());
+  /* Someone was signed in on this device: hold protected pages until the
+     session is restored from the refresh cookie (one quick request) */
+  const [loading, setLoading] = useState(() => !!readCachedUser());
 
-  /* Verify stored token on app load (runs in background if cached user was used) */
+  /* Restore the session on app load */
   useEffect(() => {
-    const token = localStorage.getItem('soac_token');
-    if (!token) { setLoading(false); return; }
-    api.get('/auth/me')
+    if (!readCachedUser()) { setLoading(false); return; }
+    restoreSession()
+      .then(() => api.get('/auth/me'))
       .then(({ user }) => {
         setUser(user);
         localStorage.setItem('soac_user', JSON.stringify(user));
       })
       .catch(() => {
-        localStorage.removeItem('soac_token');
-        localStorage.removeItem('soac_user');
+        clearAccessToken();
+        forgetCachedUser();
         setUser(null);
       })
       .finally(() => setLoading(false));
@@ -38,14 +37,14 @@ export const AuthProvider = ({ children }) => {
 
   /* Listen for silent session-expiry from the API client */
   useEffect(() => {
-    const handler = () => setUser(null);
+    const handler = () => { forgetCachedUser(); setUser(null); };
     window.addEventListener('soac:session-expired', handler);
     return () => window.removeEventListener('soac:session-expired', handler);
   }, []);
 
   const login = useCallback(async (email, password) => {
     const data = await api.post('/auth/login', { email, password });
-    localStorage.setItem('soac_token', data.accessToken);
+    setAccessToken(data.accessToken);
     localStorage.setItem('soac_user', JSON.stringify(data.user));
     setUser(data.user);
     return data.user;
@@ -56,7 +55,7 @@ export const AuthProvider = ({ children }) => {
      full page load into that dashboard, so it starts with a clean state. */
   const switchProfile = useCallback(async () => {
     const data = await api.post('/auth/switch-profile', {});
-    localStorage.setItem('soac_token', data.accessToken);
+    setAccessToken(data.accessToken);
     localStorage.setItem('soac_user', JSON.stringify(data.user));
     setUser(data.user);
     window.location.replace(data.user.role === 'student' ? '/student' : '/coordinator');
@@ -71,8 +70,8 @@ export const AuthProvider = ({ children }) => {
      logout, protects shared/borrowed devices but was explicitly not wanted.) */
   const logout = useCallback(async () => {
     try { await api.post('/auth/logout', {}); } catch (_) {}
-    localStorage.removeItem('soac_token');
-    localStorage.removeItem('soac_user');
+    clearAccessToken();
+    forgetCachedUser();
     setUser(null);
   }, []);
 

@@ -9,7 +9,16 @@
 */
 /* options.pageSize / options.pageMargin: e.g. { pageSize: 'A4', pageMargin: '0' } for
    content that is already laid out as A4 pages with its own letterhead/footer. */
+/* The title comes from user-entered data (an event's name) and is written into
+   raw HTML below — escape it, or a crafted name could run script in this
+   same-origin window and read the viewer's session. */
+const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+/* Page size / margin are CSS — allow only simple tokens like "A4" or "12mm" */
+const cssToken = (v, fallback) => (/^[\w.\s-]{0,20}$/.test(String(v)) ? String(v) : fallback);
+
 export function downloadElementAsPdf(node, title = 'Report', { pageSize = '', pageMargin = '12mm' } = {}) {
+  pageSize = cssToken(pageSize, '');
+  pageMargin = cssToken(pageMargin, '12mm');
   if (!node) return;
 
   const printWindow = window.open('', '_blank', 'width=900,height=1000');
@@ -34,7 +43,7 @@ export function downloadElementAsPdf(node, title = 'Report', { pageSize = '', pa
   <head>
     <meta charset="utf-8" />
     <base href="${window.location.origin}/" />
-    <title>${title}</title>
+    <title>${escapeHtml(title)}</title>
     ${styleTags}
     <style>
       * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }

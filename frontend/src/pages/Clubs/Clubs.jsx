@@ -5,6 +5,7 @@ import { useStats } from '../../context/StatsContext';
 import styles from './Clubs.module.css';
 import ClubsCarousel from './ClubsCarousel';
 import JoinModal from '../../components/JoinModal/JoinModal';
+import JoinConfirm from '../../components/JoinModal/JoinConfirm';
 import api from '../../api/client';
 
 /* ── Club data (all 40 logos mapped) ─────────────────── */
@@ -755,6 +756,7 @@ const Clubs = () => {
 
       {/* ── JOIN MODAL ── */}
       {joiningClub && <JoinModal club={joiningClub} onClose={() => setJoiningClub(null)} />}
+      <JoinConfirm />
     </div>
   );
 };

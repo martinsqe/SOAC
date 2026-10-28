@@ -12,6 +12,7 @@
    admin assigned to them — so assignments changed later just show up. */
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const { galoreSecret } = require('../config/secrets');
 const jwt    = require('jsonwebtoken');
 const { pgPool } = require('../config/db');
 
@@ -113,8 +114,13 @@ async function resetPassword(email) {
   return { email: target.email, name: target.name, tempPassword: pwd };
 }
 
+/* Signed with the Galore-only secret (never accepted as a club login, and vice
+   versa). `pv` ties the token to the current password, so changing or
+   resetting it signs out every existing Galore session. */
+const passwordVersion = (hash) => crypto.createHash('sha256').update(String(hash || '')).digest('hex').slice(0, 16);
 const issueToken = (acc) =>
-  jwt.sign({ gid: String(acc.id), email: acc.email, purpose: 'galore' }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  jwt.sign({ gid: String(acc.id), email: acc.email, purpose: 'galore', pv: passwordVersion(acc.password_hash) },
+    galoreSecret(), { expiresIn: '7d', algorithm: 'HS256' });
 
 async function login(email, password) {
   await ready;
@@ -134,8 +140,11 @@ async function changePassword(accountId, current, next) {
   }
   const pwd = String(next || '');
   if (pwd.length < 8) throw new PortalError('Choose a password of at least 8 characters.');
-  await pgPool.query(`UPDATE galore_accounts SET password_hash = $1, must_change_password = false WHERE id = $2`,
+  const { rows: updated } = await pgPool.query(
+    `UPDATE galore_accounts SET password_hash = $1, must_change_password = false WHERE id = $2 RETURNING *`,
     [await bcrypt.hash(pwd, 10), accountId]);
+  /* Older tokens carry the old password version and stop working — this one replaces them */
+  return issueToken(updated[0]);
 }
 
 /* Express middleware: a valid Galore portal token (never a club login token) */
@@ -143,11 +152,13 @@ async function requireGalore(req, res, next) {
   const header = req.headers.authorization || '';
   if (!header.startsWith('Bearer ')) return res.status(401).json({ message: 'Please log in to the Galore portal.' });
   try {
-    const p = jwt.verify(header.slice(7), process.env.JWT_SECRET);
+    const p = jwt.verify(header.slice(7), galoreSecret(), { algorithms: ['HS256'] });
     if (p.purpose !== 'galore') throw new Error('wrong token');
-    const { rows } = await pgPool.query(`SELECT id, email, name, must_change_password FROM galore_accounts WHERE id = $1`, [p.gid]);
+    const { rows } = await pgPool.query(`SELECT id, email, name, must_change_password, password_hash FROM galore_accounts WHERE id = $1`, [p.gid]);
     if (!rows[0]) throw new Error('no account');
-    req.galore = rows[0];
+    if (p.pv !== passwordVersion(rows[0].password_hash)) throw new Error('password changed');
+    const { password_hash, ...account } = rows[0];
+    req.galore = account;
     next();
   } catch {
     res.status(401).json({ message: 'Your Galore session has expired — please log in again.' });

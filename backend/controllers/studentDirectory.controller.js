@@ -33,9 +33,13 @@ const lookup = handle(async (req, res) => {
   if (!s) {
     return res.status(404).json({ message: "This number isn't in the university student list. Check it, or contact your department's Faculty Advisor." });
   }
-  /* With eventId: which of that Galore event's activities they're already in */
-  const out = { student: dir.publicView(s), registered: await registeredIn(s, req.body?.eventId) };
-  if (req.user?.email && s.email && req.user.email.toLowerCase() === s.email.toLowerCase()) {
+  /* With eventId: which of that Galore event's activities they're already in.
+     Activity names only for the verified owner — anyone else just learns that
+     the number is registered (so the form can point them to the portal). */
+  const registered = await registeredIn(s, req.body?.eventId);
+  const isOwner = !!(req.user?.email && s.email && req.user.email.toLowerCase() === s.email.toLowerCase());
+  const out = { student: dir.publicView(s), registered: isOwner ? registered : registered.map(r => ({ id: r.id })) };
+  if (isOwner) {
     out.verificationToken = dir.issueVerificationToken(s.id);
     out.verified = dir.verifiedView(s);
   }

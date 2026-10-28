@@ -3,6 +3,7 @@ const ctrl        = require('../controllers/users.controller');
 const { verifyToken }  = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/requireAdmin');
 const { uploadAvatar } = require('../config/multer');
+const { activityEmailLimiter } = require('../middleware/rateLimits');
 
 router.get('/',  verifyToken, requireAdmin, ctrl.getAll);
 router.post('/', verifyToken, requireAdmin, ctrl.create);
@@ -11,7 +12,7 @@ router.post('/', verifyToken, requireAdmin, ctrl.create);
 router.get('/me/clubs',                              verifyToken, ctrl.myClubs);
 router.get('/me/event-registrations',                verifyToken, ctrl.myEventRegistrations);
 router.get('/me/activity',                           verifyToken, ctrl.myActivity);
-router.get('/activity-by-email',                     ctrl.activityByEmail); /* public — "My Activity" nav page, no login */
+router.get('/activity-by-email',  activityEmailLimiter, ctrl.activityByEmail); /* public — "My Activity" nav page, no login */
 router.get('/me/weekly-evaluation',                  verifyToken, ctrl.weeklyEvaluation);
 router.get('/me/notifications',                      verifyToken, ctrl.getNotifications);
 router.get('/me/notifications/all',                   verifyToken, ctrl.getAllNotifications);

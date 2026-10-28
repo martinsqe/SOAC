@@ -4,6 +4,7 @@
  */
 const { pgPool } = require('../config/db');
 const { ensureSoacTables } = require('../services/soacData');
+const { assertCoordOwnsClub } = require('../services/coordAuth');
 const { getFileValue } = require('../config/multer');
 const { destroyImage } = require('../config/cloudinary');
 const bracketEngine = require('../services/bracketEngine');
@@ -243,12 +244,35 @@ const removeLeadershipRole = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* GET /api/clubs/:id/leadership  (public) */
+/* GET /api/clubs/:id/leadership  (public, with optional login)
+   What each viewer gets — leadership holders are students, so their contact
+   details are personal data:
+     • admin / this club's SC or FA → everything (they manage the roles)
+     • an active member of the club  → names, roles and email (to reach them)
+     • anyone else (guests, other students) → names, roles, photo and
+       responsibilities only — no email, phone, enrollment no. or account id */
 const getLeadership = async (req, res, next) => {
   try {
     await ensureSoacTables();
-    const [leadership, staff] = await Promise.all([leadershipOf(req.params.id), clubStaff(req.params.id)]);
-    res.json({ leadership, staff });
+    const clubId = req.params.id;
+    if (!/^\d+$/.test(String(clubId))) return res.status(400).json({ message: 'Invalid club.' });
+    const [leadership, staff] = await Promise.all([leadershipOf(clubId), clubStaff(clubId)]);
+
+    const role = req.user?.role;
+    const isStaff = role === 'admin'
+      || ((role === 'coordinator' || role === 'faculty_coordinator') && await assertCoordOwnsClub(req.user.id, clubId));
+    if (isStaff) return res.json({ leadership, staff });
+
+    const isMember = !!req.user && (await pgPool.query(
+      `SELECT 1 FROM student_clubs WHERE user_id = $1 AND club_id = $2::bigint AND is_active = true`,
+      [req.user.id, clubId]
+    )).rows.length > 0;
+
+    res.json({
+      leadership: leadership.map(({ phone, enrollment_no, user_id, holder_email, ...rest }) =>
+        (isMember ? { ...rest, holder_email } : rest)),
+      staff: staff.map(({ email, id, ...rest }) => (isMember ? { ...rest, id, email } : rest)),
+    });
   } catch (err) { next(err); }
 };
 

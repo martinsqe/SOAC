@@ -893,3 +893,24 @@
 .clubsSince { font-size: .72rem; color: #9ca3af; }
 .clubsEmpty { font-size: .8rem; color: #9ca3af; padding: 6px 0; }
 .clubsNote { font-size: .72rem; color: #6b7280; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f3f4f6; }
+
+/* "+ Add missing activity" in the My Activity card header */
+.btnAddActivity {
+  flex-shrink: 0;
+  align-self: center;
+  background: #f0fdfa;
+  color: #0f766e;
+  border: 1.5px solid #99f6e4;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: .8rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, border-color .15s;
+}
+.btnAddActivity:hover { background: #ccfbf1; border-color: #5eead4; }
+@media (max-width: 560px) {
+  .btnAddActivity { padding: 7px 10px; font-size: .74rem; }
+}

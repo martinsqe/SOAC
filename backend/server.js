@@ -1,10 +1,22 @@
 // TLS 1.2 is forced via --tls-min-v1.2 --tls-max-v1.2 flags (see package.json scripts).
-// TLS cert verification is only disabled in development.
-if (process.env.NODE_ENV !== 'production') {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+require('dotenv').config();
+
+/* Hosting platforms are always production — never let a missing/wrong NODE_ENV
+   there switch on development behaviour (verbose errors, insecure cookies). */
+if ((process.env.RAILWAY_ENVIRONMENT || process.env.RENDER) && process.env.NODE_ENV !== 'production') {
+  console.warn(`⚠️  NODE_ENV was "${process.env.NODE_ENV || ''}" on a hosting platform — forcing production`);
+  process.env.NODE_ENV = 'production';
 }
 
-require('dotenv').config();
+/* Certificate checking for outgoing TLS (database, Gmail, Cloudinary) stays ON.
+   It used to be switched off for every non-production run, which on a
+   misconfigured server allows man-in-the-middle attacks. If a local network
+   intercepts TLS, add its root certificate with NODE_EXTRA_CA_CERTS instead;
+   DEV_INSECURE_TLS=1 is a last-resort escape hatch that only works locally. */
+if (process.env.DEV_INSECURE_TLS === '1' && process.env.NODE_ENV === 'development') {
+  console.warn('⚠️  DEV_INSECURE_TLS=1 — TLS certificate checks are OFF (local development only)');
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
 
 /* ── Validate environment configuration ── */
 const { validateEnv } = require('./config/envValidator');
@@ -129,13 +141,31 @@ const authLimiter = rateLimit({
   message: { message: 'Too many login attempts — please try again in 15 minutes.' },
 });
 
-/* ── Body parsers ── */
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+/* ── Body parsers (explicit size caps; uploads go through multer, not these) ── */
+app.use(express.json({ limit: '200kb' }));
+app.use(express.urlencoded({ extended: true, limit: '200kb' }));
 app.use(cookieParser());
 
-/* ── Static uploads ── */
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+/* ── Static uploads ──
+   Public media only (logos, event images, avatars…). Files holding students'
+   personal data — activity proofs, issued certificates — are kept outside this
+   folder (private/) and served only through authenticated, signed links.
+   dotfiles are never served, and nothing here is ever rendered as a page. */
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+  dotfiles: 'deny',
+  index: false,
+  setHeaders: (res, filePath) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    /* No script can ever run from an uploaded file (PDFs excluded: the
+       browser's PDF viewer won't render under a sandbox policy) */
+    if (!/\.pdf$/i.test(filePath)) {
+      res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox");
+    }
+  },
+}));
+
+/* ── Private files (students' personal data) — only via short-lived signed links ── */
+app.get('/api/files/:token', require('./services/privateFiles').serveFileLink);
 
 /* ── API responses are never cached by browsers/proxies — admin data differs per
       campus (X-Campus header) at the same URL, so a cached Main Campus response
@@ -161,6 +191,7 @@ app.use('/api/fame',          require('./routes/fame.routes'));
 app.use('/api/calendar',       require('./routes/calendar.routes'));
 app.use('/api/event-requests',  require('./routes/eventRequests.routes'));
 app.use('/api/club-feed',       require('./routes/clubFeed.routes'));
+app.use('/api/student-activity', require('./routes/studentActivity.routes'));
 app.use('/api/activity-monitor', require('./routes/activityMonitor.routes'));
 app.use('/api/club-proposals',  require('./routes/clubProposals.routes'));
 app.use('/api/reports',         require('./routes/reports.routes'));
@@ -178,8 +209,10 @@ app.post('/api/admin/test-email', require('./middleware/auth').verifyToken, asyn
   res.json({ ...result, sentTo: to });
 });
 
-/* ── Health check — always 200 so Railway healthcheck passes ── */
-app.get('/api/health', async (req, res) => {
+/* ── Health check — always 200 so Railway healthcheck passes. Public callers
+      only learn that the API is up; backing-service status is for admins. ── */
+app.get('/api/health', require('./middleware/auth').optionalAuth, async (req, res) => {
+  if (req.user?.role !== 'admin') return res.json({ status: 'ok' });
   const pgOk = await poolHealth().catch(() => false);
   let redisStatus = 'unknown';
   try {
@@ -220,8 +253,11 @@ process.on('SIGINT',  shutdown);
 /* ── Start: listen FIRST so Railway healthcheck can reach the server,
          then initialise DB / seed in the background ── */
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`🚀  SOAC API listening on port ${PORT}`);
+/* Local development binds to this machine only, so nobody on the same Wi-Fi /
+   hotspot can reach the dev API. Hosting platforms need every interface. */
+const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
+server.listen(PORT, HOST, () => {
+  console.log(`🚀  SOAC API listening on ${HOST}:${PORT}`);
 
   // DB init runs after the port is open so healthchecks don't time out
   (async () => {
@@ -235,6 +271,13 @@ server.listen(PORT, () => {
        the first request needs them, not lazily on whichever endpoint runs first */
     await ensureSoacTables().catch(err => console.error('⚠️  App table check failed (endpoints retry it on demand):', err.message));
     console.log('✅  DB initialisation complete');
+    /* Old certificates had guessable file names — give them random ones (background, once).
+       Production only: a local copy of the data shares the Cloudinary account, and
+       renaming from there would break the links production's database points to. */
+    if (process.env.NODE_ENV === 'production') {
+      require('./controllers/certificates.controller').randomiseLegacyCertificateNames()
+        .catch(err => console.error('⚠️  Certificate rename failed:', err.message));
+    }
   })().catch(err => {
     console.error('❌  DB initialisation failed:', err.message);
     process.exit(1);

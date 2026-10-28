@@ -18,7 +18,7 @@ const uploadSheet = multer({
 /* Lookups are public, so cap them per IP — stops anyone walking through
    enrollment numbers to harvest names. Sending links is capped tighter still. */
 const lookupLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, max: 40, standardHeaders: true, legacyHeaders: false,
+  windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false,
   message: { message: 'Too many lookups from this network — please try again in a few minutes.' },
 });
 const codeLimiter = rateLimit({

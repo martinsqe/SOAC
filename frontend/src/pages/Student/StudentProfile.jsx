@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
 import ActivityResults from '../MyActivity/ActivityResults';
+import { AddActivityModal, ActivityClaimsList } from '../../components/ActivityClaims/ActivityClaims';
 import s from './StudentProfile.module.css';
 
 const AVATAR_BASE = '/uploads/avatars/';
@@ -37,15 +38,16 @@ function pwStrengthCalc(pw) {
 }
 
 /* ─── Small reusable section card ─── */
-function SectionCard({ icon, title, subtitle, children }) {
+function SectionCard({ icon, title, subtitle, action, children }) {
   return (
     <div className={s.card}>
       <div className={s.cardHead}>
         <span className={s.cardIcon}>{icon}</span>
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div className={s.cardTitle}>{title}</div>
           {subtitle && <div className={s.cardSub}>{subtitle}</div>}
         </div>
+        {action}
       </div>
       <div className={s.cardBody}>{children}</div>
     </div>
@@ -88,6 +90,9 @@ export default function StudentProfile() {
 
   /* ── Activity history ── */
   const [activityData, setActivityData] = useState(null);
+  /* "Add missing activity" form, and a counter that reloads the submissions list */
+  const [addActivityOpen, setAddActivityOpen] = useState(false);
+  const [claimsKey, setClaimsKey] = useState(0);
 
   /* ── clubs joined (for profile card) ── */
   const [myClubs,       setMyClubs]       = useState([]);
@@ -488,7 +493,12 @@ export default function StudentProfile() {
           </SectionCard>
 
           {/* ── My Activity — same view as the public My Activity page ── */}
-          <SectionCard icon="📋" title="My Activity" subtitle="Every event you've taken part in, your result and your attendance">
+          <SectionCard icon="📋" title="My Activity" subtitle="Every event you've taken part in, your result and your attendance"
+            action={
+              <button type="button" className={s.btnAddActivity} onClick={() => setAddActivityOpen(true)}>
+                + Add missing activity
+              </button>
+            }>
             {!activityData ? (
               <div className={s.weeklyLoading}>Loading activity…</div>
             ) : (
@@ -500,6 +510,7 @@ export default function StudentProfile() {
                 emptyCta="Browse Events"
               />
             )}
+            <ActivityClaimsList refreshKey={claimsKey} />
           </SectionCard>
 
           {/* ── Profile info ── */}
@@ -608,6 +619,13 @@ export default function StudentProfile() {
 
         </div>
       </div>
+
+      {addActivityOpen && (
+        <AddActivityModal
+          onClose={() => setAddActivityOpen(false)}
+          onSubmitted={() => setClaimsKey(k => k + 1)}
+        />
+      )}
     </div>
   );
 }

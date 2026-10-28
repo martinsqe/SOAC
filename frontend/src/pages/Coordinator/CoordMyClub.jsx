@@ -1,15 +1,19 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useCoordClub } from '../../context/CoordClubContext';
-import api from '../../api/client';
+import api, { getAccessToken } from '../../api/client';
 import s from './CoordMyClub.module.css';
 import { getSocket } from '../../realtime/socket';
 import LeadershipTeam from '../../components/LeadershipTeam/LeadershipTeam';
 import AssignStudentCoordinatorModal from '../../components/AssignStudentCoordinatorModal/AssignStudentCoordinatorModal';
+import CoordStudentActivity from './CoordStudentActivity';
 
 const BASE_TABS   = ['Overview', 'Attendance', 'Tasks', 'Leadership', 'Progress'];
 const SPORTS_TABS = [...BASE_TABS, 'Live Scoreboard'];
+/* Always the last tab, for every club — activities students reported that
+   weren't recorded on SOAC, waiting for this club's SC / FA to verify */
+const STUDENT_ACTIVITY_TAB = 'Student Activity';
 
 const WEEK_DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 const DAY_SHORT  = { Monday:'Mon', Tuesday:'Tue', Wednesday:'Wed', Thursday:'Thu', Friday:'Fri', Saturday:'Sat', Sunday:'Sun' };
@@ -274,6 +278,38 @@ export default function CoordMyClub() {
       .finally(() => setLoading(false));
   }, [clubId]);
 
+  /* Student Activity — pending count for the tab badge */
+  const [pendingActivity, setPendingActivity] = useState(0);
+  useEffect(() => {
+    if (!clubId) return;
+    setPendingActivity(0);
+    api.get(`/student-activity/review?clubId=${clubId}&status=pending`)
+      .then(r => setPendingActivity(r.counts?.pending || 0))
+      .catch(() => {});
+  }, [clubId]);
+
+  /* Opened from the review email / notification
+     (?tab=student-activity&club=<clubId>&claim=<claimId>) → switch to that club
+     if another one is selected, then open the tab on that submission. Declared
+     after the club-switch reset above so it wins when both run together. */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [highlightClaim, setHighlightClaim] = useState(null);
+  const tabParam   = searchParams.get('tab');
+  const clubParam  = searchParams.get('club');
+  const claimParam = searchParams.get('claim');
+  useEffect(() => {
+    if (tabParam !== 'student-activity' || !clubId) return;
+    if (clubParam && String(clubParam) !== String(clubId)) {
+      const target = (clubs || []).find(c => String(c._id || c.id) === String(clubParam));
+      if (target) { setSelectedClub(target); return; } // re-runs once the switch lands
+    }
+    setTab(STUDENT_ACTIVITY_TAB);
+    setHighlightClaim(claimParam || null);
+    const next = new URLSearchParams(searchParams);
+    ['tab', 'club', 'claim'].forEach(k => next.delete(k));
+    setSearchParams(next, { replace: true });
+  }, [tabParam, clubParam, claimParam, clubId, clubs, setSelectedClub, searchParams, setSearchParams]);
+
   if (clubLoading || loading) return <div className={s.loading}><div className={s.spinner} /></div>;
   if (error)                  return <div style={{ padding: 32 }}><div className={s.errBox}>{error}</div></div>;
   if (!club)                  return null;
@@ -281,7 +317,7 @@ export default function CoordMyClub() {
   const catColors   = { sports:'#ef4444', cultural:'#a855f7', social:'#06d6a0', academic:'#635BFF' };
   const color       = club.color || catColors[club.category] || '#4c44e0';
   const isSportsClub = club.category === 'sports';
-  const visibleTabs  = isSportsClub ? SPORTS_TABS : BASE_TABS;
+  const visibleTabs  = [...(isSportsClub ? SPORTS_TABS : BASE_TABS), STUDENT_ACTIVITY_TAB];
 
   return (
     <div className={s.page}>
@@ -363,6 +399,9 @@ export default function CoordMyClub() {
         {visibleTabs.map(t => (
           <button key={t} className={`${s.tab} ${tab === t ? s.tabActive : ''}`} onClick={() => setTab(t)}>
             {t}
+            {t === STUDENT_ACTIVITY_TAB && pendingActivity > 0 && (
+              <span className={s.tabBadge}>{pendingActivity > 99 ? '99+' : pendingActivity}</span>
+            )}
           </button>
         ))}
       </div>
@@ -374,6 +413,10 @@ export default function CoordMyClub() {
       {tab === 'Leadership'  && <LeadershipTab  clubId={clubId} />}
       {tab === 'Progress'    && <ProgressTab    clubId={clubId} members={members} showToast={showToast} />}
       {isSportsClub && tab === 'Live Scoreboard' && <LiveScoreboardTab clubId={clubId} club={club} showToast={showToast} />}
+      {tab === STUDENT_ACTIVITY_TAB && (
+        <CoordStudentActivity key={`${clubId}-${highlightClaim || ''}`} clubId={clubId} showToast={showToast}
+          highlightId={highlightClaim} onPendingChange={setPendingActivity} />
+      )}
 
       {toast && <div className={s.toast}>{toast}</div>}
 
@@ -2538,7 +2581,7 @@ function LiveScoreboardTab({ clubId, club, showToast }) {
     try {
       const fd = new FormData();
       fd.append('photo', file);
-      const token = localStorage.getItem('soac_token') || sessionStorage.getItem('soac_token') || '';
+      const token = getAccessToken() || '';
       const res = await fetch(`/api/clubs/${clubId}/live-scores/${scoreId}/mvp/photo`, {
         method: 'PATCH', headers: { Authorization: `Bearer ${token}` }, body: fd,
       });

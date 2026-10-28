@@ -1,6 +1,7 @@
 const bcrypt   = require('bcryptjs');
+const crypto   = require('crypto');
 const { pgPool } = require('../config/db');
-const { sendCredentials, sendApproval, sendRequestsRemoved, sendJoinRequestsDigest, sendJoinRequestCampusChanged, sendJoinRequestStats, sendJoinRequestStatsSummary } = require('../config/email');
+const { sendJoinRequestConfirm, sendCredentials, sendApproval, sendRequestsRemoved, sendJoinRequestsDigest, sendJoinRequestCampusChanged, sendJoinRequestStats, sendJoinRequestStatsSummary } = require('../config/email');
 const { clubStaff, emailEach } = require('../services/mailRecipients');
 const { ensureSoacTables } = require('../services/soacData');
 const { getCoordClubIds, assertCoordOwnsClub, getClubCoordinatorIds } = require('../services/coordAuth');
@@ -11,6 +12,9 @@ const { findStaffAccount, unusablePasswordHash, loginProfileFor } = require('../
 const { JOIN_KEY, ensureJoinWindowSchema, getJoinState, joinClosedMessage, notifyRenewalContacts, forgetRenewalContact } = require('../services/joinWindow');
 
 const RKU_DOMAIN = '@rku.ac.in';
+/* A plain university address — no quotes, comments or extra '@' that a mail
+   library could route somewhere other than @rku.ac.in */
+const RKU_EMAIL_RE = /^[a-z0-9._%+-]+@rku\.ac\.in$/;
 
 /* ── Column lists ───────────────────────────────────────────────────────────*/
 const JR_COLS = [
@@ -283,6 +287,12 @@ const checkClubLimit = async (req, res, next) => {
     if (!email) return res.status(400).json({ message: 'email is required.' });
     const joinState = await getJoinState();
     if (!joinState.open) return res.json({ joinClosed: true, message: joinClosedMessage(joinState) });
+    /* Membership, pending requests and campus are personal — only reported to
+       the logged-in owner of the address. Anyone else learns only that joining
+       is open; the full checks run once they confirm the emailed link. */
+    if (String(req.user?.email || '').toLowerCase() !== email.toLowerCase()) {
+      return res.json({ joinClosed: false });
+    }
     let clubId = req.query.clubId ? String(req.query.clubId) : null;
     /* The form lists each club once — check the copy on the campus they picked */
     if (clubId && CAMPUSES.includes(req.query.campus)) {
@@ -304,43 +314,160 @@ const checkClubLimit = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* POST /api/requests  (public — student submits join form) */
+/* POST /api/requests  (public — student submits join form)
+   Anyone can type any @rku.ac.in address into the public form, so a request is
+   only created once the owner of that inbox confirms it: the form details are
+   held in join_request_confirmations and a one-time link is emailed. A
+   logged-in student submitting for their own address skips the email step.
+   Nothing about the address (membership, pending requests, campus) is revealed
+   before it is confirmed. */
+const JOIN_CONFIRM_MINUTES = 60;
+const JOIN_CONFIRM_PER_EMAIL_PER_HOUR = 3;
+let confirmTableReady = null;
+const ensureConfirmTable = () => {
+  if (!confirmTableReady) {
+    confirmTableReady = pgPool.query(`
+      CREATE TABLE IF NOT EXISTS join_request_confirmations (
+        id         BIGSERIAL    PRIMARY KEY,
+        token_hash CHAR(64)     NOT NULL UNIQUE,
+        email      VARCHAR(255) NOT NULL,
+        payload    JSONB        NOT NULL,
+        created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        expires_at TIMESTAMPTZ  NOT NULL,
+        used_at    TIMESTAMPTZ
+      )`).then(() => pgPool.query(
+        `CREATE INDEX IF NOT EXISTS idx_join_confirm_email ON join_request_confirmations(email, created_at)`
+      )).catch((err) => { confirmTableReady = null; throw err; });
+  }
+  return confirmTableReady;
+};
+
 const create = async (req, res, next) => {
   try {
     await ensureSoacTables();
     const { clubId: listedClubId, name, email, phone, enrollmentNo, dept, year, gender, campus, message } = req.body;
     if (!listedClubId || !name || !email) return res.status(400).json({ message: 'clubId, name and email are required.' });
-    if (!email.toLowerCase().endsWith(RKU_DOMAIN)) {
+    const emailLc = String(email).trim().toLowerCase();
+    if (!emailLc.endsWith(RKU_DOMAIN)) {
       return res.status(400).json({ message: 'Only RKU institutional emails (@rku.ac.in) are allowed to join clubs.' });
     }
-    if (!gender || !['M', 'F'].includes(gender.toUpperCase())) {
+    if (!RKU_EMAIL_RE.test(emailLc)) {
+      return res.status(400).json({ message: 'Please enter a valid @rku.ac.in email address.' });
+    }
+    if (!gender || !['M', 'F'].includes(String(gender).toUpperCase())) {
       return res.status(400).json({ message: 'Gender is required. Please select M or F.' });
     }
     if (!CAMPUSES.includes(campus)) {
       return res.status(400).json({ message: 'Campus is required. Please select Main Campus or City Campus.' });
     }
+    const clip = (v, n) => String(v ?? '').trim().slice(0, n);
+    const form = {
+      listedClubId: String(listedClubId), campus, email: emailLc,
+      name: clip(name, 120), phone: clip(phone, 20), enrollmentNo: clip(enrollmentNo, 40),
+      dept: clip(dept, 60), year: clip(year, 20), gender: String(gender).toUpperCase(), message: clip(message, 1000),
+    };
+    if (!form.name) return res.status(400).json({ message: 'clubId, name and email are required.' });
 
     const joinState = await getJoinState();
     if (!joinState.open) return res.status(403).json({ message: joinClosedMessage(joinState), joinClosed: true });
 
-    /* The form lists each club once; the request goes to that club's copy on the
-       chosen campus, so it lands with that campus's coordinators. */
-    const club = await clubOnCampus(listedClubId, campus);
+    const club = await clubOnCampus(form.listedClubId, campus);
     if (!club) return res.status(404).json({ message: 'Club not found.' });
-    const clubId   = String(club.id);
-    const clubName = club.name;
 
-    /* Authoritative enforcement — block at submission time, not just at approval, so a
-       student who is already a member of THIS club, already waiting on a request for it,
-       or already using all 3 club slots (active memberships + pending requests) never
-       gets another pending request sitting in front of a coordinator, even if the
-       client-side pre-check was bypassed. The check and the insert run in one
-       transaction under a per-email advisory lock, so two simultaneous requests for
-       different clubs can't both read "2 slots used" and both get through. */
-    const emailLc = email.toLowerCase();
-    const client  = await pgPool.connect();
-    let blocked = null;
-    let created = null;
+    /* Logged in as the owner of this address — no need to prove it again */
+    if (String(req.user?.email || '').toLowerCase() === emailLc) {
+      const result = await submitJoinRequest(form);
+      if (result.blocked) return res.status(result.blocked.status).json({ message: result.blocked.message });
+      return res.status(201).json({ request: toJR(result.created) });
+    }
+
+    await ensureConfirmTable();
+    const { rows: [{ n }] } = await pgPool.query(
+      `SELECT COUNT(*)::int AS n FROM join_request_confirmations
+       WHERE email = $1 AND created_at > NOW() - INTERVAL '1 hour'`,
+      [emailLc]
+    );
+    if (n >= JOIN_CONFIRM_PER_EMAIL_PER_HOUR) {
+      return res.status(429).json({ message: 'We have already sent confirmation emails to this address recently. Please check that inbox, or try again in an hour.' });
+    }
+    const token = crypto.randomBytes(32).toString('base64url');
+    await pgPool.query(
+      `INSERT INTO join_request_confirmations (token_hash, email, payload, expires_at)
+       VALUES ($1, $2, $3, NOW() + ($4::int * INTERVAL '1 minute'))`,
+      [crypto.createHash('sha256').update(token).digest('hex'), emailLc, JSON.stringify(form), JOIN_CONFIRM_MINUTES]
+    );
+    const appUrl = (process.env.CLIENT_URL || 'https://soac.info').replace(/\/+$/, '');
+    try {
+      await sendJoinRequestConfirm({
+        toEmail: emailLc, toName: form.name, clubName: club.name, campus,
+        link: `${appUrl}/clubs?confirmJoin=${encodeURIComponent(token)}`, minutes: JOIN_CONFIRM_MINUTES,
+      });
+    } catch (mailErr) {
+      console.error(`[requests] join confirmation email to ${emailLc} failed:`, mailErr.message);
+      return res.status(502).json({ message: "We couldn't send the confirmation email right now. Please try again in a moment." });
+    }
+    res.status(202).json({
+      confirmationSent: true,
+      message: `We've emailed a confirmation link to ${emailLc}. Open it within ${JOIN_CONFIRM_MINUTES} minutes to send your request to the club.`,
+    });
+  } catch (err) { next(err); }
+};
+
+/* POST /api/requests/confirm  { token } (public) — the emailed link was opened:
+   now the request is created, with every membership / slot / campus check */
+const confirmJoinRequest = async (req, res, next) => {
+  try {
+    const token = String(req.body?.token || '');
+    if (!token || token.length > 100) return res.status(400).json({ message: 'This confirmation link is not valid.' });
+    await ensureConfirmTable();
+    const hash = crypto.createHash('sha256').update(token).digest('hex');
+    /* Claim the link atomically, so opening it twice can't create two requests */
+    const { rows } = await pgPool.query(
+      `UPDATE join_request_confirmations SET used_at = NOW()
+       WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()
+       RETURNING payload`,
+      [hash]
+    );
+    if (!rows.length) {
+      const { rows: used } = await pgPool.query(
+        `SELECT used_at FROM join_request_confirmations WHERE token_hash = $1`, [hash]
+      );
+      return res.status(410).json({
+        message: used[0]?.used_at
+          ? 'This join request has already been confirmed and sent to the club.'
+          : 'This confirmation link has expired. Please fill in the join form again.',
+      });
+    }
+    const form = rows[0].payload;
+
+    const joinState = await getJoinState();
+    if (!joinState.open) return res.status(403).json({ message: joinClosedMessage(joinState), joinClosed: true });
+
+    const result = await submitJoinRequest(form);
+    if (result.blocked) return res.status(result.blocked.status).json({ message: result.blocked.message });
+    res.status(201).json({
+      request: toJR(result.created),
+      message: `Your request to join ${result.created.club_name} has been sent to the club. Once it's approved, your login details will be emailed to you.`,
+    });
+  } catch (err) { next(err); }
+};
+
+/* Creates the join request after every check (shared by the logged-in path and
+   the emailed confirmation). Returns { created } or { blocked: { status, message } }. */
+const submitJoinRequest = async (form) => {
+  const { listedClubId, name, email: emailLc, phone, enrollmentNo, dept, year, gender, campus, message } = form;
+  const club = await clubOnCampus(listedClubId, campus);
+  if (!club) return { blocked: { status: 404, message: 'Club not found.' } };
+  const clubId   = String(club.id);
+  const clubName = club.name;
+
+  /* The check and the insert run in one transaction under a per-email advisory
+     lock, so two simultaneous requests for different clubs can't both read
+     "2 slots used" and both get through. */
+  let blocked = null;
+  let created = null;
+  try {
+    const client = await pgPool.connect();
     try {
       await client.query('BEGIN');
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`join_request:${emailLc}`]);
@@ -372,38 +499,38 @@ const create = async (req, res, next) => {
     } finally {
       client.release();
     }
-    if (blocked) return res.status(blocked.status).json({ message: blocked.message });
-
-    await Promise.all([
-      cache.del('stats:admin', 'stats:admin:city'),
-      resetActivityReportLimit([emailLc]),
-      forgetRenewalContact(emailLc),   // they've renewed — no more reopening emails
-    ]);
-    res.status(201).json({ request: toJR(created) });
-
-    /* Notify every coordinator assigned to this club — fire-and-forget.
-       Uses the same tiered fallback as coordinator auth (not a raw
-       coordinator_club_assignments query) so a coordinator whose assignment
-       row was never persisted still gets notified instead of silently missing
-       every join request for their club. */
-    getClubCoordinatorIds(clubId).then((coordIds) => {
-      if (!coordIds.length) return;
-      notifyManyUsers({
-        userIds: coordIds,
-        clubId,
-        title: 'New join request',
-        body:  `${name.trim()} wants to join ${clubName || 'your club'}.`,
-        type:  'join_request',
-        url:   '/coordinator/requests',
-      });
-    }).catch((e) => console.error(`[requests] join-request coordinator notify failed for club ${clubId}:`, e.message));
-
-    maybeSendJoinDigest(clubId, created.id)
-      .catch((e) => console.error(`[requests] join-request digest failed for club ${clubId}:`, e.message));
   } catch (err) {
-    if (err.code === '23505') return res.status(409).json({ message: 'A pending request for this club already exists from this email.' });
-    next(err);
+    if (err.code === '23505') return { blocked: { status: 409, message: 'A pending request for this club already exists from this email.' } };
+    throw err;
   }
+  if (blocked) return { blocked };
+
+  await Promise.all([
+    cache.del('stats:admin', 'stats:admin:city'),
+    resetActivityReportLimit([emailLc]),
+    forgetRenewalContact(emailLc),   // they've renewed — no more reopening emails
+  ]);
+
+  /* Notify every coordinator assigned to this club — fire-and-forget.
+     Uses the same tiered fallback as coordinator auth (not a raw
+     coordinator_club_assignments query) so a coordinator whose assignment
+     row was never persisted still gets notified. */
+  getClubCoordinatorIds(clubId).then((coordIds) => {
+    if (!coordIds.length) return;
+    notifyManyUsers({
+      userIds: coordIds,
+      clubId,
+      title: 'New join request',
+      body:  `${name} wants to join ${clubName || 'your club'}.`,
+      type:  'join_request',
+      url:   '/coordinator/requests',
+    });
+  }).catch((e) => console.error(`[requests] join-request coordinator notify failed for club ${clubId}:`, e.message));
+
+  maybeSendJoinDigest(clubId, created.id)
+    .catch((e) => console.error(`[requests] join-request digest failed for club ${clubId}:`, e.message));
+
+  return { created };
 };
 
 /* ── Join-request emails to club staff: one email per 5 new requests ─────────
@@ -1022,7 +1149,9 @@ const sendRequestStats = async (req, res, next) => {
       `SELECT c.id AS club_id, c.name AS club_name, c.campus,
               COUNT(jr.id)::int                                       AS total,
               COUNT(jr.id) FILTER (WHERE jr.status = 'approved')::int AS approved,
-              COUNT(jr.id) FILTER (WHERE jr.status = 'pending')::int  AS pending
+              COUNT(jr.id) FILTER (WHERE jr.status = 'pending')::int  AS pending,
+              /* minutes the longest-waiting pending request has been waiting */
+              FLOOR(EXTRACT(EPOCH FROM (NOW() - MIN(jr.created_at) FILTER (WHERE jr.status = 'pending'))) / 60)::int AS pending_minutes
        FROM clubs c
        JOIN join_requests jr ON jr.club_id = c.id
        ${campus ? 'WHERE c.campus = $1' : ''}
@@ -1052,13 +1181,13 @@ const sendRequestStats = async (req, res, next) => {
       emailsQueued += people.length;
       emailEach(people, (p) => sendJoinRequestStats({
         toEmail: p.email, toName: p.name, clubName: club.club_name, campus: club.campus,
-        total: club.total, approved: club.approved, pending: club.pending,
+        total: club.total, approved: club.approved, pending: club.pending, pendingDays: club.pending_minutes === null ? null : Math.floor(club.pending_minutes / 1440),
       }), 'join request stats');
     }
 
     sendJoinRequestStatsSummary({
       toEmail: SOAC_OFFICE_EMAIL, campus,
-      rows: stats.map(r => ({ clubId: r.club_id, clubName: r.club_name, campus: r.campus, total: r.total, approved: r.approved, pending: r.pending })),
+      rows: stats.map(r => ({ clubId: r.club_id, clubName: r.club_name, campus: r.campus, total: r.total, approved: r.approved, pending: r.pending, pendingMinutes: r.pending_minutes })),
       sentTo: chosen.filter(c => !clubsWithoutStaff.includes(c.club_name)).map(c => c.club_id),
     }).catch(err => console.error('[requests] stats summary email failed:', err.message));
 
@@ -1070,4 +1199,4 @@ const sendRequestStats = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getJoinStatus, setJoinStatus, getAll, create, checkClubLimit, approve, bulkApprove, bulkDelete, decline, resendEmail, changeCampus, sendRequestStats };
+module.exports = { getJoinStatus, setJoinStatus, getAll, create, confirmJoinRequest, checkClubLimit, approve, bulkApprove, bulkDelete, decline, resendEmail, changeCampus, sendRequestStats };

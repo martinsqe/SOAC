@@ -696,6 +696,43 @@ const runSoacTablesSetup = async () => {
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_club_feed_club    ON club_feed_posts(club_id)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_club_feed_student ON club_feed_posts(student_id)`);
 
+  /* ── Student activity claims (a student reports an activity that was never
+     recorded on SOAC, with proof; the club's SC / FA verifies it). Approved
+     claims are merged into the student's activity — see buildActivity in
+     users.controller.js. student_email is kept so the activity lookup by
+     email finds them exactly like event_registrations. ── */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS student_activity_claims (
+      id               BIGSERIAL    PRIMARY KEY,
+      student_id       INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      student_name     VARCHAR(255) NOT NULL DEFAULT '',
+      student_email    VARCHAR(255) NOT NULL,
+      club_id          BIGINT       NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+      club_name        VARCHAR(255) NOT NULL DEFAULT '',
+      title            VARCHAR(200) NOT NULL,
+      category         VARCHAR(30)  NOT NULL DEFAULT 'general',
+      result           VARCHAR(20)  NOT NULL DEFAULT 'participation'
+                         CHECK (result IN ('participation','runner_up','winner')),
+      activity_date    DATE         NOT NULL,
+      venue            VARCHAR(200) NOT NULL DEFAULT '',
+      organizer        VARCHAR(200) NOT NULL DEFAULT '',
+      description      TEXT         NOT NULL DEFAULT '',
+      proof_url        VARCHAR(600) NOT NULL,
+      proof_name       VARCHAR(255) NOT NULL DEFAULT '',
+      status           VARCHAR(20)  NOT NULL DEFAULT 'pending'
+                         CHECK (status IN ('pending','approved','rejected')),
+      review_note      TEXT         NOT NULL DEFAULT '',
+      reviewed_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      reviewed_by_name VARCHAR(255) NOT NULL DEFAULT '',
+      reviewed_at      TIMESTAMPTZ,
+      created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      updated_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_activity_claims_club    ON student_activity_claims(club_id, status)`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_activity_claims_student ON student_activity_claims(student_id)`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_activity_claims_email   ON student_activity_claims(LOWER(student_email))`);
+
   /* ── Event teams (coordinator groups registered participants into teams) ── */
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS event_teams (

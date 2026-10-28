@@ -254,7 +254,8 @@ const REG_COLS = [
   'dept', 'course', 'phone', 'email', 'gender', 'registered_at', 'extra_answers',
 ].join(', ');
 
-const RKU_DOMAIN = '@rku.ac.in';
+/* A plain university address — no quotes or extra '@' a mailer could misroute */
+const isRkuEmail = (e) => /^[a-z0-9._%+-]+@rku\.ac\.in$/.test(String(e || '').trim().toLowerCase());
 /* Accepts an optional +91/91 prefix and spaces/dashes, but the underlying number must be exactly 10 digits */
 const isValidMobile = (phone) => /^\d{10}$/.test(String(phone || '').replace(/[\s-]/g, '').replace(/^(\+?91)/, ''));
 
@@ -1169,7 +1170,7 @@ const register = async (req, res, next) => {
     const { name, email, phone, enrollmentNo, dept, course, gender } = req.body;
     if (!name?.trim())   return res.status(400).json({ message: 'Name is required.' });
     if (!email?.trim())  return res.status(400).json({ message: 'Email is required.' });
-    if (!email.toLowerCase().endsWith(RKU_DOMAIN)) {
+    if (!isRkuEmail(email)) {
       return res.status(400).json({ message: 'Only RKU institutional emails (@rku.ac.in) are allowed to register.' });
     }
     if (!dept?.trim())   return res.status(400).json({ message: 'Department is required.' });
@@ -1256,7 +1257,7 @@ const submitTeamRoster = async (req, res, next) => {
     if (!rawTeamName?.trim())  return res.status(400).json({ message: 'Team name is required.' });
     if (!captainName?.trim())  return res.status(400).json({ message: "Captain's name is required." });
     if (!captainEmail?.trim()) return res.status(400).json({ message: "Captain's email is required." });
-    if (!captainEmail.toLowerCase().endsWith(RKU_DOMAIN)) {
+    if (!isRkuEmail(captainEmail)) {
       return res.status(400).json({ message: 'Only RKU institutional emails (@rku.ac.in) are allowed.' });
     }
     if (!captainPhone?.trim()) return res.status(400).json({ message: "Captain's phone number is required." });

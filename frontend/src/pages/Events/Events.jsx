@@ -1329,22 +1329,27 @@ const Events = () => {
                     </div>
                     )}
 
-                    {galoreVerify.student && (
+                    {galoreVerify.student && (() => {
+                      /* Before the email check the server only sends a masked record;
+                         once verified, show the student their full details */
+                      const who = galoreVerify.verified || galoreVerify.student;
+                      return (
                       <div className={styles.galoreInfo}>
                         {[
-                          ['Name', galoreVerify.student.name],
-                          ['Department', [galoreVerify.student.department, galoreVerify.student.subDepartment].filter(Boolean).join(' · ')],
-                          ['Program', galoreVerify.student.program],
-                          ['Semester', galoreVerify.student.semester],
-                          ['Division', galoreVerify.student.division],
-                        ].map(([k, v]) => (
+                          ['Name', who.name],
+                          ['Department', [who.department, who.subDepartment].filter(Boolean).join(' · ')],
+                          ['Program', who.program],
+                          ['Semester', who.semester],
+                          ['Division', who.division],
+                        ].filter(([, v]) => v).map(([k, v]) => (
                           <div key={k} className={styles.galoreInfoRow}>
                             <span className={styles.galoreInfoLabel}>{k}</span>
-                            <span className={styles.galoreInfoValue}>{v || '—'}</span>
+                            <span className={styles.galoreInfoValue}>{v}</span>
                           </div>
                         ))}
                       </div>
-                    )}
+                      );
+                    })()}
 
                     {galoreVerify.step === 'found' && galoreVerify.registered.length > 0 && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1353,7 +1358,9 @@ const Events = () => {
                           <Link to="/galore/login" className={styles.galoreLoginBtn}>Galore Login</Link>
                         </span>
                         <div style={{ fontSize: '.85rem', color: '#374151' }}>
-                          Registered for: <strong>{galoreVerify.registered.map(a => a.title).join(', ')}</strong>.
+                          {galoreVerify.registered.every(a => a.title)
+                            ? <>Registered for: <strong>{galoreVerify.registered.map(a => a.title).join(', ')}</strong>.</>
+                            : <>Registered for <strong>{galoreVerify.registered.length}</strong> {galoreVerify.registered.length === 1 ? 'activity' : 'activities'}.</>}
                           Log in to the Galore portal for guidelines, timetable and fixtures.
                         </div>
                         {galoreVerify.student.canVerify && (

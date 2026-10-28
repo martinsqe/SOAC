@@ -232,7 +232,7 @@ const otherAccountBox = (text) => text
 /* otherAccountNote — set when the student also has a coordinator / advisor account */
 const sendCredentials = async ({ toEmail, toName, password, clubName = null, otherAccountNote = null }) => {
   const intro = clubName
-    ? `<p style="color:#555;line-height:1.6">Your request to join <strong style="color:#635BFF">${clubName}</strong> has been approved. Use the credentials below to sign in.</p>`
+    ? `<p style="color:#555;line-height:1.6">Your request to join <strong style="color:#635BFF">${escapeHtml(clubName)}</strong> has been approved. Use the credentials below to sign in.</p>`
     : `<p style="color:#555;line-height:1.6">Your SOAC RKU account has been created. Use the credentials below to sign in.</p>`;
 
   await send({
@@ -240,15 +240,15 @@ const sendCredentials = async ({ toEmail, toName, password, clubName = null, oth
     subject: clubName ? `You're in! Welcome to ${clubName} — SOAC RKU` : 'Your SOAC RKU Account Credentials',
     html: wrap(`
       ${header()}
-      <h2 style="color:#1a1040;margin-bottom:8px">Welcome, ${toName}!</h2>
+      <h2 style="color:#1a1040;margin-bottom:8px">Welcome, ${escapeHtml(toName)}!</h2>
       ${intro}
       <div style="background:#f8f7ff;border:1.5px solid #e8e5ff;border-radius:12px;padding:20px 24px;margin:24px 0">
         <p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Login URL</p>
         <p style="margin:0 0 16px;font-weight:700;color:#635BFF">${APP_LOGIN}</p>
         <p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Email</p>
-        <p style="margin:0 0 16px;font-weight:700;color:#1a1040">${toEmail}</p>
+        <p style="margin:0 0 16px;font-weight:700;color:#1a1040">${escapeHtml(toEmail)}</p>
         <p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Temporary Password</p>
-        <p style="margin:0;font-weight:800;color:#D32F2F;font-size:20px;letter-spacing:3px;font-family:monospace">${password}</p>
+        <p style="margin:0;font-weight:800;color:#D32F2F;font-size:20px;letter-spacing:3px;font-family:monospace">${escapeHtml(password)}</p>
       </div>
       ${otherAccountBox(otherAccountNote)}
       <p style="color:#888;font-size:13px;line-height:1.6">Please change your password after your first login. Students can join up to <strong>3 clubs</strong>.</p>
@@ -265,10 +265,10 @@ const sendApproval = async ({ toEmail, toName, clubName, switchNote = null }) =>
     subject: `You're approved! Welcome to ${clubName} — SOAC RKU`,
     html: wrap(`
       ${header()}
-      <h2 style="color:#1a1040;margin-bottom:8px">Congratulations, ${toName}!</h2>
-      <p style="color:#555;line-height:1.6">Your request to join <strong style="color:#635BFF">${clubName}</strong> has been approved. You are now an official member!</p>
+      <h2 style="color:#1a1040;margin-bottom:8px">Congratulations, ${escapeHtml(toName)}!</h2>
+      <p style="color:#555;line-height:1.6">Your request to join <strong style="color:#635BFF">${escapeHtml(clubName)}</strong> has been approved. You are now an official member!</p>
       <div style="background:#f0fff8;border:1.5px solid #86efac;border-radius:12px;padding:20px 24px;margin:24px 0;text-align:center">
-        <p style="margin:0;font-size:16px;font-weight:800;color:#15803d">Member of ${clubName}</p>
+        <p style="margin:0;font-size:16px;font-weight:800;color:#15803d">Member of ${escapeHtml(clubName)}</p>
         <p style="margin:6px 0 0;font-size:13px;color:#555">Log in to your SOAC dashboard to access your club and stay updated.</p>
       </div>
       ${otherAccountBox(switchNote)}
@@ -282,7 +282,7 @@ const sendApproval = async ({ toEmail, toName, clubName, switchNote = null }) =>
    request those same clubs again. */
 const sendRequestsRemoved = async ({ toEmail, toName, clubNames = [] }) => {
   const list = clubNames.map(n =>
-    `<li style="margin:4px 0;font-weight:700;color:#1a1040">${n}</li>`).join('');
+    `<li style="margin:4px 0;font-weight:700;color:#1a1040">${escapeHtml(n)}</li>`).join('');
   await send({
     to:      toEmail,
     subject: clubNames.length === 1
@@ -290,7 +290,7 @@ const sendRequestsRemoved = async ({ toEmail, toName, clubNames = [] }) => {
       : 'Your club join requests were removed — SOAC RKU',
     html: wrap(`
       ${header()}
-      <h2 style="color:#1a1040;margin-bottom:8px">Hi ${toName},</h2>
+      <h2 style="color:#1a1040;margin-bottom:8px">Hi ${escapeHtml(toName)},</h2>
       <p style="color:#555;line-height:1.6">Your pending request to join the following ${clubNames.length === 1 ? 'club has' : 'clubs have'} been removed by the club coordinator:</p>
       <div style="background:#fff7ed;border:1.5px solid #fdba74;border-radius:12px;padding:16px 24px;margin:24px 0">
         <ul style="margin:0;padding-left:18px">${list}</ul>
@@ -316,7 +316,7 @@ const sendJoinRequestsReopening = async ({ toEmail, toName, opensOnLabel = null 
       : 'Club join requests are open — SOAC RKU',
     html: wrap(`
       ${header()}
-      <h2 style="color:#1a1040;margin-bottom:8px">Hi ${toName || 'there'},</h2>
+      <h2 style="color:#1a1040;margin-bottom:8px">Hi ${escapeHtml(toName || 'there')},</h2>
       <p style="color:#555;line-height:1.6">Club memberships have been reset for the new session, so your previous club membership and account have ended.</p>
       <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:12px;padding:16px 24px;margin:24px 0;text-align:center">
         <p style="margin:0;font-size:13px;color:#15803d">${opensOnLabel ? 'You can start sending join requests on' : 'Join requests are'}</p>
@@ -740,7 +740,13 @@ const statBox = (label, value) => `
   </td>`;
 
 /* To a club's Faculty Advisor / Student Coordinator: their club's numbers */
-const sendJoinRequestStats = async ({ toEmail, toName, clubName, campus, total, approved, pending }) => {
+/* 0 → "today", 1 → "1 day ago", n → "n days ago" */
+const daysAgo = (d) => (d === null || d === undefined) ? '' : d <= 0 ? 'today' : `${d} day${d === 1 ? '' : 's'} ago`;
+
+/* minutes → "5m ago" / "5h ago" / "5d ago" */
+const shortAgo = (m) => (m === null || m === undefined) ? '—' : m < 60 ? `${Math.max(0, m)}m ago` : m < 1440 ? `${Math.floor(m / 60)}h ago` : `${Math.floor(m / 1440)}d ago`;
+
+const sendJoinRequestStats = async ({ toEmail, toName, clubName, campus, total, approved, pending, pendingDays }) => {
   const club = `<strong>${escapeHtml(clubName)}</strong>${campus ? ` (${escapeHtml(campus)})` : ''}`;
   await send({
     to:      toEmail,
@@ -757,6 +763,8 @@ const sendJoinRequestStats = async ({ toEmail, toName, clubName, campus, total, 
           ${statBox('Pending', pending)}
         </tr></table>`,
       outro: [
+        ...(pending > 0 && pendingDays !== null && pendingDays !== undefined
+          ? [`The last request sent to your club was <strong>${daysAgo(pendingDays)}</strong>.`] : []),
         pending > 0
           ? `Kindly do the needful and review the <strong>${pending}</strong> pending request${pending === 1 ? '' : 's'} for ${club} at the earliest, approving or declining each one from your dashboard so the students can get started with the club.`
           : `There are no pending requests for ${club} at the moment. Kindly keep checking your dashboard and do the needful as new requests come in.`,
@@ -772,18 +780,19 @@ const sendJoinRequestStatsSummary = async ({ toEmail, campus, rows: allRows, sen
   const sent = new Set(sentTo.map(String));
   const rows = allRows.filter(r => sent.has(String(r.clubId)));
   if (!rows.length) return;   /* nobody was reminded — nothing to report */
-  const td = (v, extra = '') => `<td style="padding:8px 6px;border-bottom:1px solid #ccc;font-size:13px;color:#000;${extra}">${v}</td>`;
-  const th = (v, extra = '') => `<th style="padding:8px 6px;border-bottom:2px solid #000;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#000;text-align:left;${extra}">${v}</th>`;
+  const td = (v, extra = '') => `<td style="word-break:break-word;overflow-wrap:anywhere;padding:8px 6px;border-bottom:1px solid #ccc;font-size:13px;color:#000;${extra}">${v}</td>`;
+  const th = (v, extra = '') => `<th style="padding:8px 4px;border-bottom:2px solid #000;font-size:12px;white-space:nowrap;color:#000;text-align:left;${extra}">${v}</th>`;
   const num = 'text-align:center;font-weight:800';
   const totals = rows.reduce((t, r) => ({ total: t.total + r.total, approved: t.approved + r.approved, pending: t.pending + r.pending }), { total: 0, approved: 0, pending: 0 });
   const table = `
-    <table role="presentation" style="width:100%;border-collapse:collapse;margin:6px 0 10px">
-      <tr>${th('Club')}${th('Total', 'text-align:center')}${th('Approved', 'text-align:center')}${th('Pending', 'text-align:center')}</tr>
+    <table role="presentation" style="width:100%;border-collapse:collapse;table-layout:fixed;margin:6px 0 10px">
+      <colgroup><col style="width:36%"/><col style="width:15%"/><col style="width:17%"/><col style="width:15%"/><col style="width:17%"/></colgroup>
+      <tr>${th('Club')}${th('Total', 'text-align:center')}${th('Approved', 'text-align:center')}${th('Pending', 'text-align:center')}${th('Time', 'text-align:center')}</tr>
       ${rows.map(r => `<tr>
         ${td(`${escapeHtml(r.clubName)}${!campus && r.campus ? `<br/><span style="font-size:11px;color:#000">${escapeHtml(r.campus)}</span>` : ''}`)}
-        ${td(r.total, num)}${td(r.approved, `${num}`)}${td(r.pending, `${num}`)}
+        ${td(r.total, num)}${td(r.approved, `${num}`)}${td(r.pending, `${num}`)}${td(r.pending > 0 ? shortAgo(r.pendingMinutes) : '—', `${num};white-space:nowrap`)}
       </tr>`).join('')}
-      <tr>${td('<strong>All clubs</strong>', '')}${td(totals.total, `${num}`)}${td(totals.approved, `${num}`)}${td(totals.pending, `${num}`)}</tr>
+      <tr>${td('<strong>All clubs</strong>', '')}${td(totals.total, `${num}`)}${td(totals.approved, `${num}`)}${td(totals.pending, `${num}`)}${td('', num)}</tr>
     </table>`;
   await send({
     to:      toEmail,
@@ -792,7 +801,7 @@ const sendJoinRequestStatsSummary = async ({ toEmail, campus, rows: allRows, sen
       category: 'Join requests',
       title:    'Club join request statistics',
       greeting: 'Hello Madam,',
-      intro: ['All the Faculty Advisors and Student Coordinators of the clubs mentioned in the table below have received a reminder regarding join requests from students to their respective clubs.'],
+      intro: ['All the Faculty Advisors and Student Coordinators of the clubs mentioned in the table below have received a reminder regarding join requests from students to their respective clubs.', 'In the table, Time indicates when the last pending request was sent to the club.'],
       sections: table,
       button: { href: `${APP_URL}/admin/approvals`, label: 'Open Approvals' },
     }),
@@ -915,8 +924,8 @@ const sendClubFeedUpdate = async ({ toEmail, toName, clubName, mediaType = 'imag
     subject: `New ${what} in the ${clubName} Club Feed — SOAC RKU`,
     html: wrap(`
       ${header()}
-      <h2 style="color:#1a1040;margin-bottom:8px">Hi ${toName || 'there'},</h2>
-      <p style="color:#555;line-height:1.6">A new ${what} was just added to the <strong style="color:#635BFF">${clubName}</strong> Club Feed. Take a look at what your club has been up to!</p>
+      <h2 style="color:#1a1040;margin-bottom:8px">Hi ${escapeHtml(toName || 'there')},</h2>
+      <p style="color:#555;line-height:1.6">A new ${what} was just added to the <strong style="color:#635BFF">${escapeHtml(clubName)}</strong> Club Feed. Take a look at what your club has been up to!</p>
       <div style="text-align:center;margin:26px 0">
         <a href="${APP_URL}/student/clubs-feed" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:10px">Open the Club Feed</a>
       </div>
@@ -937,8 +946,8 @@ const sendClubFeedPostLive = async ({ toEmail, toName, clubName, mediaType = 'im
     subject: `Your ${what} is live in the ${clubName} Club Feed 🎉 — SOAC RKU`,
     html: wrap(`
       ${header()}
-      <h2 style="color:#1a1040;margin-bottom:8px">Nice one, ${toName || 'there'}!</h2>
-      <p style="color:#555;line-height:1.6">Your ${what} has been added to the <strong style="color:#635BFF">${clubName}</strong> Club Feed, and every member of the club can now see it.</p>
+      <h2 style="color:#1a1040;margin-bottom:8px">Nice one, ${escapeHtml(toName || 'there')}!</h2>
+      <p style="color:#555;line-height:1.6">Your ${what} has been added to the <strong style="color:#635BFF">${escapeHtml(clubName)}</strong> Club Feed, and every member of the club can now see it.</p>
       <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:12px;padding:16px 20px;margin:24px 0">
         <p style="margin:0;font-size:14px;font-weight:800;color:#15803d">Keep it coming</p>
         <p style="margin:6px 0 0;font-size:13px;color:#555;line-height:1.6">The Club Feed is where your club's story gets told. Share more from your practice sessions, events and wins — showcase what you do, inspire your teammates and get your work seen.</p>
@@ -962,15 +971,15 @@ const sendCoordinatorCredentials = async ({ toEmail, toName, password, clubName,
     subject: `You've been appointed ${roleLabel} of ${clubName} — SOAC RKU`,
     html: wrap(`
       ${header()}
-      <h2 style="color:#1a1040;margin-bottom:8px">Congratulations, ${toName}!</h2>
-      <p style="color:#555;line-height:1.6">You have been appointed as <strong style="color:#4c44e0">${roleLabel}</strong> for <strong style="color:#4c44e0">${clubName}</strong> on the SOAC RKU Platform.</p>
+      <h2 style="color:#1a1040;margin-bottom:8px">Congratulations, ${escapeHtml(toName)}!</h2>
+      <p style="color:#555;line-height:1.6">You have been appointed as <strong style="color:#4c44e0">${escapeHtml(roleLabel)}</strong> for <strong style="color:#4c44e0">${escapeHtml(clubName)}</strong> on the SOAC RKU Platform.</p>
       <div style="background:#f5f3ff;border:1.5px solid #c4b5fd;border-radius:12px;padding:20px 24px;margin:24px 0">
         <p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Login URL</p>
         <p style="margin:0 0 16px;font-weight:700;color:#4c44e0">${APP_LOGIN}</p>
         <p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Email</p>
-        <p style="margin:0 0 16px;font-weight:700;color:#1a1040">${toEmail}</p>
+        <p style="margin:0 0 16px;font-weight:700;color:#1a1040">${escapeHtml(toEmail)}</p>
         <p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Temporary Password</p>
-        <p style="margin:0;font-weight:800;color:#D32F2F;font-size:20px;letter-spacing:3px;font-family:monospace">${password}</p>
+        <p style="margin:0;font-weight:800;color:#D32F2F;font-size:20px;letter-spacing:3px;font-family:monospace">${escapeHtml(password)}</p>
       </div>
       ${otherAccountBox(otherAccountNote)}
       <p style="color:#888;font-size:13px;line-height:1.6">Please change your password after your first login using Profile settings.</p>
@@ -987,10 +996,10 @@ const sendCoordinatorAssignment = async ({ toEmail, toName, clubName, roleLabel 
     subject: `You've been assigned as ${roleLabel} of ${clubName} — SOAC RKU`,
     html: wrap(`
       ${header()}
-      <h2 style="color:#1a1040;margin-bottom:8px">Hello, ${toName}!</h2>
-      <p style="color:#555;line-height:1.6">You have been appointed as <strong style="color:#4c44e0">${roleLabel}</strong> for <strong style="color:#4c44e0">${clubName}</strong>.</p>
+      <h2 style="color:#1a1040;margin-bottom:8px">Hello, ${escapeHtml(toName)}!</h2>
+      <p style="color:#555;line-height:1.6">You have been appointed as <strong style="color:#4c44e0">${escapeHtml(roleLabel)}</strong> for <strong style="color:#4c44e0">${escapeHtml(clubName)}</strong>.</p>
       <div style="background:#f0fff8;border:1.5px solid #86efac;border-radius:12px;padding:20px 24px;margin:24px 0;text-align:center">
-        <p style="margin:0;font-size:16px;font-weight:800;color:#15803d">${roleLabel} of ${clubName}</p>
+        <p style="margin:0;font-size:16px;font-weight:800;color:#15803d">${escapeHtml(roleLabel)} of ${escapeHtml(clubName)}</p>
         <p style="margin:6px 0 0;font-size:13px;color:#555">Log in to your SOAC Coordinator Portal to manage your club, members, and events.</p>
       </div>
       ${otherAccountBox(switchNote)}
@@ -1010,7 +1019,7 @@ const sendPasswordReset = async ({ toEmail, toName, token, accountLabel = null }
     html: wrap(`
       ${header()}
       <h2 style="color:#1a1040;margin-bottom:8px">Password reset request</h2>
-      <p style="color:#555;line-height:1.6">Hi ${toName || 'there'}, we received a request to reset your SOAC account password.</p>
+      <p style="color:#555;line-height:1.6">Hi ${escapeHtml(toName || 'there')}, we received a request to reset your SOAC account password.</p>
       ${accountLabel ? `<p style="color:#555;line-height:1.6">This link resets your <strong>${accountLabel}</strong>. Your other SOAC account has its own reset email, and the two accounts must have different passwords.</p>` : ''}
       <div style="background:#f8f7ff;border:1.5px solid #e8e5ff;border-radius:12px;padding:20px 24px;margin:24px 0;text-align:center">
         <a href="${resetUrl}" style="display:inline-block;padding:12px 20px;background:${BTN_RED};color:#fff;text-decoration:none;border-radius:10px;font-weight:700">Reset Password</a>
@@ -1030,19 +1039,19 @@ const sendPasswordReset = async ({ toEmail, toName, token, accountLabel = null }
    design. */
 const sendTeamAssignment = async ({ toEmail, toName, eventTitle, division, groupName, teamName, teammates = [] }) => {
   const liveScoresUrl = `${APP_URL}/events/live`;
-  const teammatesList = teammates.map(n => `<li style="margin-bottom:4px">${n}</li>`).join('');
+  const teammatesList = teammates.map(n => `<li style="margin-bottom:4px">${escapeHtml(n)}</li>`).join('');
   await send({
     to:      toEmail,
     subject: `Your team for ${eventTitle} is set — SOAC RKU`,
     html: wrap(`
       ${header()}
-      <h2 style="color:#1a1040;margin-bottom:8px">Hi ${toName},</h2>
+      <h2 style="color:#1a1040;margin-bottom:8px">Hi ${escapeHtml(toName)},</h2>
       <p style="color:#555;line-height:1.6">Groups, teams, and fixtures for <strong style="color:#059669">${eventTitle}</strong> have just been declared. Here's your team:</p>
       <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:12px;padding:20px 24px;margin:24px 0">
-        ${division ? `<p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Division</p><p style="margin:0 0 16px;font-weight:700;color:#1a1040">${division}</p>` : ''}
-        ${groupName ? `<p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Group</p><p style="margin:0 0 16px;font-weight:700;color:#1a1040">${groupName}</p>` : ''}
+        ${division ? `<p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Division</p><p style="margin:0 0 16px;font-weight:700;color:#1a1040">${escapeHtml(division)}</p>` : ''}
+        ${groupName ? `<p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Group</p><p style="margin:0 0 16px;font-weight:700;color:#1a1040">${escapeHtml(groupName)}</p>` : ''}
         <p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Team</p>
-        <p style="margin:0 0 16px;font-weight:800;color:#15803d;font-size:18px">${teamName}</p>
+        <p style="margin:0 0 16px;font-weight:800;color:#15803d;font-size:18px">${escapeHtml(teamName)}</p>
         <p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:700">Team Members</p>
         <ul style="margin:8px 0 0;padding-left:18px;color:#1a1040;font-weight:600">${teammatesList}</ul>
       </div>
@@ -1066,10 +1075,10 @@ const sendGaloreActivityAssignment = async ({ toEmail, toName, activityTitle, ca
     subject: `You've been assigned to coordinate ${activityTitle} — ${umbrellaTitle}`,
     html: wrap(`
       ${header()}
-      <h2 style="color:#1a1040;margin-bottom:8px">Hello, ${toName}!</h2>
-      <p style="color:#555;line-height:1.6">You have been assigned as <strong style="color:#4c44e0">Coordinator</strong> for <strong style="color:#4c44e0">${activityTitle}</strong>${categoryLabel ? ` (${categoryLabel})` : ''}, part of <strong>${umbrellaTitle}</strong>.</p>
+      <h2 style="color:#1a1040;margin-bottom:8px">Hello, ${escapeHtml(toName)}!</h2>
+      <p style="color:#555;line-height:1.6">You have been assigned as <strong style="color:#4c44e0">Coordinator</strong> for <strong style="color:#4c44e0">${escapeHtml(activityTitle)}</strong>${categoryLabel ? ` (${categoryLabel})` : ''}, part of <strong>${escapeHtml(umbrellaTitle)}</strong>.</p>
       <div style="background:#f0fff8;border:1.5px solid #86efac;border-radius:12px;padding:20px 24px;margin:24px 0;text-align:center">
-        <p style="margin:0;font-size:16px;font-weight:800;color:#15803d">Coordinator of ${activityTitle}</p>
+        <p style="margin:0;font-size:16px;font-weight:800;color:#15803d">Coordinator of ${escapeHtml(activityTitle)}</p>
         <p style="margin:6px 0 0;font-size:13px;color:#555">Log in to your SOAC Coordinator Portal to view registrations for this activity and build boys'/girls' teams once students sign up.</p>
       </div>
       <p style="color:#333;font-size:14px;line-height:1.6"><strong>Report required:</strong> please submit the event report from the <strong>Reports</strong> page of your dashboard immediately after the activity is done.</p>
@@ -1293,8 +1302,8 @@ const sendActivityReport = async ({ toEmail, toName, clubs = [], attendanceSumma
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse">
             <tr>
               <td style="text-align:left;vertical-align:top">
-                <p style="margin:0;font-weight:700;color:#1a1040">${ev.eventTitle}</p>
-                <p style="margin:2px 0 0;font-size:12px;color:#888">${ev.clubName}${ev.venue ? ` · ${ev.venue}` : ''}${ev.eventDate ? ` · ${actFmtDate(ev.eventDate)}` : ''}</p>
+                <p style="margin:0;font-weight:700;color:#1a1040">${escapeHtml(ev.eventTitle)}</p>
+                <p style="margin:2px 0 0;font-size:12px;color:#888">${escapeHtml(ev.clubName)}${ev.venue ? ` · ${escapeHtml(ev.venue)}` : ''}${ev.eventDate ? ` · ${actFmtDate(ev.eventDate)}` : ''}</p>
               </td>
               <td style="text-align:right;vertical-align:top;white-space:nowrap;padding-left:10px">
                 <span style="font-size:11px;font-weight:800;color:${ACT_STATUS_COLOR[status]}">${status}</span>
@@ -1317,7 +1326,7 @@ const sendActivityReport = async ({ toEmail, toName, clubs = [], attendanceSumma
     subject: 'Your SOAC Activity Summary',
     html: wrap(`
       ${header()}
-      <h2 style="color:#1a1040;margin-bottom:8px">Hi ${toName},</h2>
+      <h2 style="color:#1a1040;margin-bottom:8px">Hi ${escapeHtml(toName)},</h2>
       <p style="color:#555;line-height:1.6">You asked to see your activity on the SOAC platform, so here it is — the clubs you're part of, every event you've taken part in, and your attendance record, all in one place.</p>
       ${clubsHtml}
       ${attHtml}
@@ -1369,7 +1378,93 @@ const sendTestEmail = async (toEmail) => {
   }
 };
 
+/* ── Student activity claims ─────────────────────────────────────────────────
+   A student reports an activity that was never recorded on SOAC (with proof);
+   the club's Student Coordinator / Faculty Advisor verifies it on the
+   "Student Activity" tab of My Club. */
+const CLAIM_RESULT_LABEL = { participation: 'Participation', runner_up: 'Runner-up', winner: 'Winner' };
+const claimSections = (c) => detailTable('Activity details', [
+  ['Activity',     c.title],
+  ['Club',         c.club_name],
+  ['Category',     c.category_label],
+  ['Result',       CLAIM_RESULT_LABEL[c.result] || 'Participation'],
+  ['Date',         fmtLongDate(c.activity_date)],
+  ['Venue',        c.venue],
+  ['Organised by', c.organizer],
+  ['Description',  c.description],
+]);
+
+const sendStudentActivityForReview = async ({ toEmail, toName, claim, studentName, studentEmail }) => {
+  const reviewUrl = `${APP_URL}/coordinator/my-club?tab=student-activity&club=${encodeURIComponent(claim.club_id)}&claim=${encodeURIComponent(claim.id)}`;
+  await send({
+    to:      toEmail,
+    subject: `Missing activity submitted for verification — ${claim.club_name}`,
+    html: plainEmail({
+      category: 'Student activity',
+      title:    'A student has submitted a missing activity',
+      toName,
+      intro:    [`<strong>${escapeHtml(studentName || 'A student')}</strong>${studentEmail ? ` (${escapeHtml(studentEmail)})` : ''} has submitted an activity for <strong>${escapeHtml(claim.club_name)}</strong> that was not recorded on SOAC, along with proof of taking part.`],
+      sections: claimSections(claim),
+      outro:    ['Please check the proof and confirm the activity is genuine. Once you approve it, it is added to the student\'s activity record.'],
+      button:   { href: reviewUrl, label: 'Review the activity' },
+    }),
+  });
+};
+
+const sendStudentActivityApproved = async ({ toEmail, toName, claim, reviewerName = '' }) => {
+  await send({
+    to:      toEmail,
+    subject: `Your activity has been added — ${claim.title}`,
+    html: plainEmail({
+      category: 'Student activity',
+      title:    'Your activity has been added',
+      toName,
+      intro:    [`Good news! ${reviewerName ? `<strong>${escapeHtml(reviewerName)}</strong> of ` : 'The coordinator of '}<strong>${escapeHtml(claim.club_name)}</strong> has verified the activity you submitted, and it has been added to your SOAC activity record.`],
+      sections: claimSections(claim),
+      outro:    ['You can now see it in My Activity on your profile.'],
+      button:   { href: `${APP_URL}/student/profile`, label: 'View my activity' },
+    }),
+  });
+};
+
+const sendStudentActivityRejected = async ({ toEmail, toName, claim, note = '', reviewerName = '' }) => {
+  await send({
+    to:      toEmail,
+    subject: `Your activity submission was not approved — ${claim.title}`,
+    html: plainEmail({
+      category: 'Student activity',
+      title:    'Your activity submission was not approved',
+      toName,
+      intro:    [`${reviewerName ? `<strong>${escapeHtml(reviewerName)}</strong> of ` : 'The coordinator of '}<strong>${escapeHtml(claim.club_name)}</strong> reviewed the activity you submitted and could not verify it, so it has not been added to your activity record.`],
+      sections: claimSections(claim) + detailTable('', [['Reason', note]]),
+      outro:    ['If you think this is a mistake, you can submit it again with clearer proof, or contact the club coordinator.'],
+      button:   { href: `${APP_URL}/student/profile`, label: 'Open my activity' },
+    }),
+  });
+};
+
+/* Join request — confirm you own this address. Sent before any request is
+   created; the link carries a one-time token (see requests.controller.js). */
+const sendJoinRequestConfirm = async ({ toEmail, toName, clubName, campus, link, minutes = 60 }) => {
+  await send({
+    to:      toEmail,
+    subject: `Confirm your request to join ${clubName} — SOAC RKU`,
+    html: plainEmail({
+      category: 'Join request',
+      title:    'Confirm your join request',
+      toName,
+      intro:    [`Someone — hopefully you — asked to join <strong>${escapeHtml(clubName)}</strong>${campus ? ` (${escapeHtml(campus)})` : ''} using this email address. Open the link below to confirm it and send your request to the club.`],
+      outro:    [`The link works for ${minutes} minutes. If you didn't ask to join, ignore this email — nothing will be sent to the club.`],
+      button:   { href: link, label: 'Confirm my request' },
+    }),
+  });
+};
+
 module.exports = {
+  sendJoinRequestConfirm,
+  sendStudentActivityForReview,
+  sendStudentActivityApproved,
+  sendStudentActivityRejected,
   sendCredentials,
   sendApproval,
   sendRequestsRemoved,

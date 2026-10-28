@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { eventStatus } from '../MyActivity/activityUtils';
+import { AddActivityModal } from '../../components/ActivityClaims/ActivityClaims';
 import s from './StudentDashboard.module.css';
 
 /* Long description cut to `limit` characters with an inline "…read more"
@@ -91,6 +92,7 @@ export default function StudentDashboard() {
   const [soacLoading,  setSoacLoading]  = useState(true);
   const [myActivity,   setMyActivity]   = useState([]);
   const [activityLoading, setActivityLoading] = useState(true);
+  const [addActivityOpen, setAddActivityOpen] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -268,7 +270,12 @@ export default function StudentDashboard() {
               <div className={s.lbTitle}>My Activity</div>
               <div className={s.lbSub}>Your events and results</div>
             </div>
-            <button className={s.seeAll} onClick={() => navigate('/student/profile')}>View All</button>
+            <div className={s.lbActions}>
+              <button className={s.addActBtn} onClick={() => setAddActivityOpen(true)} title="Add an activity that wasn't recorded">
+                + Add Activity
+              </button>
+              <button className={s.seeAll} onClick={() => navigate('/student/profile')}>View All</button>
+            </div>
           </div>
           {activityLoading ? (
             <div className={s.loadList}>
@@ -432,6 +439,10 @@ export default function StudentDashboard() {
           )}
         </div>
       </div>
+
+      {addActivityOpen && (
+        <AddActivityModal onClose={() => setAddActivityOpen(false)} />
+      )}
     </div>
   );
 }

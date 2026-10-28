@@ -1,0 +1,125 @@
+/* My Club → Student Activity */
+.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+.filter {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 14px; border-radius: 999px;
+  border: 1.5px solid #e5e7eb; background: #fff;
+  font-size: .8rem; font-weight: 600; color: #4b5563;
+  cursor: pointer; font-family: 'DM Sans', sans-serif;
+  transition: all .14s;
+}
+.filter:hover { border-color: #c7c4f5; }
+.filterOn { border-color: #4c44e0; background: #f3f2ff; color: #4c44e0; font-weight: 800; }
+.filterCount {
+  min-width: 20px; padding: 1px 6px; border-radius: 999px;
+  background: #f3f4f6; color: #6b7280; font-size: .7rem; font-weight: 800; text-align: center;
+}
+.filterCountHot { background: #ef4444; color: #fff; }
+
+.list { display: flex; flex-direction: column; gap: 14px; }
+.item {
+  border: 1px solid #ebebf0; border-left: 4px solid #e5e7eb;
+  border-radius: 14px; padding: 16px 18px; background: #fff;
+  transition: box-shadow .3s, border-color .3s;
+}
+.item_pending  { border-left-color: #f59e0b; }
+.item_approved { border-left-color: #10b981; }
+.item_rejected { border-left-color: #ef4444; }
+.flash { box-shadow: 0 0 0 3px rgba(76,68,224,.35); }
+
+.itemHead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.student { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.avatar {
+  width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg,#4c44e0,#6b3fa0); color: #fff;
+  font-size: .75rem; font-weight: 800;
+}
+.studentInfo { display: flex; flex-direction: column; min-width: 0; }
+.studentName { font-weight: 800; color: #1a1040; font-size: .9rem; }
+.studentEmail { font-size: .75rem; color: #6b7280; overflow-wrap: anywhere; }
+.headRight { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.status { font-size: .7rem; font-weight: 800; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+.status_pending  { background: #fef3c7; color: #b45309; }
+.status_approved { background: #d1fae5; color: #047857; }
+.status_rejected { background: #fee2e2; color: #b91c1c; }
+.submitted { font-size: .72rem; color: #9ca3af; }
+
+.body { display: grid; grid-template-columns: 1fr 200px; gap: 18px; margin-top: 14px; }
+.details { min-width: 0; }
+.title { margin: 0 0 8px; font-size: 1rem; font-weight: 800; color: #111827; overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.chip {
+  font-size: .72rem; font-weight: 600; color: #4b5563;
+  background: #f3f4f6; border-radius: 6px; padding: 3px 8px;
+  overflow-wrap: anywhere;
+}
+.result_winner        { background: #fef3c7; color: #92400e; }
+.result_runner_up     { background: #e0e7ff; color: #3730a3; }
+.result_participation { background: #ecfdf5; color: #047857; }
+.desc { margin: 0; font-size: .85rem; color: #374151; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
+
+.proof { display: flex; flex-direction: column; gap: 6px; }
+.proofLabel { font-size: .68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #9ca3af; }
+.proofThumbBtn { padding: 0; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; cursor: zoom-in; background: #f9fafb; }
+.proofThumb { display: block; width: 100%; height: 130px; object-fit: cover; }
+.proofDoc {
+  width: 100%; cursor: pointer; font-family: inherit; text-align: left;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px; border: 1px solid #e5e7eb; border-radius: 10px;
+  background: #f9fafb; text-decoration: none; min-width: 0;
+}
+.proofDoc:hover { border-color: #c7c4f5; background: #f3f2ff; }
+.proofDocIcon {
+  width: 38px; height: 38px; border-radius: 8px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: #4c44e0; color: #fff; font-size: .65rem; font-weight: 800;
+}
+.proofDocName { font-size: .78rem; font-weight: 600; color: #1f2937; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proofOpen { font-size: .74rem; font-weight: 700; color: #4c44e0; text-decoration: none; background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; text-align: left; }
+.proofOpen:hover { text-decoration: underline; }
+
+.actions { margin-top: 14px; }
+.rejectBox {
+  margin-top: 14px; padding: 12px; border-radius: 10px;
+  background: #fff7f7; border: 1px solid #fecaca;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.rejectLabel { font-size: .78rem; font-weight: 700; color: #991b1b; }
+.rejectInput {
+  width: 100%; box-sizing: border-box; padding: 9px 11px;
+  border: 1.5px solid #fca5a5; border-radius: 8px;
+  font-size: .85rem; font-family: inherit; resize: vertical; background: #fff;
+}
+.rejectInput:focus { outline: none; border-color: #dc2626; }
+
+.reviewed {
+  margin-top: 14px; padding-top: 10px; border-top: 1px solid #f3f4f6;
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+  font-size: .78rem; color: #6b7280;
+}
+.removeLink {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: #dc2626; font-size: .78rem; font-weight: 700; font-family: inherit;
+}
+.removeLink:hover { text-decoration: underline; }
+.removeLink:disabled { opacity: .5; cursor: default; }
+
+/* Full-size proof viewer */
+.viewer {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(10,8,30,.82);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.viewerInner { max-width: min(960px, 100%); max-height: 100%; display: flex; flex-direction: column; gap: 10px; }
+.viewerHead { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: #fff; font-size: .88rem; font-weight: 700; }
+.viewerClose {
+  width: 32px; height: 32px; border-radius: 8px; border: none; flex-shrink: 0;
+  background: rgba(255,255,255,.15); color: #fff; cursor: pointer;
+}
+.viewerImg { max-width: 100%; max-height: calc(100vh - 100px); object-fit: contain; border-radius: 10px; background: #fff; }
+
+@media (max-width: 640px) {
+  .body { grid-template-columns: 1fr; }
+  .headRight { align-items: flex-start; }
+}

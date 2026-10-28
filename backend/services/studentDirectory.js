@@ -8,6 +8,7 @@
    Aadhar numbers, caste/category, home address, birth date, parents' phones
    and ABC ids — those columns are ignored while reading and never saved. */
 const crypto  = require('crypto');
+const { studentLinkSecret } = require('../config/secrets');
 const jwt     = require('jsonwebtoken');
 const ExcelJS = require('exceljs');
 const { pgPool } = require('../config/db');
@@ -349,7 +350,6 @@ const maskEmail = (e) => {
   const [user, domain] = e.split('@');
   return `${user.slice(0, 1)}${'*'.repeat(Math.max(2, user.length - 2))}${user.length > 1 ? user.slice(-1) : ''}@${domain}`;
 };
-const maskPhone = (p) => (p ? `******${p.slice(-4)}` : '');
 
 /* The sheet's "Semester / Year / Division" holds both, e.g. "Sem-I/A" →
    semester "Sem-I", division "A". No slash → it's all semester. */
@@ -361,10 +361,19 @@ const splitSemester = (raw) => {
 
 /* What a not-yet-verified visitor may see: enough to recognise themselves,
    never full contact details (anyone can type any number). */
+/* Anyone can type an enrollment number, and those numbers run in sequence —
+   so before the email check this shows only enough for a student to recognise
+   themselves (first name + initials, department, program), never a full name,
+   class division or contact details that could be harvested number by number. */
+const maskName = (name = '') => {
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '';
+  const [first, ...rest] = parts;
+  return [first, ...rest.map(p => `${p[0].toUpperCase()}.`)].join(' ');
+};
 const publicView = (s) => ({
-  name: s.name, department: s.department, subDepartment: s.sub_department, program: s.program,
-  ...splitSemester(s.semester),
-  maskedEmail: maskEmail(s.email), maskedPhone: maskPhone(s.phone), canVerify: !!s.email,
+  name: maskName(s.name), department: s.department, subDepartment: s.sub_department, program: s.program,
+  maskedEmail: maskEmail(s.email), canVerify: !!s.email,
 });
 
 /* Full record, only after verification */
@@ -379,13 +388,13 @@ const LINK_MINUTES = 30;
 
 /* Short-lived proof that whoever holds it verified this student record */
 const issueVerificationToken = (studentId) =>
-  jwt.sign({ sid: String(studentId), purpose: 'student_verify' }, process.env.JWT_SECRET, { expiresIn: '45m' });
+  jwt.sign({ sid: String(studentId), purpose: 'student_verify' }, studentLinkSecret(), { expiresIn: '45m', algorithm: 'HS256' });
 
 /* Student record for a verification token, or throws (expired / tampered) */
 async function studentFromToken(token) {
   if (!token) throw new DirectoryError('Verify your enrollment / admission number first.');
   let payload;
-  try { payload = jwt.verify(token, process.env.JWT_SECRET); } catch {
+  try { payload = jwt.verify(token, studentLinkSecret(), { algorithms: ['HS256'] }); } catch {
     throw new DirectoryError('Your verification has expired — please verify your enrollment / admission number again.');
   }
   if (payload.purpose !== 'student_verify') throw new DirectoryError('Invalid verification.');

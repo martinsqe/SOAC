@@ -9,8 +9,21 @@ const sessionSettings = usingPooler ? {} : {
   idle_in_transaction_session_timeout:  60000,
 };
 
+/* TLS to Postgres. With PG_SSL_CA (the provider's CA certificate, PEM) the
+   server certificate is fully verified; PG_SSL_STRICT=true verifies against the
+   system CAs. Without either, the connection is encrypted but unverified —
+   acceptable only over a private network (e.g. *.railway.internal). */
+const dbSsl = () => {
+  if (process.env.PG_SSL_CA) return { ca: process.env.PG_SSL_CA.replace(/\\n/g, '\n'), rejectUnauthorized: true };
+  if (process.env.PG_SSL_STRICT === 'true') return { rejectUnauthorized: true };
+  if (process.env.NODE_ENV === 'production' && !/\.railway\.internal[:/]/.test(process.env.DATABASE_URL || '')) {
+    console.warn('⚠️  Postgres TLS certificate is not verified — set PG_SSL_CA, or connect over the private network (*.railway.internal)');
+  }
+  return { rejectUnauthorized: false };
+};
+
 const baseConfig = process.env.DATABASE_URL
-  ? { connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } }
+  ? { connectionString: process.env.DATABASE_URL, ssl: dbSsl() }
   : {
       host:     process.env.PG_HOST,
       port:     parseInt(process.env.PG_PORT, 10),

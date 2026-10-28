@@ -286,3 +286,20 @@
 .actStatusRunnerup      { background: #e5e7eb; color: #374151; }
 .actStatusParticipation { background: #ecfdf5; color: #059669; }
 .actStatusRegistered    { background: #f1f5f9; color: #6b7280; }
+
+/* My Activity card — "+ Add Activity" (report an activity that wasn't recorded) */
+.lbActions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.addActBtn {
+  background: #f0fdfa;
+  color: #0f766e;
+  border: 1.5px solid #99f6e4;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: .75rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, border-color .15s;
+}
+.addActBtn:hover { background: #ccfbf1; border-color: #5eead4; }

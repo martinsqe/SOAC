@@ -55,8 +55,8 @@ router.post('/forgot', forgotLimiter, handle(async (req, res) => {
 
 /* POST /api/galore-portal/change-password  { current, next } */
 router.post('/change-password', portal.requireGalore, handle(async (req, res) => {
-  await portal.changePassword(req.galore.id, req.body?.current, req.body?.next);
-  res.json({ message: 'Password changed.' });
+  const token = await portal.changePassword(req.galore.id, req.body?.current, req.body?.next);
+  res.json({ message: 'Password changed.', token });
 }));
 
 /* GET /api/galore-portal/me — everything this person sees: their registrations

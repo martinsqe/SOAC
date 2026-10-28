@@ -9,6 +9,8 @@ export default function JoinModal({ club, onClose }) {
   const [form, setForm] = useState({ name:'', email:'', phone:'', enrollmentNo:'', dept:'', year:'', gender:'', campus:'', message:'' });
   const [submitting, setSubmitting] = useState(false);
   const [done,       setDone]       = useState(false);
+  /* 'sent' — a confirmation link was emailed (guests); 'created' — sent straight to the club */
+  const [doneKind,   setDoneKind]   = useState('created');
   const [err,        setErr]        = useState('');
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -80,6 +82,7 @@ export default function JoinModal({ club, onClose }) {
       const data = await res.json();
       if (res.status === 403 && data.joinClosed) { alert(data.message); return; }
       if (!res.ok) throw new Error(data.message || 'Submission failed.');
+      setDoneKind(data.confirmationSent ? 'sent' : 'created');
       setDone(true);
     } catch (ex) {
       setErr(ex.message);
@@ -92,9 +95,15 @@ export default function JoinModal({ club, onClose }) {
     <div className={s.modalBackdrop} onClick={onClose}>
       <div className={s.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
         <div className={s.mSuccess}>
-          <div className={s.mSuccessIcon}>✅</div>
-          <h3>Request Submitted!</h3>
-          <p>Your request to join <strong>{club.name}</strong> has been sent to the coordinator. Once approved, your login credentials will be emailed to <strong>{form.email}</strong>.</p>
+          {doneKind === 'sent' ? (<>
+            <div className={s.mSuccessIcon}>📧</div>
+            <h3>Check your email</h3>
+            <p>We've sent a confirmation link to <strong>{form.email.trim().toLowerCase()}</strong>. Open it within an hour to send your request to join <strong>{club.name}</strong> — nothing is sent to the club until you do. Can't find it? Check your spam folder.</p>
+          </>) : (<>
+            <div className={s.mSuccessIcon}>✅</div>
+            <h3>Request Submitted!</h3>
+            <p>Your request to join <strong>{club.name}</strong> has been sent to the coordinator. Once approved, your login credentials will be emailed to <strong>{form.email}</strong>.</p>
+          </>)}
           <button className="btr" onClick={onClose}>Done</button>
         </div>
       </div>

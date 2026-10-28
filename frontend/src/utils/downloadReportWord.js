@@ -1,4 +1,4 @@
-import api from '../api/client';
+import api, { getAccessToken } from '../api/client';
 
 /* Downloads an event report as a Word (.docx) file — built on the server from the
    saved report, in the same format as the PDF. */
@@ -6,7 +6,7 @@ export async function downloadReportWord(eventId, title = 'Event') {
   /* a normal request first, so an expired login is refreshed before the download */
   await api.get(`/reports/events/${eventId}`);
   const res = await fetch(`/api/reports/events/${eventId}/download/docx`, {
-    headers: { Authorization: `Bearer ${localStorage.getItem('soac_token') || ''}` },
+    headers: { Authorization: `Bearer ${getAccessToken() || ''}` },
     credentials: 'include',
   });
   if (!res.ok) {

@@ -1,6 +1,7 @@
 const { isSportsEvent, isSportsSql, CLUB_CATEGORY_SQL } = require('../services/eventKind');
 const path = require('path');
 const fs   = require('fs');
+const crypto = require('crypto');
 const { pgPool }          = require('../config/db');
 const { assertCoordOwnsEvent } = require('../services/coordAuth');
 const { getFileValue, useCloudinary, cloudinaryInstance } = require('../config/multer');
@@ -81,6 +82,64 @@ const checkAccess = async (req, res) => {
     return false;
   }
   return true;
+};
+
+/* Matches a Cloudinary raw certificate URL, capturing its public_id */
+const CLD_CERT_RE = /\/raw\/upload\/(?:v\d+\/)?(certificates\/[^?#]+)$/;
+
+/* Delete a stored certificate PDF (Cloudinary raw asset or disk file) */
+const removeCertificateFile = async (fileUrl) => {
+  if (!fileUrl) return;
+  const m = fileUrl.match(CLD_CERT_RE);
+  if (m && useCloudinary && cloudinaryInstance) {
+    await cloudinaryInstance.uploader.destroy(decodeURIComponent(m[1]), { resource_type: 'raw' });
+  } else if (fileUrl.startsWith('/uploads/certificates/')) {
+    const full = path.join(__dirname, '..', 'uploads', 'certificates', path.basename(fileUrl));
+    await fs.promises.unlink(full).catch(() => {});
+  }
+};
+
+/* One-time hardening of certificates issued before random file names: each
+   `certificate-<event>-<registration>.pdf` is renamed to a random name and its
+   row updated, so the old guessable URLs stop working. Safe to re-run — only
+   rows still holding a guessable name are touched. */
+const randomiseLegacyCertificateNames = async () => {
+  let rows;
+  try {
+    ({ rows } = await pgPool.query(
+      `SELECT id, file_url FROM event_certificates_issued
+       WHERE file_url ~ 'certificate-[0-9]+-[0-9]+[.]pdf$'`
+    ));
+  } catch (err) {
+    if (err.code === '42P01') return;   // no certificates table yet — nothing to rename
+    throw err;
+  }
+  let done = 0;
+  for (const row of rows) {
+    try {
+      const oldName = row.file_url.split('/').pop();
+      const newName = oldName.replace(/[.]pdf$/, `-${crypto.randomBytes(16).toString('hex')}.pdf`);
+      let newUrl = null;
+      const m = row.file_url.match(CLD_CERT_RE);
+      if (m && useCloudinary && cloudinaryInstance) {
+        const result = await cloudinaryInstance.uploader.rename(m[1], `certificates/${newName}`, { resource_type: 'raw' });
+        newUrl = result.secure_url;
+      } else if (row.file_url.startsWith('/uploads/certificates/')) {
+        const dir = path.join(__dirname, '..', 'uploads', 'certificates');
+        if (fs.existsSync(path.join(dir, oldName))) {
+          fs.renameSync(path.join(dir, oldName), path.join(dir, newName));
+          newUrl = `/uploads/certificates/${newName}`;
+        }
+      }
+      if (newUrl) {
+        await pgPool.query(`UPDATE event_certificates_issued SET file_url = $1 WHERE id = $2`, [newUrl, row.id]);
+        done++;
+      }
+    } catch (err) {
+      console.error(`[certificates] could not rename certificate ${row.id}:`, err.message);
+    }
+  }
+  if (done) console.log(`🔒  Renamed ${done} certificate file(s) to unguessable names`);
 };
 
 /* ── Buffer upload (server-generated PDFs, not a multer req.file) — mirrors
@@ -376,12 +435,10 @@ const finalizeCertifications = async (req, res, next) => {
     }
 
     /* Prior delivery state per registrant, so we can avoid re-notifying (in-app) a student
-       whose certificate was already dashboard-available before this re-finalize. (No "clean
-       up the old file" step needed — filenames are deterministic per (event, registration)
-       and uploaded with overwrite:true, so a re-render replaces the same Cloudinary asset in
-       place; calling destroy on it afterwards would delete the version we just uploaded.) */
+       whose certificate was already dashboard-available before this re-finalize — and the
+       previous file, deleted once its replacement (a new random name) is stored. */
     const { rows: oldRows } = await pgPool.query(
-      `SELECT registration_id, delivery_method FROM event_certificates_issued WHERE event_id = $1`,
+      `SELECT registration_id, delivery_method, file_url FROM event_certificates_issued WHERE event_id = $1`,
       [req.params.id]
     );
     const oldByReg = {};
@@ -398,8 +455,13 @@ const finalizeCertifications = async (req, res, next) => {
         imageBytes: ctx.imageBytes, isPng: ctx.isPng, anchors: ctx.anchors,
         name: r.name, eventTitle: gameText, dateText,
       });
-      const filename = `certificate-${req.params.id}-${r.registrationId}.pdf`;
+      /* 128 random bits in the name: a certificate (a student's name and result)
+         can only be opened by someone given its link — never found by counting
+         through event / registration numbers */
+      const filename = `certificate-${req.params.id}-${r.registrationId}-${crypto.randomBytes(16).toString('hex')}.pdf`;
       const fileUrl = await uploadCertificateBuffer(pdfBuffer, filename);
+      const previous = oldByReg[String(r.registrationId)]?.file_url;
+      if (previous && previous !== fileUrl) removeCertificateFile(previous).catch(() => {});
 
       const email = (r.email || '').toLowerCase();
       const deliveryMethod = email && accountEmails.has(email) ? 'dashboard' : 'pending';
@@ -452,4 +514,4 @@ const finalizeCertifications = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { listTemplates, uploadTemplate, saveAnchors, previewCertifications, finalizeCertifications };
+module.exports = { randomiseLegacyCertificateNames, listTemplates, uploadTemplate, saveAnchors, previewCertifications, finalizeCertifications };

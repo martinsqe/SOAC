@@ -21,6 +21,10 @@ const validateEnv = () => {
   // ── JWT ───────────────────────────────────────────────────────────────────
   for (const v of ['JWT_SECRET', 'REFRESH_TOKEN_SECRET', 'RESET_PASSWORD_SECRET']) {
     if (!process.env[v]) errors.push(`❌ Missing required JWT env var: ${v}`);
+    else if (process.env[v].length < 32) errors.push(`❌ ${v} is too short — use at least 32 random characters`);
+  }
+  if (process.env.JWT_SECRET && process.env.JWT_SECRET === process.env.REFRESH_TOKEN_SECRET) {
+    errors.push('❌ JWT_SECRET and REFRESH_TOKEN_SECRET must be different');
   }
 
   // ── App ───────────────────────────────────────────────────────────────────

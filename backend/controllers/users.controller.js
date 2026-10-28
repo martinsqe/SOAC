@@ -716,7 +716,18 @@ const buildActivity = async (email, { includeAnswers = false } = {}) => {
     until: r.is_active ? null : r.updated_at,
   }));
 
-  if (!regRows.length && !volunteering.length && !coordinatorRoles.length) {
+  /* Activities the student reported themselves (not recorded on SOAC) that the
+     club's coordinator verified — see studentActivity.controller.js. Shown in
+     the same lists as recorded events; the claimed result stands in for a
+     certificate category so the same Winner / Runner-up / Participation badge shows. */
+  const { rows: claimRows } = await pgPool.query(
+    `SELECT id, title, category, result, to_char(activity_date, 'YYYY-MM-DD') AS activity_date, venue, club_name
+     FROM student_activity_claims
+     WHERE LOWER(student_email) = $1 AND status = 'approved'`,
+    [email]
+  ).catch(() => ({ rows: [] }));
+
+  if (!regRows.length && !claimRows.length && !volunteering.length && !coordinatorRoles.length) {
     return { participated: false, clubs, volunteering, coordinatorRoles };
   }
 
@@ -810,6 +821,26 @@ const buildActivity = async (email, { includeAnswers = false } = {}) => {
     });
   }
 
+  for (const c of claimRows) {
+    const bucket = ACTIVITY_BUCKET[c.category] || 'academic';
+    categories[bucket].push({
+      eventId:      `claim-${c.id}`,
+      eventTitle:   c.title,
+      clubName:     c.club_name || '—',
+      category:     c.category || '',
+      venue:        c.venue || '',
+      eventDate:    c.activity_date,
+      registeredAt: c.activity_date,
+      ...(includeAnswers && { extraAnswers: [] }),
+      attendance:   null,
+      achievements: [{ category: c.result, fileUrl: null, status: 'verified' }],
+    });
+  }
+  /* Newest first across recorded and reported activities alike */
+  for (const list of Object.values(categories)) {
+    list.sort((a, b) => new Date(b.registeredAt) - new Date(a.registeredAt));
+  }
+
   return {
     participated: true,
     hasAccount: !!userId,
@@ -855,7 +886,7 @@ const resolveActivityEmailName = async (email) => {
 const activityByEmail = async (req, res, next) => {
   try {
     const email = String(req.query.email || '').trim().toLowerCase();
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.endsWith('@roster.internal')) {
+    if (!email || !/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(email) || email.endsWith('@roster.internal')) {
       return res.status(400).json({ message: 'Please enter a valid email address.' });
     }
     if (!email.endsWith('@rku.ac.in')) {

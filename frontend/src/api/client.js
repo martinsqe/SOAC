@@ -14,9 +14,19 @@ const REQUEST_TIMEOUT = 30000; // 30 seconds
 const MAX_RETRIES = 3;
 const UPLOAD_TIMEOUT = 90000; // multipart uploads (logos, images) on slow connections
 
-const getToken = () => localStorage.getItem('soac_token');
-const setToken = (t) => localStorage.setItem('soac_token', t);
-const clearToken = () => localStorage.removeItem('soac_token');
+/* The access token lives in memory only — never localStorage/sessionStorage,
+   where any injected script could read it. A page reload restores it from the
+   httpOnly refresh cookie (restoreSession), which scripts can't touch. */
+let accessToken = null;
+const getToken = () => accessToken;
+const setToken = (t) => { accessToken = t || null; };
+const clearToken = () => { accessToken = null; };
+/* Builds before this change stored the token in web storage — wipe it */
+try { localStorage.removeItem('soac_token'); sessionStorage.removeItem('soac_token'); } catch { /* storage blocked */ }
+
+export const getAccessToken   = getToken;
+export const setAccessToken   = setToken;
+export const clearAccessToken = clearToken;
 
 let isRefreshing = false;
 let refreshQueue = []; // callbacks waiting for the new token
@@ -70,6 +80,21 @@ function fetchWithTimeout(url, options, timeoutMs = REQUEST_TIMEOUT) {
 /**
  * Refresh access token via /auth/refresh
  */
+/* One refresh at a time: page load and any 401s share the same request, so the
+   refresh cookie is rotated once rather than raced */
+let refreshInFlight = null;
+function refreshOnce() {
+  if (!refreshInFlight) {
+    refreshInFlight = doRefresh().finally(() => { refreshInFlight = null; });
+  }
+  return refreshInFlight;
+}
+
+/* Called on app load: get a fresh access token from the refresh cookie */
+export function restoreSession() {
+  return refreshOnce();
+}
+
 async function doRefresh() {
   try {
     const res = await fetchWithTimeout(`${BASE}/auth/refresh`, {
@@ -180,7 +205,7 @@ async function _performRequest(method, path, body, isFormData, attempt) {
 
       isRefreshing = true;
       try {
-        await doRefresh();
+        await refreshOnce();
         processQueue(null, getToken());
         return _performRequest(method, path, body, isFormData, 0);
       } catch (err) {

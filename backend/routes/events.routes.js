@@ -8,6 +8,7 @@ const cd          = require('../controllers/clubDetail.controller');
 const { verifyToken, optionalAuth } = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/requireAdmin');
 const { uploadEvent, uploadEventMemory, uploadCertTemplate, uploadDocumentMemory } = require('../config/multer');
+const { eventRegisterLimiter } = require('../middleware/rateLimits');
 
 const requireCoordOrAdmin = (req, res, next) => {
   if (req.user?.role !== 'coordinator' && req.user?.role !== 'faculty_coordinator' && req.user?.role !== 'admin') {
@@ -26,17 +27,44 @@ const refreshReportAfter = (req, res, next) => {
   next();
 };
 
+/* Public event data can carry a student team captain's email / phone and the
+   team roster. Responses (which may come from a cache shared by every viewer)
+   are redacted on the way out unless the viewer is staff or the captain. */
+const CONTACT_KEYS = ['captainEmail', 'captainPhone', 'teamMembers'];
+const redactEventContacts = (req, res, next) => {
+  const role = req.user?.role;
+  if (role === 'admin' || role === 'coordinator' || role === 'faculty_coordinator') return next();
+  const me = String(req.user?.email || '').toLowerCase();
+  const scrub = (v, depth = 0) => {
+    if (depth > 6 || !v || typeof v !== 'object') return v;
+    if (Array.isArray(v)) return v.map(x => scrub(x, depth + 1));
+    const out = {};
+    const isOwnTeam = me && String(v.captainEmail || '').toLowerCase() === me;
+    for (const [k, val] of Object.entries(v)) {
+      if (CONTACT_KEYS.includes(k) && !isOwnTeam) {
+        out[k] = Array.isArray(val) ? [] : '';
+      } else {
+        out[k] = scrub(val, depth + 1);
+      }
+    }
+    return out;
+  };
+  const json = res.json.bind(res);
+  res.json = (body) => json(scrub(body));
+  next();
+};
+
 /* Public, but reads the token when sent so an admin gets their campus's events */
-router.get('/',                  optionalAuth, ctrl.getAll);
-router.get('/live-scores',       ctrl.getLiveScores);
-router.get('/past-scores',       ctrl.getPastScores);
+router.get('/',                  optionalAuth, redactEventContacts, ctrl.getAll);
+router.get('/live-scores',       optionalAuth, redactEventContacts, ctrl.getLiveScores);
+router.get('/past-scores',       optionalAuth, redactEventContacts, ctrl.getPastScores);
 router.get('/galore/template',       verifyToken, requireAdmin, ctrl.getGaloreTemplate);
 router.get('/galore/coordinators',   verifyToken, requireAdmin, ctrl.getGaloreCoordinators);
 router.post('/galore',               verifyToken, requireAdmin, uploadEventMemory.single('image'), ctrl.createGaloreEvent);
 router.post('/galore/rules-upload',  verifyToken, requireAdmin, uploadDocumentMemory.single('file'), ctrl.uploadGaloreRules);
 router.get('/my-assignments',       verifyToken, requireCoordOrAdmin, ctrl.getMyAssignments);
-router.get('/:id',               ctrl.getOne);
-router.get('/:id/activities',    ctrl.getActivities); /* public — Galore umbrella's child activities */
+router.get('/:id',               optionalAuth, redactEventContacts, ctrl.getOne);
+router.get('/:id/activities',    optionalAuth, redactEventContacts, ctrl.getActivities); /* public — Galore umbrella's child activities */
 router.get('/:id/galore-form',   ctrl.getGaloreFormPublic); /* public — builds the Galore registration form */
 router.get('/:id/galore-setup',  verifyToken, requireAdmin, ctrl.getGaloreSetup);
 router.put('/:id/galore-form',   verifyToken, requireAdmin, ctrl.updateGaloreForm);
@@ -50,8 +78,8 @@ router.post('/:id/remind',       verifyToken, requireAdmin, ctrl.sendReminder);
 router.delete('/:id',  verifyToken, requireAdmin, ctrl.remove);
 
 /* Registration routes */
-router.post('/:id/register',     ctrl.register);                                         /* public            */
-router.post('/:id/team-roster',  ctrl.submitTeamRoster);                                  /* public — Sports Fiesta captain */
+router.post('/:id/register',     eventRegisterLimiter, ctrl.register);                                         /* public            */
+router.post('/:id/team-roster',  eventRegisterLimiter, ctrl.submitTeamRoster);                                  /* public — Sports Fiesta captain */
 router.get('/:id/registrations', verifyToken, requireCoordOrAdmin, ctrl.listRegistrations); /* admin + coord */
 router.patch ('/:id/registrations/:regId', verifyToken, requireAdmin, ctrl.updateRegistration); /* admin only */
 router.delete('/:id/registrations/:regId', verifyToken, requireAdmin, ctrl.deleteRegistration); /* admin only */

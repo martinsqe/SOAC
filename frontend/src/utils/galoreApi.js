@@ -25,6 +25,8 @@ async function request(method, path, body) {
     err.status = res.status;
     throw err;
   }
+  /* A password change signs out older sessions and hands back a fresh token */
+  if (data.token && path === '/change-password') galoreToken.set(data.token);
   return data;
 }
 
