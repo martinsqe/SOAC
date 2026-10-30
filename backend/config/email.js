@@ -674,17 +674,25 @@ const sendJoinRequestCampusChanged = async ({ toEmail, toName, clubName, fromCam
   });
 };
 
-/* ── Direct messages — content deliberately not included ──────────────────── */
-const sendDirectMessageNotice = async ({ toEmail, toName, fromLabel, senderName, url }) => {
+/* ── Chat messages (club group chat + DMs) — content deliberately not included:
+   "Hey <name>, <sender> just sent a message to the <club> club chat / you a DM." */
+const sendMessageNotice = async ({ toEmail, toName, senderName, where, clubName, url }) => {
+  const isDm = where === 'dm';
+  const who  = `<strong>${escapeHtml(senderName)}</strong>`;
+  const line = isDm
+    ? `${who} just sent you a message in your <strong>DM</strong>${clubName ? ` (${escapeHtml(clubName)})` : ''}. Please check it out.`
+    : `${who} just sent a message to the <strong>${escapeHtml(clubName)} club chat</strong>. Please check it out.`;
   await send({
     to:      toEmail,
-    subject: `You have a message from ${fromLabel} by ${senderName} — SOAC RKU`,
+    subject: isDm
+      ? `${senderName} sent you a message${clubName ? ` — ${clubName}` : ''} — SOAC RKU`
+      : `${senderName} sent a message to the ${clubName} club chat — SOAC RKU`,
     html: plainEmail({
-      category: 'Direct message',
-      title:    `New message from ${senderName}`,
-      toName,
-      intro:    [`You have a message from <strong>${escapeHtml(fromLabel)}</strong> by <strong>${escapeHtml(senderName)}</strong>. Log in to SOAC to read it and reply.`],
-      button:   { href: `${APP_URL}${url || '/login'}`, label: 'Open messages' },
+      category: isDm ? 'Direct message' : 'Club chat',
+      title:    isDm ? `New message from ${senderName}` : `${clubName} club chat`,
+      greeting: `Hey ${escapeHtml(toName || 'there')},`,
+      intro:    [line],
+      button:   { href: `${APP_URL}${url || '/login'}`, label: isDm ? 'Open DM' : 'Open club chat' },
     }),
   });
 };
@@ -853,27 +861,6 @@ const sendClubProposalEmail = async ({ toEmail, toName, proposal }) => {
       outro:    ['You can approve or decline it from Approvals → Club proposals.'],
       button:   { href: `${APP_URL}/admin/approvals?tab=proposals`, label: 'Review proposal' },
     }),
-  });
-};
-
-/* Club group chat — a coordinator / Faculty Advisor / admin posted. Deliberately
-   doesn't include the message: members log in to read it. */
-const sendClubChatNotice = async ({ toEmail, toName, clubName, clubId, senderRole }) => {
-  await send({
-    to:      toEmail,
-    subject: `New message in the ${clubName} chat — SOAC RKU`,
-    html: wrap(`
-      ${header()}
-      ${categoryLine('Club chat')}
-      <h2 style="color:#1a1040;margin:0 0 18px">${escapeHtml(clubName)}</h2>
-      <p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">Hi ${escapeHtml(toName || 'there')},</p>
-      <p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">${escapeHtml(senderRole)} has posted a new message in the ${escapeHtml(clubName)} group chat. Log in to SOAC to read it and reply.</p>
-      <p style="color:#333;font-size:15px;line-height:1.7;margin:22px 0 4px">Regards,<br/>soac.notifications@rku.ac.in<br/>Students Organizations Advisory Council</p>
-      <div style="margin:26px 0">
-        <a href="${APP_URL}/student/clubs/${clubId}" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">Open club chat</a>
-      </div>
-      ${footer()}
-    `),
   });
 };
 
@@ -1473,11 +1460,10 @@ module.exports = {
   sendClubFeedPostLive,
   sendBroadcastEmail,
   sendEventReminder,
-  sendClubChatNotice,
   sendClubFeedReviewRequest,
   sendEventRequestForReview,
   sendEventRequestDecision,
-  sendDirectMessageNotice,
+  sendMessageNotice,
   sendClubAnnouncementEmail,
   sendJoinRequestsDigest,
   sendJoinRequestStats,

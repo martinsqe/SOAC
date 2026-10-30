@@ -7,7 +7,7 @@ const { ensureSoacTables } = require('../services/soacData');
 const { notifyUser } = require('../services/notify');
 const { getCoordClubIds, getClubCoordinatorIds } = require('../services/coordAuth');
 const { adminCampus } = require('../services/campus');
-const { sendDirectMessageNotice } = require('../config/email');
+const { notifyDirectMessage } = require('../services/chatNotify');
 
 /* The club a DM is "from": a club both people belong to (as member or staff),
    else the sender's own club; admins write as SOAC. */
@@ -98,30 +98,37 @@ const getConversations = async (req, res, next) => {
       );
       groups = rows;
     } else {
+      /* Clubs they've joined, plus — for FAs / SCs — every club they manage */
+      const staffClubIds = isCoordLike(req.user.role) ? (await getCoordClubIds(uid)).map(Number) : [];
       const { rows } = await pgPool.query(
         `SELECT
-           sc.club_id::text  AS id,
-           sc.club_name      AS name,
+           c.id::text        AS id,
+           c.name,
            c.color,
            c.logo,
            lm.content        AS last_message,
            lm.user_name      AS last_sender,
            lm.created_at     AS last_at
-         FROM student_clubs sc
-         JOIN clubs c ON c.id = sc.club_id AND c.is_active = true
+         FROM clubs c
          LEFT JOIN LATERAL (
            SELECT content, user_name, created_at
            FROM   club_messages
-           WHERE  club_id = sc.club_id
+           WHERE  club_id = c.id
            ORDER  BY created_at DESC
            LIMIT  1
          ) lm ON true
-         WHERE sc.user_id = $1
-         ORDER BY lm.created_at DESC NULLS LAST, sc.joined_at DESC`,
-        [uid]
+         WHERE c.is_active = true
+           AND (c.id IN (SELECT club_id FROM student_clubs WHERE user_id = $1 AND is_active = true)
+                OR c.id = ANY($2::bigint[]))
+         ORDER BY lm.created_at DESC NULLS LAST, c.name ASC`,
+        [uid, staffClubIds]
       );
       groups = rows;
     }
+
+    /* Unread count per group chat (messages from others since they last opened it) */
+    const unread = await clubChatUnread(uid, groups.map(g => g.id));
+    groups.forEach(g => { g.unread_count = unread.get(String(g.id)) || 0; });
 
     /* 2. DM threads — latest message per partner + unread count */
     const { rows: dms } = await pgPool.query(
@@ -212,10 +219,16 @@ const getDMs = async (req, res, next) => {
       values
     );
 
-    /* Mark unread messages as read */
+    /* Mark unread messages as read — and the matching "sent you a message"
+       notifications, so the bell and the chat counts agree */
     pgPool.query(
       `UPDATE direct_messages SET read_at = NOW()
        WHERE to_user = $1 AND from_user = $2 AND read_at IS NULL`,
+      [me, other]
+    ).catch(() => {});
+    pgPool.query(
+      `UPDATE member_notifications SET is_read = true
+       WHERE user_id = $1 AND type = 'message' AND is_read = false AND url LIKE '%?dm=' || $2::text`,
       [me, other]
     ).catch(() => {});
 
@@ -251,7 +264,7 @@ const sendDM = async (req, res, next) => {
       return res.status(403).json({ message: 'You can only message admins and your club coordinators.' });
     }
 
-    const { rows: ur } = await pgPool.query(`SELECT avatar FROM users WHERE id = $1`, [me]);
+    const { rows: ur } = await pgPool.query(`SELECT avatar, name FROM users WHERE id = $1`, [me]);
 
     const { rows } = await pgPool.query(
       `INSERT INTO direct_messages (from_user, to_user, content)
@@ -263,40 +276,17 @@ const sendDM = async (req, res, next) => {
     res.status(201).json({
       message: {
         ...rows[0],
-        from_name:   req.user.name,
+        from_name:   ur[0]?.name || req.user.name,
         from_avatar: ur[0]?.avatar || '',
       },
     });
 
-    /* DMs are cross-role (student <-> coordinator <-> admin all share this
-       one endpoint), so the notification's destination has to match the
-       RECIPIENT's own portal — a coordinator or admin sent to /student/messages
-       would land on a route they don't have access to. Admin has no dedicated
-       /admin/messages page; their own DMs live inside Monitor Chats' "DMs" tab. */
-    const messagesUrl =
-      isCoordLike(check[0].role) ? '/coordinator/messages' :
-      check[0].role === 'admin'       ? '/admin/chats' :
-      '/student/messages';
-
-    notifyUser({
-      userId: other,
-      title:  req.user.name,
-      body:   content.slice(0, 120),
-      type:   'message',
-      url:    messagesUrl,
-    }).catch(() => {});
-
-    /* Email for every DM — who it's from, never the message itself */
-    (async () => {
-      const { rows: to } = await pgPool.query(
-        `SELECT email, name FROM users WHERE id = $1 AND is_active = true AND COALESCE(email, '') <> ''`, [other]
-      );
-      if (!to.length) return;
-      const fromLabel = await dmFromLabel(me, req.user.role, other);
-      await sendDirectMessageNotice({
-        toEmail: to[0].email, toName: to[0].name, fromLabel, senderName: req.user.name, url: messagesUrl,
-      });
-    })().catch(err => console.error('[messages] DM email failed:', err.message));
+    /* In-app notice + email to the recipient, linking into their OWN portal's
+       messages page (see services/chatNotify.js). fromLabel = the club the DM
+       is about, or "SOAC" for an admin. */
+    dmFromLabel(me, req.user.role, other)
+      .catch(() => '')
+      .then(fromLabel => notifyDirectMessage({ sender: req.user, recipientId: other, content, fromLabel }));
   } catch (err) { next(err); }
 };
 
@@ -386,4 +376,68 @@ const getClubMembers = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getConversations, getDMs, sendDM, getClubMembers };
+/* ── Club group chat read tracking ─────────────────────────────────────────
+   club_chat_reads remembers when each person last opened each club's chat, so
+   the unread counts are the same on every device. A chat someone has never
+   opened starts counting from the first time it's listed for them. */
+let readsReady = null;
+const ensureReads = () => {
+  if (!readsReady) {
+    readsReady = pgPool.query(
+      `CREATE TABLE IF NOT EXISTS club_chat_reads (
+         user_id      INT    NOT NULL,
+         club_id      BIGINT NOT NULL,
+         last_read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         PRIMARY KEY (user_id, club_id)
+       )`
+    ).catch((err) => { readsReady = null; throw err; });
+  }
+  return readsReady;
+};
+
+/* Map of clubId → number of messages from others since the user last read it */
+const clubChatUnread = async (uid, clubIds) => {
+  const ids = clubIds.map(Number).filter(Boolean);
+  if (!ids.length) return new Map();
+  await ensureReads();
+  await pgPool.query(
+    `INSERT INTO club_chat_reads (user_id, club_id, last_read_at)
+     SELECT $1, unnest($2::bigint[]), NOW()
+     ON CONFLICT (user_id, club_id) DO NOTHING`,
+    [uid, ids]
+  );
+  const { rows } = await pgPool.query(
+    `SELECT cm.club_id::text AS id, COUNT(*)::int AS cnt
+     FROM club_messages cm
+     JOIN club_chat_reads r ON r.user_id = $1 AND r.club_id = cm.club_id
+     WHERE cm.club_id = ANY($2::bigint[]) AND cm.user_id IS DISTINCT FROM $1
+       AND cm.created_at > r.last_read_at
+     GROUP BY cm.club_id`,
+    [uid, ids]
+  );
+  return new Map(rows.map(r => [r.id, r.cnt]));
+};
+
+/* ── POST /api/messages/groups/:clubId/read ──────────────────────────────────
+   The user has the club chat open: reset its count and clear that chat's
+   message notifications. */
+const markGroupRead = async (req, res, next) => {
+  try {
+    const clubId = parseInt(req.params.clubId, 10);
+    if (isNaN(clubId)) return res.status(400).json({ message: 'Invalid club.' });
+    await ensureReads();
+    await pgPool.query(
+      `INSERT INTO club_chat_reads (user_id, club_id, last_read_at) VALUES ($1, $2, NOW())
+       ON CONFLICT (user_id, club_id) DO UPDATE SET last_read_at = NOW()`,
+      [req.user.id, clubId]
+    );
+    pgPool.query(
+      `UPDATE member_notifications SET is_read = true
+       WHERE user_id = $1 AND club_id = $2 AND type = 'message' AND is_read = false`,
+      [req.user.id, clubId]
+    ).catch(() => {});
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+};
+
+module.exports = { getConversations, getDMs, sendDM, getClubMembers, markGroupRead };

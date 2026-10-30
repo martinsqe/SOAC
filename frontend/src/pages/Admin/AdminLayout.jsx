@@ -55,11 +55,11 @@ export default function AdminLayout() {
     setMobileOpen(false);
   };
 
-  /* Poll unread DM count every 5 s */
+  /* Poll unread message count (DMs + club chats) every 5 s */
   const refreshUnread = useCallback(async () => {
     try {
       const data = await api.get('/messages/conversations');
-      const total = (data.dms || []).reduce((s, d) => s + (d.unread_count || 0), 0);
+      const total = [...(data.groups || []), ...(data.dms || [])].reduce((sum, d) => sum + (d.unread_count || 0), 0);
       setUnreadDMs(total);
     } catch (_) {}
   }, []);

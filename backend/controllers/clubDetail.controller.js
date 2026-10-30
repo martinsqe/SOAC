@@ -10,7 +10,7 @@ const { destroyImage } = require('../config/cloudinary');
 const bracketEngine = require('../services/bracketEngine');
 const { autoRefreshReportIfExists } = require('./reports.controller');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
-const { sendClubChatNotice } = require('../config/email');
+const { notifyClubChatMessage } = require('../services/chatNotify');
 const cache = require('../services/cache');
 
 /* Tells every admin whenever a Student or Faculty Coordinator changes something
@@ -408,93 +408,23 @@ const postMessage = async (req, res, next) => {
     /* Any authenticated user can post messages */
 
     /* Fetch avatar from users table (not in JWT payload) */
-    const { rows: ur } = await pgPool.query(`SELECT avatar, email FROM users WHERE id = $1`, [req.user.id]);
+    const { rows: ur } = await pgPool.query(`SELECT avatar, email, name FROM users WHERE id = $1`, [req.user.id]);
+    const senderName = ur[0]?.name || req.user.name;   /* current profile name, not the one in the login token */
     const avatar = ur[0]?.avatar || '';
 
     const { rows } = await pgPool.query(
       `INSERT INTO club_messages (club_id, user_id, user_name, user_avatar, content)
        VALUES ($1::bigint, $2, $3, $4, $5)
        RETURNING id, user_id, user_name, user_avatar, content, created_at`,
-      [clubId, req.user.id, req.user.name, avatar, content.trim()]
+      [clubId, req.user.id, senderName, avatar, content.trim()]
     );
     res.status(201).json({ message: rows[0] });
 
-    /* Notify every other active member of this club — fire-and-forget, after the
-       response is already sent so a slow fan-out never delays the sender's own UI. */
-    pgPool.query(
-      `SELECT u.id FROM student_clubs sc
-       JOIN users u ON u.id = sc.user_id AND u.is_active = true
-       WHERE sc.club_id = $1::bigint AND sc.is_active = true AND u.id != $2`,
-      [clubId, req.user.id]
-    ).then(({ rows: members }) => {
-      if (!members.length) return;
-      notifyManyUsers({
-        userIds: members.map(m => m.id),
-        clubId,
-        title: req.user.name,
-        body:  content.trim().slice(0, 120),
-        type:  'message',
-        url:   `/student/clubs/${clubId}`,
-      });
-    }).catch(() => {});
-
-    /* A coordinator / Faculty Advisor / admin posted → email this club's members
-       (not the message itself — they log in to read it). Students' messages
-       don't send email. */
-    if (CHAT_EMAIL_ROLES[req.user.role]) {
-      emailClubChatNotice(clubId, { ...req.user, email: ur[0]?.email }).catch(err => console.error('[chat] email notice failed:', err.message));
-    }
+    /* Every message, whoever sends it → the club's students, its FAs / SCs and
+       the admins get an in-app notice + email (see services/chatNotify.js).
+       Fire-and-forget, after the response so the sender's UI never waits. */
+    notifyClubChatMessage({ clubId, sender: req.user, content });
   } catch (err) { next(err); }
-};
-
-/* ── Club chat email notices ──────────────────────────────────────────────────
-   At most one email per club per CHAT_EMAIL_COOLDOWN_MIN: a coordinator often
-   sends several messages in a row, and members only need to know there's
-   something new to read. */
-const CHAT_EMAIL_ROLES = {
-  coordinator:         "Your club's Student Coordinator",
-  faculty_coordinator: "Your club's Faculty Advisor",
-  admin:               'The SOAC admin',
-};
-const CHAT_EMAIL_COOLDOWN_MIN = 30;
-let chatEmailTableReady = null;
-
-const emailClubChatNotice = async (clubId, sender) => {
-  if (!chatEmailTableReady) {
-    chatEmailTableReady = pgPool.query(
-      `CREATE TABLE IF NOT EXISTS club_chat_email_log (
-         club_id      BIGINT PRIMARY KEY REFERENCES clubs(id) ON DELETE CASCADE,
-         last_sent_at TIMESTAMPTZ NOT NULL
-       )`
-    ).catch((err) => { chatEmailTableReady = null; throw err; });
-  }
-  await chatEmailTableReady;
-
-  /* Claim this club's slot atomically — only one sender wins inside the window */
-  const { rows: claimed } = await pgPool.query(
-    `INSERT INTO club_chat_email_log (club_id, last_sent_at) VALUES ($1::bigint, NOW())
-     ON CONFLICT (club_id) DO UPDATE SET last_sent_at = NOW()
-       WHERE club_chat_email_log.last_sent_at < NOW() - make_interval(mins => $2)
-     RETURNING club_id`,
-    [clubId, CHAT_EMAIL_COOLDOWN_MIN]
-  );
-  if (!claimed.length) return;   // emailed recently — members already know to check
-
-  const { rows: club } = await pgPool.query(`SELECT name FROM clubs WHERE id = $1::bigint`, [clubId]);
-  const { rows: members } = await pgPool.query(
-    `SELECT DISTINCT ON (LOWER(u.email)) u.email, u.name
-     FROM student_clubs sc
-     JOIN users u ON u.id = sc.user_id AND u.is_active = true AND u.role = 'student'
-     WHERE sc.club_id = $1::bigint AND sc.is_active = true
-       AND LOWER(u.email) <> LOWER($2)`,
-    [clubId, sender.email || '']
-  );
-  for (const m of members) {
-    sendClubChatNotice({
-      toEmail: m.email, toName: m.name, clubName: club[0]?.name || 'your club', clubId,
-      senderRole: CHAT_EMAIL_ROLES[sender.role],
-    }).catch(err => console.error(`[chat] email failed for ${m.email}:`, err.message));
-  }
 };
 
 /* ══════════════════════════════════════════════════════════════════════════

@@ -37,12 +37,12 @@ export default function StudentLayout() {
   const [unreadMsgs,  setUnreadMsgs]  = useState(0);
   const [unreadNotifs, setUnreadNotifs] = useState(0);
 
-  /* Poll unread DM count every 30 s */
+  /* Poll unread message count (DMs + club chats) */
   useEffect(() => {
     const load = async () => {
       try {
         const data = await api.get('/messages/conversations');
-        const total = (data.dms || []).reduce((sum, d) => sum + (d.unread_count || 0), 0);
+        const total = [...(data.groups || []), ...(data.dms || [])].reduce((sum, d) => sum + (d.unread_count || 0), 0);
         setUnreadMsgs(total);
       } catch (_) {}
     };

@@ -7,5 +7,6 @@ router.get('/conversations', verifyToken, ctrl.getConversations);
 router.get('/members',       verifyToken, ctrl.getClubMembers);
 router.get('/dm/:userId',    verifyToken, ctrl.getDMs);
 router.post('/dm/:userId',   verifyToken, msgRateLimit(), ctrl.sendDM);
+router.post('/groups/:clubId/read', verifyToken, ctrl.markGroupRead);
 
 module.exports = router;

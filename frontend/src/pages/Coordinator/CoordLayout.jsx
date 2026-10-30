@@ -12,7 +12,6 @@ import { syncFcmToken, onForegroundMessage, fcmSupported, registerFcmServiceWork
 import api from '../../api/client';
 import s from './CoordLayout.module.css';
 
-const LAST_SEEN_KEY = 'coord_msgs_seen_at';
 const AVATAR_BASE   = '/uploads/avatars/';
 
 const NAV = [
@@ -148,31 +147,13 @@ function CoordLayoutInner() {
     if (location.pathname.includes('/notifications')) setUnreadNotifs(0);
   }, [location.pathname]);
 
-  /* Poll club group chat for messages from others since last visit */
-  useEffect(() => {
-    const clubId = selectedClub?.id;
-    if (!clubId) return;
-    const load = async () => {
-      try {
-        const lastSeen = localStorage.getItem(LAST_SEEN_KEY) || new Date(0).toISOString();
-        const data = await api.get(`/clubs/${clubId}/messages?limit=50`);
-        const count = (data.messages || []).filter(
-          m => m.user_id !== user.id && new Date(m.created_at) > new Date(lastSeen)
-        ).length;
-        setUnreadGroup(count);
-      } catch (_) {}
-    };
-    load();
-    const t = setInterval(load, 10000);
-    return () => clearInterval(t);
-  }, [selectedClub?.id, user?.id]);
-
-  /* Poll DM unread count every 5 s */
+  /* Poll unread message count (DMs + club chats) every 5 s */
   const refreshDMs = useCallback(async () => {
     try {
       const data = await api.get('/messages/conversations');
-      const total = (data.dms || []).reduce((s, d) => s + (d.unread_count || 0), 0);
-      setUnreadDMs(total);
+      setUnreadDMs((data.dms || []).reduce((s, d) => s + (d.unread_count || 0), 0));
+      /* club chats of every club they manage, read state kept on the server */
+      setUnreadGroup((data.groups || []).reduce((s, g) => s + (g.unread_count || 0), 0));
     } catch (_) {}
   }, []);
 
@@ -187,7 +168,6 @@ function CoordLayoutInner() {
     if (location.pathname.includes('/messages')) {
       setUnreadGroup(0);
       setUnreadDMs(0);
-      localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString());
     }
   }, [location.pathname]);
 

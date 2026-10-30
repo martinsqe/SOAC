@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
 import s from './StudentMessages.module.css';
@@ -70,6 +71,7 @@ function buildList(groups, dms) {
       key: `g_${g.id}`, type: 'group', id: String(g.id),
       name: g.name, color: g.color || '#128C7E', avatarFile: null,
       lastMsg: g.last_message || '', lastSender: g.last_sender || '', lastAt: g.last_at,
+      unread: g.unread_count || 0,
     })),
     ...dms.map(d => ({
       key: `d_${d.partner_id}`, type: 'dm', id: String(d.partner_id),
@@ -166,6 +168,21 @@ export default function StudentMessages() {
     setTimeout(() => inputRef.current?.focus(), 80);
   }, []);
 
+  /* ── A message notification links here with ?club=<id> or ?dm=<userId>:
+        open that chat once the conversation list is in. ── */
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const club = searchParams.get('club'), dm = searchParams.get('dm');
+    if ((!club && !dm) || !convsLoaded) return;
+    const conv = convList.find(c => club
+      ? c.type === 'group' && c.id === String(club)
+      : c.type === 'dm'    && c.id === String(dm));
+    if (conv) {
+      openConv(conv);
+    }
+    setSearchParams({}, { replace: true });
+  }, [searchParams, convsLoaded, convList, openConv, setSearchParams]);
+
   /* ── Start / resume DM from compose panel ── */
   const startDM = useCallback((member) => {
     setComposing(false);
@@ -177,6 +194,14 @@ export default function StudentMessages() {
       lastMsg: '', lastSender: '', lastAt: null,
     });
   }, [convList, openConv]);
+
+  /* ── Club chat open → mark it read on the server (resets its count and its
+        notifications) whenever new messages show up while it's open ── */
+  useEffect(() => {
+    if (activeConv?.type !== 'group' || !msgsLoaded) return;
+    api.post(`/messages/groups/${activeConv.id}/read`).catch(() => {});
+    setConvList(list => list.map(c => (c.type === 'group' && c.id === activeConv.id && c.unread) ? { ...c, unread: 0 } : c));
+  }, [activeConv?.type, activeConv?.id, msgsLoaded, messages.length]); // eslint-disable-line
 
   /* ── Fetch initial messages ── */
   useEffect(() => {

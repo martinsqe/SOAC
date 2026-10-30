@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
 import s from './AdminMonitorChats.module.css';
@@ -70,6 +71,7 @@ function buildList(groups, dms) {
       key: `g_${g.id}`, type: 'group', id: String(g.id),
       name: g.name, color: g.color || ACCENT, avatarFile: null,
       lastMsg: g.last_message || '', lastSender: g.last_sender || '', lastAt: g.last_at,
+      unread: g.unread_count || 0,
     })),
     ...dms.map(d => ({
       key: `d_${d.partner_id}`, type: 'dm', id: String(d.partner_id),
@@ -176,6 +178,22 @@ export default function AdminMonitorChats() {
     setTimeout(() => inputRef.current?.focus(), 80);
   }, []);
 
+  /* ── A message notification links here with ?club=<id> or ?dm=<userId>:
+        open that chat once the conversation list is in. ── */
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const club = searchParams.get('club'), dm = searchParams.get('dm');
+    if ((!club && !dm) || !convsLoaded) return;
+    const conv = convList.find(c => club
+      ? c.type === 'group' && c.id === String(club)
+      : c.type === 'dm'    && c.id === String(dm));
+    if (conv) {
+      setSideTab(club ? 'groups' : 'dms');
+      openConv(conv);
+    }
+    setSearchParams({}, { replace: true });
+  }, [searchParams, convsLoaded, convList, openConv, setSearchParams]);
+
   /* ── Start DM from compose panel ── */
   const startDM = useCallback((member) => {
     setComposing(false);
@@ -188,6 +206,14 @@ export default function AdminMonitorChats() {
     });
     setSideTab('dms');
   }, [convList, openConv]);
+
+  /* ── Club chat open → mark it read on the server (resets its count and its
+        notifications) whenever new messages show up while it's open ── */
+  useEffect(() => {
+    if (activeConv?.type !== 'group' || !msgsLoaded) return;
+    api.post(`/messages/groups/${activeConv.id}/read`).catch(() => {});
+    setConvList(list => list.map(c => (c.type === 'group' && c.id === activeConv.id && c.unread) ? { ...c, unread: 0 } : c));
+  }, [activeConv?.type, activeConv?.id, msgsLoaded, messages.length]); // eslint-disable-line
 
   /* ── Fetch initial messages ── */
   useEffect(() => {
@@ -320,6 +346,7 @@ export default function AdminMonitorChats() {
     : clubMembers;
 
   const totalUnread = convList.filter(c => c.type === 'dm').reduce((n, c) => n + (c.unread || 0), 0);
+  const groupUnread = convList.filter(c => c.type === 'group').reduce((n, c) => n + (c.unread || 0), 0);
 
   const shellCls = `${s.shell} ${mobileShowChat ? s.chatOpen : ''}`;
 
@@ -400,7 +427,9 @@ export default function AdminMonitorChats() {
                 className={`${s.subTab} ${sideTab === 'groups' ? s.subTabOn : ''}`}
                 onClick={() => setSideTab('groups')}>
                 Club Chats
-                {gList.length > 0 && <span className={s.subCount}>{gList.length}</span>}
+                {groupUnread > 0
+                  ? <span className={s.unreadPill}>{groupUnread > 99 ? '99+' : groupUnread}</span>
+                  : gList.length > 0 && <span className={s.subCount}>{gList.length}</span>}
               </button>
               <button
                 className={`${s.subTab} ${sideTab === 'dms' ? s.subTabOn : ''}`}

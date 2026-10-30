@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useCoordClub } from '../../context/CoordClubContext';
 import api from '../../api/client';
@@ -61,7 +62,7 @@ function MemberAv({ avatar, name, color, size = 40 }) {
 ══════════════════════════════════════════════════════════ */
 export default function CoordMessages() {
   const { user }         = useAuth();
-  const { selectedClub } = useCoordClub();
+  const { clubs, selectedClub, setSelectedClub } = useCoordClub();
   const managedClubId    = selectedClub?.id;
 
   /* ── Club group chat ── */
@@ -72,6 +73,7 @@ export default function CoordMessages() {
 
   /* ── DM conversation list (from API) ── */
   const [dmThreads,    setDmThreads]    = useState([]);
+  const [groupUnread,  setGroupUnread]  = useState({}); // clubId → unread club chat messages
   const [convsLoaded,  setConvsLoaded]  = useState(false);
 
   /* ── Compose panel ── */
@@ -106,6 +108,7 @@ export default function CoordMessages() {
     try {
       const data = await api.get('/messages/conversations');
       setDmThreads(data.dms || []);
+      setGroupUnread(Object.fromEntries((data.groups || []).map(g => [String(g.id), g.unread_count || 0])));
     } catch (_) {}
     setConvsLoaded(true);
   }, []);
@@ -314,6 +317,33 @@ export default function CoordMessages() {
     setTimeout(() => inputRef.current?.focus(), 80);
   }, [activeType, activeDM?.id]);
 
+  /* ── A message notification links here with ?club=<id> (switch to that club
+        and open its group chat) or ?dm=<userId> (open that DM). ── */
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const club = searchParams.get('club'), dm = searchParams.get('dm');
+    if (club) {
+      const target = clubs.find(c => String(c.id) === String(club));
+      if (!target) { if (clubs.length) setSearchParams({}, { replace: true }); return; }
+      if (String(selectedClub?.id) !== String(club)) setSelectedClub(target);
+      openGroup();
+      setSearchParams({}, { replace: true });
+    } else if (dm) {
+      if (!convsLoaded) return;
+      const thread = dmThreads.find(d => String(d.partner_id) === String(dm));
+      if (thread) openDM(thread);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, clubs, selectedClub?.id, convsLoaded, dmThreads]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── Club chat open → mark it read on the server (resets its count and its
+        notifications) whenever new messages show up while it's open ── */
+  useEffect(() => {
+    if (activeType !== 'group' || !managedClubId || !clubMsgsLoaded) return;
+    api.post('/messages/groups/' + managedClubId + '/read').catch(() => {});
+    setGroupUnread(u => ({ ...u, [String(managedClubId)]: 0 }));
+  }, [activeType, managedClubId, clubMsgsLoaded, clubMsgs.length]);
+
   /* ── Start DM from compose panel ── */
   const startDM = (member) => {
     setComposing(false);
@@ -442,6 +472,11 @@ export default function CoordMessages() {
                           : 'Send a message to your club members'}
                       </div>
                     </div>
+                    {(groupUnread[String(managedClubId)] || 0) > 0 && activeType !== 'group' && (
+                      <div className={s.contactMeta}>
+                        <span className={s.unreadBadge}>{groupUnread[String(managedClubId)] > 99 ? '99+' : groupUnread[String(managedClubId)]}</span>
+                      </div>
+                    )}
                   </div>
                   <div className={s.sectionLabel} style={{ marginTop: 4 }}>DIRECT MESSAGES</div>
                 </>

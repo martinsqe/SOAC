@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
 import s from './StudentClubDetail.module.css';
@@ -101,7 +101,11 @@ export default function StudentClubDetail() {
   const [loading, setLoading] = useState(true);
 
   /* ── Active tab ── */
-  const [tab, setTab] = useState('Overview');
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const [tab, setTab] = useState(() => TABS.some(t => t.key === tabParam) ? tabParam : 'Overview');
+  /* a chat notification links here with ?tab=Chat — follow it even when already on the page */
+  useEffect(() => { if (TABS.some(t => t.key === tabParam)) setTab(tabParam); }, [tabParam, id]);
 
   /* ── Membership (badge only) ── */
   const [isMember, setIsMember] = useState(false);
@@ -218,6 +222,13 @@ export default function StudentClubDetail() {
     const interval = setInterval(poll, 3000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [tab, id, chatLoaded]);
+
+  /* Reading the chat here counts as reading it in Messages too — reset its
+     unread count and its message notifications on the server */
+  useEffect(() => {
+    if (tab !== 'Chat' || !chatLoaded) return;
+    api.post(`/messages/groups/${id}/read`).catch(() => {});
+  }, [tab, id, chatLoaded, messages.length]);
 
   /* Auto-scroll chat to bottom */
   useEffect(() => {
