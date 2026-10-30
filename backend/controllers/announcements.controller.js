@@ -236,6 +236,13 @@ const createSOACAnnouncement = async (req, res, next) => {
     if (!audience.length) return res.status(400).json({ message: 'Choose who should receive this broadcast.' });
     const delivery = DELIVERY_MODES.includes(req.body.delivery) ? req.body.delivery : 'both';
 
+    /* The email exactly as the admin reviewed / edited it on the Broadcast page */
+    const EMAIL_PARTS = { subject: 300, category: 60, heading: 300, greeting: 200, body: 20000, signoff: 1000, buttonLabel: 60 };
+    const rawEmail = req.body.email && typeof req.body.email === 'object' ? req.body.email : {};
+    const email = Object.fromEntries(Object.entries(EMAIL_PARTS)
+      .filter(([k]) => typeof rawEmail[k] === 'string')
+      .map(([k, max]) => [k, rawEmail[k].replace(/\0/g, '').slice(0, max)]));
+
     const { rows } = await pgPool.query(
       `INSERT INTO club_announcements
          (club_id, author_id, author_name, title, body, tag, pinned, audience, delivery)
@@ -293,7 +300,7 @@ const createSOACAnnouncement = async (req, res, next) => {
        email queue. */
     if (delivery !== 'portal') {
       pgPool.query(
-        `SELECT DISTINCT ON (LOWER(u.email)) u.email, u.name
+        `SELECT DISTINCT ON (LOWER(u.email)) u.email, u.name, u.role
          FROM users u
          WHERE u.is_active = true
            AND u.role = ANY($1::text[])
@@ -302,7 +309,10 @@ const createSOACAnnouncement = async (req, res, next) => {
         [audience]
       ).then(({ rows: members }) => {
         for (const m of members) {
-          sendBroadcastEmail({ toEmail: m.email, toName: m.name, title: title.trim(), body: (body || '').trim(), category: safeTag })
+          sendBroadcastEmail({
+            toEmail: m.email, toName: m.name, title: title.trim(), body: (body || '').trim(), category: safeTag, email,
+            buttonPath: m.role === 'student' ? '/student/soac-updates' : '/coordinator/soac',
+          })
             .catch(err => console.error(`[announcements] broadcast email failed for ${m.email}:`, err.message));
         }
       }).catch(() => {});

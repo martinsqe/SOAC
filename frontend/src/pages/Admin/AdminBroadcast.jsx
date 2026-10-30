@@ -135,6 +135,18 @@ function BroadcastsTab({ showToast }) {
   const BLANK = { title:'', body:'', tag:'Announcement', pinned:false, audience:'all', delivery:'both' };
   const [form,    setForm]    = useState(BLANK);
   const [posting, setPosting] = useState(false);
+  /* Email review step: 'compose' → 'review' (only when the broadcast is emailed) */
+  const [step,         setStep]         = useState('compose');
+  const [emailDraft,   setEmailDraft]   = useState(null);
+  const [emailEdited,  setEmailEdited]  = useState(false);
+  const sendsEmail = form.delivery !== 'portal';
+
+  const closeModal = () => { setOpen(false); setStep('compose'); setEmailDraft(null); setEmailEdited(false); };
+  const goReview = () => {
+    if (!emailDraft || !emailEdited) setEmailDraft(defaultEmail(form));
+    setStep('review');
+  };
+  const editEmail = (k, v) => { setEmailDraft(d => ({ ...d, [k]: v })); setEmailEdited(true); };
 
   const load = useCallback(() => {
     setLoading(true);
@@ -154,9 +166,10 @@ function BroadcastsTab({ showToast }) {
         title: form.title.trim(), body: form.body.trim(), tag: form.tag, pinned: form.pinned,
         audience: AUDIENCES.find(a => a.key === form.audience).roles,
         delivery: form.delivery,
+        ...(sendsEmail && emailDraft ? { email: emailDraft } : {}),
       });
       setAnnouncements(p => [announcement, ...p]);
-      setOpen(false);
+      closeModal();
       setForm(BLANK);
       showToast(`Broadcast sent to ${audienceLabel(announcement.audience)} · ${deliveryLabel(announcement.delivery)}`);
     } catch (e) { showToast(e.message || 'Failed to broadcast.'); }
@@ -218,8 +231,27 @@ function BroadcastsTab({ showToast }) {
         </div>
       )}
 
-      {open && (
-        <Modal title="Create Broadcast" onClose={() => setOpen(false)}>
+      {open && step === 'review' && emailDraft && (
+        <Modal title="Review email" onClose={closeModal} wide>
+          <EmailReview
+            draft={emailDraft}
+            onEdit={editEmail}
+            onReset={() => { setEmailDraft(defaultEmail(form)); setEmailEdited(false); }}
+            toLabel={AUDIENCES.find(a => a.key === form.audience)?.label}
+            deliveryLabel={deliveryLabel(form.delivery)}
+          />
+          <div className={s.modalFoot}>
+            <button className={s.btnOutline} onClick={() => setStep('compose')}>← Back</button>
+            <button className={s.btnPrimary} onClick={handlePublish}
+              disabled={posting || !emailDraft.subject.trim()}>
+              {posting ? 'Sending…' : form.delivery === 'email' ? 'Send Email' : 'Publish & Send Email'}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {open && step === 'compose' && (
+        <Modal title="Create Broadcast" onClose={closeModal}>
           <div className={s.field}><label>Title *</label>
             <input value={form.title} onChange={e => setForm(p=>({...p, title:e.target.value}))}
               placeholder="e.g. Annual Tech Fest registrations open" />
@@ -253,11 +285,17 @@ function BroadcastsTab({ showToast }) {
             </div>
           </div>
           <div className={s.modalFoot}>
-            <button className={s.btnOutline} onClick={() => setOpen(false)}>Cancel</button>
-            <button className={s.btnPrimary} onClick={handlePublish}
-              disabled={posting || !form.title.trim()}>
-              {posting ? 'Broadcasting…' : 'Publish Broadcast'}
-            </button>
+            <button className={s.btnOutline} onClick={closeModal}>Cancel</button>
+            {sendsEmail ? (
+              <button className={s.btnPrimary} onClick={goReview} disabled={!form.title.trim()}>
+                Next: Review email →
+              </button>
+            ) : (
+              <button className={s.btnPrimary} onClick={handlePublish}
+                disabled={posting || !form.title.trim()}>
+                {posting ? 'Broadcasting…' : 'Publish Broadcast'}
+              </button>
+            )}
           </div>
         </Modal>
       )}
@@ -699,10 +737,76 @@ function PlannerTab({ showToast }) {
 /* ══════════════════════════════════════════════════════════
    SHARED MODAL
 ══════════════════════════════════════════════════════════ */
-function Modal({ title, onClose, children }) {
+/* ── Broadcast email: the default draft (matches backend sendBroadcastEmail) ── */
+const EMAIL_LOGO = 'https://res.cloudinary.com/dcb9lt8wm/image/upload/v1792046376/soac-email/email-logo.png';
+const DEFAULT_SIGNOFF = 'Regards,\nsoac.notifications@rku.ac.in\nStudents Organizations Advisory Council';
+function defaultEmail(form) {
+  return {
+    subject:     `[${form.tag}] ${form.title.trim()} — SOAC RKU`,
+    category:    form.tag,
+    heading:     form.title.trim(),
+    greeting:    'Hi {name},',
+    body:        form.body.trim(),
+    signoff:     DEFAULT_SIGNOFF,
+    buttonLabel: 'View SOAC Updates',
+  };
+}
+
+/* Textarea that grows with its content, so the draft reads like the email */
+function AutoText({ value, onChange, className, placeholder, minRows = 1 }) {
+  return (
+    <textarea
+      className={className} value={value} placeholder={placeholder} rows={minRows}
+      onChange={e => onChange(e.target.value)}
+      ref={el => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
+    />
+  );
+}
+
+/* The email laid out as recipients will see it — every part is editable in place */
+function EmailReview({ draft, onEdit, onReset, toLabel, deliveryLabel: via }) {
+  const hasButton = draft.buttonLabel !== '';
+  return (
+    <div className={s.er}>
+      <div className={s.erMeta}>
+        <div className={s.erMetaRow}><span>To</span><b>{toLabel}</b><em>· {via}</em></div>
+        <div className={s.erMetaRow}>
+          <span>Subject</span>
+          <input className={s.erSubject} value={draft.subject} onChange={e => onEdit('subject', e.target.value)} placeholder="Email subject" />
+        </div>
+      </div>
+
+      <p className={s.erHint}>
+        Click any part of the email to edit it. <code>{'{name}'}</code> is replaced with each recipient's name.
+        <button type="button" className={s.erReset} onClick={onReset}>Reset to original</button>
+      </p>
+
+      <div className={s.erPaper}>
+        <div className={s.erLogo}><img src={EMAIL_LOGO} alt="SOAC RKU" /></div>
+        <input className={s.erCategory} value={draft.category} onChange={e => onEdit('category', e.target.value)} placeholder="Category (optional)" />
+        <AutoText className={s.erHeading} value={draft.heading} onChange={v => onEdit('heading', v)} placeholder="Heading" />
+        <input className={s.erText} value={draft.greeting} onChange={e => onEdit('greeting', e.target.value)} placeholder="Greeting, e.g. Hi {name}," />
+        <AutoText className={s.erText} value={draft.body} onChange={v => onEdit('body', v)} placeholder="Write the message…" minRows={4} />
+        <AutoText className={`${s.erText} ${s.erSignoff}`} value={draft.signoff} onChange={v => onEdit('signoff', v)} placeholder="Sign-off" minRows={3} />
+        {hasButton ? (
+          <div className={s.erBtnRow}>
+            <input className={s.erButton} value={draft.buttonLabel} onChange={e => onEdit('buttonLabel', e.target.value)}
+              size={Math.max(8, draft.buttonLabel.length)} />
+            <button type="button" className={s.erLink} onClick={() => onEdit('buttonLabel', '')}>Remove button</button>
+          </div>
+        ) : (
+          <button type="button" className={s.erLink} onClick={() => onEdit('buttonLabel', 'View SOAC Updates')}>+ Add button</button>
+        )}
+        <div className={s.erFooter}>SOAC · Student Organizations Advisory Council · RK University</div>
+      </div>
+    </div>
+  );
+}
+
+function Modal({ title, onClose, children, wide = false }) {
   return (
     <div className={s.overlay} onClick={onClose}>
-      <div className={s.modal} onClick={e => e.stopPropagation()}>
+      <div className={`${s.modal} ${wide ? s.modalWide : ''}`} onClick={e => e.stopPropagation()}>
         <div className={s.modalHead}>
           <span className={s.modalTitle}>{title}</span>
           <button className={s.modalClose} onClick={onClose}>✕</button>

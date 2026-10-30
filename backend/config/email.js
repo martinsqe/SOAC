@@ -344,20 +344,34 @@ const categoryLine = (label) =>
 
 /* Admin broadcast → emailed to every club member, category clearly labelled.
    Written to read like a normal typed email: no badges or boxes. */
-const sendBroadcastEmail = async ({ toEmail, toName, title, body, category = 'Announcement' }) => {
+/* `email` = the admin's reviewed / edited version from the Broadcast page
+   (subject, category, heading, greeting, body, signoff, buttonLabel) — any part
+   left out falls back to the default below. "{name}" in the greeting becomes
+   the recipient's name. An empty buttonLabel leaves the button out. */
+const BROADCAST_SIGNOFF = 'Regards,\nsoac.notifications@rku.ac.in\nStudents Organizations Advisory Council';
+const sendBroadcastEmail = async ({ toEmail, toName, title, body, category = 'Announcement', email = {}, buttonPath = '/student/soac-updates' }) => {
+  const pick = (k, dflt) => (typeof email[k] === 'string' ? email[k] : dflt);
+  const subject     = pick('subject',  `[${category}] ${title} — SOAC RKU`).trim() || `${title} — SOAC RKU`;
+  const cat         = pick('category', category).trim();
+  const heading     = pick('heading',  title).trim();
+  const greeting    = pick('greeting', 'Hi {name},').replace(/\{name\}/gi, toName || 'there').trim();
+  const text        = pick('body',     body || '').trim();
+  const signoff     = pick('signoff',  BROADCAST_SIGNOFF).trim();
+  const buttonLabel = pick('buttonLabel', 'View SOAC Updates').trim();
+  const p = 'color:#333;font-size:15px;line-height:1.7;margin:0 0 14px';
   await send({
-    to:      toEmail,
-    subject: `[${category}] ${title} — SOAC RKU`,
+    to: toEmail,
+    subject,
     html: wrap(`
       ${header()}
-      ${categoryLine(category)}
-      <h2 style="color:#1a1040;margin:0 0 18px">${escapeHtml(title)}</h2>
-      <p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">Hi ${escapeHtml(toName || 'there')},</p>
-      ${body ? `<p style="color:#333;font-size:15px;line-height:1.7;margin:0 0 14px">${asParagraphs(body)}</p>` : ''}
-      <p style="color:#333;font-size:15px;line-height:1.7;margin:22px 0 4px">Regards,<br/>soac.notifications@rku.ac.in<br/>Students Organizations Advisory Council</p>
-      <div style="margin:26px 0">
-        <a href="${APP_URL}/student/soac-updates" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">View SOAC Updates</a>
-      </div>
+      ${cat ? categoryLine(cat) : ''}
+      ${heading ? `<h2 style="color:#1a1040;margin:0 0 18px">${escapeHtml(heading)}</h2>` : ''}
+      ${greeting ? `<p style="${p}">${escapeHtml(greeting)}</p>` : ''}
+      ${text ? `<p style="${p}">${asParagraphs(text)}</p>` : ''}
+      ${signoff ? `<p style="color:#333;font-size:15px;line-height:1.7;margin:22px 0 4px">${asParagraphs(signoff)}</p>` : ''}
+      ${buttonLabel ? `<div style="margin:26px 0">
+        <a href="${APP_URL}${buttonPath}" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px">${escapeHtml(buttonLabel)}</a>
+      </div>` : ''}
       ${footer()}
     `),
   });

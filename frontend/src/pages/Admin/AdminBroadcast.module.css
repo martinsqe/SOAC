@@ -906,3 +906,51 @@
   font-size: .7rem; font-weight: 700; color: #4b5563;
   background: #f3f4f6; border-radius: 999px; padding: 3px 10px;
 }
+
+/* ── Broadcast email review (editable, laid out like the real email) ── */
+.modalWide { max-width: 720px; }
+.er { display: flex; flex-direction: column; gap: 12px; margin-bottom: 14px; }
+.erMeta { border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
+.erMetaRow { display: flex; align-items: center; gap: 10px; padding: 9px 12px; font-size: .85rem; color: #111827; }
+.erMetaRow + .erMetaRow { border-top: 1px solid #e5e7eb; }
+.erMetaRow > span { width: 58px; flex-shrink: 0; color: #6b7280; font-weight: 600; }
+.erMetaRow em { font-style: normal; color: #6b7280; }
+.erSubject { flex: 1; min-width: 0; border: none; outline: none; font: inherit; font-weight: 600; color: #111827; background: transparent; padding: 2px 0; }
+.erHint { margin: 0; font-size: .78rem; color: #6b7280; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.erHint code { background: #f3f4f6; border-radius: 4px; padding: 0 4px; }
+.erReset { margin-left: auto; border: none; background: none; color: #D92E1D; font-weight: 700; font-size: .78rem; cursor: pointer; padding: 0; }
+
+.erPaper {
+  border: 1px solid #e5e7eb; border-radius: 10px; background: #fff;
+  padding: 26px 24px; font-family: sans-serif;
+  max-width: 520px; width: 100%; margin: 0 auto; box-sizing: border-box;
+}
+.erLogo { text-align: center; padding: 4px 0 18px; margin-bottom: 22px; border-bottom: 1px solid #eee; }
+.erLogo img { width: 260px; max-width: 100%; height: auto; }
+
+/* Editable parts look like the email text; a dashed outline shows they can be edited */
+.erCategory, .erHeading, .erText, .erButton {
+  display: block; width: 100%; box-sizing: border-box; font-family: inherit;
+  border: 1px dashed transparent; border-radius: 6px; background: transparent;
+  padding: 3px 6px; margin: 0 -6px; resize: none; overflow: hidden; outline: none;
+  transition: border-color .12s, background .12s;
+}
+.erCategory:hover, .erHeading:hover, .erText:hover { border-color: #d1d5db; }
+.erCategory:focus, .erHeading:focus, .erText:focus { border-color: #9ca3af; background: #fafafa; }
+.erCategory { font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #6b7280; margin-bottom: 4px; }
+.erHeading  { font-size: 1.4rem; font-weight: 700; color: #1a1040; line-height: 1.3; margin-bottom: 14px; }
+.erText     { font-size: 15px; line-height: 1.7; color: #333; margin-bottom: 10px; }
+.erSignoff  { margin-top: 14px; }
+.erBtnRow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 22px 0 6px; }
+.erButton {
+  display: inline-block; width: auto; margin: 0; background: #D92E1D; color: #fff; font-weight: 700;
+  font-size: 15px; padding: 11px 24px; border-radius: 8px; border: 1px dashed transparent;
+}
+.erButton:focus { border-color: #fff; box-shadow: 0 0 0 2px #D92E1D; }
+.erLink { border: none; background: none; padding: 0; color: #6b7280; font-size: .8rem; font-weight: 600; cursor: pointer; text-decoration: underline; margin: 10px 0 0; }
+.erFooter { border-top: 1px solid #eee; margin-top: 22px; padding-top: 14px; color: #bbb; font-size: 12px; }
+
+@media (max-width: 560px) {
+  .erPaper { padding: 18px 14px; }
+  .erHeading { font-size: 1.2rem; }
+}
