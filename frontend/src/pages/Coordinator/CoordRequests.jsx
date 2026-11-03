@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
 import { fetchAllPages } from '../../utils/pagination';
 import s from './CoordSubPage.module.css';
+import { DeclineReasonModal, DeclinedByNote } from '../../components/DeclineReason/DeclineReason';
 
 const AVS = [
   'linear-gradient(135deg,#635BFF,#A259FF)',
@@ -104,17 +105,19 @@ export default function CoordRequests() {
     }
   };
 
-  const handleDecline = async (req) => {
+  /* Declining needs a reason — ask for it first, then decline */
+  const [declineFor, setDeclineFor] = useState(null);
+  const handleDecline = (req) => setDeclineFor(req);
+  const confirmDecline = async (reason) => {
+    const req = declineFor;
     setActionId(req._id);
     try {
-      await api.post(`/requests/${req._id}/decline`, {});
+      await api.post(`/requests/${req._id}/decline`, { reason });
       showToast('Request declined.');
+      setDeclineFor(null);
       loadRequests();
-    } catch (err) {
-      showToast(`Error: ${err.message}`);
-    } finally {
-      setActionId(null);
-    }
+    } catch (err) { showToast(`Error: ${err.message}`); }
+    finally { setActionId(null); }
   };
 
   const ownRequests = allRequests.filter(isOwn);
@@ -132,6 +135,10 @@ export default function CoordRequests() {
 
   return (
     <div className={s.page}>
+      {declineFor && (
+        <DeclineReasonModal request={declineFor} busy={actionId === declineFor._id}
+          onCancel={() => setDeclineFor(null)} onConfirm={confirmDecline} />
+      )}
       {toast && (
         <div style={{
           position:'fixed', top:72, right:24, zIndex:9999,
@@ -353,7 +360,7 @@ export default function CoordRequests() {
                         {r.campus}
                       </span>
                     )}
-                    {r.status !== 'approved' && <span className={s.tag} style={{
+                    {r.status === 'pending' && <span className={s.tag} style={{
                       background: r.status === 'approved' ? '#e8f8f0' : r.status === 'declined' ? '#fff0f0' : '#f0f0ff',
                       color:      r.status === 'approved' ? '#15803d' : r.status === 'declined' ? '#b91c1c' : '#635BFF',
                       textTransform: 'capitalize',
@@ -390,6 +397,11 @@ export default function CoordRequests() {
                     >
                       {busy ? '…' : 'Decline'}
                     </button>
+                  </div>
+                )}
+                {r.status === 'declined' && (
+                  <div style={{ marginTop: 10, display: 'flex' }}>
+                    <DeclinedByNote role={r.declinedByRole} reason={r.declineReason} />
                   </div>
                 )}
                 {r.status === 'approved' && (

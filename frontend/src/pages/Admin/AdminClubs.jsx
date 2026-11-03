@@ -6,6 +6,7 @@ import ProposalDetails from './ProposalDetails';
 import LeadershipTeam from '../../components/LeadershipTeam/LeadershipTeam';
 import { formatDate } from './proposalUtils';
 import s from './AdminClubs.module.css';
+import { DeclineReasonModal } from '../../components/DeclineReason/DeclineReason';
 
 const CATS = ['sports', 'cultural', 'social', 'academic'];
 const CAT_LABELS = { sports: 'Sports', cultural: 'Cultural', social: 'Social', academic: 'Academic' };
@@ -477,11 +478,16 @@ export default function AdminClubs() {
     } finally { setActionId(null); }
   };
 
-  const handleDecline = async (reqId) => {
+  /* Declining needs a reason — ask for it first */
+  const [declineFor, setDeclineFor] = useState(null);
+  const handleDecline = (reqId) => setDeclineFor(requests.find(r => r._id === reqId) || null);
+  const confirmDecline = async (reason) => {
+    const reqId = declineFor._id;
     setActionId(reqId);
     try {
-      await api.post(`/requests/${reqId}/decline`, {});
-      setRequests(p => p.map(r => r._id === reqId ? { ...r, status: 'declined' } : r));
+      await api.post(`/requests/${reqId}/decline`, { reason });
+      setRequests(p => p.map(r => r._id === reqId ? { ...r, status: 'declined', declineReason: reason, declinedByRole: 'admin' } : r));
+      setDeclineFor(null);
     } catch (err) {
       alert(err.message);
     } finally { setActionId(null); }
@@ -559,6 +565,10 @@ export default function AdminClubs() {
 
   return (
     <div className={s.page}>
+      {declineFor && (
+        <DeclineReasonModal request={declineFor} busy={actionId === declineFor._id}
+          onCancel={() => setDeclineFor(null)} onConfirm={confirmDecline} />
+      )}
 
       {/* ── Credentials modal ── */}
       {creds && (

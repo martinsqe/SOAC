@@ -6,6 +6,7 @@ import s from '../Coordinator/CoordSubPage.module.css';
 import a from './AdminApprovals.module.css';
 import ev from './AdminEvents.module.css';
 import ReadMore from '../../components/ReadMore/ReadMore';
+import { DeclineReasonModal, DeclinedByNote } from '../../components/DeclineReason/DeclineReason';
 import ProposalDetails from './ProposalDetails';
 import { proposalAccent, formatDate } from './proposalUtils';
 import { useJoinStatus, refreshJoinStatus, formatOpensOn } from '../../utils/joinStatus';
@@ -399,11 +400,16 @@ It will go to the ${to} club team, and ${req.name} will be emailed about the cha
     finally { setActionId(null); }
   };
 
-  const handleDecline = async (req) => {
+  /* Declining needs a reason — ask for it first, then decline */
+  const [declineFor, setDeclineFor] = useState(null);
+  const handleDecline = (req) => setDeclineFor(req);
+  const confirmDecline = async (reason) => {
+    const req = declineFor;
     setActionId(req._id);
     try {
-      await api.post(`/requests/${req._id}/decline`, {});
+      await api.post(`/requests/${req._id}/decline`, { reason });
       showToast('Request declined.');
+      setDeclineFor(null);
       loadRequests();
       approvalsChanged();
     } catch (err) { showToast(`Error: ${err.message}`); }
@@ -446,6 +452,10 @@ It will go to the ${to} club team, and ${req.name} will be emailed about the cha
 
   return (
     <>
+      {declineFor && (
+        <DeclineReasonModal request={declineFor} busy={actionId === declineFor._id}
+          onCancel={() => setDeclineFor(null)} onConfirm={confirmDecline} />
+      )}
       {toast && (
         <div style={{ position:'fixed', top:72, right:24, zIndex:9999,
           background:'#1a1040', color:'#fff', padding:'12px 20px',
@@ -621,7 +631,7 @@ It will go to the ${to} club team, and ${req.name} will be emailed about the cha
                 </div>
                 <div style={{ textAlign:'right', flexShrink:0 }}>
                   <div className={s.tag} style={{ background:'#f0fdf4', color:'#16a34a' }}>{timeAgo(r.createdAt)}</div>
-                  {r.status !== 'approved' && (
+                  {r.status === 'pending' && (
                     <div style={{ fontSize:11, fontWeight:700, color: statusColor(r.status), textTransform:'capitalize' }}>{r.status}</div>
                   )}
                 </div>
@@ -660,6 +670,11 @@ It will go to the ${to} club team, and ${req.name} will be emailed about the cha
                       color:'#ef4444', fontWeight:700, cursor:'pointer' }}>
                     {actionId === r._id ? '…' : 'Decline'}
                   </button>
+                </div>
+              )}
+              {r.status === 'declined' && (
+                <div style={{ marginTop: 12, display: 'flex' }}>
+                  <DeclinedByNote role={r.declinedByRole} reason={r.declineReason} />
                 </div>
               )}
               {r.status === 'approved' && (

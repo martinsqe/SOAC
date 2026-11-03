@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useCoordClub } from '../../context/CoordClubContext';
 import api from '../../api/client';
 import s from './CoordDashboard.module.css';
+import { DeclineReasonModal } from '../../components/DeclineReason/DeclineReason';
 
 /* Long description cut to `limit` characters with an inline "…read more"
    that expands the full text in place (and "show less" to collapse it). */
@@ -164,17 +165,26 @@ export default function CoordDashboard() {
     } catch (_) {} finally { setActionId(null); }
   };
 
-  const handleDecline = async (req) => {
+  /* Declining needs a reason — ask for it first */
+  const [declineFor, setDeclineFor] = useState(null);
+  const handleDecline = (req) => setDeclineFor(req);
+  const confirmDecline = async (reason) => {
+    const req = declineFor;
     setActionId(req._id);
     try {
-      await api.post(`/requests/${req._id}/decline`, {});
+      await api.post(`/requests/${req._id}/decline`, { reason });
       setRequests(p => p.filter(r => r._id !== req._id));
       setRequestsTotal(t => Math.max(0, t - 1));
-    } catch (_) {} finally { setActionId(null); }
+      setDeclineFor(null);
+    } catch (err) { alert(err.message); } finally { setActionId(null); }
   };
 
   return (
     <div className={s.page}>
+      {declineFor && (
+        <DeclineReasonModal request={declineFor} busy={actionId === declineFor._id}
+          onCancel={() => setDeclineFor(null)} onConfirm={confirmDecline} />
+      )}
       {/* Login details for an approved student, so they can be shared directly */}
       {creds && (
         <div style={{ position:'fixed', inset:0, zIndex:10000,

@@ -20,7 +20,7 @@ const RKU_EMAIL_RE = /^[a-z0-9._%+-]+@rku\.ac\.in$/;
 const JR_COLS = [
   'id', 'club_id', 'club_name', 'name', 'email',
   'phone', 'enrollment_no', 'dept', 'year', 'gender', 'campus',
-  'message', 'status', 'approved_by_role', 'created_at', 'updated_at',
+  'message', 'status', 'approved_by_role', 'declined_by_role', 'decline_reason', 'created_at', 'updated_at',
 ].join(', ');
 
 (async () => {
@@ -28,6 +28,8 @@ const JR_COLS = [
     await pgPool.query(`ALTER TABLE join_requests ADD COLUMN IF NOT EXISTS gender CHAR(1) DEFAULT NULL`);
     /* Who accepted the request — admin / faculty_coordinator / coordinator — and their user id */
     await pgPool.query(`ALTER TABLE join_requests ADD COLUMN IF NOT EXISTS approved_by_role VARCHAR(30) DEFAULT NULL, ADD COLUMN IF NOT EXISTS approved_by INT DEFAULT NULL`);
+    /* Who declined it, and the reason they had to give */
+    await pgPool.query(`ALTER TABLE join_requests ADD COLUMN IF NOT EXISTS declined_by_role VARCHAR(30) DEFAULT NULL, ADD COLUMN IF NOT EXISTS declined_by INT DEFAULT NULL, ADD COLUMN IF NOT EXISTS decline_reason TEXT DEFAULT NULL`);
     await ensureJoinWindowSchema();
     console.log('[requests] migrations ready');
   } catch (err) {
@@ -99,6 +101,8 @@ const toJR = (r) => ({
   clubName:     r.club_name,
   enrollmentNo: r.enrollment_no,
   approvedByRole: r.approved_by_role || null,
+  declinedByRole: r.declined_by_role || null,
+  declineReason:  r.decline_reason || null,
   createdAt:    r.created_at,
   updatedAt:    r.updated_at,
 });
@@ -1032,6 +1036,10 @@ const changeCampus = async (req, res, next) => {
 
 const decline = async (req, res, next) => {
   try {
+    /* A reason is required — shown on the request card as "Declined by: … / Reason" */
+    const reason = String(req.body?.reason || '').replace(/\0/g, '').trim().slice(0, 500);
+    if (reason.length < 3) return res.status(400).json({ message: 'Please give a reason for declining this request.' });
+
     const { rows } = await pgPool.query(
       `SELECT id, status, club_id, club_name, email FROM join_requests WHERE id = $1`,
       [req.params.id]
@@ -1046,8 +1054,10 @@ const decline = async (req, res, next) => {
     }
 
     await pgPool.query(
-      `UPDATE join_requests SET status = 'declined', updated_at = NOW() WHERE id = $1`,
-      [req.params.id]
+      `UPDATE join_requests
+       SET status = 'declined', declined_by_role = $2, declined_by = $3, decline_reason = $4, updated_at = NOW()
+       WHERE id = $1`,
+      [req.params.id, req.user?.role || null, req.user?.id || null, reason]
     );
     await Promise.all([
       cache.del('stats:admin', 'stats:admin:city'),
