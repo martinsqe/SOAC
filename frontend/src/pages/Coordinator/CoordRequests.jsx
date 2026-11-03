@@ -17,6 +17,10 @@ function initials(name = '') {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
+/* Who accepted a join request, as shown on approved cards */
+const APPROVER_SHORT = { admin: 'Admin', faculty_coordinator: 'FA', coordinator: 'SC' };
+const approvedByText = (role) => APPROVER_SHORT[role] ? 'Approved by: ' + APPROVER_SHORT[role] : 'Approved';
+
 function timeAgo(dateStr) {
   const diff = Date.now() - new Date(dateStr).getTime();
   const m = Math.floor(diff / 60000);
@@ -349,13 +353,13 @@ export default function CoordRequests() {
                         {r.campus}
                       </span>
                     )}
-                    <span className={s.tag} style={{
+                    {r.status !== 'approved' && <span className={s.tag} style={{
                       background: r.status === 'approved' ? '#e8f8f0' : r.status === 'declined' ? '#fff0f0' : '#f0f0ff',
                       color:      r.status === 'approved' ? '#15803d' : r.status === 'declined' ? '#b91c1c' : '#635BFF',
                       textTransform: 'capitalize',
                     }}>
                       {r.status}
-                    </span>
+                    </span>}
                   </div>
                 </div>
 
@@ -388,9 +392,10 @@ export default function CoordRequests() {
                     </button>
                   </div>
                 )}
-                {r.status === 'approved' && isOwn(r) && (
+                {r.status === 'approved' && (
                   <div style={{ marginTop: 10 }}>
-                    <button
+                    <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                    {isOwn(r) && <button
                       onClick={() => handleResend(r)}
                       disabled={resendId === r._id}
                       style={{
@@ -400,7 +405,9 @@ export default function CoordRequests() {
                       }}
                     >
                       {resendId === r._id ? 'Sending…' : 'Resend Login Email'}
-                    </button>
+                    </button>}
+                    <span style={{ marginLeft:'auto', fontSize:12, fontWeight:700, color:'#16a34a', whiteSpace:'nowrap' }}>{approvedByText(r.approvedByRole)}</span>
+                    </div>
                     {resendMsg[r._id] && (
                       <div style={{
                         marginTop: 6, fontSize: 11,

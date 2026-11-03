@@ -20,12 +20,14 @@ const RKU_EMAIL_RE = /^[a-z0-9._%+-]+@rku\.ac\.in$/;
 const JR_COLS = [
   'id', 'club_id', 'club_name', 'name', 'email',
   'phone', 'enrollment_no', 'dept', 'year', 'gender', 'campus',
-  'message', 'status', 'created_at', 'updated_at',
+  'message', 'status', 'approved_by_role', 'created_at', 'updated_at',
 ].join(', ');
 
 (async () => {
   try {
     await pgPool.query(`ALTER TABLE join_requests ADD COLUMN IF NOT EXISTS gender CHAR(1) DEFAULT NULL`);
+    /* Who accepted the request — admin / faculty_coordinator / coordinator — and their user id */
+    await pgPool.query(`ALTER TABLE join_requests ADD COLUMN IF NOT EXISTS approved_by_role VARCHAR(30) DEFAULT NULL, ADD COLUMN IF NOT EXISTS approved_by INT DEFAULT NULL`);
     await ensureJoinWindowSchema();
     console.log('[requests] migrations ready');
   } catch (err) {
@@ -96,6 +98,7 @@ const toJR = (r) => ({
   clubId:       String(r.club_id),
   clubName:     r.club_name,
   enrollmentNo: r.enrollment_no,
+  approvedByRole: r.approved_by_role || null,
   createdAt:    r.created_at,
   updatedAt:    r.updated_at,
 });
@@ -719,8 +722,8 @@ const approveOne = async (id, user) => {
       [jr.club_id]
     );
     await pgClient.query(
-      `UPDATE join_requests SET status = 'approved', updated_at = NOW() WHERE id = $1`,
-      [id]
+      `UPDATE join_requests SET status = 'approved', approved_by_role = $2, approved_by = $3, updated_at = NOW() WHERE id = $1`,
+      [id, user?.role || null, user?.id || null]
     );
     await pgClient.query('COMMIT');
     await resetActivityReportLimit([jr.email]);

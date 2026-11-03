@@ -22,6 +22,10 @@ const AVS = [
 function initials(name = '') {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
+/* Who accepted a join request, as shown on approved cards */
+const APPROVER_SHORT = { admin: 'Admin', faculty_coordinator: 'FA', coordinator: 'SC' };
+const approvedByText = (role) => APPROVER_SHORT[role] ? 'Approved by: ' + APPROVER_SHORT[role] : 'Approved';
+
 function timeAgo(dateStr) {
   const diff = Date.now() - new Date(dateStr).getTime();
   const m = Math.floor(diff / 60000);
@@ -617,7 +621,9 @@ It will go to the ${to} club team, and ${req.name} will be emailed about the cha
                 </div>
                 <div style={{ textAlign:'right', flexShrink:0 }}>
                   <div className={s.tag} style={{ background:'#f0fdf4', color:'#16a34a' }}>{timeAgo(r.createdAt)}</div>
-                  <div style={{ fontSize:11, fontWeight:700, color: statusColor(r.status), textTransform:'capitalize' }}>{r.status}</div>
+                  {r.status !== 'approved' && (
+                    <div style={{ fontSize:11, fontWeight:700, color: statusColor(r.status), textTransform:'capitalize' }}>{r.status}</div>
+                  )}
                 </div>
               </div>
               {r.message && (
@@ -658,6 +664,7 @@ It will go to the ${to} club team, and ${req.name} will be emailed about the cha
               )}
               {r.status === 'approved' && (
                 <div style={{ marginTop: 12 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
                   <button
                     onClick={() => handleResend(r)}
                     disabled={resendId === r._id}
@@ -669,6 +676,8 @@ It will go to the ${to} club team, and ${req.name} will be emailed about the cha
                   >
                     {resendId === r._id ? 'Sending…' : 'Resend Login Email'}
                   </button>
+                  <span style={{ marginLeft:'auto', fontSize:12, fontWeight:700, color:'#16a34a', whiteSpace:'nowrap' }}>{approvedByText(r.approvedByRole)}</span>
+                  </div>
                   {resendMsg[r._id] && (
                     <div style={{
                       marginTop: 5, fontSize: 11,
