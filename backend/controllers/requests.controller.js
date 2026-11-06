@@ -6,6 +6,7 @@ const { clubStaff, emailEach } = require('../services/mailRecipients');
 const { ensureSoacTables } = require('../services/soacData');
 const { getCoordClubIds, assertCoordOwnsClub, getClubCoordinatorIds } = require('../services/coordAuth');
 const { notifyUser, notifyManyUsers } = require('../services/notify');
+const { verifyRkuGoogleToken } = require('../services/googleIdentity');
 const cache = require('../services/cache');
 const { CAMPUSES, adminCampus, clubOnCampus } = require('../services/campus');
 const { findStaffAccount, unusablePasswordHash, loginProfileFor } = require('../services/accounts');
@@ -380,6 +381,20 @@ const create = async (req, res, next) => {
 
     const club = await clubOnCampus(form.listedClubId, campus);
     if (!club) return res.status(404).json({ message: 'Club not found.' });
+
+    /* Signed in with Google in the Join modal — the token proves they own this
+       @rku.ac.in address, so the request goes straight to the club */
+    if (req.body.googleIdToken) {
+      let google;
+      try { google = await verifyRkuGoogleToken(req.body.googleIdToken); }
+      catch (e) { return res.status(401).json({ message: e.message }); }
+      if (google.email !== emailLc) {
+        return res.status(400).json({ message: 'The email must be the Google account you signed in with.' });
+      }
+      const result = await submitJoinRequest(form);
+      if (result.blocked) return res.status(result.blocked.status).json({ message: result.blocked.message });
+      return res.status(201).json({ request: toJR(result.created) });
+    }
 
     /* Logged in as the owner of this address — no need to prove it again */
     if (String(req.user?.email || '').toLowerCase() === emailLc) {
