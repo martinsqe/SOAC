@@ -1,58 +1,74 @@
-/* Galore portal — its own look, independent of the SOAC navbar and layouts.
-   The "galore bg" pieces (.dashboard / .dashBody) are behind both the login
-   page and the dashboards. */
+/* Galore portal — its own look, independent of the SOAC navbar and layouts:
+   plain white pages with the Galore letterhead (components/GaloreLetterhead —
+   logos, grey nav strip, deadline) and no background art. */
 .page {
   min-height: 100vh;
-  background: linear-gradient(180deg, #fff 0%, #fef2f2 100%);
+  background: #fff;
   color: #111827;
   font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
 }
-/* The "galore bg" letterhead, cut into pieces (public/galore/*.webp, made from
-   "galore bg.jpg") so it fits every screen: the colour arcs in the top-left
-   corner, grey arcs in the other corners, and the RK University + Galore logos
-   as an image above the greeting. Each piece scales with the screen width
-   between a phone-size minimum and a large-monitor maximum. */
-.dashboard { display: flex; flex-direction: column; background: #fff; }
-/* Dashboard top bar: white, just the person's name + Log out, right-aligned on
-   one line on every screen (a long name is shortened with "…") */
-.dashboard .topbar {
-  background: #fff; backdrop-filter: none; color: #111827;
-  justify-content: flex-end; flex-wrap: nowrap;
-  border-bottom: 1px solid #f3f4f6; box-shadow: 0 1px 8px rgba(17, 24, 39, .04);
-}
-.dashboard .topRight { flex-wrap: nowrap; min-width: 0; justify-content: flex-end; }
 .userName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; color: #1a1040; }
-.dashboard .topbar .ghostBtn { flex-shrink: 0; white-space: nowrap; border-color: #dc2626; color: #dc2626; background: #fff; }
-.dashboard .topbar .ghostBtn:hover { background: #fef2f2; }
-.dashBody {
-  flex: 1;
-  background-image:
-    url('/galore/arcs-tl.webp'), url('/galore/arcs-tr.webp'),
-    url('/galore/arcs-bl.webp'), url('/galore/arcs-br.webp');
-  background-repeat: no-repeat;
-  background-position: left top, right top, left bottom, right bottom;
-  background-size:
-    clamp(120px, 24vw, 400px) auto, clamp(80px, 14vw, 240px) auto,
-    clamp(110px, 17vw, 280px) auto, clamp(110px, 17vw, 280px) auto;
-}
-.dashboard .wrap { padding-top: clamp(28px, 11vw, 60px); padding-bottom: clamp(90px, 14vw, 200px); }
-.dashLogos { display: block; width: clamp(220px, 40vw, 520px); height: auto; margin: 0 auto clamp(20px, 3vw, 36px); }
-.dashboard .hero h1 { color: #1a1040; }
-.dashboard .hero p { color: #4b5563; }
-.dashboard .tab { background: #fff; color: #b91c1c; border: 1.5px solid #fecaca; }
-.dashboard .tabOn { background: #dc2626; color: #fff; border-color: #dc2626; }
-.dashboard .card { border: 1px solid #f3f4f6; box-shadow: 0 10px 30px rgba(17, 24, 39, .08); }
-.dashboard .wrap .ghostBtn { border-color: #fecaca; color: #b91c1c; background: #fff; }
 
-.topbar {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
-  padding: 14px 24px; color: #fff;
-  background: rgba(0, 0, 0, .25); backdrop-filter: blur(6px);
-  border-bottom: 1px solid rgba(255, 255, 255, .12);
+/* ── Portal dashboards (every role) ── */
+.portalPage {
+  min-height: 100vh; min-height: 100dvh;
+  display: flex; flex-direction: column;
+  background: #fff; color: #111827;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
 }
-.brand { font-weight: 800; letter-spacing: .12em; font-size: 1rem; }
-.brand span { color: #f87171; }
-.topRight { display: flex; align-items: center; gap: 12px; font-size: .85rem; flex-wrap: wrap; }
+/* Bottom corners over the white: Change password on the left, name + Log out
+   on the right (pushed to the bottom of the screen on short pages). The buttons never shrink; a long name is cut short with "…". */
+.portalBar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 24px 18px; font-size: .85rem; min-width: 0;
+  border-top: 1px solid #f3f4f6;
+}
+.portalBarSide { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.portalBarRight { justify-content: flex-end; flex: 1 1 auto; }
+.portalBar .backBtn { flex-shrink: 0; cursor: pointer; font-family: inherit; white-space: nowrap; }
+.portalWrap { flex: 1 0 auto; width: 100%; max-width: 1120px; margin: 0 auto; padding: clamp(14px, 3vw, 28px) 16px 32px; box-sizing: border-box; }
+/* Switch dashboard — just the dashboard's name and an arrow on the white
+   (only for an email with more than one Galore role); a small menu drops down */
+.roleSwitch { position: relative; display: flex; justify-content: flex-end; margin: -4px 0 14px; }
+.roleWord {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: none; background: none; padding: 4px 2px; cursor: pointer;
+  font: inherit; font-size: .95rem; font-weight: 800; color: #111827;
+}
+.roleWord:hover { color: #b91c1c; }
+.roleWord:focus-visible { outline: 2px solid #dc2626; outline-offset: 2px; border-radius: 4px; }
+.roleArrow { width: 12px; height: 12px; transition: transform .15s; }
+.roleArrowUp { transform: rotate(180deg); }
+.roleMenu {
+  position: absolute; top: 100%; right: 0; z-index: 30; margin-top: 4px;
+  min-width: 220px; max-width: calc(100vw - 32px);
+  background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(17, 24, 39, .12); padding: 6px;
+  display: flex; flex-direction: column;
+}
+.roleItem {
+  border: none; background: none; text-align: left; cursor: pointer; white-space: nowrap;
+  font: inherit; font-size: .88rem; font-weight: 500; color: #374151;
+  padding: 9px 12px; border-radius: 8px;
+}
+.roleItem:hover { background: #f9fafb; color: #111827; }
+.roleItemOn { font-weight: 800; color: #000; }
+.portalPage .card { border: 1px solid #ececec; box-shadow: none; }
+/* Every strip page's headings and title are centred; buttons that sat beside a
+   title go on their own centred row under it */
+.portalPage .eventHead { flex-direction: column; align-items: center; text-align: center; }
+.portalPage .cardTitle, .portalPage .sectionLabel { text-align: center; }
+.pageGap { height: 16px; }
+@media (max-width: 560px) {
+  .portalBar { padding: 12px 16px 14px; gap: 8px; }
+  .portalBarSide { gap: 8px; }
+  .portalBar .backBtn { padding: 7px 11px; font-size: .78rem; }
+  .portalWrap { padding: 12px 12px 24px; }
+}
+/* Narrowest phones: drop the name so both buttons keep room (it's still the
+   email shown on hover / in the dashboards) */
+@media (max-width: 380px) { .portalBar .userName { display: none; } }
+
 .ghostBtn {
   border: 1.5px solid rgba(255, 255, 255, .5); background: transparent; color: #fff;
   border-radius: 8px; padding: 7px 14px; font-weight: 600; cursor: pointer; font-family: inherit; font-size: .82rem;
@@ -105,9 +121,46 @@
   font-weight: 600; font-size: .82rem; text-decoration: none; white-space: nowrap;
 }
 .backBtn:hover { background: #fef2f2; }
-.dashboard .loginWrap { padding-top: clamp(8px, 4vw, 24px); }
-.loginWrap .loginBox { margin-top: 0; }
 @media (max-width: 560px) { .loginBar { padding: 12px 16px 0; } }
+
+/* Login page: plain white, no background art — the four Galore logos, then
+   the login card, centred on the screen together. */
+/* Exactly one screen tall and never scrolls: the logo row shrinks with the
+   screen's height as well as its width, so logos + card always fit. */
+.loginPage {
+  position: relative;
+  background: #fff;
+  height: 100vh; height: 100dvh;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.loginMain {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: clamp(14px, 3.5vh, 40px);
+  width: 100%; max-width: 760px; margin: 0 auto;
+  /* bottom room for the "Back to events" button in the corner */
+  padding: clamp(10px, 3vh, 28px) 16px clamp(64px, 9vh, 84px);
+  box-sizing: border-box;
+}
+/* the row is ~0.184× as tall as it is wide; leave ~500px of height for the
+   card, the gaps and the button */
+.loginMain .loginLogos { margin: 0 auto; width: min(100%, max(200px, calc((100dvh - 500px) * 5.4))); }
+.loginMain .loginBox { width: 100%; margin: 0; box-sizing: border-box; }
+.loginBack { position: absolute; right: 24px; bottom: 20px; }
+@media (max-width: 560px) { .loginBack { right: 16px; bottom: 16px; } }
+/* Very short screens (a phone turned sideways): tighten the card so it still fits */
+@media (max-height: 600px) {
+  .loginMain .loginBox { padding: 14px 18px; }
+  .loginMain .loginBox p { margin-bottom: 10px !important; }
+  .loginMain .loginBox .field { margin-bottom: 8px; }
+  .loginMain .loginBox .field input { padding: 8px 12px; }
+}
+/* Too short for everything even then: allow scrolling rather than cut the form off */
+@media (max-height: 460px) {
+  .loginPage { height: auto; min-height: 100dvh; overflow: visible; }
+  .loginBack { position: static; align-self: flex-end; margin: 0 16px 16px; }
+}
 .linkBtn { border: none; background: none; color: #dc2626; cursor: pointer; font-weight: 600; font-family: inherit; font-size: .85rem; padding: 0; }
 
 /* Activities */
@@ -136,7 +189,6 @@
 .empty { text-align: center; padding: 40px 16px; color: #6b7280; }
 
 @media (max-width: 560px) {
-  .topbar { padding: 12px 16px; }
   .card { padding: 16px; }
 }
 
@@ -162,10 +214,17 @@
 .sectionTab:hover { color: #b91c1c; }
 .sectionTabOn { color: #b91c1c; border-bottom-color: #dc2626; }
 
-.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 6px; }
-.stat { border: 1.5px solid #f3f4f6; border-radius: 12px; padding: 14px 12px; background: #fff; }
-.statValue { font-size: 1.55rem; font-weight: 800; color: #1a1040; line-height: 1.1; }
+.stats { display: grid; grid-template-columns: repeat(var(--stat-cols, 4), minmax(0, 1fr)); gap: 12px; margin-bottom: 6px; }
+.stat { min-width: 0; border: 1.5px solid #f3f4f6; border-radius: 12px; padding: 14px 12px; background: #fff; text-align: center; }
+.statValue { font-size: 1.55rem; font-weight: 800; color: #1a1040; line-height: 1.1; overflow-wrap: anywhere; }
 .statLabel { font-size: .76rem; color: #6b7280; font-weight: 600; margin-top: 4px; }
+/* phones: still one row — tighter tiles, smaller text */
+@media (max-width: 600px) {
+  .stats { gap: 6px; }
+  .stat { padding: 10px 4px; border-radius: 10px; }
+  .statValue { font-size: 1.15rem; }
+  .statLabel { font-size: .64rem; line-height: 1.25; overflow-wrap: anywhere; }
+}
 
 .notice { border-radius: 10px; padding: 10px 14px; font-size: .86rem; margin: 0 0 14px; line-height: 1.5; }
 .noticeWarn { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
@@ -184,3 +243,35 @@
 .resultYes { border-color: #bbf7d0; background: #f0fdf4; }
 .resultNo { border-color: #fecaca; background: #fef2f2; color: #991b1b; font-weight: 600; }
 .resultTitle { font-weight: 800; color: #1a1040; margin: 0 0 6px; }
+
+/* ── Main coordinator: "Manage event" cards ── */
+.manageGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 14px; }
+.manageCard {
+  justify-content: center; min-height: 92px;
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px;
+  border: 1.5px solid #f3f4f6; border-radius: 14px; background: #fff; padding: 18px 14px;
+  font: inherit; color: #111827; cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s;
+}
+.manageCard:hover, .manageCard:focus-visible { border-color: #fecaca; box-shadow: 0 6px 18px rgba(220, 38, 38, .08); transform: translateY(-1px); outline: none; }
+.manageTitle { font-size: .95rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #dc2626; }
+.manageBack { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-bottom: 14px; text-align: center; }
+
+/* ── Main coordinator: Departments page ── */
+.deptBar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.deptTabs {
+  display: flex; flex-wrap: nowrap; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 16px;
+  scrollbar-width: thin; -webkit-overflow-scrolling: touch;
+}
+/* plain words on the white, spread evenly across the row; the picked one bold red */
+.deptTab {
+  flex: 1 0 auto; white-space: nowrap; border: none; background: none; color: #4b5563;
+  padding: 8px 12px; font: inherit; font-size: .9rem; font-weight: 500; cursor: pointer; text-align: center;
+}
+.deptTab:hover { color: #b91c1c; }
+.deptTab:focus-visible { outline: 2px solid #fecaca; outline-offset: 2px; border-radius: 6px; }
+.deptTabOn, .deptTabOn:hover { color: #dc2626; font-weight: 800; }
+.deptActHead {
+  margin: 0 0 8px; font-size: 1.05rem; display: flex; align-items: center; justify-content: center;
+  gap: 8px; flex-wrap: wrap; text-align: center; color: #1a1040;
+}
+.deptActHead .muted { font-size: .75rem; font-weight: 500; }

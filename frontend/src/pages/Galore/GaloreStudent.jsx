@@ -3,16 +3,15 @@ import { galoreApi } from '../../utils/galoreApi';
 import {
   EventHeader, Notice, Table, InfoRow, Person, TBA, FileLink, FixtureList,
 } from './GaloreUI';
-import { useSections, whenOf, typeLabel, findClashes } from './galoreHelpers';
+import { whenOf, typeLabel, findClashes } from './galoreHelpers';
 import s from './Galore.module.css';
 
 /* Student — one Galore event: only the activities they registered for, and
    everything about them.
      Timetable      their activities by date, with any clash flagged
      My activities  each one's details, who's in charge, guidelines, team, fixtures */
-export default function GaloreStudent({ data }) {
+export default function GaloreStudent({ data, section = 'timetable' }) {
   const { event, activities, department } = data;
-  const [section, tabs] = useSections([['timetable', 'Timetable'], ['activities', `My activities (${activities.length})`]]);
   const timetable = [...activities].sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || a.time.localeCompare(b.time));
   const clashes = findClashes(activities);
 
@@ -20,7 +19,7 @@ export default function GaloreStudent({ data }) {
     <div className={s.card}>
       <EventHeader role="Student" event={event} sub={department ? `Your department: ${department}` : ''}
         description={event.description} actions={<FileLink file={event.rules} label="General guidelines" />} />
-      {tabs}
+      <div className={s.pageGap} />
 
       {section === 'timetable' && (
         <>

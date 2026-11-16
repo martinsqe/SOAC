@@ -321,7 +321,7 @@ export default function CoordEvents() {
     setLoading(true);
     Promise.all([
       api.get('/event-requests/mine').catch(() => ({ requests: [] })),
-      club ? api.get(`/events?clubId=${club.id}`).catch(() => ({ events: [] })) : Promise.resolve({ events: [] }),
+      club ? api.get(`/events?clubId=${club.id}&limit=200`).catch(() => ({ events: [] })) : Promise.resolve({ events: [] }),
       /* Galore activities assigned directly to this coordinator (event_coordinators)
          — independent of club, so they show up here even for a coordinator with no
          club at all, or one whose Galore activity sits outside their own club. */

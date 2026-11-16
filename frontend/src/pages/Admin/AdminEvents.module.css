@@ -975,3 +975,16 @@
   .searchWrap { max-width: 100%; }
   .grid { grid-template-columns: 1fr; }
 }
+
+/* ── Galore letterhead: the Create / Edit Event form sits on a white card
+   on the letterhead's white content area ── */
+.galoreSheet {
+  background: #fff;
+  border: 1px solid #ececec;
+  border-radius: 12px;
+  padding: clamp(14px, 2.4vw, 22px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}

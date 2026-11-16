@@ -65,6 +65,40 @@ async function ensureAccount(email, name) {
   return rows.length ? { created: true, tempPassword: pwd } : { created: false };
 }
 
+/* A Galore event was deleted: remove the portal logins of everyone it involved
+   (overall coordinator, department and activity coordinators, registered
+   students), so creating Galore again emails each of them a fresh temporary
+   password. Someone still part of another live Galore event (the other campus)
+   keeps their login. Removing the account also ends any open session — their
+   token no longer matches an account. Returns how many logins were removed. */
+async function resetEventAccounts(umbrellaId) {
+  await ready;
+  const { rows } = await pgPool.query(
+    `WITH people AS (
+       SELECT LOWER(email) AS email FROM galore_heads WHERE event_id = $1
+       UNION SELECT LOWER(coord_email) FROM galore_departments WHERE event_id = $1
+       UNION SELECT LOWER(galore_coord_email) FROM events WHERE parent_event_id = $1
+       UNION SELECT LOWER(er.email) FROM event_registrations er JOIN events a ON a.id = er.event_id WHERE a.parent_event_id = $1
+     ),
+     live AS (                                   -- still in another active Galore event
+       SELECT LOWER(h.email) AS email FROM galore_heads h JOIN events u ON u.id = h.event_id
+         WHERE u.is_active = true AND u.id <> $1
+       UNION SELECT LOWER(d.coord_email) FROM galore_departments d JOIN events u ON u.id = d.event_id
+         WHERE u.is_active = true AND u.id <> $1
+       UNION SELECT LOWER(a.galore_coord_email) FROM events a JOIN events u ON u.id = a.parent_event_id
+         WHERE a.is_active = true AND u.is_active = true AND u.id <> $1
+       UNION SELECT LOWER(er.email) FROM event_registrations er JOIN events a ON a.id = er.event_id JOIN events u ON u.id = a.parent_event_id
+         WHERE a.is_active = true AND u.is_active = true AND u.id <> $1 AND u.event_format = 'galore'
+     )
+     DELETE FROM galore_accounts g
+      WHERE LOWER(g.email) IN (SELECT email FROM people WHERE email <> '')
+        AND LOWER(g.email) NOT IN (SELECT email FROM live WHERE email IS NOT NULL)
+      RETURNING g.email`,
+    [umbrellaId]
+  );
+  return rows.length;
+}
+
 /* Forgot password, step 1: who it's for. An existing account — or, for someone
    who should have one but doesn't yet (registered / assigned before the portal
    existed), their name so an account can be made. null = not a Galore person. */
@@ -345,7 +379,7 @@ async function assertHead(email, umbrellaId) {
 /* The umbrella event's own details, as the head edits them */
 async function headEventDetails(umbrellaId) {
   const { rows: [e] } = await pgPool.query(
-    `SELECT id, title, date, start_date, time, venue, description, seats, highlight, status, campus,
+    `SELECT id, title, date, start_date, time, venue, description, seats, highlight, status, campus, galore_published,
             (SELECT COUNT(*)::int FROM event_registrations er JOIN events a ON a.id = er.event_id
               WHERE a.parent_event_id = u.id AND a.is_active = true AND er.email NOT ILIKE '%@roster.internal') AS registration_count,
             (SELECT COUNT(DISTINCT LOWER(er.email))::int FROM event_registrations er JOIN events a ON a.id = er.event_id
@@ -356,7 +390,7 @@ async function headEventDetails(umbrellaId) {
   return {
     id: String(e.id), title: e.title, date: e.date || '', startDate: e.start_date ? isoDay(e.start_date) : '',
     time: e.time || '', venue: e.venue || '', description: e.description || '', seats: e.seats || '',
-    highlight: e.highlight || '', status: e.status, campus: e.campus,
+    highlight: e.highlight || '', status: e.status, campus: e.campus, published: e.galore_published !== false,
     registrationCount: e.registration_count, studentCount: e.student_count,
   };
 }
@@ -385,7 +419,7 @@ async function allRegistrations(umbrellaId) {
 }
 
 module.exports = {
-  ready, PortalError, ensureAccount, resetPassword, forgotTarget, setTempPassword, tempPassword, login, changePassword, requireGalore,
+  ready, PortalError, ensureAccount, resetEventAccounts, resetPassword, forgotTarget, setTempPassword, tempPassword, login, changePassword, requireGalore,
   studentView, staffView, staffScope, staffRegistrations, activityTeams, isoDay,
   headView, assertHead, headEventDetails, allRegistrations,
 };

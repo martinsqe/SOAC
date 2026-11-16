@@ -17,6 +17,7 @@ const EVENT_HERO_SLIDES = [
 import { useAuth } from '../../context/AuthContext';
 import { useStats } from '../../context/StatsContext';
 import api from '../../api/client';
+import { GaloreLogos } from '../../components/GaloreLetterhead/GaloreLetterhead';
 
 /* Long description cut to `limit` characters with an inline "…read more"
    that expands the full text in place (and "show less" to collapse it). */
@@ -1276,6 +1277,7 @@ const Events = () => {
         <div className={`${styles.modalOv} ${styles.galoreTheme}`} onClick={closeGaloreReg}>
           <div className={styles.modalBox} onClick={e => e.stopPropagation()}>
             <button className={styles.modalClose} onClick={closeGaloreReg}>✕</button>
+            <GaloreLogos className={styles.galoreModalLogos} />
 
             {galoreRegDone ? (
               <div className={styles.regSuccess}>
@@ -1298,8 +1300,7 @@ const Events = () => {
               </div>
             ) : (
               <>
-                <div className={styles.modalHead}>
-                  <div className={styles.modalPill}>Galore Registration</div>
+                <div className={`${styles.modalHead} ${styles.galoreModalHead}`}>
                   <h2 className={styles.modalTitle}>{galoreRegModal.title}</h2>
                   {user ? (
                     <div className={styles.regLoggedIn}>

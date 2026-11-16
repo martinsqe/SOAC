@@ -190,6 +190,17 @@ const uploadDocumentMemory = multer({
     cb(ok ? null : Object.assign(new Error('Upload a PDF, Word document or image.'), { status: 400 }), ok);
   },
 });
+/* uploadDocumentMemory.single(field) with errors a person can act on (a file
+   that's too big or the wrong type) instead of a generic server error */
+const uploadDocumentSingle = (field) => (req, res, next) => {
+  uploadDocumentMemory.single(field)(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ message: 'That file is too large — the limit is 15 MB.' });
+    if (err.status === 400) return res.status(400).json({ message: err.message });
+    if (err instanceof multer.MulterError) return res.status(400).json({ message: 'Upload one file at a time (PDF, Word document or image).' });
+    next(err);
+  });
+};
 /* Cloudinary keeps non-image files as 'raw' resources (served as-is, file
    extension kept); disk fallback mirrors uploadImageBuffer. Returns the URL.
    For PUBLIC documents only — anything with personal data goes through
@@ -215,4 +226,4 @@ const uploadDocumentBuffer = async (file, folder, timeoutMs = 30000) => {
   return writeDiskUpload(file, folder);
 };
 
-module.exports = { uploadDocumentMemory, uploadDocumentBuffer, uploadLogo, uploadEvent, uploadEventMemory, uploadAvatar, uploadFame, uploadLeadership, uploadMvpPhoto, uploadReportPhoto, uploadExplore, uploadCertTemplate, uploadClubFeedMedia, getFileValue, uploadImageBuffer, uploadMediaBuffer, cloudinaryInstance, useCloudinary, safeName, DOC_EXT };
+module.exports = { uploadDocumentMemory, uploadDocumentSingle, uploadDocumentBuffer, uploadLogo, uploadEvent, uploadEventMemory, uploadAvatar, uploadFame, uploadLeadership, uploadMvpPhoto, uploadReportPhoto, uploadExplore, uploadCertTemplate, uploadClubFeedMedia, getFileValue, uploadImageBuffer, uploadMediaBuffer, cloudinaryInstance, useCloudinary, safeName, DOC_EXT };

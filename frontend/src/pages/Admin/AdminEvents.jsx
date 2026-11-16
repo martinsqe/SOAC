@@ -8,10 +8,23 @@ import AdminMakeReport from './AdminMakeReport';
 import { isSportsEvent, hasTeams } from '../../utils/eventKind';
 import s from './AdminEvents.module.css';
 import ReadMore from '../../components/ReadMore/ReadMore';
-import GaloreFormBuilder from './GaloreFormBuilder';
-import StudentImportModal from '../../components/StudentImportModal/StudentImportModal';
-import { toBuilder, toPayload, builderProblems } from '../../utils/galoreForm';
+import { toBuilder } from '../../utils/galoreForm';
 import { downloadGaloreCsv } from '../../utils/galoreCsv';
+import GaloreLetterhead from '../../components/GaloreLetterhead/GaloreLetterhead';
+import { GaloreCoordinators, GaloreAbout, GaloreGallery, GaloreSoty, GaloreDraftNote } from './AdminGaloreViews';
+
+/* Title row at the top of each Galore letterhead page */
+function GaloreSectionHead({ title, sub, action }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 10, marginBottom: 16 }}>
+      <div style={{ minWidth: 0 }}>
+        <h2 style={{ margin: '0 0 4px', fontSize: '1.1rem', fontWeight: 800, color: '#111827' }}>{title}</h2>
+        {sub && <p style={{ margin: '0 auto', fontSize: '.85rem', color: '#6b7280', maxWidth: 720 }}>{sub}</p>}
+      </div>
+      {action}
+    </div>
+  );
+}
 
 
 
@@ -569,15 +582,23 @@ export default function AdminEvents() {
   const [sfError,   setSfError]   = useState('');
   const sfFileRef = useRef();
 
-  /* ── Galore: umbrella create/edit modal (event details + the form builder) and
-     the "activities" panel for a selected umbrella (registrations list +
-     department-wise registrant view). ── */
-  const [galoreModal,   setGaloreModal]   = useState(false); // false | true
+  /* ── Galore: there is only ever one Galore event. Its whole admin side lives
+     on the Galore letterhead (GaloreLetterhead), with pages switched from the
+     grey nav strip:
+       setup         create / edit the event + its form (departments, head,
+                     categories, activities, coordinators)
+       activities    each activity's registrations, teams, open / close
+       coordinators  everyone assigned
+       departments   registrations by department
+       about         the event as students see it + event-wide actions
+       gallery       (to come) ── */
   const [galoreEditing, setGaloreEditing] = useState(null); // null = creating, else the umbrella id being edited
   const [galoreForm,    setGaloreForm]    = useState(EMPTY_GALORE);
   const [galoreImgFile, setGaloreImgFile] = useState(null);
   const [galoreImgPrev, setGaloreImgPrev] = useState('');
   const [galoreSaving,  setGaloreSaving]  = useState(false);
+  /* Deleting the (one) Galore event — the admin must type DELETE EVENT */
+  const [galoreDel,     setGaloreDel]     = useState(null); // null = closed, else { text, busy, error }
   const [galoreError,   setGaloreError]   = useState('');
   const galoreFileRef = useRef();
 
@@ -585,14 +606,18 @@ export default function AdminEvents() {
   const [galoreBuilderLoading, setGaloreBuilderLoading] = useState(false);
   const [galoreStaff,          setGaloreStaff]          = useState(null); // { clubs } — each activity's responsible club
   const [galoreOriginalDetails, setGaloreOriginalDetails] = useState(''); // edit: the details as loaded, to tell if they changed
-  const [studentDirectory,     setStudentDirectory]     = useState(null); // directory departments, for the builder's "student list" badges
-  const [studentImportCode,    setStudentImportCode]    = useState(null); // department code being uploaded from the builder
 
-  const [selectedGalore,    setSelectedGalore]    = useState(null); // umbrella event, when drilled into its activities
+  /* The one Galore event (this campus), or null before it's created */
+  const selectedGalore = events.find(ev => ev.eventFormat === 'galore' && !ev.parentEventId) || null;
   const [activities,        setActivities]        = useState([]);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
 
-  const [galoreSubTab, setGaloreSubTab] = useState('activities'); // 'activities' | 'departments'
+  const [galorePage,      setGalorePage]      = useState('about'); // see the list above
+  const [galoreLoadedFor, setGaloreLoadedFor] = useState(null);         // umbrella id (or 'new') the letterhead was loaded for
+  const [galoreSaved,     setGaloreSaved]     = useState(null);         // the saved form (with who's assigned), for Coordinators
+  const [galoreDraft,     setGaloreDraft]     = useState(null);         // the overall coordinator's unsaved draft of the form, if any
+  const [galoreDeadline,  setGaloreDeadline]  = useState('');           // "Last date of registration is …" (YYYY-MM-DD)
+  const [sotyContest,     setSotyContest]     = useState(null);         // Student of the Year — its own last date shows on its page
   const [deptRegs,        setDeptRegs]        = useState([]);
   const [deptRegsLoading, setDeptRegsLoading] = useState(false);
   const [activeDeptTab,   setActiveDeptTab]   = useState('');
@@ -787,6 +812,18 @@ export default function AdminEvents() {
     } catch (err) { setError(err.message); }
   };
 
+  const GALORE_DEL_PHRASE = 'DELETE EVENT';
+  const deleteGaloreEvent = async () => {
+    if (!selectedGalore || galoreDel?.text.trim() !== GALORE_DEL_PHRASE) return;
+    setGaloreDel(d => ({ ...d, busy: true, error: '' }));
+    try {
+      await api.delete(`/events/${selectedGalore._id}`);
+      setGaloreDel(null);
+      setGalorePage('setup'); // back to Create Event — there's no Galore event now
+      load();
+    } catch (err) { setGaloreDel(d => ({ ...d, busy: false, error: err.message })); }
+  };
+
   const handleToggleReg = async (ev) => {
     try {
       await api.patch(`/events/${ev._id}/registration`, { closed: !ev.registrationClosed });
@@ -870,34 +907,27 @@ export default function AdminEvents() {
   };
 
   /* ── Galore handlers ── */
-  const loadStudentDirectory = () =>
-    api.get('/students/departments').then(d => setStudentDirectory(d.departments || [])).catch(() => setStudentDirectory([]));
   const loadGaloreStaff = () => {
-    loadStudentDirectory();
     if (galoreStaff) return;
     api.get('/events/galore/coordinators')
       .then(d => setGaloreStaff({ clubs: d.clubs || [] }))
       .catch(() => setGaloreStaff({ clubs: [] }));
   };
-  /* A new event starts from the template (the previous fixed departments,
-     categories and activities) — the admin edits, adds or removes anything. */
-  const openAddGalore = () => {
+  /* A new event: its details and the overall Galore coordinator — that's where
+     the admin stops. The coordinator adds departments, categories, activities and
+     their coordinators in the Galore portal, then publishes it. */
+  const prepareNewGalore = () => {
     setGaloreEditing(null);
     setGaloreForm(EMPTY_GALORE);
     setGaloreImgFile(null); setGaloreImgPrev(''); setGaloreError('');
     setGaloreBuilder(EMPTY_GALORE_BUILDER);
-    setGaloreBuilderLoading(true);
-    api.get('/events/galore/template')
-      .then(d => setGaloreBuilder(toBuilder(d)))
-      .catch(() => setGaloreError('Could not load the form template.'))
-      .finally(() => setGaloreBuilderLoading(false));
+    setGaloreBuilderLoading(false);
     loadGaloreStaff();
-    setGaloreModal(true);
   };
-  /* Edit an existing umbrella — its own details and its whole form (departments,
-     FAs, categories, activities, coordinators). Anything students have already
-     registered under can't be removed (locked in the builder, enforced server-side). */
-  const openEditGalore = (ev) => {
+  /* Edit the existing umbrella — its own details and who the overall Galore
+     coordinator is. The rest of the form (loaded here for the Coordinators page)
+     is the coordinator's to change. */
+  const prepareEditGalore = (ev) => {
     setGaloreEditing(ev._id);
     const details = {
       title:       ev.title || '',
@@ -916,15 +946,13 @@ export default function AdminEvents() {
     setGaloreBuilder(EMPTY_GALORE_BUILDER);
     setGaloreBuilderLoading(true);
     api.get(`/events/${ev._id}/galore-setup`)
-      .then(d => setGaloreBuilder(toBuilder(d)))
+      .then(d => { setGaloreBuilder(toBuilder(d)); setGaloreSaved(d); })
       .catch(err => setGaloreError(err.message || 'Could not load this event\'s form.'))
       .finally(() => setGaloreBuilderLoading(false));
     loadGaloreStaff();
-    setGaloreModal(true);
   };
-  const closeGaloreModal = () => {
-    setGaloreModal(false); setGaloreEditing(null); setGaloreImgFile(null); setGaloreImgPrev(''); setGaloreError('');
-  };
+  /* "Discard changes" on the Create / Edit Event page */
+  const resetGaloreForm = () => (selectedGalore ? prepareEditGalore(selectedGalore) : prepareNewGalore());
   const handleGaloreFile = (e) => {
     const f = e.target.files[0];
     if (!f) return;
@@ -933,7 +961,13 @@ export default function AdminEvents() {
   };
   const galoreSet = (k) => (e) => setGaloreForm(p => ({ ...p, [k]: e.target.value }));
 
-  const galoreProblems = galoreBuilderLoading ? [] : builderProblems(galoreBuilder);
+  const galoreHead = galoreBuilder.head || { name: '', email: '' };
+  const setGaloreHead = (k) => (e) => setGaloreBuilder(b => ({ ...b, head: { ...(b.head || {}), [k]: e.target.value } }));
+  const galoreProblems = galoreBuilderLoading ? [] : [
+    !galoreHead.name?.trim() && "Add the overall Galore coordinator's name.",
+    !galoreHead.email?.trim() ? "Add the overall Galore coordinator's email."
+      : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(galoreHead.email.trim()) && "The overall Galore coordinator's email isn't valid.",
+  ].filter(Boolean);
 
   const handleSaveGalore = async (e) => {
     e.preventDefault();
@@ -942,7 +976,7 @@ export default function AdminEvents() {
     if (galoreProblems.length) return setGaloreError(galoreProblems[0]);
     setGaloreSaving(true); setGaloreError('');
     try {
-      const formPayload = toPayload(galoreBuilder);
+      const head = { name: galoreHead.name.trim(), email: galoreHead.email.trim() };
       if (galoreEditing) {
         /* Details first, so the update email coordinators and FAs receive carries
            the new date/venue; the form save then sends it (if anything changed) */
@@ -951,23 +985,23 @@ export default function AdminEvents() {
         Object.entries(galoreForm).forEach(([k, v]) => fd.append(k, v));
         if (galoreImgFile) fd.append('image', galoreImgFile);
         const { event } = await api.putForm(`/events/${galoreEditing}`, fd);
-        await api.put(`/events/${galoreEditing}/galore-form`, { form: formPayload, detailsChanged });
+        await api.put(`/events/${galoreEditing}/galore-head`, { ...head, detailsChanged });
         setEvents(p => p.map(e => e._id === event._id ? event : e));
-        if (selectedGalore?._id === event._id) { setSelectedGalore(event); loadActivities(event._id); loadDeptRegs(event._id); }
-        closeGaloreModal();
+        prepareEditGalore(event);              // fresh form + "saved" copy for Coordinators
+        loadActivities(event._id); loadDeptRegs(event._id);
         showToast('Galore event updated!');
         return;
       }
       const fd = new FormData();
       Object.entries(galoreForm).forEach(([k, v]) => fd.append(k, v));
-      fd.append('form', JSON.stringify(formPayload));
+      fd.append('headName', head.name);
+      fd.append('headEmail', head.email);
       if (galoreImgFile) fd.append('image', galoreImgFile);
 
-      const { event } = await api.postForm('/events/galore', fd);
-      load();
-      closeGaloreModal();
-      showToast('Galore event created — FAs and coordinators have been notified.');
-      openGaloreActivities(event);
+      await api.postForm('/events/galore', fd);
+      load();                                  // the letterhead then loads the new event
+      setGalorePage('about');
+      showToast(`Galore event created — ${head.name} has been emailed their Galore portal login to add the rest and publish it.`);
     } catch (err) {
       setGaloreError(err.message || 'Failed to save.');
     } finally {
@@ -975,33 +1009,118 @@ export default function AdminEvents() {
     }
   };
 
-  const loadActivities = useCallback((eventId) => {
-    setActivitiesLoading(true);
+  /* quiet = a background refresh: no loading skeleton, and a failed refresh keeps what's shown */
+  const loadActivities = useCallback((eventId, quiet = false) => {
+    if (!quiet) setActivitiesLoading(true);
     api.get(`/events/${eventId}/activities`)
       .then(d => setActivities(d.activities || []))
-      .catch(() => setActivities([]))
-      .finally(() => setActivitiesLoading(false));
+      .catch(() => { if (!quiet) setActivities([]); })
+      .finally(() => { if (!quiet) setActivitiesLoading(false); });
   }, []);
 
-  const loadDeptRegs = useCallback((eventId) => {
-    setDeptRegsLoading(true);
+  const loadDeptRegs = useCallback((eventId, quiet = false) => {
+    if (!quiet) setDeptRegsLoading(true);
     api.get(`/events/${eventId}/department-registrations`)
       .then(d => {
         const depts = d.departments || [];
         setDeptRegs(depts);
         setActiveDeptTab(prev => (prev && depts.some(x => x.dept === prev)) ? prev : (depts[0]?.dept || ''));
       })
-      .catch(() => setDeptRegs([]))
-      .finally(() => setDeptRegsLoading(false));
+      .catch(() => { if (!quiet) setDeptRegs([]); })
+      .finally(() => { if (!quiet) setDeptRegsLoading(false); });
   }, []);
 
-  const openGaloreActivities = (ev) => {
-    setSelectedGalore(ev);
-    setGaloreSubTab('activities');
-    loadActivities(ev._id);
-    loadDeptRegs(ev._id);
+  /* Opening the Galore tab loads everything for the one Galore event — or, before
+     it exists, the template on the Create Event page. Runs again only when the
+     event itself changes (created / deleted). */
+  const galoreKey = selectedGalore?._id || 'new';
+  useEffect(() => {
+    if (formatTab !== 'galore' || loading || galoreLoadedFor === galoreKey) return;
+    setGaloreLoadedFor(galoreKey);
+    if (!selectedGalore) {
+      setActivities([]); setDeptRegs([]); setGaloreSaved(null); setGaloreDeadline('');
+      setGalorePage('setup');
+      prepareNewGalore();
+      return;
+    }
+    prepareEditGalore(selectedGalore);
+    loadActivities(selectedGalore._id);
+    loadDeptRegs(selectedGalore._id);
+    api.get(`/events/${selectedGalore._id}/galore-deadline`)
+      .then(d => setGaloreDeadline(d.deadline || ''))
+      .catch(() => setGaloreDeadline(''));
+    api.get(`/events/${selectedGalore._id}/galore-draft`).then(d => setGaloreDraft(d.draft || null)).catch(() => setGaloreDraft(null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formatTab, loading, galoreKey, galoreLoadedFor]);
+
+  /* Everything the overall Galore coordinator changes in the portal (event
+     details, About, departments, activities, coordinators, schedule, publish)
+     is saved to this same event — so keep the admin's pages up to date with it:
+     on every strip page change, when the admin comes back to this tab, and
+     every 30 seconds while the Galore tab is open. The Create / Edit Event
+     form is left alone while the admin has unsaved edits in it. */
+  const galoreDirtyRef = useRef(false);
+  galoreDirtyRef.current = !!galoreImgFile
+    || (!!galoreOriginalDetails && JSON.stringify(galoreForm) !== galoreOriginalDetails)
+    || (!!galoreSaved && (galoreHead.name !== (galoreSaved.head?.name || '') || galoreHead.email !== (galoreSaved.head?.email || '')));
+  const refreshGalore = useCallback(() => {
+    if (!selectedGalore) return;
+    const id = selectedGalore._id;
+    api.get(`/events/${id}`).then(({ event }) => {
+      if (!event) return;
+      setEvents(p => p.map(e => (e._id === id ? event : e)));
+      if (!galoreDirtyRef.current) {
+        const details = {
+          title: event.title || '', status: event.status || 'upcoming', date: event.date || '',
+          startDate: event.startDate ? event.startDate.slice(0, 10) : '', time: event.time || '', venue: event.venue || '',
+          description: event.description || '', seats: event.seats ?? '', highlight: event.highlight || '',
+        };
+        setGaloreForm(details);
+        setGaloreOriginalDetails(JSON.stringify(details));
+        setGaloreImgPrev(event.imageUrl || '');
+      }
+    }).catch(() => {});
+    api.get(`/events/${id}/galore-setup`).then(d => {
+      setGaloreSaved(d);
+      /* the head's name / email on Edit Event — unless the admin is changing them */
+      if (!galoreDirtyRef.current) setGaloreBuilder(toBuilder(d));
+    }).catch(() => {});
+    api.get(`/events/${id}/galore-draft`).then(d => setGaloreDraft(d.draft || null)).catch(() => {});
+    api.get(`/events/${id}/galore-deadline`).then(d => setGaloreDeadline(d.deadline || '')).catch(() => {});
+    loadActivities(id, true);
+    loadDeptRegs(id, true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedGalore?._id, loadActivities, loadDeptRegs]);
+  const galoreOpen = formatTab === 'galore' && !!selectedGalore && galoreLoadedFor === galoreKey;
+  /* a strip page change → that page shows the latest */
+  const lastGalorePage = useRef(galorePage);
+  useEffect(() => {
+    if (lastGalorePage.current === galorePage) return;
+    lastGalorePage.current = galorePage;
+    if (galoreOpen) refreshGalore();
+  }, [galorePage, galoreOpen, refreshGalore]);
+  useEffect(() => {
+    if (!galoreOpen) return;
+    const onBack = () => { if (document.visibilityState === 'visible') refreshGalore(); };
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') refreshGalore(); }, 30000);
+    window.addEventListener('focus', onBack);
+    document.addEventListener('visibilitychange', onBack);
+    return () => { clearInterval(timer); window.removeEventListener('focus', onBack); document.removeEventListener('visibilitychange', onBack); };
+  }, [galoreOpen, refreshGalore]);
+
+  const saveGaloreDeadline = async (text) => {
+    const d = await api.put(`/events/${selectedGalore._id}/galore-deadline`, { deadline: text });
+    setGaloreDeadline(d.deadline || '');
+    showToast(d.deadline ? 'Registration deadline updated.' : 'Registration deadline removed.');
   };
-  const closeGaloreActivities = () => { setSelectedGalore(null); setActivities([]); setDeptRegs([]); };
+  const saveSotyDeadline = async (date) => {
+    const { contest } = await api.put(`/events/${selectedGalore._id}/soty/deadline`, { deadline: date });
+    setSotyContest(contest);
+    showToast(contest.deadline ? 'Student of the Year last date updated.' : 'Student of the Year last date removed.');
+  };
+  /* On the Student of the Year page the line under the strip is that contest's
+     own last date (once the contest exists); everywhere else it's Galore's */
+  const onSotyPage = galorePage === 'soty' && !!selectedGalore;
 
   /* Reject a coordinator request */
   const handleReject = async () => {
@@ -1293,7 +1412,127 @@ export default function AdminEvents() {
   const sportsFiestaEvents = filtered.filter(ev => ev.eventFormat === 'sports_fiesta');
   /* Only top-level Galore umbrellas here — their child activities (parentEventId
      set) live entirely inside the activities panel, never in this list. */
-  const galoreEvents = filtered.filter(ev => ev.eventFormat === 'galore' && !ev.parentEventId);
+  /* ── Galore letterhead: the grey-strip pages, and the Create / Edit Event page
+     (the event's details + the whole form builder, inline — it used to be a modal) ── */
+  /* Before the event exists there's only Create Event. Once it's created (with
+     its overall coordinator) the strip has every page — About Galore first. */
+  const galoreNav = selectedGalore ? [
+    ['about', 'About Galore'], ['setup', 'Edit Event'], ['activities', 'Activities'], ['coordinators', 'Coordinators'],
+    ['departments', 'Departments'], ['soty', 'Student of the Year'], ['gallery', 'Gallery'],
+  ] : [['setup', 'Create Event']];
+  const galoreSetupPage = (
+    <form onSubmit={handleSaveGalore} className={s.form} style={{ padding: 0 }}>
+      <GaloreSectionHead
+        title={selectedGalore ? 'Edit Event' : 'Create Event'}
+        sub={selectedGalore
+          ? 'Change the event’s details or its overall Galore coordinator. Departments, categories, activities and their coordinators are added by the overall coordinator in the Galore portal — you see them under Activities, Coordinators and Departments.'
+          : 'There is one Galore event. Fill in its details and assign the overall Galore coordinator — they get a Galore portal login, add the departments, categories, activities and coordinators, then publish it.'} />
+      <div className={s.galoreSheet}>
+        <div className={s.imgSection}>
+          <div className={s.imgBox} onClick={() => galoreFileRef.current.click()}>
+            {galoreImgPrev
+              ? <img src={galoreImgPrev} alt="preview" className={s.imgPreview} />
+              : <div className={s.imgPlaceholder}><span>Click to upload banner</span></div>
+            }
+          </div>
+          <input ref={galoreFileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleGaloreFile} />
+          <div className={s.imgHint}>JPG, PNG, WEBP · max 10 MB · Recommended: 16:9</div>
+        </div>
+
+        <div className={s.field}>
+          <label>Event Title <span className={s.req}>*</span></label>
+          <input value={galoreForm.title} onChange={galoreSet('title')} placeholder="e.g. Galore 2027 — Annual Mega Fest" required />
+        </div>
+
+        <div className={s.row2}>
+          <div className={s.field}>
+            <label>Status</label>
+            <select value={galoreForm.status} onChange={galoreSet('status')}>
+              {STATUS.map(st => <option key={st} value={st}>{st.charAt(0).toUpperCase() + st.slice(1)}</option>)}
+            </select>
+          </div>
+          <div className={s.field}>
+            <label>Start Date</label>
+            <input type="date" value={galoreForm.startDate} onChange={galoreSet('startDate')} />
+          </div>
+        </div>
+
+        <div className={s.row2}>
+          <div className={s.field}>
+            <label>Display Date</label>
+            <input value={galoreForm.date} onChange={galoreSet('date')} placeholder="e.g. Feb 2–8, 2027" />
+          </div>
+          <div className={s.field}>
+            <label>Time</label>
+            <input value={galoreForm.time} onChange={galoreSet('time')} placeholder="e.g. 9:00 AM onwards" />
+          </div>
+        </div>
+
+        <div className={s.row2}>
+          <div className={s.field}>
+            <label>Venue</label>
+            <input value={galoreForm.venue} onChange={galoreSet('venue')} placeholder="e.g. RKU Main Campus" />
+          </div>
+          <div className={s.field}>
+            <label>Seats / Availability</label>
+            <input value={galoreForm.seats} onChange={galoreSet('seats')} placeholder="e.g. Open Registration" />
+          </div>
+        </div>
+
+        <div className={s.field}>
+          <label>Description</label>
+          <textarea rows={3} value={galoreForm.description} onChange={galoreSet('description')} placeholder="Event description…" />
+        </div>
+
+        <div className={s.field}>
+          <label>Highlight <span className={s.hint}>(past events)</span></label>
+          <input value={galoreForm.highlight} onChange={galoreSet('highlight')} placeholder="e.g. Best Edition Yet — 1,200+ Students" />
+        </div>
+
+        {/* The admin's part stops here: the overall Galore coordinator */}
+        <div style={{ borderTop: '1px solid #ececec', paddingTop: 14 }}>
+          <div style={{ fontSize: '.78rem', fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 4 }}>
+            Overall Galore Coordinator <span className={s.req}>*</span>
+          </div>
+          <div style={{ fontSize: '.8rem', color: '#6b7280', marginBottom: 10 }}>
+            They get a Galore portal login by email, add the departments, categories, activities and their coordinators, and publish Galore when it’s ready.
+            {selectedGalore && ' Changing them emails the new coordinator their login.'}
+          </div>
+          {galoreBuilderLoading ? (
+            <div style={{ fontSize: '.82rem', color: '#9ca3af' }}>Loading…</div>
+          ) : (
+            <div className={s.row2}>
+              <div className={s.field}>
+                <label>Name <span className={s.req}>*</span></label>
+                <input maxLength={255} placeholder="Full name" value={galoreHead.name || ''} onChange={setGaloreHead('name')} />
+              </div>
+              <div className={s.field}>
+                <label>Email <span className={s.req}>*</span></label>
+                <input type="email" maxLength={255} placeholder="e.g. name@rku.ac.in" value={galoreHead.email || ''} onChange={setGaloreHead('email')} />
+              </div>
+            </div>
+          )}
+        </div>
+        {galoreProblems.length > 0 && (
+          <div style={{ fontSize: '.76rem', color: '#dc2626' }}>Still needed: {galoreProblems.join(' ')}</div>
+        )}
+
+        {galoreError && <div className={s.formError}>{galoreError}</div>}
+      </div>
+      <div className={s.modalFooter}>
+        <button type="button" className={s.cancelBtn} disabled={galoreSaving} onClick={resetGaloreForm}>Discard changes</button>
+        {galoreEditing && selectedGalore && (
+          <button type="button" className={s.delConfirmBtn} disabled={galoreSaving}
+            onClick={() => setGaloreDel({ text: '', busy: false, error: '' })}>
+            Delete event
+          </button>
+        )}
+        <button type="submit" className={s.saveBtn} disabled={galoreSaving || galoreBuilderLoading || galoreProblems.length > 0}>
+          {galoreSaving ? 'Saving…' : galoreEditing ? 'Save Changes' : 'Create Event'}
+        </button>
+      </div>
+    </form>
+  );
 
   const pendingCount = requests.filter(r => r.status === 'pending').length;
   const displayReqs  = reqFilter === 'all' ? requests : requests.filter(r => r.status === reqFilter);
@@ -1334,9 +1573,6 @@ export default function AdminEvents() {
             )}
             {formatTab === 'sports_fiesta' && (
               <button className={s.addBtn} onClick={openAddSF}>+ Add Sports Fiesta Event</button>
-            )}
-            {formatTab === 'galore' && !selectedGalore && (
-              <button className={s.addBtn} onClick={openAddGalore}>+ Add Galore Event</button>
             )}
           </div>
         )}
@@ -1455,26 +1691,49 @@ export default function AdminEvents() {
         </>)}
 
         {formatTab === 'galore' && (
-          selectedGalore ? (
-            <div>
-              <button className={s.regsBtn} onClick={closeGaloreActivities} style={{ marginBottom: 16 }}>
-                ← Back to Galore Events
-              </button>
-              <h2 style={{ margin: '0 0 4px' }}>{selectedGalore.title}</h2>
-
-              <div className={s.statusTabs} style={{ marginBottom: 20 }}>
-                <button className={`${s.statusTab} ${galoreSubTab === 'activities' ? s.statusTabOn : ''}`}
-                  onClick={() => setGaloreSubTab('activities')}>
-                  Activities {!activitiesLoading && `(${activities.length})`}
-                </button>
-                <button className={`${s.statusTab} ${galoreSubTab === 'departments' ? s.statusTabOn : ''}`}
-                  onClick={() => setGaloreSubTab('departments')}>
-                  By Department
-                </button>
-              </div>
-
-              {galoreSubTab === 'activities' ? (
-                activitiesLoading ? (
+          <GaloreLetterhead
+            nav={galoreNav}
+            active={galorePage}
+            onNav={setGalorePage}
+            deadline={onSotyPage ? (sotyContest?.deadline || '') : selectedGalore ? galoreDeadline : ''}
+            onSaveDeadline={onSotyPage ? (sotyContest ? saveSotyDeadline : undefined) : selectedGalore ? saveGaloreDeadline : undefined}
+          >
+              {loading ? (
+                <div className={s.regsEmpty}>Loading…</div>
+              ) : galorePage === 'setup' ? (
+                galoreSetupPage
+              ) : !selectedGalore ? (
+                <div className={s.empty}>
+                  <p>No Galore event yet</p>
+                  <span>Start on <button onClick={() => setGalorePage('setup')}>Create Event</button> — there is one Galore event, and its activities, coordinators and departments are all managed from here.</span>
+                </div>
+              ) : galorePage === 'coordinators' ? (
+                <>
+                <GaloreDraftNote draft={galoreDraft} head={galoreSaved?.head} />
+                <GaloreCoordinators event={selectedGalore} form={galoreSaved} clubs={galoreStaff?.clubs} onEdit={() => setGalorePage('setup')} />
+                </>
+              ) : galorePage === 'about' ? (
+                <GaloreAbout event={selectedGalore}
+                  onEdit={() => setGalorePage('setup')}
+                  onSaveAbout={async (description) => {
+                    await api.put(`/events/${selectedGalore._id}/galore-about`, { description });
+                    setEvents(p => p.map(e => (e._id === selectedGalore._id ? { ...e, description } : e)));
+                  }}
+                  onToggleReg={() => handleToggleReg(selectedGalore)}
+                  onRemind={() => setRemindEvent(selectedGalore)}
+                  onDelete={() => setGaloreDel({ text: '', busy: false, error: '' })} />
+              ) : galorePage === 'gallery' ? (
+                <GaloreGallery event={selectedGalore} />
+              ) : galorePage === 'soty' ? (
+                <GaloreSoty key={selectedGalore._id} event={selectedGalore} contest={sotyContest} onContest={setSotyContest} />
+              ) : galorePage === 'activities' ? (
+                <>
+                <GaloreSectionHead
+                  title={`Activities${activitiesLoading ? '' : ` (${activities.length})`}`}
+                  sub="Added by the overall Galore coordinator. Each activity's registrations, teams and fixtures — open one with Manage Event."
+                  />
+                <GaloreDraftNote draft={galoreDraft} head={galoreSaved?.head} />
+                {activitiesLoading ? (
                   <div className={s.grid}>{Array.from({ length: 3 }).map((_, i) => <div key={i} className={s.skeleton} />)}</div>
                 ) : activities.length === 0 ? (
                   <div className={s.empty}><p>No activities found for this event.</p></div>
@@ -1485,7 +1744,7 @@ export default function AdminEvents() {
                         <div className={s.cardBody}>
                           <div className={s.cardTitle}>{act.title}</div>
                           <div className={s.cardClub}>
-                            {act.categoryName || act.category} · {act.participationType === 'team' ? `Team (${act.minTeamSize}–${act.teamSize})` : 'Individual'}{act.genderSplit ? ' · Boys/Girls' : ''}
+                            {act.categoryName || act.category} · {act.participationType !== 'team' ? 'Individual' : Number(act.minTeamSize) === 2 && Number(act.teamSize) === 2 ? 'Duo' : `Team (${act.minTeamSize}–${act.teamSize} players)`}{act.genderSplit ? ' · Boys/Girls' : ''}
                           </div>
                           <div className={s.cardMeta}>
                             <span>{act.registrationCount} registered</span>
@@ -1508,9 +1767,15 @@ export default function AdminEvents() {
                       </div>
                     ))}
                   </div>
-                )
+                )}
+                </>
               ) : (
-                deptRegsLoading ? (
+                <>
+                <GaloreSectionHead
+                  title="Departments"
+                  sub="Registrations from each department, grouped by activity." />
+                <GaloreDraftNote draft={galoreDraft} head={galoreSaved?.head} />
+                {deptRegsLoading ? (
                   <div className={s.regsEmpty}>Loading…</div>
                 ) : deptRegs.length === 0 ? (
                   <div className={s.empty}><p>No registrations recorded yet.</p></div>
@@ -1553,12 +1818,12 @@ export default function AdminEvents() {
                           {downloadAll}
                           {groups.map(([activityTitle, { categoryName, rows }]) => (
                             <div key={activityTitle}>
-                              <h3 style={{ margin: '0 0 8px', fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <h3 style={{ margin: '0 0 8px', fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'center', textAlign: 'center' }}>
                                 {activityTitle}
                                 <span style={{ fontSize: '.75rem', fontWeight: 500, color: '#6b7280' }}>
                                   {categoryName} · {rows.length} registered
                                 </span>
-                                <button className={s.csvBtn} style={{ marginLeft: 'auto' }}
+                                <button className={s.csvBtn}
                                   onClick={() => downloadGaloreCsv(`${selectedGalore.title} ${activeDeptTab} ${activityTitle}`, rows)}>
                                   Download CSV
                                 </button>
@@ -1633,59 +1898,10 @@ export default function AdminEvents() {
                       );
                     })()}
                   </>
-                )
+                )}
+                </>
               )}
-            </div>
-          ) : (
-            <div className={s.grid}>
-              {loading ? (
-                Array.from({ length: 3 }).map((_, i) => <div key={i} className={s.skeleton} />)
-              ) : galoreEvents.length === 0 ? (
-                <div className={s.empty}>
-                  <p>No Galore events yet</p>
-                  <span>Try a different search or <button onClick={openAddGalore}>add a new Galore event</button></span>
-                </div>
-              ) : (
-                galoreEvents.map(ev => (
-                  <div key={ev._id} className={s.card}>
-                    <div className={s.cardImg}>
-                      {ev.imageUrl ? <img src={ev.imageUrl} alt={ev.title} loading="lazy" /> : <div className={s.cardImgFallback}>Banner</div>}
-                    </div>
-                    <div className={s.cardBody}>
-                      <div className={s.cardTitle}>{ev.title}</div>
-                      <ReadMore as="div" text={ev.description} limit={100}
-                        style={{ fontSize: '.8rem', color: '#6b7280', lineHeight: 1.45, margin: '4px 0 6px' }} />
-                      <div className={s.cardMeta}>
-                        {ev.date && <span>Date: {ev.date}</span>}
-                        {ev.venue && <span>Venue: {ev.venue}</span>}
-                      </div>
-                    </div>
-                    <div className={s.cardActions}>
-                      <button className={s.regsBtn} onClick={() => openGaloreActivities(ev)}>Manage Activities</button>
-                      <button className={s.editBtn} onClick={() => openEditGalore(ev)}>Edit</button>
-                      <button className={s.delBtn} onClick={() => setDeleteId(ev._id)}>Delete</button>
-                    </div>
-                    <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
-                      <button
-                        className={s.regsBtn}
-                        onClick={() => handleToggleReg(ev)}
-                        style={{ width: '100%' }}
-                        title={ev.registrationClosed ? 'Let students register for this Galore event again' : 'Stop new registrations for this Galore event (each activity can also be closed individually)'}
-                      >
-                        {ev.registrationClosed ? 'Reopen Registration' : 'Close Registration'}
-                      </button>
-                    </div>
-                    <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
-                      <button className={s.regsBtn} onClick={() => setRemindEvent(ev)} style={{ width: '100%' }}
-                        title="Email a reminder about this Galore event">
-                        Send Reminder
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )
+          </GaloreLetterhead>
         )}
       </>)}
 
@@ -2264,121 +2480,6 @@ export default function AdminEvents() {
         </div>
       )}
 
-      {/* ══ Galore Umbrella Add Modal ══ */}
-      {galoreModal && (
-        <div className={s.overlay} onClick={closeGaloreModal}>
-          <div className={s.modal} style={{ maxWidth: 880 }} onClick={e => e.stopPropagation()}>
-            <div className={s.modalHeader}>
-              <div>
-                <div className={s.modalTag}>{galoreEditing ? 'Edit Galore Event' : 'New Galore Event'}</div>
-                <h2 className={s.modalTitle}>{galoreEditing ? 'Edit Event Details' : 'Add Galore Event'}</h2>
-              </div>
-              <button className={s.closeBtn} onClick={closeGaloreModal}>✕</button>
-            </div>
-
-            <form onSubmit={handleSaveGalore} className={s.form}>
-              <div className={s.imgSection}>
-                <div className={s.imgBox} onClick={() => galoreFileRef.current.click()}>
-                  {galoreImgPrev
-                    ? <img src={galoreImgPrev} alt="preview" className={s.imgPreview} />
-                    : <div className={s.imgPlaceholder}><span>Click to upload banner</span></div>
-                  }
-                </div>
-                <input ref={galoreFileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleGaloreFile} />
-                <div className={s.imgHint}>JPG, PNG, WEBP · max 10 MB · Recommended: 16:9</div>
-              </div>
-
-              <div className={s.field}>
-                <label>Event Title <span className={s.req}>*</span></label>
-                <input value={galoreForm.title} onChange={galoreSet('title')} placeholder="e.g. Galore 2027 — Annual Mega Fest" required />
-              </div>
-
-              <div className={s.row2}>
-                <div className={s.field}>
-                  <label>Status</label>
-                  <select value={galoreForm.status} onChange={galoreSet('status')}>
-                    {STATUS.map(st => <option key={st} value={st}>{st.charAt(0).toUpperCase() + st.slice(1)}</option>)}
-                  </select>
-                </div>
-                <div className={s.field}>
-                  <label>Start Date</label>
-                  <input type="date" value={galoreForm.startDate} onChange={galoreSet('startDate')} />
-                </div>
-              </div>
-
-              <div className={s.row2}>
-                <div className={s.field}>
-                  <label>Display Date</label>
-                  <input value={galoreForm.date} onChange={galoreSet('date')} placeholder="e.g. Feb 2–8, 2027" />
-                </div>
-                <div className={s.field}>
-                  <label>Time</label>
-                  <input value={galoreForm.time} onChange={galoreSet('time')} placeholder="e.g. 9:00 AM onwards" />
-                </div>
-              </div>
-
-              <div className={s.row2}>
-                <div className={s.field}>
-                  <label>Venue</label>
-                  <input value={galoreForm.venue} onChange={galoreSet('venue')} placeholder="e.g. RKU Main Campus" />
-                </div>
-                <div className={s.field}>
-                  <label>Seats / Availability</label>
-                  <input value={galoreForm.seats} onChange={galoreSet('seats')} placeholder="e.g. Open Registration" />
-                </div>
-              </div>
-
-              <div className={s.field}>
-                <label>Description</label>
-                <textarea rows={3} value={galoreForm.description} onChange={galoreSet('description')} placeholder="Event description…" />
-              </div>
-
-              <div className={s.field}>
-                <label>Highlight <span className={s.hint}>(past events)</span></label>
-                <input value={galoreForm.highlight} onChange={galoreSet('highlight')} placeholder="e.g. Best Edition Yet — 1,200+ Students" />
-              </div>
-
-              {/* Galore is never a paid event — no fee fields here or on any activity.
-                  The builder below is the student registration form. */}
-              {galoreBuilderLoading || !galoreStaff ? (
-                <div style={{ fontSize: '.82rem', color: '#9ca3af' }}>Loading the registration form…</div>
-              ) : (
-                <GaloreFormBuilder
-                  value={galoreBuilder}
-                  onChange={setGaloreBuilder}
-                  clubs={galoreStaff.clubs}
-                  directory={studentDirectory}
-                  onUploadDept={setStudentImportCode}
-                />
-              )}
-              {studentImportCode && (
-                <StudentImportModal
-                  departmentCode={studentImportCode}
-                  departmentName={studentDirectory?.find(d => d.code.toUpperCase() === studentImportCode.toUpperCase())?.name || ''}
-                  departments={studentDirectory || []}
-                  onClose={() => setStudentImportCode(null)}
-                  onImported={loadStudentDirectory}
-                />
-              )}
-              {galoreProblems.length > 0 && (
-                <div style={{ fontSize: '.76rem', color: '#dc2626' }}>
-                  Still needed: {galoreProblems.slice(0, 3).join(' ')}{galoreProblems.length > 3 ? ` (+${galoreProblems.length - 3} more)` : ''}
-                </div>
-              )}
-
-              {galoreError && <div className={s.formError}>{galoreError}</div>}
-
-              <div className={s.modalFooter}>
-                <button type="button" className={s.cancelBtn} onClick={closeGaloreModal}>Cancel</button>
-                <button type="submit" className={s.saveBtn} disabled={galoreSaving || galoreBuilderLoading || galoreProblems.length > 0}>
-                  {galoreSaving ? 'Saving…' : galoreEditing ? 'Save Changes' : 'Create Event'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* ══ Reject Modal ══ */}
       {rejectModal && (
         <div className={s.overlay} onClick={() => setRejectModal(null)}>
@@ -2709,6 +2810,40 @@ export default function AdminEvents() {
               <button className={s.cancelBtn} onClick={() => setDeleteId(null)}>Cancel</button>
               <button className={s.delConfirmBtn} onClick={handleDelete}>Yes, Delete</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ Delete the Galore event — typed confirmation ══ */}
+      {galoreDel && selectedGalore && (
+        <div className={s.overlay} onClick={() => !galoreDel.busy && setGaloreDel(null)}>
+          <div className={s.confirmBox} style={{ maxWidth: 440 }} role="alertdialog" aria-labelledby="galore-del-title" onClick={e => e.stopPropagation()}>
+            <h3 id="galore-del-title">Delete “{selectedGalore.title}”?</h3>
+            <p style={{ marginBottom: 14 }}>
+              This deletes the whole Galore event — all its activities go with it, and it disappears from the events page,
+              the Galore portal and the clubs’ pages. This can’t be undone from here.
+            </p>
+            <p style={{ marginBottom: 14 }}>
+              Everyone’s Galore portal login is removed too — the overall coordinator, department and activity coordinators
+              and registered students are signed out. When Galore is created again, each of them is emailed new login details.
+            </p>
+            <form onSubmit={e => { e.preventDefault(); deleteGaloreEvent(); }}>
+              <label htmlFor="galore-del-input" style={{ display: 'block', fontSize: '.84rem', color: '#374151', marginBottom: 6 }}>
+                Type <strong style={{ color: '#b91c1c', letterSpacing: '.03em' }}>{GALORE_DEL_PHRASE}</strong> to confirm
+              </label>
+              <input id="galore-del-input" autoFocus autoComplete="off" spellCheck={false} value={galoreDel.text}
+                onChange={e => setGaloreDel(d => ({ ...d, text: e.target.value, error: '' }))}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', border: '1.5px solid #e5e7eb', borderRadius: 8, font: 'inherit', fontSize: '.9rem', textAlign: 'center', marginBottom: 14 }} />
+              {galoreDel.error && <div className={s.formError} style={{ marginBottom: 12 }}>{galoreDel.error}</div>}
+              <div className={s.confirmBtns}>
+                <button type="button" className={s.cancelBtn} disabled={galoreDel.busy} onClick={() => setGaloreDel(null)}>Cancel</button>
+                <button type="submit" className={s.delConfirmBtn}
+                  disabled={galoreDel.busy || galoreDel.text.trim() !== GALORE_DEL_PHRASE}
+                  style={galoreDel.text.trim() !== GALORE_DEL_PHRASE ? { opacity: .45, cursor: 'not-allowed' } : undefined}>
+                  {galoreDel.busy ? 'Deleting…' : 'Delete event'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -6,15 +6,20 @@ const portal    = require('../services/galorePortal');
 const { pgPool } = require('../config/db');
 const { sendGalorePasswordReset } = require('../config/email');
 const galoreForm = require('../services/galoreForm');
+const soty       = require('../services/galoreSoty');
+const gallery    = require('../services/galoreGallery');
+const drafts     = require('../services/galoreDraft');
+const { uploadClubFeedMedia } = require('../config/multer');
 const cache      = require('../services/cache');
-const { uploadDocumentMemory, uploadDocumentBuffer } = require('../config/multer');
+const { uploadDocumentSingle, uploadDocumentBuffer } = require('../config/multer');
 /* the admin's own save path, so both apply the same rules and send the same emails */
 const evCtrl     = require('../controllers/events.controller');
 
 const handle = (fn) => async (req, res, next) => {
   try { await fn(req, res); }
   catch (err) {
-    if (err instanceof portal.PortalError) return res.status(err.status).json({ message: err.message });
+    if (err instanceof portal.PortalError || err instanceof soty.SotyError || err instanceof gallery.GalleryError || err instanceof drafts.DraftError) return res.status(err.status).json({ message: err.message });
+    if (err instanceof galoreForm.GaloreFormError) return res.status(err.status || 400).json({ message: err.message });
     next(err);
   }
 };
@@ -57,6 +62,26 @@ router.post('/forgot', forgotLimiter, handle(async (req, res) => {
 router.post('/change-password', portal.requireGalore, handle(async (req, res) => {
   const token = await portal.changePassword(req.galore.id, req.body?.current, req.body?.next);
   res.json({ message: 'Password changed.', token });
+}));
+
+/* GET /api/galore-portal/events/:id/coordinators — the "Coordinators" page every
+   portal role has: the overall Galore coordinator, each department's
+   coordinator and each activity's coordinator (+ the club running it). Only for
+   someone in this Galore event (registered student, or assigned staff / head). */
+router.get('/events/:id/coordinators', portal.requireGalore, handle(async (req, res) => {
+  const email = req.galore.email;
+  const [student, staff, head] = await Promise.all([portal.studentView(email), portal.staffView(email), portal.headView(email)]);
+  const inEvent = [...student, ...staff, ...head].some(x => String(x.event.id) === String(req.params.id));
+  if (!inEvent) throw new portal.PortalError('You are not part of this Galore event.', 403);
+  const form = await galoreForm.getGaloreForm(req.params.id, { withStaff: true });
+  const person = (name, email) => (email ? { name: name || '', email } : null);
+  res.json({
+    head: person(form.head?.name, form.head?.email),
+    departments: form.departments.map(d => ({ name: d.name, coordinator: person(d.coordName, d.coordEmail) })),
+    activities: form.categories.flatMap(c => c.activities.map(a => ({
+      title: a.title, categoryName: c.name, clubName: a.clubName || '', coordinator: person(a.coordinatorName, a.coordinatorEmail),
+    }))),
+  });
 }));
 
 /* GET /api/galore-portal/me — everything this person sees: their registrations
@@ -156,11 +181,26 @@ router.get('/head/events/:id/staff-options', ...head(async (req, res) => {
 router.put('/head/events/:id/form', ...head(async (req, res) => {
   try {
     const { saved } = await evCtrl.applyGaloreFormUpdate(req.params.id, req.body.form, { detailsChanged: !!req.body.detailsChanged, byHead: true });
+    /* saved from the form editor → its draft is now the real form */
+    if (req.body.clearDraft) await drafts.clear(req.params.id);
     res.json(saved);
   } catch (err) {
     if (err instanceof galoreForm.GaloreFormError) return res.status(err.status || 400).json({ message: err.message });
     throw err;
   }
+}));
+
+/* Draft of the Galore form — kept as the coordinator types, complete or not,
+   so nothing is lost before publishing. GET → { draft: { data, updatedBy, updatedAt } | null } */
+router.get('/head/events/:id/form-draft', ...head(async (req, res) => {
+  res.json({ draft: await drafts.get(req.params.id) });
+}));
+router.put('/head/events/:id/form-draft', ...head(async (req, res) => {
+  res.json(await drafts.save(req.params.id, req.body?.data, req.galore.email));
+}));
+router.delete('/head/events/:id/form-draft', ...head(async (req, res) => {
+  await drafts.clear(req.params.id);
+  res.json({ ok: true });
 }));
 
 /* PUT  /head/events/:id/details — the event's own title, dates, venue, description */
@@ -193,10 +233,84 @@ router.patch('/head/events/:id/activities/:activityId/registration', ...head(asy
 }));
 
 /* POST /head/events/:id/guidelines-upload — a guidelines file for the form */
-router.post('/head/events/:id/guidelines-upload', portal.requireGalore, uploadDocumentMemory.single('file'), handle(async (req, res) => {
+router.post('/head/events/:id/guidelines-upload', portal.requireGalore, uploadDocumentSingle('file'), handle(async (req, res) => {
   await portal.assertHead(req.galore.email, req.params.id);
   if (!req.file) return res.status(400).json({ message: 'Choose a file.' });
   res.json({ url: await uploadDocumentBuffer(req.file, 'galore-rules'), name: req.file.originalname.slice(0, 255) });
+}));
+
+/* Anyone in this Galore event: a registered student, assigned staff or the head */
+async function assertInEvent(email, eventId) {
+  const [student, staff, heads] = await Promise.all([portal.studentView(email), portal.staffView(email), portal.headView(email)]);
+  if (![...student, ...staff, ...heads].some(x => String(x.event.id) === String(eventId))) {
+    throw new portal.PortalError('You are not part of this Galore event.', 403);
+  }
+}
+
+/* PATCH /head/events/:id/publish { published } — the overall coordinator
+   publishes Galore once departments and activities are in */
+router.patch('/head/events/:id/publish', ...head(async (req, res) => {
+  res.json({ published: await evCtrl.setGalorePublished(req.params.id, !!req.body?.published) });
+}));
+
+/* GET /head/events/:id/template — the usual departments, categories and
+   activities, to start an empty form from */
+router.get('/head/events/:id/template', ...head(async (req, res) => {
+  res.json(galoreForm.DEFAULT_TEMPLATE);
+}));
+
+/* PUT /head/events/:id/about { description } — About Galore text */
+router.put('/head/events/:id/about', ...head(async (req, res) => {
+  res.json({ description: await evCtrl.setGaloreAbout(req.params.id, req.body?.description) });
+}));
+
+/* ── Gallery (services/galoreGallery.js): everyone in the event sees it; only
+   the overall coordinator (and the admin, on the admin side) adds to it ── */
+router.get('/events/:id/gallery', portal.requireGalore, handle(async (req, res) => {
+  await assertInEvent(req.galore.email, req.params.id);
+  res.json({ posts: await gallery.list(req.params.id) });
+}));
+router.post('/head/events/:id/gallery/upload-signature', ...head(async (req, res) => {
+  res.json(gallery.signature(req.body?.kind));
+}));
+router.post('/head/events/:id/gallery', portal.requireGalore, uploadClubFeedMedia.single('media'), handle(async (req, res) => {
+  await portal.assertHead(req.galore.email, req.params.id);
+  res.status(201).json({ post: await gallery.create(req.params.id, req.body, req.file, { name: req.galore.name || req.galore.email, role: 'head' }) });
+}));
+router.delete('/head/events/:id/gallery/:postId', ...head(async (req, res) => {
+  await gallery.remove(req.params.id, req.params.postId);
+  res.json({ message: 'Removed.' });
+}));
+
+/* ── Student of the Year (services/galoreSoty.js) ── */
+
+/* GET /events/:id/soty — the published contest ({ contest: null } until then);
+   for a student also who they are and their entry so far. Anyone in the event. */
+router.get('/events/:id/soty', portal.requireGalore, handle(async (req, res) => {
+  const email = req.galore.email;
+  const [student, staff, heads] = await Promise.all([portal.studentView(email), portal.staffView(email), portal.headView(email)]);
+  const inEvent = [...student, ...staff, ...heads].some(x => String(x.event.id) === String(req.params.id));
+  if (!inEvent) throw new portal.PortalError('You are not part of this Galore event.', 403);
+  res.json(await soty.portalView(email, req.params.id));
+}));
+
+/* POST /events/:id/soty — a student enters, or changes their entry (multipart,
+   `document` = one PDF ≤ 10 MB; optional when changing an entry) */
+router.post('/events/:id/soty', portal.requireGalore, soty.uploadPdf('document'), handle(async (req, res) => {
+  res.json({ entry: await soty.submitEntry(req.galore.email, req.params.id, req.body, req.file) });
+}));
+
+/* GET   /head/events/:id/soty — the main coordinator: the contestants */
+router.get('/head/events/:id/soty', ...head(async (req, res) => {
+  const out = await soty.listEntries(req.params.id);
+  if (!out.contest?.published) return res.json({ contest: null, entries: [] });
+  res.json(out);
+}));
+
+/* PATCH /head/events/:id/soty { opensOn, deadline } — when entries are taken */
+router.patch('/head/events/:id/soty', ...head(async (req, res) => {
+  const b = req.body || {};
+  res.json({ contest: await soty.setDates(req.params.id, { ...('opensOn' in b ? { opensOn: b.opensOn } : {}), ...('deadline' in b ? { deadline: b.deadline } : {}) }) });
 }));
 
 module.exports = router;

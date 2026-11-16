@@ -2002,6 +2002,19 @@ button.sportsPanelTrigger:hover {
 .galoreTheme .regSubmitBtn { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); }
 .galoreTheme .regSuccessIcon { background: linear-gradient(135deg, #dc2626, #b91c1c); }
 
+/* Galore logos across the top of the registration modal — inset equally on both
+   sides so the row stays centred and clear of the ✕ — then the event's name
+   centred beneath them */
+.galoreModalLogos { width: calc(100% - 40px); margin: 0 auto 18px; }
+.galoreModalHead { text-align: center; }
+/* the ✕ tucked into the card's very corner, above the logo row (which starts
+   at the card's 36px top padding), so it never sits on the right-hand logo */
+.galoreTheme .modalClose { top: 6px; right: 6px; width: 28px; height: 28px; font-size: 12px; z-index: 2; }
+.galoreModalHead .regLoggedIn { justify-content: center; }
+@media (max-width: 480px) {
+  .galoreModalLogos { width: calc(100% - 24px); margin-top: 14px; }
+}
+
 /* Verified / looked-up student details — plain rows on the white background,
    "LABEL : value", no box around them */
 .galoreInfo { padding: 2px 0; }

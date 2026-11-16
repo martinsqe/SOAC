@@ -4,7 +4,7 @@ import GaloreRegistrations from './GaloreRegistrations';
 import {
   EventHeader, Label, Stats, Table, TBA, FileLink, FixtureList, TeamList, VerifyParticipant, Empty, Notice,
 } from './GaloreUI';
-import { useSections, whenOf, findClashes } from './galoreHelpers';
+import { whenOf, findClashes } from './galoreHelpers';
 import s from './Galore.module.css';
 
 /* Department coordinator and/or activity coordinator — one Galore event, only
@@ -13,7 +13,7 @@ import s from './Galore.module.css';
                                department, teams, fixtures, checking participants
      • department coordinator — their department: its students in every activity
    Overview · Registrations · Teams & fixtures · Verify participant */
-export default function GaloreStaff({ data }) {
+export default function GaloreStaff({ data, section = 'overview' }) {
   const { event, activities, departments } = data;
   const isAct = activities.length > 0, isDept = departments.length > 0;
   const role = isAct && isDept ? 'Activity & department coordinator' : isAct ? 'Activity coordinator' : 'Department coordinator';
@@ -23,11 +23,6 @@ export default function GaloreStaff({ data }) {
   const [teams, setTeams] = useState(null); // { [activityId]: teams[] }
   const [fixtures, setFixtures] = useState({});
 
-  const [section, tabs] = useSections([
-    ['overview', 'Overview'],
-    ['registrations', 'Registrations'],
-    ...(isAct ? [['teams', 'Teams & fixtures'], ['verify', 'Verify participant']] : []),
-  ]);
 
   useEffect(() => {
     galoreApi.get(`/events/${event.id}/registrations`).then(d => setRegs(d.registrations || [])).catch(err => setError(err.message));
@@ -51,7 +46,7 @@ export default function GaloreStaff({ data }) {
   return (
     <div className={s.card}>
       <EventHeader role={role} event={event} />
-      {tabs}
+      <div className={s.pageGap} />
       {error && <div className={s.error}>{error}</div>}
 
       {section === 'overview' && (
@@ -111,7 +106,11 @@ export default function GaloreStaff({ data }) {
         </>
       )}
 
-      {section === 'registrations' && <GaloreRegistrations registrations={regs} error={error} fileBase={event.title} />}
+      {section === 'registrations' && (
+        <GaloreRegistrations
+          registrations={regs === null ? null : isAct && !isDept ? myActRegs : isDept && !isAct ? myDeptRegs : regs}
+          error={error} fileBase={event.title} />
+      )}
 
       {section === 'teams' && activities.map(a => (
         <div key={a.id} style={{ marginBottom: 18 }}>

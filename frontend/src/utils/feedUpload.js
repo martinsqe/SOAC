@@ -104,6 +104,45 @@ export async function postToClubFeed({ clubId, caption, file, onProgress = () =>
   });
 }
 
+/* The same fast path for any media list that hands out its own signatures
+   (the Galore gallery). getSignature(kind) → signature or { direct: false };
+   saveJson(body) saves a direct upload; saveForm(formData) the fallback. */
+export async function postMediaVia({ caption = '', file, getSignature, saveJson, saveForm, onProgress = () => {} }) {
+  const kind = file.type.startsWith('video/') ? 'video' : 'image';
+  if (kind === 'video' && file.size > MAX_VIDEO_MB * 1024 * 1024) {
+    throw new Error(`Videos can be up to ${MAX_VIDEO_MB} MB. Please choose a shorter clip.`);
+  }
+  onProgress('preparing', 0);
+  const toSend = kind === 'image' ? await compressImage(file) : file;
+  const sig = await getSignature(kind);
+  if (!sig.direct) {
+    onProgress('uploading', 0);
+    const fd = new FormData();
+    fd.append('caption', caption);
+    fd.append('media', toSend);
+    const res = await saveForm(fd);
+    onProgress('saving', 100);
+    return res;
+  }
+  const fd = new FormData();
+  fd.append('file', toSend);
+  fd.append('api_key', sig.apiKey);
+  fd.append('timestamp', sig.timestamp);
+  fd.append('folder', sig.folder);
+  fd.append('allowed_formats', sig.allowed_formats);
+  fd.append('signature', sig.signature);
+  const uploaded = await xhrUpload(
+    `https://api.cloudinary.com/v1_1/${sig.cloudName}/${sig.resourceType}/upload`,
+    fd,
+    (pct) => onProgress('uploading', pct),
+  );
+  onProgress('saving', 100);
+  return saveJson({
+    caption, mediaUrl: uploaded.secure_url, mediaType: sig.resourceType,
+    width: uploaded.width || 0, height: uploaded.height || 0,
+  });
+}
+
 /* Button text for the current step */
 export const progressLabel = (p) => (!p ? null
   : p.stage === 'preparing' ? 'Preparing…'

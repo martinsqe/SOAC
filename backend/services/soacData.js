@@ -696,6 +696,11 @@ const runSoacTablesSetup = async () => {
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_club_feed_club    ON club_feed_posts(club_id)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_club_feed_student ON club_feed_posts(student_id)`);
 
+  /* Galore: the admin creates the event and names its overall coordinator; the
+     coordinator adds the rest and publishes it. Until then it's hidden from
+     students (events list, event page, registration). Existing events stay live. */
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS galore_published BOOLEAN NOT NULL DEFAULT true`);
+
   /* ── Student activity claims (a student reports an activity that was never
      recorded on SOAC, with proof; the club's SC / FA verifies it). Approved
      claims are merged into the student's activity — see buildActivity in
@@ -1067,6 +1072,7 @@ const asEvent = (row) => ({
   minTeamSize: Number(row.min_team_size || 0),
   parentEventId: row.parent_event_id ? String(row.parent_event_id) : null,
   genderSplit: !!row.gender_split, // Galore activity: runs separate boys/girls divisions
+  galorePublished: row.galore_published !== false, // Galore umbrella: published by its overall coordinator
   customFields: Array.isArray(row.custom_fields) ? row.custom_fields : [],
   objective: row.objective || '',
   expectedOutcome: row.expected_outcome || '',

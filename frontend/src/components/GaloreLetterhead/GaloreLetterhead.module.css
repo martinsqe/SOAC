@@ -1,0 +1,108 @@
+/* Galore letterhead — everything sits on one white sheet: logos, grey nav
+   strip, deadline statement, then the page content in a soft panel. Always
+   light (the logos have white backgrounds). */
+.sheet {
+  background: #fff;
+  color: #111827;
+  border-radius: 18px;
+  box-shadow: 0 1px 2px rgba(17, 24, 39, .04), 0 10px 30px rgba(17, 24, 39, .06);
+  padding: clamp(14px, 2.4vw, 28px) clamp(12px, 2.6vw, 32px) clamp(16px, 2.6vw, 32px);
+  min-width: 0;
+}
+
+/* On a page that's already plain white: no card edge, just the content */
+.plain { box-shadow: none; border-radius: 0; padding-left: 0; padding-right: 0; padding-top: 0; }
+
+/* ── Logos: arcs · RK University · Galore · arcs, centred on one row ── */
+/* Widths are shares of the row worked out from each image's shape, so the
+   arcs are always the same height and the two marks 72% of that, on every
+   screen: arcs 27.2% / 24.3%, RK University 24.4%, Galore 17.5%, and the
+   three gaps share what's left. */
+.logos {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; max-width: 760px;
+  margin: 0 auto clamp(12px, 2vw, 22px);
+}
+.logos img { display: block; height: auto; min-width: 0; flex: none; }
+.logo1 { width: 27.2%; }
+.logo2 { width: 24.4%; }
+.logo3 { width: 17.5%; }
+.logo4 { width: 24.3%; }
+
+/* ── Grey nav strip ── */
+.strip {
+  background: #ebebeb;
+  border-radius: 999px;
+  padding: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.strip::-webkit-scrollbar { display: none; }
+.stripInner {
+  display: flex; align-items: center; justify-content: safe center;
+  min-width: max-content; margin: 0 auto;
+}
+/* Pages are plain words on the grey — no pill around any of them; the page
+   showing is bold black. Equal padding either side of every word, with a "|"
+   exactly on the boundary between two words, so each separator sits midway. */
+.navBtn {
+  position: relative;
+  display: inline-flex; flex-direction: column; align-items: center;
+  border: none; background: none; cursor: pointer; font-family: inherit;
+  font-size: .9rem; font-weight: 500; color: #4b5563; line-height: 1.2;
+  padding: 9px clamp(12px, 1.8vw, 22px); white-space: nowrap;
+  transition: color .15s;
+}
+/* holds the bold width so words don't shift when a page becomes bold */
+.navBtn::after {
+  content: attr(data-label); font-weight: 800;
+  height: 0; overflow: hidden; visibility: hidden; pointer-events: none;
+}
+/* the "|" separators */
+.navBtn + .navBtn::before {
+  content: ''; position: absolute; left: 0; top: 50%;
+  width: 1.5px; height: 1.05em; transform: translate(-50%, -50%);
+  background: #8f8f8f; border-radius: 1px;
+}
+.navBtn:hover { color: #111827; }
+.navOn, .navOn:hover { color: #000; font-weight: 800; }
+.navBtn:focus-visible { outline: 2px solid #dc2626; outline-offset: -2px; border-radius: 6px; }
+
+/* ── "Last date of registration" statement ── */
+.deadline {
+  text-align: center; font-weight: 800; color: #111827;
+  font-size: clamp(.9rem, 1.6vw, 1.02rem);
+  margin: clamp(12px, 2vw, 18px) 0 clamp(14px, 2.2vw, 22px);
+  overflow-wrap: anywhere;
+}
+.deadlineGap { height: clamp(14px, 2.2vw, 22px); }
+.deadlineLink {
+  border: none; background: none; color: #dc2626; cursor: pointer; font-family: inherit;
+  font-weight: 600; font-size: .82rem; padding: 2px 4px;
+}
+.deadlineLink:hover { text-decoration: underline; }
+.deadlineEdit {
+  display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: clamp(12px, 2vw, 18px) 0 clamp(14px, 2.2vw, 22px);
+}
+.deadlineLabel { font-weight: 800; color: #111827; font-size: .95rem; }
+.deadlineEdit input {
+  flex: 0 1 200px; min-width: 0;
+  padding: 9px 12px; border: 1.5px solid #e5e7eb; border-radius: 10px; font: inherit; font-size: .9rem; outline: none;
+}
+.deadlineEdit input:focus { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, .12); }
+.deadlineSave {
+  border: none; border-radius: 10px; padding: 9px 16px; font: inherit; font-weight: 700; font-size: .85rem;
+  background: #dc2626; color: #fff; cursor: pointer;
+}
+.deadlineSave:disabled { opacity: .6; cursor: not-allowed; }
+.deadlineErr { flex-basis: 100%; text-align: center; color: #b91c1c; font-size: .8rem; }
+
+/* ── Content under the strip: plain white, like the logos — only the strip
+   is grey ── */
+.body { background: #fff; min-width: 0; }
+
+@media (max-width: 560px) {
+  .sheet { border-radius: 14px; }
+  .navBtn { font-size: .84rem; }
+}

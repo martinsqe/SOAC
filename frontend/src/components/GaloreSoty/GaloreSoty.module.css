@@ -1,0 +1,139 @@
+/* Galore — Student of the Year: the entry form (laid out like the university's
+   own form: bold blue labels on the right, the field beside them) and the
+   contestants list. Always light, on the letterhead's white. */
+
+/* ── Entry form ── */
+.form {
+  max-width: 760px; margin: 0 auto;
+  border: 1px solid #ececec; border-radius: 14px; background: #fff;
+  padding: clamp(16px, 3vw, 30px) clamp(14px, 3vw, 34px);
+  color: #111827;
+}
+.title {
+  text-align: center; color: #7a1f8c; font-weight: 700;
+  font-size: clamp(1.25rem, 2.6vw, 1.6rem); margin: 0 0 6px;
+}
+.note { text-align: center; color: #6b7280; font-size: .84rem; margin: 0 0 18px; }
+.note strong { color: #111827; }
+
+.row {
+  display: grid; grid-template-columns: minmax(0, 40%) minmax(0, 1fr);
+  column-gap: 14px; align-items: start; margin-bottom: 14px;
+}
+.label {
+  text-align: right; color: #1d4ed8; font-weight: 700; font-size: .92rem; line-height: 1.3;
+  padding-top: 8px;
+}
+.idRows { margin-bottom: 18px; }
+.idRow { margin-bottom: 4px; }
+.idRow .label { padding-top: 0; }
+.idValue { font-weight: 600; color: #111827; font-size: .92rem; min-height: 1.2em; overflow-wrap: anywhere; }
+
+.field { min-width: 0; }
+.input, .textarea {
+  width: 100%; box-sizing: border-box; border: 1px solid #d9d9d9; background: #fff; color: #111827;
+  border-radius: 999px; padding: 8px 14px; font: inherit; font-size: .92rem; outline: none;
+}
+.textarea { border-radius: 14px; min-height: 96px; resize: vertical; line-height: 1.45; }
+.input:focus, .textarea:focus { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, .12); }
+.input[readonly] { background: #f7f7f7; color: #374151; }
+.input:disabled, .textarea:disabled { background: #f7f7f7; color: #374151; }
+.withUnit { display: flex; align-items: center; gap: 6px; }
+.unit { font-weight: 700; color: #374151; }
+.hint { font-size: .74rem; font-weight: 700; color: #111827; margin-top: 3px; }
+.count { font-weight: 500; color: #6b7280; margin-left: 6px; }
+.countOver { color: #b91c1c; }
+
+.file {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  border: 1px solid #d9d9d9; border-radius: 999px; padding: 5px 6px 5px 6px; background: #fff;
+}
+.fileBtn {
+  border: 1px solid #c9c9c9; background: #f3f3f3; border-radius: 6px; padding: 5px 10px;
+  font: inherit; font-size: .82rem; cursor: pointer; color: #111827;
+}
+.fileBtn:disabled { cursor: not-allowed; opacity: .6; }
+.fileName { font-size: .85rem; color: #374151; min-width: 0; overflow-wrap: anywhere; }
+.fileOnRecord { font-size: .78rem; color: #6b7280; margin-top: 4px; }
+.fileOnRecord a { color: #b91c1c; font-weight: 600; }
+
+.submitRow { display: grid; grid-template-columns: minmax(0, 40%) minmax(0, 1fr); column-gap: 14px; margin-top: 6px; }
+.submit {
+  justify-self: start; border: none; border-radius: 999px; background: #dc2626; color: #fff;
+  font: inherit; font-weight: 700; font-size: .9rem; padding: 8px 26px; cursor: pointer;
+}
+.submit:hover { background: #b91c1c; }
+.submit:disabled { opacity: .6; cursor: not-allowed; }
+
+.error, .ok {
+  border-radius: 10px; padding: 9px 12px; font-size: .86rem; margin: 0 0 14px; text-align: center;
+}
+.error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+.ok { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+
+/* phones: the label sits above its field */
+@media (max-width: 600px) {
+  .row, .submitRow { grid-template-columns: 1fr; }
+  .label { text-align: left; padding-top: 0; margin-bottom: 5px; }
+  .idRow { grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; }
+  .idRow .label { margin-bottom: 0; }
+  .submit { justify-self: stretch; }
+}
+
+/* ── Contestants ── */
+.listHead {
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; margin-bottom: 14px;
+}
+.listTitle { margin: 0 0 4px; font-size: 1.1rem; font-weight: 800; color: #111827; }
+.muted { font-size: .85rem; color: #6b7280; margin: 0; }
+.btn {
+  border: 1.5px solid #e5e7eb; background: #fff; color: #374151; border-radius: 10px;
+  padding: 7px 14px; font: inherit; font-size: .84rem; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.btn:hover { border-color: #dc2626; color: #b91c1c; }
+.btnDanger { color: #b91c1c; border-color: #fecaca; }
+.btnDanger:hover { background: #fef2f2; }
+.empty {
+  text-align: center; color: #6b7280; font-size: .9rem; padding: 34px 16px;
+  border: 1px dashed #e5e7eb; border-radius: 12px;
+}
+.tableWrap { overflow-x: auto; border: 1px solid #ececec; border-radius: 12px; }
+.table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+.table th {
+  text-align: left; background: #fafafa; color: #6b7280; font-size: .7rem; font-weight: 800;
+  letter-spacing: .05em; text-transform: uppercase; padding: 9px 12px; white-space: nowrap; border-bottom: 1px solid #ececec;
+}
+.table td { padding: 9px 12px; border-bottom: 1px solid #f3f3f3; vertical-align: top; color: #111827; }
+.table tbody tr:last-child td { border-bottom: none; }
+.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.nowrap { white-space: nowrap; }
+.rowBtn { border: none; background: none; padding: 0; font: inherit; font-weight: 700; color: #111827; cursor: pointer; text-align: left; }
+.rowBtn:hover { color: #b91c1c; }
+.chev { display: inline-block; width: 10px; margin-right: 6px; color: #9ca3af; transition: transform .15s; }
+.chevOpen { transform: rotate(90deg); }
+.details td { background: #fcfcfc; }
+.detailGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; padding: 4px 0; }
+.detailLabel { font-size: .7rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: #9ca3af; margin-bottom: 4px; }
+.detailText { white-space: pre-line; line-height: 1.5; color: #374151; overflow-wrap: anywhere; }
+.link { color: #b91c1c; font-weight: 600; }
+
+/* ── Registration dates (admin / main coordinator) ── */
+.dates {
+  border: 1px solid #ececec; border-radius: 14px; background: #fff; padding: 16px clamp(14px, 3vw, 22px);
+  display: grid; gap: 12px; margin-bottom: 18px;
+}
+.datesHead { text-align: center; }
+.datesTitle { margin: 0 0 4px; font-size: 1rem; font-weight: 800; color: #111827; }
+.datesRow { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; justify-content: center; }
+.datesField { display: grid; gap: 5px; flex: 1 1 200px; max-width: 260px; font-size: .8rem; font-weight: 700; color: #1d4ed8; }
+.datesField .input { border-radius: 10px; }
+.dates .submit { padding: 9px 22px; }
+.dates .error, .dates .ok { margin: 0; }
+
+/* ── Student: before registration opens ── */
+.soon {
+  max-width: 560px; margin: 0 auto; text-align: center; border: 1px solid #ececec; border-radius: 14px;
+  background: #fff; padding: clamp(28px, 6vw, 48px) 20px;
+}
+.soonTitle { margin: 0 0 8px; color: #7a1f8c; font-weight: 700; font-size: clamp(1.15rem, 2.4vw, 1.4rem); }
+.soonText { margin: 0; color: #374151; font-size: 1rem; font-weight: 600; }

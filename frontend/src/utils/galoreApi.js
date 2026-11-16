@@ -36,4 +36,5 @@ export const galoreApi = {
   put:      (path, body) => request('PUT', path, body || {}),
   patch:    (path, body) => request('PATCH', path, body || {}),
   postForm: (path, fd)   => request('POST', path, fd),
+  del:      (path)       => request('DELETE', path),
 };

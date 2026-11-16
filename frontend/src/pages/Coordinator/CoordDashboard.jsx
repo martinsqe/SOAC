@@ -102,7 +102,7 @@ export default function CoordDashboard() {
       // pagination.total (not requests.length) is what drives the actual count shown elsewhere.
       api.get(`/requests?clubId=${clubId}&status=pending&limit=3`).catch(() => ({ requests: [], pagination: { total: 0 } })),
       // Use clubId param (not club name) to avoid mismatches with special chars
-      api.get(`/events?clubId=${clubId}`).catch(() => api.get(`/events?club=${encodeURIComponent(club.name)}`).catch(() => ({ events: [] }))),
+      api.get(`/events?clubId=${clubId}&limit=200`).catch(() => api.get(`/events?club=${encodeURIComponent(club.name)}`).catch(() => ({ events: [] }))),
     ]).then(([mRes, rRes, eRes]) => {
       setMembers(mRes.members || []);
       setRequests(rRes.requests || []);

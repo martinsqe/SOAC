@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { galoreApi, galoreToken } from '../../utils/galoreApi';
+import { GaloreLogos } from '../../components/GaloreLetterhead/GaloreLetterhead';
 import s from './Galore.module.css';
 
 /* Galore portal login — separate from the SOAC club login (/login). Students,
@@ -43,15 +44,11 @@ export default function GaloreLogin() {
   };
 
   return (
-    <div className={`${s.page} ${s.dashboard}`}>
-      <div className={s.dashBody}>
-      <div className={s.loginBar}>
-        <Link to="/events" className={s.backBtn}>Back to events</Link>
-      </div>
-      <div className={`${s.wrap} ${s.loginWrap}`}>
-        <img src="/galore/logos.webp" alt="RK University · Galore" className={s.dashLogos} width="1100" height="439" />
+    <div className={`${s.page} ${s.loginPage}`}>
+      <main className={s.loginMain}>
+        <GaloreLogos className={s.loginLogos} />
         <div className={`${s.card} ${s.loginBox}`}>
-          <h1 className={s.cardTitle} style={{ fontSize: '1.5rem' }}>{mode === 'login' ? 'Galore Login' : 'Forgot password'}</h1>
+          <h1 className={s.cardTitle} style={{ fontSize: '1.5rem', textAlign: 'center' }}>{mode === 'login' ? 'Login' : 'Forgot password'}</h1>
           <p className={s.muted} style={{ margin: '0 0 18px' }}>
             {mode === 'login'
               ? 'Use the email and temporary password from your Galore email. This is separate from your SOAC club login.'
@@ -80,8 +77,8 @@ export default function GaloreLogin() {
             </button>
           </div>
         </div>
-      </div>
-      </div>
+      </main>
+      <Link to="/events" className={`${s.backBtn} ${s.loginBack}`}>Back to events</Link>
     </div>
   );
 }

@@ -1,31 +1,39 @@
-import { useState } from 'react';
 import { TBA } from './GaloreUI';
-import s from './Galore.module.css';
 
 /* Helpers shared by every Galore dashboard (kept apart from the components in
    GaloreUI.jsx so fast refresh keeps working). */
 
 export const whenOf = (a) => ([a.dateLabel, a.time].filter(Boolean).join(', ') || <TBA />);
 export const typeLabel = (a) =>
-  (a.participationType === 'team' ? `Team (${a.minTeamSize}–${a.teamSize})` : 'Individual') + (a.genderSplit ? ' · Boys/Girls' : '');
+  (a.participationType !== 'team' ? 'Individual'
+    : Number(a.minTeamSize) === 2 && Number(a.teamSize) === 2 ? 'Duo'
+    : `Team (${a.minTeamSize}–${a.teamSize} players)`) + (a.genderSplit ? ' · Boys/Girls' : '');
 
 
-/* Section tabs — the same row under every event header */
-export function useSections(items) {
-  const [value, setValue] = useState(items[0]?.[0]);
-  const current = items.some(([k]) => k === value) ? value : items[0]?.[0];
-  const bar = (
-    <div className={s.sections} role="tablist">
-      {items.map(([k, label]) => (
-        <button key={k} role="tab" aria-selected={current === k}
-          className={`${s.sectionTab} ${current === k ? s.sectionTabOn : ''}`} onClick={() => setValue(k)}>
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-  return [current, bar];
-}
+/* Each role's pages — shown in the letterhead's grey nav strip (GalorePortal);
+   the role's dashboard renders whichever page is picked there. */
+/* The main coordinator's Overview, Registrations, People, Galore form and
+   Event details live together under "Manage event" (cards that open each one).
+   soty = Student of the Year is published: the main coordinator sees its
+   contestants, a student its entry form */
+export const headPages = (soty = false) => [
+  ['manage', 'Manage event'], ['schedule', 'Schedule'], ['departments', 'Departments'],
+  ...(soty ? [['soty', 'Student of the Year']] : []),
+];
+export const staffPages = (list) => {
+  const isAct = list.some(x => x.activities.length > 0);
+  return [
+    ['overview', 'Overview'],
+    ['registrations', 'Registrations'],
+    ...(isAct ? [['teams', 'Teams & fixtures'], ['verify', 'Verify participant']] : []),
+  ];
+};
+/* …and the pages every logged-in role has after its own */
+export const commonPages = () => [['coordinators', 'Coordinators'], ['about', 'About Galore'], ['gallery', 'Gallery']];
+export const studentPages = (list, soty = false) => {
+  const n = list.reduce((sum, x) => sum + x.activities.length, 0);
+  return [['timetable', 'Timetable'], ['activities', `My activities (${n})`], ...(soty ? [['soty', 'Student of the Year']] : [])];
+};
 
 
 /* ── Scheduling conflicts: two activities on the same date at the same time.

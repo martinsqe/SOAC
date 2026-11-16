@@ -5,9 +5,11 @@ const groupCtrl   = require('../controllers/eventGroups.controller');
 const certCtrl    = require('../controllers/certificates.controller');
 const attendCtrl  = require('../controllers/eventAttendance.controller');
 const cd          = require('../controllers/clubDetail.controller');
+const sotyCtrl    = require('../controllers/galoreSoty.controller');
+const galleryCtrl = require('../controllers/galoreGallery.controller');
 const { verifyToken, optionalAuth } = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/requireAdmin');
-const { uploadEvent, uploadEventMemory, uploadCertTemplate, uploadDocumentMemory } = require('../config/multer');
+const { uploadEvent, uploadEventMemory, uploadCertTemplate, uploadDocumentSingle, uploadClubFeedMedia } = require('../config/multer');
 const { eventRegisterLimiter } = require('../middleware/rateLimits');
 
 const requireCoordOrAdmin = (req, res, next) => {
@@ -61,13 +63,32 @@ router.get('/past-scores',       optionalAuth, redactEventContacts, ctrl.getPast
 router.get('/galore/template',       verifyToken, requireAdmin, ctrl.getGaloreTemplate);
 router.get('/galore/coordinators',   verifyToken, requireAdmin, ctrl.getGaloreCoordinators);
 router.post('/galore',               verifyToken, requireAdmin, uploadEventMemory.single('image'), ctrl.createGaloreEvent);
-router.post('/galore/rules-upload',  verifyToken, requireAdmin, uploadDocumentMemory.single('file'), ctrl.uploadGaloreRules);
+router.post('/galore/rules-upload',  verifyToken, requireAdmin, uploadDocumentSingle('file'), ctrl.uploadGaloreRules);
 router.get('/my-assignments',       verifyToken, requireCoordOrAdmin, ctrl.getMyAssignments);
 router.get('/:id',               optionalAuth, redactEventContacts, ctrl.getOne);
 router.get('/:id/activities',    optionalAuth, redactEventContacts, ctrl.getActivities); /* public — Galore umbrella's child activities */
 router.get('/:id/galore-form',   ctrl.getGaloreFormPublic); /* public — builds the Galore registration form */
 router.get('/:id/galore-setup',  verifyToken, requireAdmin, ctrl.getGaloreSetup);
+router.get('/:id/galore-deadline', ctrl.getGaloreDeadline); /* public — "Last Date of Registration" line */
+router.put('/:id/galore-deadline', verifyToken, requireAdmin, ctrl.updateGaloreDeadline);
+/* Student of the Year — the admin creates / publishes it and sees the contestants */
+router.get('/:id/soty',                     verifyToken, requireAdmin, sotyCtrl.get);
+router.put('/:id/soty',                     verifyToken, requireAdmin, sotyCtrl.save);
+router.put('/:id/soty/deadline',            verifyToken, requireAdmin, sotyCtrl.saveDeadline);
+router.put('/:id/soty/dates',               verifyToken, requireAdmin, sotyCtrl.saveDates);
+router.delete('/:id/soty/entries/:entryId', verifyToken, requireAdmin, sotyCtrl.removeEntry);
 router.put('/:id/galore-form',   verifyToken, requireAdmin, ctrl.updateGaloreForm);
+router.put('/:id/galore-head',   verifyToken, requireAdmin, ctrl.updateGaloreHead);  /* the admin's part: the overall coordinator */
+router.put('/:id/galore-about',  verifyToken, requireAdmin, ctrl.updateGaloreAbout); /* About Galore text */
+/* the overall coordinator's unsaved Galore form draft, so the admin sees work in progress */
+router.get('/:id/galore-draft',  verifyToken, requireAdmin, async (req, res, next) => {
+  try { res.json({ draft: await require('../services/galoreDraft').get(req.params.id) }); } catch (err) { next(err); }
+});
+/* Gallery — the admin (and the overall coordinator, in the Galore portal) add photos / videos */
+router.get('/:id/gallery',                   verifyToken, requireAdmin, galleryCtrl.list);
+router.post('/:id/gallery/upload-signature', verifyToken, requireAdmin, galleryCtrl.signature);
+router.post('/:id/gallery',                  verifyToken, requireAdmin, uploadClubFeedMedia.single('media'), galleryCtrl.create);
+router.delete('/:id/gallery/:postId',        verifyToken, requireAdmin, galleryCtrl.remove);
 router.get('/:id/department-registrations', verifyToken, requireCoordOrAdmin, ctrl.getDepartmentRegistrations);
 router.post('/',       verifyToken, requireCoordOrAdmin, uploadEvent.single('image'), ctrl.create);
 router.post('/past-report', verifyToken, requireCoordOrAdmin, ctrl.createPastEventForReport); /* report for an event held outside the system */

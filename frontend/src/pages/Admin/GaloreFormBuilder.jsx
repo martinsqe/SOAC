@@ -10,6 +10,7 @@
 import { useState, useRef } from 'react';
 import api from '../../api/client';
 import { blankActivity, blankCategory, blankDepartment } from '../../utils/galoreForm';
+import { uploadGuidelines, GUIDELINES_ACCEPT } from '../../utils/guidelinesFile';
 
 /* Guidelines file (PDF / Word / image) — uploaded straight away; the
    returned link is kept on the activity (or the event) until the form is saved.
@@ -30,27 +31,28 @@ function RulesUpload({ url, name, onChange, label = 'Upload guidelines', upload 
     e.target.value = '';
     if (!f) return;
     setBusy(true); setErr('');
-    try {
-      const d = await upload(f);
-      onChange({ rulesUrl: d.url, rulesName: d.name });
-    } catch (ex) { setErr(ex.message || 'Upload failed.'); }
+    try { onChange(await uploadGuidelines(upload, f)); }
+    catch (ex) { setErr(ex.message || 'Upload failed — please try again.'); }
     finally { setBusy(false); }
   };
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: '.78rem' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: '.78rem', minWidth: 0 }}>
       {url ? (
         <>
-          <a href={url} target="_blank" rel="noreferrer" style={{ color: '#047857', fontWeight: 600, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name || 'Guidelines'}</a>
+          <span style={{ color: '#047857', fontWeight: 700 }} aria-hidden="true">✓</span>
+          <a href={url} target="_blank" rel="noreferrer" title={name || 'Guidelines'}
+            style={{ color: '#047857', fontWeight: 600, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name || 'Guidelines'}</a>
           <button type="button" onClick={() => ref.current.click()} disabled={busy} style={linkBtn}>{busy ? 'Uploading…' : 'Replace'}</button>
-          <button type="button" onClick={() => onChange({ rulesUrl: '', rulesName: '' })} style={{ ...linkBtn, color: '#9ca3af' }}>Remove</button>
+          <button type="button" onClick={() => { setErr(''); onChange({ rulesUrl: '', rulesName: '' }); }} disabled={busy} style={{ ...linkBtn, color: '#9ca3af' }}>Remove</button>
         </>
       ) : (
         <button type="button" onClick={() => ref.current.click()} disabled={busy} style={{ ...addBtn, padding: '5px 10px' }}>
           {busy ? 'Uploading…' : label}
         </button>
       )}
-      <input ref={ref} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp" style={{ display: 'none' }} onChange={pick} />
-      {err && <span style={{ color: '#dc2626' }}>{err}</span>}
+      <input ref={ref} type="file" accept={GUIDELINES_ACCEPT} style={{ display: 'none' }} onChange={pick} />
+      {!url && !busy && !err && <span style={{ color: '#9ca3af' }}>PDF, Word or image · up to 15 MB</span>}
+      {err && <span style={{ color: '#dc2626', flexBasis: '100%' }}>{err}</span>}
     </span>
   );
 }
@@ -66,6 +68,39 @@ const addBtn      = { border: '1.5px dashed #c7d2fe', background: '#fff', color:
 const isEmailLike = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim());
 const linkBtn     = { border: 'none', background: 'none', color: '#635BFF', cursor: 'pointer', fontSize: '.76rem', padding: 0, fontFamily: 'inherit' };
 const smallLabel  = { fontSize: '.72rem', color: '#6b7280', display: 'flex', alignItems: 'center', gap: 4 };
+const playersLabel = { fontSize: '.8rem', fontWeight: 700, color: '#374151', display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' };
+
+/* An email box that takes an address the way people actually enter it: no
+   auto-capitalising or autocorrect on phones, spaces dropped, and a pasted
+   "Name <name@rku.ac.in>" or "mailto:name@rku.ac.in" reduced to the address.
+   It's lower-cased when they leave the box; a mistake is pointed out then too. */
+const cleanEmail = (v) => {
+  const s = String(v || '');
+  const m = s.match(/[^\s<>()"',;:]+@[^\s<>()"',;:]+\.[^\s<>()"',;:]+/);
+  return (m ? m[0] : s.replace(/^mailto:/i, '')).replace(/\s+/g, '').replace(/[.,;]+$/, '').toLowerCase();
+};
+function EmailField({ value, onChange, placeholder = 'Their email', style, required = true }) {
+  const [touched, setTouched] = useState(false);
+  const v = value || '';
+  const bad = v.trim() ? !isEmailLike(v) : required;
+  const showErr = touched && v.trim() && !isEmailLike(v);
+  return (
+    <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, ...style }}>
+      <input
+        type="text" inputMode="email" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+        style={{ ...input(bad && (touched || !v.trim())), width: '100%', boxSizing: 'border-box' }}
+        maxLength={255} placeholder={placeholder} value={v} aria-invalid={showErr || undefined}
+        onChange={e => onChange(e.target.value.replace(/\s+/g, ''))}
+        onPaste={e => {
+          const text = e.clipboardData?.getData('text') || '';
+          if (/[<>\s]|mailto:/i.test(text)) { e.preventDefault(); onChange(cleanEmail(text)); }
+        }}
+        onBlur={() => { setTouched(true); if (v && v !== cleanEmail(v)) onChange(cleanEmail(v)); }}
+      />
+      {showErr && <span style={{ fontSize: '.7rem', color: '#dc2626' }}>Enter a full email, e.g. name@rku.ac.in</span>}
+    </span>
+  );
+}
 
 /* `directory` = the university student directory's departments ({ code, students });
    a Galore department is matched to it by name = code, since students can only
@@ -108,8 +143,8 @@ export default function GaloreFormBuilder({ value, onChange, clubs = [], directo
           <div style={row}>
             <input style={{ ...input(!value.head?.name?.trim()), flex: '1 1 180px' }} maxLength={255} placeholder="Full name"
               value={value.head?.name || ''} onChange={e => set({ head: { ...value.head, name: e.target.value } })} />
-            <input type="email" style={{ ...input(!value.head?.email?.trim()), flex: '2 1 220px' }} maxLength={255} placeholder="Email, e.g. name@rku.ac.in"
-              value={value.head?.email || ''} onChange={e => set({ head: { ...value.head, email: e.target.value } })} />
+            <EmailField style={{ flex: '2 1 220px' }} placeholder="Email, e.g. name@rku.ac.in"
+              value={value.head?.email || ''} onChange={email => set({ head: { ...value.head, email } })} />
           </div>
         </div>
       )}
@@ -128,8 +163,8 @@ export default function GaloreFormBuilder({ value, onChange, clubs = [], directo
               placeholder="Department, e.g. SOE" onChange={e => setDept(d.key, { name: e.target.value })} />
             <input style={{ ...input(!d.coordName.trim()), flex: '1.5 1 160px' }} value={d.coordName} maxLength={255}
               placeholder="Department coordinator's name" onChange={e => setDept(d.key, { coordName: e.target.value })} />
-            <input type="email" style={{ ...input(!isEmailLike(d.coordEmail)), flex: '2 1 200px' }} value={d.coordEmail} maxLength={255}
-              placeholder="Their email" onChange={e => setDept(d.key, { coordEmail: e.target.value })} />
+            <EmailField style={{ flex: '2 1 220px' }} value={d.coordEmail}
+              placeholder="Department coordinator's email" onChange={coordEmail => setDept(d.key, { coordEmail })} />
             {directory && d.name.trim() && (() => {
               const hit = directory.find(x => x.code.toUpperCase() === d.name.trim().toUpperCase());
               return hit && hit.students > 0 ? (
@@ -163,7 +198,8 @@ export default function GaloreFormBuilder({ value, onChange, clubs = [], directo
           Each category is a section of the registration form. Every activity needs the <strong>club</strong> that runs it — it appears as a
           published event on that club's Events page, where its Faculty Advisor and Student Coordinator manage teams, fixtures and results —
           and an <strong>activity coordinator</strong> (name + email), who sees that activity's registrations, teams and fixtures from every department.
-          Open <strong>Schedule &amp; guidelines</strong> on an activity to set its date, time, venue and guidelines file. These can be added later —
+          Pick <strong>Individual</strong>, <strong>Duo</strong> (2 players) or <strong>Team</strong> (with its minimum and maximum players), and upload the
+          activity's <strong>guidelines</strong> (PDF, Word or image) right under it. Open <strong>Date, time &amp; venue</strong> to schedule it. These can be added later —
           until then students and staff see "To be announced" (the event's own date and venue are the whole festival's).
         </p>
         <div style={{ ...row, background: '#fff', border: '1.5px solid #e5e7eb', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
@@ -204,34 +240,41 @@ export default function GaloreFormBuilder({ value, onChange, clubs = [], directo
               {c.activities.map(a => {
                 const locked = a.registrationCount > 0;
                 const isTeam = a.participationType === 'team';
+                const minBad = !(Number(a.minTeamSize) >= 1);
+                const maxBad = !(Number(a.teamSize) >= Number(a.minTeamSize) && Number(a.teamSize) >= 1);
                 return (
                   <div key={a.key} style={{ ...row, paddingLeft: 10, borderLeft: '3px solid #eef2ff' }}>
                     <input style={{ ...input(!a.title.trim()), flex: '1 1 130px' }} value={a.title} maxLength={120}
                       placeholder="Activity, e.g. Football" onChange={e => setAct(c.key, a.key, { title: e.target.value })} />
-                    <select style={{ ...input(false), flex: '0 0 auto' }} value={a.participationType}
-                      onChange={e => setAct(c.key, a.key, { participationType: e.target.value })}>
+                    <select style={{ ...input(false), flex: '0 0 auto' }} value={a.participationType} aria-label="Who takes part"
+                      onChange={e => {
+                        const t = e.target.value;
+                        /* switching to Team from a duo starts from 2 – 2, the rest stays as typed */
+                        setAct(c.key, a.key, t === 'team' && a.participationType === 'duo'
+                          ? { participationType: t, minTeamSize: 2, teamSize: 2 } : { participationType: t });
+                      }}>
                       <option value="individual">Individual</option>
+                      <option value="duo">Duo (2 players)</option>
                       <option value="team">Team</option>
                     </select>
                     {isTeam && (
-                      <span style={smallLabel}>
-                        Team
-                        <input type="number" min={1} style={{ ...input(!(Number(a.minTeamSize) >= 1)), width: 56 }} placeholder="min"
-                          value={a.minTeamSize} onChange={e => setAct(c.key, a.key, { minTeamSize: e.target.value })} />
-                        –
-                        <input type="number" min={1} style={{ ...input(!(Number(a.teamSize) >= Number(a.minTeamSize) && Number(a.teamSize) >= 1)), width: 56 }} placeholder="max"
-                          value={a.teamSize} onChange={e => setAct(c.key, a.key, { teamSize: e.target.value })} />
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <label style={playersLabel}>
+                          Min players
+                          <input type="number" min={1} max={100} inputMode="numeric" style={{ ...input(minBad), width: 64 }}
+                            value={a.minTeamSize} onChange={e => setAct(c.key, a.key, { minTeamSize: e.target.value })} />
+                        </label>
+                        <label style={playersLabel}>
+                          Max players
+                          <input type="number" min={1} max={100} inputMode="numeric" style={{ ...input(maxBad), width: 64 }}
+                            value={a.teamSize} onChange={e => setAct(c.key, a.key, { teamSize: e.target.value })} />
+                        </label>
                       </span>
                     )}
-                    <label style={smallLabel} title="Run separate Boys and Girls divisions">
-                      <input type="checkbox" checked={a.genderSplit}
-                        onChange={e => setAct(c.key, a.key, { genderSplit: e.target.checked })} />
-                      Boys/Girls
-                    </label>
                     <button type="button" style={{ ...linkBtn, whiteSpace: 'nowrap' }} onClick={() => toggleDetails(a.key)}
-                      title="This activity's own date, time, venue and guidelines file">
-                      {openDetails.has(a.key) ? 'Hide schedule & guidelines' : 'Schedule & guidelines'}
-                      {!openDetails.has(a.key) && (a.scheduleDate || a.rulesUrl) ? ` (${[a.scheduleDate && 'date', a.rulesUrl && 'guidelines'].filter(Boolean).join(' and ')} set)` : ''}
+                      title="This activity's own date, time and venue">
+                      {openDetails.has(a.key) ? 'Hide date, time & venue' : 'Date, time & venue'}
+                      {!openDetails.has(a.key) && a.scheduleDate ? ' (date set)' : ''}
                     </button>
                     {locked && <span style={{ fontSize: '.7rem', color: '#6b7280' }}>{a.registrationCount} registered</span>}
                     <button type="button" style={{ ...removeBtn, opacity: locked ? 0.35 : 1, cursor: locked ? 'not-allowed' : 'pointer' }}
@@ -247,8 +290,13 @@ export default function GaloreFormBuilder({ value, onChange, clubs = [], directo
                       </select>
                       <input style={{ ...input(!a.coordinatorName.trim()), flex: '1.5 1 160px' }} value={a.coordinatorName} maxLength={255}
                         placeholder="Activity coordinator's name" onChange={e => setAct(c.key, a.key, { coordinatorName: e.target.value })} />
-                      <input type="email" style={{ ...input(!isEmailLike(a.coordinatorEmail)), flex: '2 1 190px' }} value={a.coordinatorEmail} maxLength={255}
-                        placeholder="Their email" onChange={e => setAct(c.key, a.key, { coordinatorEmail: e.target.value })} />
+                      <EmailField style={{ flex: '2 1 240px' }} value={a.coordinatorEmail}
+                        placeholder="Activity coordinator's email, e.g. name@rku.ac.in" onChange={coordinatorEmail => setAct(c.key, a.key, { coordinatorEmail })} />
+                    </div>
+                    {/* guidelines — always in view, so they're added with the activity */}
+                    <div style={{ ...row, flexBasis: '100%', margin: '0 0 4px' }}>
+                      <span style={{ fontSize: '.76rem', fontWeight: 700, color: '#374151' }}>Guidelines:</span>
+                      <RulesUpload url={a.rulesUrl} name={a.rulesName} label="Upload guidelines" upload={up} onChange={patch => setAct(c.key, a.key, patch)} />
                     </div>
                     {openDetails.has(a.key) && (
                       <div style={{ ...row, flexBasis: '100%', margin: '2px 0 4px', padding: '8px 10px', background: '#f9fafb', borderRadius: 8 }}>
@@ -263,7 +311,6 @@ export default function GaloreFormBuilder({ value, onChange, clubs = [], directo
                           <input style={{ ...input(false), flex: 1 }} maxLength={255} placeholder="e.g. Main Ground" value={a.venue}
                             onChange={e => setAct(c.key, a.key, { venue: e.target.value })} />
                         </label>
-                        <RulesUpload url={a.rulesUrl} name={a.rulesName} label="Upload guidelines" upload={up} onChange={patch => setAct(c.key, a.key, patch)} />
                       </div>
                     )}
                   </div>

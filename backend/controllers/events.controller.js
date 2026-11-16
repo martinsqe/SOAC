@@ -27,8 +27,14 @@ const EVENT_COLS = [
   'event_format', 'captain_name', 'captain_email', 'captain_phone',
   'team_members', 'payment_link', 'team_size', 'min_team_size',
   'parent_event_id', 'custom_fields', 'campus', 'registration_type', 'registration_note',
-  'is_report_only', 'gender_split',
+  'is_report_only', 'gender_split', 'galore_published',
 ].join(', ');
+
+/* An unpublished Galore event (and every activity under it) is hidden from
+   everyone but the admin until its overall coordinator publishes it */
+const GALORE_HIDDEN_SQL = (alias) => `NOT EXISTS (SELECT 1 FROM events gp
+  WHERE gp.id = COALESCE(${alias}.parent_event_id, ${alias}.id) AND gp.event_format = 'galore' AND gp.galore_published = false)`;
+const isAdminReq = (req) => req.user?.role === 'admin';
 
 const cleanNote = (raw) => String(raw || '').trim().slice(0, 150);
 
@@ -332,7 +338,8 @@ const getAll = async (req, res, next) => {
     const includeReportOnly = req.query.includeReportOnly === '1' && !!clubId;
 
     const campus   = adminCampus(req);
-    const cacheKey = cache.hashKey('events', { status, category, club, clubId, page, limit, campus, includeReportOnly });
+    const seesDrafts = isAdminReq(req);
+    const cacheKey = cache.hashKey('events', { status, category, club, clubId, page, limit, campus, includeReportOnly, seesDrafts });
     const cached   = await cache.get(cacheKey);
     if (cached) return res.json(cached);
 
@@ -348,6 +355,7 @@ const getAll = async (req, res, next) => {
     const clauses = ['e.is_active = true'];
     if (!clubId) clauses.push('e.parent_event_id IS NULL');
     if (!includeReportOnly) clauses.push('e.is_report_only = false');
+    if (!seesDrafts) clauses.push(GALORE_HIDDEN_SQL('e'));
 
     if (status   && status   !== 'all') { values.push(status);        clauses.push(`e.status   = $${values.length}`); }
     if (category && category !== 'all') { values.push(category);      clauses.push(`e.category = $${values.length}`); }
@@ -517,12 +525,13 @@ const getPastScores = async (req, res, next) => {
 const getOne = async (req, res, next) => {
   try {
     await syncPastEvents();
-    const cacheKey = `events:${req.params.id}`;
+    const cacheKey = `events:${req.params.id}${isAdminReq(req) ? ':admin' : ''}`;
     const cached   = await cache.get(cacheKey);
     if (cached) return res.json(cached);
 
     const { rows } = await pgPool.query(
-      `SELECT ${EVENT_COLS} FROM events WHERE id = $1 AND is_active = true`,
+      `SELECT ${EVENT_COLS} FROM events e WHERE id = $1 AND is_active = true
+         ${isAdminReq(req) ? '' : `AND ${GALORE_HIDDEN_SQL('e')}`}`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Event not found.' });
@@ -548,8 +557,9 @@ const getActivities = async (req, res, next) => {
        FROM events e
        LEFT JOIN galore_categories c ON c.id = e.galore_category_id
        WHERE e.parent_event_id = $1 AND e.is_active = true
+         AND ($2 OR ${GALORE_HIDDEN_SQL('e')})
        ORDER BY c.sort_order NULLS LAST, e.category, e.title`,
-      [req.params.id]
+      [req.params.id, isAdminReq(req)]
     );
     res.json({
       activities: rows.map(r => ({
@@ -988,7 +998,22 @@ const remove = async (req, res, next) => {
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Event not found.' });
-    await logAudit(req.user.id, req.user.name, 'DELETE_EVENT', 'event', rows[0].id, { title: rows[0].title });
+    /* Deleting a Galore event deletes the whole of it — its activities go too,
+       so none of them linger on club pages or the events list */
+    const { rowCount: wasGalore } = await pgPool.query(
+      `UPDATE events SET is_active = false
+       WHERE parent_event_id = $1 AND is_active = true
+         AND EXISTS (SELECT 1 FROM events u WHERE u.id = $1 AND u.event_format = 'galore')`,
+      [req.params.id]
+    );
+    /* …and everyone's Galore portal login goes with it: when Galore is created
+       again, students and coordinators are emailed new credentials */
+    let loginsReset = 0;
+    const { rows: [fmt] } = await pgPool.query(`SELECT event_format, parent_event_id FROM events WHERE id = $1`, [req.params.id]);
+    if (wasGalore || (fmt?.event_format === 'galore' && !fmt.parent_event_id)) {
+      loginsReset = await galorePortal.resetEventAccounts(req.params.id);
+    }
+    await logAudit(req.user.id, req.user.name, 'DELETE_EVENT', 'event', rows[0].id, { title: rows[0].title, ...(loginsReset ? { galoreLoginsReset: loginsReset } : {}) });
     await Promise.all([
       cache.del(`events:${req.params.id}`),
       cache.delPattern('events:*'),
@@ -1148,7 +1173,7 @@ const register = async (req, res, next) => {
     /* Only fetch what we need: id, title, status, category, event_format + parent_event_id */
     const { rows: eventRows } = await pgPool.query(
       `SELECT id, title, status, category, event_format, parent_event_id, registration_closed, custom_fields, registration_type, registration_url
-       FROM events WHERE id = $1 AND is_active = true`,
+       FROM events e WHERE id = $1 AND is_active = true AND ${GALORE_HIDDEN_SQL('e')}`,
       [req.params.id]
     );
     if (!eventRows.length) return res.status(404).json({ message: 'Event not found.' });
@@ -1531,7 +1556,7 @@ const getGaloreCoordinators = async (req, res, next) => {
 
 const loadGaloreUmbrella = async (id, db = pgPool) => {
   const { rows } = await db.query(
-    `SELECT id, title, date, start_date, time, venue, campus FROM events
+    `SELECT id, title, date, start_date, time, venue, campus, galore_published FROM events
      WHERE id = $1 AND is_active = true AND event_format = 'galore' AND parent_event_id IS NULL`,
     [id]
   );
@@ -1636,14 +1661,17 @@ const createGaloreEvent = async (req, res, next) => {
     const { title, venue, startDate, date, time, description, seats, highlight } = req.body;
     if (!title?.trim()) return res.status(400).json({ message: 'Event title is required.' });
 
-    let form;
-    try {
-      form = galoreForm.normalizeForm(req.body.form);
-      await galoreForm.assertClubsValid(form, adminCampus(req) || MAIN_CAMPUS);
-    } catch (err) {
-      if (err instanceof galoreForm.GaloreFormError) return res.status(400).json({ message: err.message });
-      throw err;
-    }
+    /* Only one Galore event per campus — everything else is edited on it */
+    const { rows: existing } = await pgPool.query(
+      `SELECT 1 FROM events WHERE event_format = 'galore' AND parent_event_id IS NULL AND is_active = true AND campus = $1 LIMIT 1`,
+      [adminCampus(req) || MAIN_CAMPUS]
+    );
+    if (existing.length) return res.status(409).json({ message: 'A Galore event already exists — edit it instead of creating another.' });
+
+    /* The admin stops at the overall Galore coordinator — they add departments,
+       categories, activities and coordinators themselves, then publish */
+    const head = galoreHeadFrom(req.body);
+    if (head.error) return res.status(400).json({ message: head.error });
 
     /* uploadEventMemory (memoryStorage) hands us a buffer — upload it here inside
        a real try/catch: a failed image upload is logged and skipped rather than
@@ -1668,10 +1696,12 @@ const createGaloreEvent = async (req, res, next) => {
          adminCampus(req) || MAIN_CAMPUS]
       );
       const umbrella = umbrellaRows[0];
-      const assigned = await galoreForm.saveGaloreForm(pgClient, umbrella, form);
+      await pgClient.query(`UPDATE events SET galore_published = false WHERE id = $1`, [umbrella.id]);
+      umbrella.galore_published = false;
+      await pgClient.query(`INSERT INTO galore_heads (event_id, name, email) VALUES ($1, $2, $3)`, [umbrella.id, head.name, head.email]);
       await pgClient.query('COMMIT');
       await Promise.all([cache.delPattern('events:*'), cache.del('stats:admin', 'stats:admin:city')]);
-      notifyGaloreTeam(umbrella.id, 'created', assigned);
+      notifyGaloreTeam(umbrella.id, 'created'); // the overall coordinator's login + what to do next
       res.status(201).json({ event: withImageUrl(asEvent(umbrella)) });
     } catch (err) {
       await pgClient.query('ROLLBACK').catch(() => {});
@@ -1683,13 +1713,132 @@ const createGaloreEvent = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+/* { headName, headEmail } (or { name, email }) → the overall Galore coordinator, or { error } */
+function galoreHeadFrom(body = {}) {
+  const name = String(body.headName ?? body.name ?? '').trim().slice(0, 255);
+  const email = String(body.headEmail ?? body.email ?? '').trim().toLowerCase().slice(0, 255);
+  if (!name || !email) return { error: 'Assign the overall Galore coordinator — their name and email.' };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: "The overall Galore coordinator's email isn't valid." };
+  return { name, email };
+}
+
+/* PUT /api/events/:id/galore-head  (admin) { name, email, detailsChanged }
+   The admin's Edit Event saves the event's details, then this: changing the
+   overall coordinator emails the new one their login; changed details email
+   everyone assigned. */
+const updateGaloreHead = async (req, res, next) => {
+  try {
+    const umbrella = await loadGaloreUmbrella(req.params.id);
+    if (!umbrella) return res.status(404).json({ message: 'Galore event not found.' });
+    const head = galoreHeadFrom(req.body);
+    if (head.error) return res.status(400).json({ message: head.error });
+    const { rows: [cur] } = await pgPool.query(`SELECT name, email FROM galore_heads WHERE event_id = $1 ORDER BY id LIMIT 1`, [umbrella.id]);
+    const headChanged = !cur || cur.email !== head.email;
+    if (!cur || cur.email !== head.email || cur.name !== head.name) {
+      const client = await pgPool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query(`DELETE FROM galore_heads WHERE event_id = $1`, [umbrella.id]);
+        await client.query(`INSERT INTO galore_heads (event_id, name, email) VALUES ($1, $2, $3)`, [umbrella.id, head.name, head.email]);
+        await client.query('COMMIT');
+      } catch (err) { await client.query('ROLLBACK').catch(() => {}); throw err; }
+      finally { client.release(); }
+    }
+    if (headChanged || req.body.detailsChanged) {
+      notifyGaloreTeam(umbrella.id, 'updated', { headChanged, newDeptCoords: [], newCoords: [], newClubs: [] });
+    }
+    await logAudit(req.user.id, req.user.name, 'UPDATE_GALORE_HEAD', 'event', umbrella.id, { title: umbrella.title, head: head.email });
+    res.json({ head });
+  } catch (err) { next(err); }
+};
+
+/* Publishing — by the overall coordinator once departments and activities are
+   in (galorePortal routes). Students can only see and register after this. */
+async function setGalorePublished(umbrellaId, published) {
+  if (published) {
+    const form = await galoreForm.getGaloreForm(umbrellaId);
+    const acts = form.categories.reduce((n, c) => n + c.activities.length, 0);
+    if (!form.departments.length || !acts) {
+      throw Object.assign(new galoreForm.GaloreFormError('Add the departments and at least one activity on "Galore form" before publishing.'), { status: 400 });
+    }
+  }
+  const { rows } = await pgPool.query(
+    `UPDATE events SET galore_published = $2, updated_at = NOW()
+     WHERE id = $1 AND is_active = true AND event_format = 'galore' AND parent_event_id IS NULL RETURNING id`,
+    [umbrellaId, !!published]
+  );
+  if (!rows.length) throw Object.assign(new galoreForm.GaloreFormError('Galore event not found.'), { status: 404 });
+  await cache.delPattern('events:*');
+  return !!published;
+}
+
+/* About Galore — the event's description, edited in place by the admin or the
+   overall coordinator */
+async function setGaloreAbout(umbrellaId, description) {
+  const { rows } = await pgPool.query(
+    `UPDATE events SET description = $2, updated_at = NOW()
+     WHERE id = $1 AND is_active = true AND event_format = 'galore' AND parent_event_id IS NULL RETURNING description`,
+    [umbrellaId, String(description ?? '').slice(0, 20000)]
+  );
+  if (!rows.length) throw Object.assign(new galoreForm.GaloreFormError('Galore event not found.'), { status: 404 });
+  await cache.delPattern('events:*');
+  return rows[0].description;
+}
+/* PUT /api/events/:id/galore-about  (admin) { description } */
+const updateGaloreAbout = async (req, res, next) => {
+  try { res.json({ description: await setGaloreAbout(req.params.id, req.body?.description) }); }
+  catch (err) {
+    if (err instanceof galoreForm.GaloreFormError) return res.status(err.status || 400).json({ message: err.message });
+    next(err);
+  }
+};
+
 /* GET /api/events/:id/galore-form  (public) — what the student registration
    form is built from: departments, categories (with max picks) and their
    activities. Never includes who is assigned. */
 const getGaloreFormPublic = async (req, res, next) => {
   try {
-    if (!(await loadGaloreUmbrella(req.params.id))) return res.status(404).json({ message: 'Galore event not found.' });
+    const umbrella = await loadGaloreUmbrella(req.params.id);
+    if (!umbrella || !umbrella.galore_published) return res.status(404).json({ message: 'Galore event not found.' });
     res.json(await galoreForm.getGaloreForm(req.params.id));
+  } catch (err) { next(err); }
+};
+
+/* Registration deadline statement shown under the Galore letterhead's nav strip
+   ("Last Date of Registration : …") — free text the admin edits. */
+let deadlineColReady = null;
+const ensureDeadlineCol = () => (deadlineColReady ||= pgPool
+  .query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS registration_deadline VARCHAR(255) NOT NULL DEFAULT ''`)
+  .catch(err => { deadlineColReady = null; throw err; }));
+
+/* GET /api/events/:id/galore-deadline  (public) */
+const getGaloreDeadline = async (req, res, next) => {
+  try {
+    await ensureDeadlineCol();
+    const { rows } = await pgPool.query(
+      `SELECT registration_deadline FROM events
+       WHERE id = $1 AND is_active = true AND event_format = 'galore' AND parent_event_id IS NULL`,
+      [req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ message: 'Galore event not found.' });
+    res.json({ deadline: rows[0].registration_deadline || '' });
+  } catch (err) { next(err); }
+};
+
+/* PUT /api/events/:id/galore-deadline  (admin)  { deadline } */
+const updateGaloreDeadline = async (req, res, next) => {
+  try {
+    await ensureDeadlineCol();
+    const deadline = String(req.body?.deadline ?? '').trim().slice(0, 255);
+    const { rows } = await pgPool.query(
+      `UPDATE events SET registration_deadline = $2, updated_at = NOW()
+       WHERE id = $1 AND is_active = true AND event_format = 'galore' AND parent_event_id IS NULL
+       RETURNING registration_deadline`,
+      [req.params.id, deadline]
+    );
+    if (!rows[0]) return res.status(404).json({ message: 'Galore event not found.' });
+    await cache.delPattern('events:*');
+    res.json({ deadline: rows[0].registration_deadline });
   } catch (err) { next(err); }
 };
 
@@ -1923,6 +2072,8 @@ module.exports = {
   sendReminder,
   getAll, getLiveScores, getPastScores, getOne, getActivities,
   getGaloreTemplate, getGaloreCoordinators, createGaloreEvent, getDepartmentRegistrations,
+  getGaloreDeadline, updateGaloreDeadline,
+  updateGaloreHead, updateGaloreAbout, setGalorePublished, setGaloreAbout,
   getGaloreFormPublic, getGaloreSetup, updateGaloreForm, uploadGaloreRules,
   applyGaloreFormUpdate, loadGaloreUmbrella,
   getMyAssignments,

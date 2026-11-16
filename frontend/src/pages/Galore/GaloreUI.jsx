@@ -17,14 +17,14 @@ export const Notice = ({ tone = 'info', children }) => (
 );
 export const Label = ({ children }) => <div className={s.sectionLabel}>{children}</div>;
 
-/* Every event card starts the same way: role, title, the festival's own dates */
-export function EventHeader({ role, event, title, sub, actions, description }) {
+/* Every event card starts the same way: title, the festival's own dates.
+   No role badge — the role switch above already says who you are. */
+export function EventHeader({ event, title, sub, actions, description }) {
   const t = title ?? event.title;
   return (
     <>
       <div className={s.eventHead}>
         <div>
-          <div className={s.roleTag}>{role}</div>
           <h2 className={s.cardTitle}>{t}</h2>
           <div className={s.muted}>
             <strong style={{ color: '#374151' }}>Galore:</strong> {[event.date, event.time, event.venue].filter(Boolean).join(' · ') || 'To be announced'}
@@ -39,7 +39,7 @@ export function EventHeader({ role, event, title, sub, actions, description }) {
 }
 
 export const Stats = ({ items }) => (
-  <div className={s.stats}>
+  <div className={s.stats} style={{ '--stat-cols': items.length || 1 }}>
     {items.map(([value, label]) => (
       <div key={label} className={s.stat}><div className={s.statValue}>{value}</div><div className={s.statLabel}>{label}</div></div>
     ))}

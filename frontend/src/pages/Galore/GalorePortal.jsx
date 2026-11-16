@@ -1,30 +1,45 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import api from '../../api/client';
 import { galoreApi, galoreToken } from '../../utils/galoreApi';
+import GaloreLetterhead from '../../components/GaloreLetterhead/GaloreLetterhead';
 import GaloreHead from './GaloreHead';
 import GaloreStaff from './GaloreStaff';
 import GaloreStudent from './GaloreStudent';
 import { Empty } from './GaloreUI';
+import { headPages, staffPages, studentPages, commonPages } from './galoreHelpers';
+import { GaloreCoordinatorsPage, GaloreAboutPage, GaloreGalleryPage } from './GaloreCommon';
+import { SotyStudentPage, SotyHeadPage } from './GaloreSoty';
 import s from './Galore.module.css';
 
-/* Galore portal — one dashboard for everyone in a Galore event, all built the
-   same way (see GaloreUI.jsx): a tab per role this person has, then a card per
-   event with the same header, section tabs and building blocks.
-     Galore coordinator   the overall coordinator (GaloreHead)
-     My assignments       department / activity coordinator (GaloreStaff)
-     My registrations     student (GaloreStudent)
+/* Galore portal — one login (one email, one account), a separate dashboard for
+   each Galore role that email has, all on the Galore letterhead (logos on
+   white, grey nav strip, registration deadline):
+     Main coordinator        the overall Galore coordinator (GaloreHead)
+     Department coordinator  their department(s)            (GaloreStaff)
+     Activity coordinator    their activities               (GaloreStaff)
+     Student                 their registrations            (GaloreStudent)
+   Each dashboard has its own strip of pages: About Galore first, then the
+   role's own pages, then Coordinators · Gallery · Log out. Someone with more
+   than one role gets the dashboard's name with a dropdown arrow to switch
+   (like the club switcher in club accounts); with one role it never shows.
    Logged in with the Galore account, not the SOAC club account. */
-const ROLE_INTRO = {
-  head:    'Everything about the Galore event you coordinate.',
-  staff:   'The students registering for what you look after.',
-  student: 'Everything about the activities you registered for.',
-};
-
+const ROLE_KEY = 'galore_dashboard'; // last dashboard picked, per browser
+const readRole = () => { try { return localStorage.getItem(ROLE_KEY) || ''; } catch { return ''; } };
+const saveRole = (k) => { try { localStorage.setItem(ROLE_KEY, k); } catch { /* storage blocked */ } };
 export default function GalorePortal() {
   const navigate = useNavigate();
-  const [data,  setData]  = useState(null);
-  const [error, setError] = useState('');
-  const [tab,   setTab]   = useState('');
+  const [data,     setData]     = useState(null);
+  const [error,    setError]    = useState('');
+  const [tab,      setTab]      = useState(readRole);
+  const [page,     setPage]     = useState('');
+  const [deadline, setDeadline] = useState('');
+  const [soty,     setSoty]     = useState(null);  // Student of the Year, once published (has its own last date)
+  const sotyOn = !!soty;
+  const [pwOpen,   setPwOpen]   = useState(false); // "Change password" card open
+  const pwRef = useRef(null);
+  /* the button is at the bottom of the page and the card at the top — bring it into view */
+  useEffect(() => { if (pwOpen) pwRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [pwOpen]);
 
   const logout = useCallback(() => { galoreToken.clear(); navigate('/galore/login', { replace: true }); }, [navigate]);
 
@@ -39,61 +54,146 @@ export default function GalorePortal() {
     load();
   }, [load, navigate]);
 
-  /* One tab per role this person has */
+  /* One dashboard per role this email has. A department and an activity
+     assignment are separate dashboards, each showing only its own side. */
+  const deptStaff = data ? data.staff.filter(x => x.departments.length > 0).map(x => ({ ...x, activities: [] })) : [];
+  const actStaff  = data ? data.staff.filter(x => x.activities.length > 0).map(x => ({ ...x, departments: [] })) : [];
   const roles = data ? [
-    data.head?.length > 0 && ['head', 'Galore coordinator'],
-    data.staff.length > 0 && ['staff', 'My assignments'],
-    data.student.length > 0 && ['student', 'My registrations'],
+    data.head?.length > 0   && ['head',     'Main coordinator',       headPages(sotyOn)],
+    deptStaff.length > 0    && ['dept',     'Department coordinator', staffPages(deptStaff)],
+    actStaff.length > 0     && ['activity', 'Activity coordinator',   staffPages(actStaff)],
+    data.student.length > 0 && ['student',  'Student',                studentPages(data.student, sotyOn)],
   ].filter(Boolean) : [];
-  const current = roles.some(([k]) => k === tab) ? tab : roles[0]?.[0];
+  const current = roles.find(([k]) => k === tab) || roles[0];
+  /* About Galore first, the role's own pages, then the rest every role has */
+  /* …and Student of the Year last, just before Log out */
+  const own = current ? current[2].filter(([k]) => k !== 'soty') : [];
+  const sotyPage = current ? current[2].filter(([k]) => k === 'soty') : [];
+  const pages = current ? [['about', 'About Galore'], ...own, ...commonPages().filter(([k]) => k !== 'about'), ...sotyPage] : [];
+  const currentPage = pages.some(([k]) => k === page) ? page : pages[0]?.[0];
+  const isCommon = commonPages().some(([k]) => k === currentPage);
+  const isSoty = currentPage === 'soty';
+  const nav = pages.length ? [...pages, ['logout', 'Log out', logout]] : [];
+
+  /* The Galore event — for the shared pages and the "last date of registration"
+     line the admin sets on it */
+  const event = data && (data.head?.[0]?.event || data.staff[0]?.event || data.student[0]?.event);
+  const eventId = event?.id;
+  useEffect(() => {
+    if (!eventId) return;
+    api.get(`/events/${eventId}/galore-deadline`).then(d => setDeadline(d.deadline || '')).catch(() => setDeadline(''));
+    /* Student of the Year joins the student's and the main coordinator's strip once published */
+    galoreApi.get(`/events/${eventId}/soty`).then(d => setSoty(d.contest || null)).catch(() => setSoty(null));
+  }, [eventId]);
+
+  const ready = data && !data.account.mustChangePassword;
+  /* The overall coordinator, on their own dashboard: edits About Galore, adds to the gallery */
+  const isHeadHere = current?.[0] === 'head' && !!data?.head?.some(x => x.event.id === event?.id);
+  const switchRole = (k) => { setTab(k); setPage(''); saveRole(k); };
 
   return (
-    <div className={`${s.page} ${s.dashboard}`}>
-      <div className={s.topbar}>
-        <div className={s.topRight}>
-          {data && <span className={s.userName} title={data.account.email}>{data.account.name || data.account.email}</span>}
-          <button className={s.ghostBtn} onClick={logout}>Log out</button>
-        </div>
-      </div>
-
-      <div className={s.dashBody}>
-        <div className={s.wrap}>
-          <img src="/galore/logos.webp" alt="RK University · Galore" className={s.dashLogos} width="1100" height="439" />
+    <div className={s.portalPage}>
+      <div className={s.portalWrap}>
+        <GaloreLetterhead
+          plain
+          nav={ready && roles.length ? nav : undefined}
+          active={currentPage}
+          onNav={setPage}
+          deadline={!ready ? '' : isSoty ? (soty?.opened ? soty.deadline || '' : '') : deadline}
+        >
           {error && <div className={s.error}>{error}</div>}
-          {!data && !error && <div className={s.hero}><p>Loading…</p></div>}
+          {!data && !error && <div className={s.muted}>Loading…</div>}
 
           {data && data.account.mustChangePassword && <ChangePassword onDone={load} />}
 
-          {data && !data.account.mustChangePassword && (
+          {ready && (
             <>
-              <div className={s.hero}>
-                <h1>Hello, {(data.account.name || '').split(' ')[0] || 'there'}!</h1>
-                <p>{ROLE_INTRO[current] || ''}</p>
-              </div>
+              {pwOpen && (
+                <div ref={pwRef} style={{ marginBottom: 18 }}>
+                  <ChangePassword onDone={() => { setPwOpen(false); load(); }} onCancel={() => setPwOpen(false)} />
+                </div>
+              )}
 
               {roles.length > 1 && (
-                <div className={s.tabs}>
-                  {roles.map(([k, label]) => (
-                    <button key={k} className={`${s.tab} ${current === k ? s.tabOn : ''}`} onClick={() => setTab(k)}>{label}</button>
-                  ))}
-                </div>
+                <RoleSwitch roles={roles} current={current[0]} onPick={switchRole} />
               )}
 
               {roles.length === 0 && (
                 <div className={s.card}><Empty>Nothing here yet — no Galore registrations or assignments for {data.account.email}.</Empty></div>
               )}
 
-              {current === 'head' && data.head.map(x => <GaloreHead key={x.event.id} eventId={x.event.id} />)}
-              {current === 'staff' && data.staff.map(x => <GaloreStaff key={x.event.id} data={x} />)}
-              {current === 'student' && data.student.map(x => <GaloreStudent key={x.event.id} data={x} />)}
+              {isCommon && event && (
+                currentPage === 'coordinators' ? <GaloreCoordinatorsPage event={event} />
+                  : currentPage === 'about' ? <GaloreAboutPage event={event} canEdit={isHeadHere} onSaved={load} />
+                  : <GaloreGalleryPage key={`${event.id}-${isHeadHere}`} event={event} canAdd={isHeadHere} />
+              )}
 
-              <div style={{ textAlign: 'center', marginTop: 10 }}>
-                <ChangePasswordLink onDone={load} />
-              </div>
+              {isSoty && event && current?.[0] === 'head' && <SotyHeadPage eventId={event.id} onContest={c => setSoty(x => (x ? { ...x, ...c } : x))} />}
+              {isSoty && event && current?.[0] === 'student' && <SotyStudentPage eventId={event.id} />}
+
+              {!isCommon && !isSoty && current?.[0] === 'head' && data.head.map(x => <GaloreHead key={x.event.id} eventId={x.event.id} section={currentPage} />)}
+              {!isCommon && !isSoty && current?.[0] === 'dept' && deptStaff.map(x => <GaloreStaff key={`d${x.event.id}`} data={x} section={currentPage} />)}
+              {!isCommon && !isSoty && current?.[0] === 'activity' && actStaff.map(x => <GaloreStaff key={`a${x.event.id}`} data={x} section={currentPage} />)}
+              {!isCommon && !isSoty && current?.[0] === 'student' && data.student.map(x => <GaloreStudent key={x.event.id} data={x} section={currentPage} />)}
             </>
           )}
+        </GaloreLetterhead>
+      </div>
+
+      {/* Bottom corners: Change password on the left; name + Log out on the right */}
+      <div className={s.portalBar}>
+        <div className={s.portalBarSide}>
+          {ready && (
+            <button className={s.backBtn} aria-expanded={pwOpen} onClick={() => setPwOpen(o => !o)}>Change password</button>
+          )}
+        </div>
+        <div className={`${s.portalBarSide} ${s.portalBarRight}`}>
+          {data && <span className={s.userName} title={data.account.email}>{data.account.name || data.account.email}</span>}
+          <button className={s.backBtn} onClick={logout}>Log out</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── Switch dashboard: the current dashboard's name + an arrow, plain on the
+   white; opens a small menu of the other dashboards this email has ── */
+function RoleSwitch({ roles, current, onPick }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e) => { if (e.type === 'keydown' ? e.key === 'Escape' : !ref.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('touchstart', close);
+    document.addEventListener('keydown', close);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('touchstart', close);
+      document.removeEventListener('keydown', close);
+    };
+  }, [open]);
+  const label = roles.find(([k]) => k === current)?.[1];
+  return (
+    <div className={s.roleSwitch} ref={ref}>
+      <button type="button" className={s.roleWord} aria-haspopup="menu" aria-expanded={open}
+        title="Switch dashboard" onClick={() => setOpen(o => !o)}>
+        {label}
+        <svg className={`${s.roleArrow} ${open ? s.roleArrowUp : ''}`} viewBox="0 0 12 12" aria-hidden="true">
+          <path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <div className={s.roleMenu} role="menu">
+          {roles.map(([k, l]) => (
+            <button key={k} type="button" role="menuitemradio" aria-checked={k === current}
+              className={`${s.roleItem} ${k === current ? s.roleItemOn : ''}`}
+              onClick={() => { setOpen(false); if (k !== current) onPick(k); }}>
+              {l}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -135,9 +235,4 @@ function ChangePassword({ onDone, onCancel }) {
       </form>
     </div>
   );
-}
-function ChangePasswordLink({ onDone }) {
-  const [open, setOpen] = useState(false);
-  if (open) return <ChangePassword onDone={() => { setOpen(false); onDone(); }} onCancel={() => setOpen(false)} />;
-  return <button className={s.ghostBtn} onClick={() => setOpen(true)}>Change password</button>;
 }

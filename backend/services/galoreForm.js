@@ -275,9 +275,12 @@ function normalizeForm(raw, { requireHead = true } = {}) {
       const coord = cleanPerson(a?.coordinatorName, a?.coordinatorEmail);
       if (!coord.name || !coord.email) throw new GaloreFormError(`Add ${title}'s activity coordinator — name and email.`);
       if (!isEmail(coord.email)) throw new GaloreFormError(`${title}'s activity coordinator's email isn't valid.`);
-      const isTeam = a?.participationType === 'team';
+      /* a duo is a team of exactly two */
+      const isDuo  = a?.participationType === 'duo';
+      const isTeam = isDuo || a?.participationType === 'team';
       let minTeamSize = 0, teamSize = 0;
-      if (isTeam) {
+      if (isDuo) { minTeamSize = 2; teamSize = 2; }
+      else if (isTeam) {
         minTeamSize = toInt(a?.minTeamSize);
         teamSize    = toInt(a?.teamSize);
         if (Number.isNaN(minTeamSize) || minTeamSize < 1) throw new GaloreFormError(`${title}: minimum team size must be at least 1.`);
@@ -291,7 +294,7 @@ function normalizeForm(raw, { requireHead = true } = {}) {
         id: toId(a?.id), title, clubId, coordinatorName: coord.name, coordinatorEmail: coord.email,
         isTeam, minTeamSize, teamSize, genderSplit: !!a?.genderSplit,
         scheduleDate, time: String(a?.time || '').trim().slice(0, 100), venue: String(a?.venue || '').trim().slice(0, 255),
-        rulesUrl, rulesName: rulesUrl ? String(a?.rulesName || '').trim().slice(0, 255) : '',
+        rulesUrl, rulesName: rulesUrl ? (String(a?.rulesName || '').trim().slice(0, 255) || 'Guidelines') : '',
       };
     });
     return { id: toId(c?.id), name, maxPicks, activities };

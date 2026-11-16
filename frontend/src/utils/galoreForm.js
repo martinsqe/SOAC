@@ -29,7 +29,9 @@ export function toBuilder(form) {
       activities: (c.activities || []).map(a => ({
         key: nextKey(), id: a.id, title: a.title || '',
         clubId: a.clubId || '', coordinatorName: a.coordinatorName || '', coordinatorEmail: a.coordinatorEmail || '',
-        participationType: a.participationType === 'team' ? 'team' : 'individual',
+        /* a team of exactly two is a duo */
+        participationType: a.participationType !== 'team' ? 'individual'
+          : Number(a.minTeamSize) === 2 && Number(a.teamSize) === 2 ? 'duo' : 'team',
         minTeamSize: a.minTeamSize || '', teamSize: a.teamSize || '',
         genderSplit: !!a.genderSplit, registrationCount: a.registrationCount || 0,
         scheduleDate: a.scheduleDate || '', time: a.time || '', venue: a.venue || '',
@@ -52,9 +54,9 @@ export function toPayload(b) {
       activities: c.activities.map(a => ({
         id: a.id, title: a.title.trim(), clubId: a.clubId,
         coordinatorName: a.coordinatorName.trim(), coordinatorEmail: a.coordinatorEmail.trim().toLowerCase(),
-        participationType: a.participationType,
-        minTeamSize: a.participationType === 'team' ? Number(a.minTeamSize) : 0,
-        teamSize:    a.participationType === 'team' ? Number(a.teamSize)    : 0,
+        participationType: a.participationType === 'duo' ? 'team' : a.participationType,
+        minTeamSize: a.participationType === 'duo' ? 2 : a.participationType === 'team' ? Number(a.minTeamSize) : 0,
+        teamSize:    a.participationType === 'duo' ? 2 : a.participationType === 'team' ? Number(a.teamSize)    : 0,
         genderSplit: a.genderSplit,
         scheduleDate: a.scheduleDate, time: a.time.trim(), venue: a.venue.trim(),
         rulesUrl: a.rulesUrl, rulesName: a.rulesName,
@@ -101,7 +103,7 @@ export function builderProblems(b, { requireHead = true } = {}) {
       else if (t && !isEmail(a.coordinatorEmail)) out.push(`${t}: the activity coordinator's email isn't valid.`);
       if (t && a.participationType === 'team') {
         const min = Number(a.minTeamSize), max = Number(a.teamSize);
-        if (!(min >= 1) || !(max >= min)) out.push(`${t}: set a team size (min ≥ 1, max ≥ min).`);
+        if (!(min >= 1) || !(max >= min)) out.push(`${t}: set the minimum and maximum players (min at least 1, max at least min).`);
       }
     });
   });
