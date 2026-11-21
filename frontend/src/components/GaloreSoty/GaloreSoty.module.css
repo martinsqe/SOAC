@@ -48,12 +48,6 @@
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   border: 1px solid #d9d9d9; border-radius: 999px; padding: 5px 6px 5px 6px; background: #fff;
 }
-.fileBtn {
-  border: 1px solid #c9c9c9; background: #f3f3f3; border-radius: 6px; padding: 5px 10px;
-  font: inherit; font-size: .82rem; cursor: pointer; color: #111827;
-}
-.fileBtn:disabled { cursor: not-allowed; opacity: .6; }
-.fileName { font-size: .85rem; color: #374151; min-width: 0; overflow-wrap: anywhere; }
 .fileOnRecord { font-size: .78rem; color: #6b7280; margin-top: 4px; }
 .fileOnRecord a { color: #b91c1c; font-weight: 600; }
 
@@ -97,24 +91,6 @@
   text-align: center; color: #6b7280; font-size: .9rem; padding: 34px 16px;
   border: 1px dashed #e5e7eb; border-radius: 12px;
 }
-.tableWrap { overflow-x: auto; border: 1px solid #ececec; border-radius: 12px; }
-.table { width: 100%; border-collapse: collapse; font-size: .84rem; }
-.table th {
-  text-align: left; background: #fafafa; color: #6b7280; font-size: .7rem; font-weight: 800;
-  letter-spacing: .05em; text-transform: uppercase; padding: 9px 12px; white-space: nowrap; border-bottom: 1px solid #ececec;
-}
-.table td { padding: 9px 12px; border-bottom: 1px solid #f3f3f3; vertical-align: top; color: #111827; }
-.table tbody tr:last-child td { border-bottom: none; }
-.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.nowrap { white-space: nowrap; }
-.rowBtn { border: none; background: none; padding: 0; font: inherit; font-weight: 700; color: #111827; cursor: pointer; text-align: left; }
-.rowBtn:hover { color: #b91c1c; }
-.chev { display: inline-block; width: 10px; margin-right: 6px; color: #9ca3af; transition: transform .15s; }
-.chevOpen { transform: rotate(90deg); }
-.details td { background: #fcfcfc; }
-.detailGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; padding: 4px 0; }
-.detailLabel { font-size: .7rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: #9ca3af; margin-bottom: 4px; }
-.detailText { white-space: pre-line; line-height: 1.5; color: #374151; overflow-wrap: anywhere; }
 .link { color: #b91c1c; font-weight: 600; }
 
 /* ── Registration dates (admin / main coordinator) ── */
@@ -137,3 +113,105 @@
 }
 .soonTitle { margin: 0 0 8px; color: #7a1f8c; font-weight: 700; font-size: clamp(1.15rem, 2.4vw, 1.4rem); }
 .soonText { margin: 0; color: #374151; font-size: 1rem; font-weight: 600; }
+
+/* Co-curricular activities / achievements: a compact card per activity —
+   number · title · ×, a two-line description, then file · word count */
+.actBox {
+  display: grid; gap: 6px; border: 1px solid #ececec; border-radius: 10px;
+  padding: 8px 10px; margin-bottom: 8px; background: #fff;
+}
+.actTop { display: flex; align-items: center; gap: 8px; }
+.actNum {
+  flex: none; width: 22px; height: 22px; border-radius: 50%; background: #fef2f2; color: #b91c1c;
+  display: inline-flex; align-items: center; justify-content: center; font-size: .74rem; font-weight: 800;
+}
+.actTitle, .actDesc {
+  width: 100%; box-sizing: border-box; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; color: #111827;
+  padding: 6px 10px; font: inherit; font-size: .86rem; outline: none;
+}
+.actTitle { flex: 1 1 auto; min-width: 0; font-weight: 600; }
+.actDesc { resize: vertical; min-height: 0; line-height: 1.4; }
+.actTitle:focus, .actDesc:focus { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, .1); }
+.actTitle:disabled, .actDesc:disabled { background: #f7f7f7; color: #374151; }
+.actX {
+  flex: none; border: none; background: none; color: #9ca3af; font-size: 1.15rem; line-height: 1;
+  width: 24px; height: 24px; border-radius: 6px; cursor: pointer;
+}
+.actX:hover { color: #dc2626; background: #fef2f2; }
+.actFoot { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.actAttach {
+  flex: none; border: 1px solid #fecaca; background: #fff; color: #b91c1c; border-radius: 6px;
+  padding: 3px 9px; font-size: .76rem; font-weight: 700; cursor: pointer; white-space: nowrap;
+}
+.actAttach:hover { background: #fef2f2; }
+.actFileName { flex: 1 1 auto; min-width: 0; font-size: .78rem; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.actFileName a { color: #b91c1c; font-weight: 600; }
+.actCount { flex: none; font-size: .74rem; color: #6b7280; white-space: nowrap; }
+.actAdd {
+  border: 1px dashed #fca5a5; background: none; color: #b91c1c; border-radius: 8px;
+  padding: 5px 12px; font: inherit; font-size: .8rem; font-weight: 700; cursor: pointer;
+}
+.actAdd:hover { background: #fef2f2; border-color: #dc2626; }
+
+/* ── The submitted file (SotyDocument): the paper form's look on the letterhead ── */
+.docPad { padding: 0 52px; font-family: Cambria, Georgia, 'Times New Roman', serif; color: #111827; }
+.docTitle { font-weight: 700; color: #111827; font-size: 29px; margin: 6px 0 22px; text-align: center; }
+.docSub { font-weight: 700; text-align: center; font-size: 22px; margin: 8px 0 18px; }
+.docRow { line-height: 1.4; font-size: 16.5px; margin: 0 0 12px; }
+.docPara { margin: 0 0 10px; text-align: justify; font-size: 16.5px; line-height: 1.6; }
+.docPara a { color: #b91c1c; }
+.docBullets { margin: 0 0 3px; padding-left: 52px; font-size: 16.5px; line-height: 1.5; }
+.docEvidence { padding: 6px 0 18px; }
+.docImg {
+  display: block; max-width: 100%; max-height: 520px; margin: 4px auto 0; object-fit: contain;
+  border: 1px solid #e5e7eb; border-radius: 4px; background: #fff;
+}
+
+/* Print / Save as PDF: only the document prints { visibility: hidden; }
+
+/* Review before submitting / registered */
+.reviewBar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
+.registered { text-align: center; font-size: 1.05rem; font-weight: 800; color: #1a1040; margin: 18px 0 10px; }
+.files { display: flex; flex-direction: column; gap: 10px; }
+
+/* contestants: search + filters, then one section per department */
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 16px; }
+.filters .input { width: auto; flex: 0 1 200px; min-width: 0; padding: 7px 12px; font-size: .86rem; }
+.filters .filterSearch { flex: 1 1 260px; }
+.seg { display: inline-flex; border: 1px solid #d9d9d9; border-radius: 999px; overflow: hidden; background: #fff; }
+.segBtn { border: none; background: none; padding: 7px 14px; font: inherit; font-size: .84rem; font-weight: 600; color: #4b5563; cursor: pointer; }
+.segBtn + .segBtn { border-left: 1px solid #ececec; }
+.segOn { background: #dc2626; color: #fff; }
+.filterCount { margin-left: auto; font-size: .82rem; color: #6b7280; font-weight: 600; display: inline-flex; gap: 8px; align-items: center; white-space: nowrap; }
+.linkBtn { border: none; background: none; padding: 0; font: inherit; color: #b91c1c; font-weight: 700; cursor: pointer; text-decoration: underline; }
+.deptGroup + .deptGroup { margin-top: 20px; }
+.deptHead {
+  margin: 0 0 10px; padding-bottom: 6px; border-bottom: 2px solid #fee2e2;
+  font-size: .8rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #dc2626;
+  display: flex; align-items: center; gap: 8px;
+}
+.deptCount { background: #fef2f2; color: #b91c1c; border-radius: 999px; padding: 1px 9px; font-size: .74rem; letter-spacing: 0; }
+@media (max-width: 560px) { .filterCount { margin-left: 0; } }
+.fileCard { border: 1.5px solid #e5e7eb; border-radius: 12px; overflow: hidden; background: #fff; scroll-margin-top: 12px; }
+.fileCardHeader { display: flex; align-items: center; gap: 14px; padding: 14px 18px; cursor: pointer; transition: background .12s; }
+.fileCardHeader:hover { background: #f8f9fc; }
+.fileCardHeader:focus-visible { outline: 2px solid #fecaca; outline-offset: -2px; }
+.fileCardLeft { flex: 1; min-width: 0; }
+.fileCardTitle { font-size: .95rem; font-weight: 800; color: #1e1b4b; margin-bottom: 3px; }
+.fileCardMeta { font-size: .76rem; color: #6b7280; overflow-wrap: anywhere; }
+.filePill { font-size: .72rem; font-weight: 700; color: #b91c1c; background: #fef2f2; border-radius: 20px; padding: 3px 10px; white-space: nowrap; flex-shrink: 0; }
+.fileChevron { font-size: .75rem; color: #9ca3af; flex-shrink: 0; }
+.fileCardBody { border-top: 1px solid #f3f4f6; padding: 12px; background: #fafafa; }
+
+/* a submitted file's card: the name, then its details on the same line */
+.fileCardLine { display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; margin-bottom: 3px; }
+.fileCardLine .fileCardTitle { margin-bottom: 0; }
+
+/* Submitted file: headings centred and clear of the letterhead's logos and arcs,
+   a little larger for readability (the page header leaves 33% of the width free) */
+.docPad { padding: 0 56px; }
+
+.docEvTitle { text-align: center; font-size: 17.5px; font-weight: 700; margin: 6px 0 8px; }
+
+/* evidence descriptions (and all paragraphs): aligned left */
+.docPara { text-align: left; }

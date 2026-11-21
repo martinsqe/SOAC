@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'; // useCallback used below
 import api from '../../api/client';
+import useTeamsLive from '../../realtime/useTeamsLive';
+import { ScheduleView, DeclareButton } from '../Galore/GaloreSchedule';
+import { sotyLine, isIsoDate } from '../../utils/galoreDeadline';
 import { fetchAllPages } from '../../utils/pagination';
 import CertTemplateEditor from '../../components/CertTemplateEditor/CertTemplateEditor';
 import EventReminderModal from '../../components/EventReminderModal/EventReminderModal';
@@ -12,6 +15,8 @@ import { toBuilder } from '../../utils/galoreForm';
 import { downloadGaloreCsv } from '../../utils/galoreCsv';
 import GaloreLetterhead from '../../components/GaloreLetterhead/GaloreLetterhead';
 import { GaloreCoordinators, GaloreAbout, GaloreGallery, GaloreSoty, GaloreDraftNote } from './AdminGaloreViews';
+import AdminGaloreForm from './AdminGaloreForm';
+import GaloreResults from '../Galore/GaloreResults';
 
 /* Title row at the top of each Galore letterhead page */
 function GaloreSectionHead({ title, sub, action }) {
@@ -553,6 +558,12 @@ export default function AdminEvents() {
 
   /* ── Registrations panel ── */
   const [regEvent,    setRegEvent]    = useState(null);
+  /* teams changed anywhere (Galore portal, a club, another admin tab): refresh
+     the open Teams tab and the Galore activity counts */
+  useTeamsLive(null, () => {
+    if (regEvent) api.get(`/events/${regEvent._id}/teams`).then(d => setTeams(d.teams || [])).catch(() => {});
+    if (selectedGalore) loadActivities(selectedGalore._id, true);
+  });
   const [regs,        setRegs]        = useState([]);
   const [regsLoading, setRegsLoading] = useState(false);
   const [regSearch,   setRegSearch]   = useState('');
@@ -599,6 +610,7 @@ export default function AdminEvents() {
   const [galoreSaving,  setGaloreSaving]  = useState(false);
   /* Deleting the (one) Galore event — the admin must type DELETE EVENT */
   const [galoreDel,     setGaloreDel]     = useState(null); // null = closed, else { text, busy, error }
+  const [galoreClose,   setGaloreClose]   = useState(null); // Close event confirm: null, else { text, busy, error }
   const [galoreError,   setGaloreError]   = useState('');
   const galoreFileRef = useRef();
 
@@ -617,6 +629,13 @@ export default function AdminEvents() {
   const [galoreSaved,     setGaloreSaved]     = useState(null);         // the saved form (with who's assigned), for Coordinators
   const [galoreDraft,     setGaloreDraft]     = useState(null);         // the overall coordinator's unsaved draft of the form, if any
   const [galoreDeadline,  setGaloreDeadline]  = useState('');           // "Last date of registration is …" (YYYY-MM-DD)
+  const [deadlineDraft,   setDeadlineDraft]   = useState('');           // the same date in the Edit Event form (required)
+  const [manageTab,       setManageTab]       = useState('edit');         // Manage Event: edit | form | results
+  /* the saved last date — and the form's copy of it (an old free-text value isn't a date: pick one) */
+  const applyDeadline = (v, keepDraft = false) => {
+    setGaloreDeadline(v || '');
+    if (!keepDraft) setDeadlineDraft(isIsoDate(v) ? v : '');
+  };
   const [sotyContest,     setSotyContest]     = useState(null);         // Student of the Year — its own last date shows on its page
   const [deptRegs,        setDeptRegs]        = useState([]);
   const [deptRegsLoading, setDeptRegsLoading] = useState(false);
@@ -824,17 +843,23 @@ export default function AdminEvents() {
     } catch (err) { setGaloreDel(d => ({ ...d, busy: false, error: err.message })); }
   };
 
+  /* Close event — for good: the portal shuts, every Galore login is erased, the data stays here */
+  const GALORE_CLOSE_PHRASE = 'CLOSE EVENT';
+  const closeGaloreEvent = async () => {
+    if (!selectedGalore || galoreClose?.text.trim() !== GALORE_CLOSE_PHRASE) return;
+    setGaloreClose(c => ({ ...c, busy: true, error: '' }));
+    try {
+      const d = await api.post(`/events/${selectedGalore._id}/galore-close`, {});
+      setGaloreClose(null);
+      showToast(`${selectedGalore.title} is closed${d.loginsErased ? ` — ${d.loginsErased} Galore login${d.loginsErased === 1 ? '' : 's'} erased` : ''}.`);
+      load();
+    } catch (err) { setGaloreClose(c => ({ ...c, busy: false, error: err.message })); }
+  };
+
   const handleToggleReg = async (ev) => {
     try {
       await api.patch(`/events/${ev._id}/registration`, { closed: !ev.registrationClosed });
       load();
-      if (selectedGalore) loadActivities(selectedGalore._id);
-    } catch (err) { setError(err.message); }
-  };
-
-  const handleToggleActivityReg = async (act) => {
-    try {
-      await api.patch(`/events/${act.id}/registration`, { closed: !act.registrationClosed });
       if (selectedGalore) loadActivities(selectedGalore._id);
     } catch (err) { setError(err.message); }
   };
@@ -919,6 +944,7 @@ export default function AdminEvents() {
   const prepareNewGalore = () => {
     setGaloreEditing(null);
     setGaloreForm(EMPTY_GALORE);
+    setDeadlineDraft('');
     setGaloreImgFile(null); setGaloreImgPrev(''); setGaloreError('');
     setGaloreBuilder(EMPTY_GALORE_BUILDER);
     setGaloreBuilderLoading(false);
@@ -942,6 +968,7 @@ export default function AdminEvents() {
     };
     setGaloreForm(details);
     setGaloreOriginalDetails(JSON.stringify(details));
+    setDeadlineDraft(isIsoDate(galoreDeadline) ? galoreDeadline : '');
     setGaloreImgFile(null); setGaloreImgPrev(ev.imageUrl || ''); setGaloreError('');
     setGaloreBuilder(EMPTY_GALORE_BUILDER);
     setGaloreBuilderLoading(true);
@@ -972,30 +999,54 @@ export default function AdminEvents() {
   const handleSaveGalore = async (e) => {
     e.preventDefault();
     if (!galoreForm.title.trim()) return setGaloreError('Event title is required.');
+    if (!isIsoDate(deadlineDraft)) return setGaloreError('Last date of registration is required.');
     if (galoreBuilderLoading) return;
     if (galoreProblems.length) return setGaloreError(galoreProblems[0]);
     setGaloreSaving(true); setGaloreError('');
     try {
       const head = { name: galoreHead.name.trim(), email: galoreHead.email.trim() };
       if (galoreEditing) {
-        /* Details first, so the update email coordinators and FAs receive carries
-           the new date/venue; the form save then sends it (if anything changed) */
+        /* Only what changed is sent: the event's details / image, then the main
+           coordinator (that call also emails everyone assigned when the details
+           or the coordinator changed — details first, so the email carries them).
+           Nothing is reloaded afterwards: the form simply becomes the saved copy. */
         const detailsChanged = JSON.stringify(galoreForm) !== galoreOriginalDetails;
-        const fd = new FormData();
-        Object.entries(galoreForm).forEach(([k, v]) => fd.append(k, v));
-        if (galoreImgFile) fd.append('image', galoreImgFile);
-        const { event } = await api.putForm(`/events/${galoreEditing}`, fd);
-        await api.put(`/events/${galoreEditing}/galore-head`, { ...head, detailsChanged });
-        setEvents(p => p.map(e => e._id === event._id ? event : e));
-        prepareEditGalore(event);              // fresh form + "saved" copy for Coordinators
-        loadActivities(event._id); loadDeptRegs(event._id);
-        showToast('Galore event updated!');
+        const savedHead = galoreSaved?.head || { name: '', email: '' };
+        const headChanged = head.name !== (savedHead.name || '') || head.email.toLowerCase() !== (savedHead.email || '').toLowerCase();
+        const deadlineChanged = deadlineDraft !== galoreDeadline;
+        if (!detailsChanged && !galoreImgFile && !headChanged && !deadlineChanged) { showToast('No changes to save.'); return; }
+
+        if (deadlineChanged) {
+          const d = await api.put(`/events/${galoreEditing}/galore-deadline`, { deadline: deadlineDraft });
+          applyDeadline(d.deadline || '');
+        }
+
+        if (detailsChanged || galoreImgFile) {
+          const fd = new FormData();
+          Object.entries(galoreForm).forEach(([k, v]) => fd.append(k, v));
+          if (galoreImgFile) fd.append('image', galoreImgFile);
+          const { event } = await api.putForm(`/events/${galoreEditing}`, fd);
+          setEvents(p => p.map(e => (e._id === event._id ? event : e)));
+          setGaloreImgPrev(event.imageUrl || '');
+        }
+        if (detailsChanged || headChanged) {
+          await api.put(`/events/${galoreEditing}/galore-head`, { ...head, detailsChanged });
+        }
+        /* the form as it is now is the saved copy */
+        setGaloreOriginalDetails(JSON.stringify(galoreForm));
+        setGaloreImgFile(null);
+        if (headChanged) setGaloreSaved(s => (s ? { ...s, head } : s));
+        /* the server emails a login only to a new coordinator email */
+        showToast(head.email.toLowerCase() !== (savedHead.email || '').toLowerCase()
+          ? `Galore event updated — ${head.name} has been emailed their Galore portal login.`
+          : 'Galore event updated!');
         return;
       }
       const fd = new FormData();
       Object.entries(galoreForm).forEach(([k, v]) => fd.append(k, v));
       fd.append('headName', head.name);
       fd.append('headEmail', head.email);
+      fd.append('registrationDeadline', deadlineDraft);
       if (galoreImgFile) fd.append('image', galoreImgFile);
 
       await api.postForm('/events/galore', fd);
@@ -1038,7 +1089,7 @@ export default function AdminEvents() {
     if (formatTab !== 'galore' || loading || galoreLoadedFor === galoreKey) return;
     setGaloreLoadedFor(galoreKey);
     if (!selectedGalore) {
-      setActivities([]); setDeptRegs([]); setGaloreSaved(null); setGaloreDeadline('');
+      setActivities([]); setDeptRegs([]); setGaloreSaved(null); applyDeadline('');
       setGalorePage('setup');
       prepareNewGalore();
       return;
@@ -1047,8 +1098,8 @@ export default function AdminEvents() {
     loadActivities(selectedGalore._id);
     loadDeptRegs(selectedGalore._id);
     api.get(`/events/${selectedGalore._id}/galore-deadline`)
-      .then(d => setGaloreDeadline(d.deadline || ''))
-      .catch(() => setGaloreDeadline(''));
+      .then(d => applyDeadline(d.deadline || ''))
+      .catch(() => applyDeadline(''));
     api.get(`/events/${selectedGalore._id}/galore-draft`).then(d => setGaloreDraft(d.draft || null)).catch(() => setGaloreDraft(null));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formatTab, loading, galoreKey, galoreLoadedFor]);
@@ -1062,6 +1113,7 @@ export default function AdminEvents() {
   const galoreDirtyRef = useRef(false);
   galoreDirtyRef.current = !!galoreImgFile
     || (!!galoreOriginalDetails && JSON.stringify(galoreForm) !== galoreOriginalDetails)
+    || (!!selectedGalore && deadlineDraft !== (isIsoDate(galoreDeadline) ? galoreDeadline : ''))
     || (!!galoreSaved && (galoreHead.name !== (galoreSaved.head?.name || '') || galoreHead.email !== (galoreSaved.head?.email || '')));
   const refreshGalore = useCallback(() => {
     if (!selectedGalore) return;
@@ -1086,7 +1138,7 @@ export default function AdminEvents() {
       if (!galoreDirtyRef.current) setGaloreBuilder(toBuilder(d));
     }).catch(() => {});
     api.get(`/events/${id}/galore-draft`).then(d => setGaloreDraft(d.draft || null)).catch(() => {});
-    api.get(`/events/${id}/galore-deadline`).then(d => setGaloreDeadline(d.deadline || '')).catch(() => {});
+    api.get(`/events/${id}/galore-deadline`).then(d => applyDeadline(d.deadline || '', galoreDirtyRef.current)).catch(() => {});
     loadActivities(id, true);
     loadDeptRegs(id, true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1108,16 +1160,6 @@ export default function AdminEvents() {
     return () => { clearInterval(timer); window.removeEventListener('focus', onBack); document.removeEventListener('visibilitychange', onBack); };
   }, [galoreOpen, refreshGalore]);
 
-  const saveGaloreDeadline = async (text) => {
-    const d = await api.put(`/events/${selectedGalore._id}/galore-deadline`, { deadline: text });
-    setGaloreDeadline(d.deadline || '');
-    showToast(d.deadline ? 'Registration deadline updated.' : 'Registration deadline removed.');
-  };
-  const saveSotyDeadline = async (date) => {
-    const { contest } = await api.put(`/events/${selectedGalore._id}/soty/deadline`, { deadline: date });
-    setSotyContest(contest);
-    showToast(contest.deadline ? 'Student of the Year last date updated.' : 'Student of the Year last date removed.');
-  };
   /* On the Student of the Year page the line under the strip is that contest's
      own last date (once the contest exists); everywhere else it's Galore's */
   const onSotyPage = galorePage === 'soty' && !!selectedGalore;
@@ -1417,9 +1459,15 @@ export default function AdminEvents() {
   /* Before the event exists there's only Create Event. Once it's created (with
      its overall coordinator) the strip has every page — About Galore first. */
   const galoreNav = selectedGalore ? [
-    ['about', 'About Galore'], ['setup', 'Edit Event'], ['activities', 'Activities'], ['coordinators', 'Coordinators'],
-    ['departments', 'Departments'], ['soty', 'Student of the Year'], ['gallery', 'Gallery'],
+    ['about', 'About Galore'], ['setup', 'Manage Event'], ['activities', 'Activities'], ['coordinators', 'Coordinators'],
+    ['departments', 'Departments'], ['schedule', 'Schedule'], ['soty', 'Student of the Year'], ['gallery', 'Gallery'],
   ] : [['setup', 'Create Event']];
+  /* the Galore schedule, as the main coordinator sees it (stable, so it loads once per event) */
+  const loadGaloreSchedule = useCallback(() => api.get(`/events/${selectedGalore?._id}/galore-schedule`), [selectedGalore?._id]);
+  const declareGaloreSchedule = useCallback((body) => api.patch(`/events/${selectedGalore?._id}/galore-declare`, body), [selectedGalore?._id]);
+  /* Manage Event → Results */
+  const loadGaloreResults = useCallback(() => api.get(`/events/${selectedGalore?._id}/galore-results`), [selectedGalore?._id]);
+  const saveGaloreResult  = useCallback((body) => api.put(`/events/${selectedGalore?._id}/galore-results`, body), [selectedGalore?._id]);
   const galoreSetupPage = (
     <form onSubmit={handleSaveGalore} className={s.form} style={{ padding: 0 }}>
       <GaloreSectionHead
@@ -1457,26 +1505,22 @@ export default function AdminEvents() {
           </div>
         </div>
 
+        {/* No event-wide time: Galore's activities run on different days at different
+            times, each set by the main coordinator on the Schedule page */}
         <div className={s.row2}>
           <div className={s.field}>
             <label>Display Date</label>
             <input value={galoreForm.date} onChange={galoreSet('date')} placeholder="e.g. Feb 2–8, 2027" />
           </div>
           <div className={s.field}>
-            <label>Time</label>
-            <input value={galoreForm.time} onChange={galoreSet('time')} placeholder="e.g. 9:00 AM onwards" />
+            <label>Last Date of Registration <span className={s.req}>*</span></label>
+            <input type="date" value={deadlineDraft} onChange={e => { setDeadlineDraft(e.target.value); setGaloreError(''); }} required />
           </div>
         </div>
 
-        <div className={s.row2}>
-          <div className={s.field}>
-            <label>Venue</label>
-            <input value={galoreForm.venue} onChange={galoreSet('venue')} placeholder="e.g. RKU Main Campus" />
-          </div>
-          <div className={s.field}>
-            <label>Seats / Availability</label>
-            <input value={galoreForm.seats} onChange={galoreSet('seats')} placeholder="e.g. Open Registration" />
-          </div>
+        <div className={s.field}>
+          <label>Venue</label>
+          <input value={galoreForm.venue} onChange={galoreSet('venue')} placeholder="e.g. RKU Main Campus" />
         </div>
 
         <div className={s.field}>
@@ -1520,6 +1564,17 @@ export default function AdminEvents() {
         {galoreError && <div className={s.formError}>{galoreError}</div>}
       </div>
       <div className={s.modalFooter}>
+        {galoreEditing && selectedGalore && (selectedGalore.galoreClosedAt ? (
+          <span className={s.galoreClosedNote} style={{ marginRight: 'auto' }}>
+            Event closed · {new Date(selectedGalore.galoreClosedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+          </span>
+        ) : (
+          <button type="button" className={s.closeEventBtn} disabled={galoreSaving} style={{ marginRight: 'auto' }}
+            title="Close the whole Galore event for good — nobody can log in to the Galore portal any more; everything stays here for you"
+            onClick={() => setGaloreClose({ text: '', busy: false, error: '' })}>
+            Close event
+          </button>
+        ))}
         <button type="button" className={s.cancelBtn} disabled={galoreSaving} onClick={resetGaloreForm}>Discard changes</button>
         {galoreEditing && selectedGalore && (
           <button type="button" className={s.delConfirmBtn} disabled={galoreSaving}
@@ -1527,7 +1582,7 @@ export default function AdminEvents() {
             Delete event
           </button>
         )}
-        <button type="submit" className={s.saveBtn} disabled={galoreSaving || galoreBuilderLoading || galoreProblems.length > 0}>
+        <button type="submit" className={s.saveBtn} disabled={galoreSaving || galoreBuilderLoading || galoreProblems.length > 0 || !!selectedGalore?.galoreClosedAt}>
           {galoreSaving ? 'Saving…' : galoreEditing ? 'Save Changes' : 'Create Event'}
         </button>
       </div>
@@ -1695,13 +1750,49 @@ export default function AdminEvents() {
             nav={galoreNav}
             active={galorePage}
             onNav={setGalorePage}
-            deadline={onSotyPage ? (sotyContest?.deadline || '') : selectedGalore ? galoreDeadline : ''}
-            onSaveDeadline={onSotyPage ? (sotyContest ? saveSotyDeadline : undefined) : selectedGalore ? saveGaloreDeadline : undefined}
+            /* the last date shows only on Edit Event (set in its form, next to Display Date) and on Student of the Year */
+            /* Student of the Year: the same line students see (its date and Open / Close are on the page);
+               Galore's own last date: shown and set on Edit Event */
+            deadline={onSotyPage ? (sotyContest?.opened && !sotyContest?.deadlinePassed && sotyContest?.deadline ? sotyContest.deadline : '')
+              : selectedGalore && galorePage === 'setup' ? galoreDeadline : ''}
+            deadlineNote={onSotyPage && sotyContest && !(sotyContest.opened && !sotyContest.deadlinePassed && sotyContest.deadline) ? sotyLine(sotyContest) : ''}
           >
               {loading ? (
                 <div className={s.regsEmpty}>Loading…</div>
               ) : galorePage === 'setup' ? (
-                galoreSetupPage
+                !selectedGalore ? galoreSetupPage : (
+                  <>
+                    {selectedGalore.galoreClosedAt && (
+                      <div className={s.galoreClosedBanner}>
+                        <strong>Event closed.</strong> The Galore portal is shut and every login was erased — only you can see this event’s
+                        form, assignments, registrations, teams, schedule, results and Student of the Year. It can no longer be changed;
+                        delete it to create a new Galore event.
+                      </div>
+                    )}
+                    {/* Manage Event: Edit Event · Galore form · Results */}
+                    <div className={s.statusTabs} style={{ marginBottom: 16, flexWrap: 'wrap' }} role="tablist" aria-label="Manage Event">
+                      {[['edit', 'Edit Event'], ['form', 'Galore form'], ['results', 'Results']].map(([k, label]) => (
+                        <button key={k} type="button" role="tab" aria-selected={manageTab === k}
+                          className={`${s.statusTab} ${manageTab === k ? s.statusTabOn : ''}`} onClick={() => setManageTab(k)}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {manageTab === 'form' ? (
+                      <>
+                        <GaloreSectionHead title="Galore form" sub="Categories and activities students register for — each activity's club, individual / duo / team with its players, and guidelines. Coordinators are assigned by the main Galore coordinator." />
+                        <AdminGaloreForm key={selectedGalore._id} event={selectedGalore} clubs={galoreStaff?.clubs || []} showToast={showToast}
+                          onSaved={(saved) => { setGaloreSaved(saved); loadActivities(selectedGalore._id, true); loadDeptRegs(selectedGalore._id, true); }} />
+                      </>
+                    ) : manageTab === 'results' ? (
+                      <>
+                        <GaloreSectionHead title="Results" sub="Winners and runners-up of every activity — teams, duos and individuals — by department." />
+                        <GaloreResults key={selectedGalore._id} eventId={selectedGalore._id} load={loadGaloreResults} save={saveGaloreResult}
+                          departments={(galoreSaved?.departments || []).map(d => d.name)} fileBase={selectedGalore.title} />
+                      </>
+                    ) : galoreSetupPage}
+                  </>
+                )
               ) : !selectedGalore ? (
                 <div className={s.empty}>
                   <p>No Galore event yet</p>
@@ -1710,18 +1801,26 @@ export default function AdminEvents() {
               ) : galorePage === 'coordinators' ? (
                 <>
                 <GaloreDraftNote draft={galoreDraft} head={galoreSaved?.head} />
-                <GaloreCoordinators event={selectedGalore} form={galoreSaved} clubs={galoreStaff?.clubs} onEdit={() => setGalorePage('setup')} />
+                <GaloreCoordinators event={selectedGalore} form={galoreSaved} clubs={galoreStaff?.clubs} onEdit={() => { setManageTab('edit'); setGalorePage('setup'); }} />
                 </>
               ) : galorePage === 'about' ? (
                 <GaloreAbout event={selectedGalore}
-                  onEdit={() => setGalorePage('setup')}
-                  onSaveAbout={async (description) => {
-                    await api.put(`/events/${selectedGalore._id}/galore-about`, { description });
-                    setEvents(p => p.map(e => (e._id === selectedGalore._id ? { ...e, description } : e)));
+                  onEdit={() => { setManageTab('edit'); setGalorePage('setup'); }}
+                  onSaveAbout={async (about) => {
+                    await api.put(`/events/${selectedGalore._id}/galore-about`, { about });
+                    setEvents(p => p.map(e => (e._id === selectedGalore._id ? { ...e, galoreAbout: about } : e)));
                   }}
                   onToggleReg={() => handleToggleReg(selectedGalore)}
                   onRemind={() => setRemindEvent(selectedGalore)}
                   onDelete={() => setGaloreDel({ text: '', busy: false, error: '' })} />
+              ) : galorePage === 'schedule' ? (
+                <>
+                  <GaloreSectionHead title="Schedule" sub="Every activity and match, as set by the main Galore coordinator on the Galore portal. Students see it once it's declared." />
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                    <DeclareButton key={`d-${selectedGalore._id}`} eventId={selectedGalore._id} flash={showToast} load={loadGaloreSchedule} save={declareGaloreSchedule} />
+                  </div>
+                  <ScheduleView key={selectedGalore._id} eventId={selectedGalore._id} load={loadGaloreSchedule} showHidden />
+                </>
               ) : galorePage === 'gallery' ? (
                 <GaloreGallery event={selectedGalore} />
               ) : galorePage === 'soty' ? (
@@ -1730,7 +1829,7 @@ export default function AdminEvents() {
                 <>
                 <GaloreSectionHead
                   title={`Activities${activitiesLoading ? '' : ` (${activities.length})`}`}
-                  sub="Added by the overall Galore coordinator. Each activity's registrations, teams and fixtures — open one with Manage Event."
+                  sub="Added by the overall Galore coordinator. Each activity's registrations, teams and fixtures — open one with Manage Activity."
                   />
                 <GaloreDraftNote draft={galoreDraft} head={galoreSaved?.head} />
                 {activitiesLoading ? (
@@ -1743,8 +1842,10 @@ export default function AdminEvents() {
                       <div key={act.id} className={s.card}>
                         <div className={s.cardBody}>
                           <div className={s.cardTitle}>{act.title}</div>
+                          {/* who runs it: the club and its Student Coordinators */}
+                          <div className={s.cardClub}>Managed by: {act.clubName || '—'}</div>
                           <div className={s.cardClub}>
-                            {act.categoryName || act.category} · {act.participationType !== 'team' ? 'Individual' : Number(act.minTeamSize) === 2 && Number(act.teamSize) === 2 ? 'Duo' : `Team (${act.minTeamSize}–${act.teamSize} players)`}{act.genderSplit ? ' · Boys/Girls' : ''}
+                            SC: {act.studentCoordinators?.length ? act.studentCoordinators.map(p => p.name || p.email).join(', ') : '—'}
                           </div>
                           <div className={s.cardMeta}>
                             <span>{act.registrationCount} registered</span>
@@ -1752,17 +1853,7 @@ export default function AdminEvents() {
                           </div>
                         </div>
                         <div className={s.cardActions}>
-                          <button className={s.regsBtn} onClick={() => viewRegs(act)}>Manage Event</button>
-                          <button className={s.delBtn} onClick={() => setDeleteId(act.id)}>Delete</button>
-                        </div>
-                        <div className={s.cardActions} style={{ borderTop: 'none', paddingTop: 0 }}>
-                          <button
-                            className={s.regsBtn}
-                            onClick={() => handleToggleActivityReg(act)}
-                            style={{ width: '100%' }}
-                          >
-                            {act.registrationClosed ? 'Reopen Registration' : 'Close Registration'}
-                          </button>
+                          <button className={s.regsBtn} style={{ width: '100%' }} onClick={() => viewRegs(act)}>Manage Activity</button>
                         </div>
                       </div>
                     ))}
@@ -2515,7 +2606,7 @@ export default function AdminEvents() {
           <div className={s.regsModal} onClick={e => e.stopPropagation()}>
             <div className={s.regsHeader}>
               <div>
-                <div className={s.modalTag}>{regModeOf(regEvent) === 'none' ? 'Event Report' : 'Manage Event'}</div>
+                <div className={s.modalTag}>{regModeOf(regEvent) === 'none' ? 'Event Report' : regEvent.parentEventId ? 'Manage Activity' : 'Manage Event'}</div>
                 <h2 className={s.modalTitle}>{regEvent.title}</h2>
                 <p className={s.regsSub}>
                   {regModeOf(regEvent) === 'none' ? 'No registration needed · Event report' : (<>
@@ -2810,6 +2901,40 @@ export default function AdminEvents() {
               <button className={s.cancelBtn} onClick={() => setDeleteId(null)}>Cancel</button>
               <button className={s.delConfirmBtn} onClick={handleDelete}>Yes, Delete</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ Close the Galore event — typed confirmation ══ */}
+      {galoreClose && selectedGalore && (
+        <div className={s.overlay} onClick={() => !galoreClose.busy && setGaloreClose(null)}>
+          <div className={s.confirmBox} style={{ maxWidth: 460 }} role="alertdialog" aria-labelledby="galore-close-title" onClick={e => e.stopPropagation()}>
+            <h3 id="galore-close-title">Close “{selectedGalore.title}”?</h3>
+            <p style={{ marginBottom: 14 }}>
+              This closes the whole Galore event for good. Nobody can log in to the Galore portal any more — the login page shows
+              “Event closed” — and every Galore password and login (overall, department and activity coordinators, students) is erased.
+            </p>
+            <p style={{ marginBottom: 14 }}>
+              Everything stays with you here: activities, the Galore form, assignments, registrations, teams, schedule, results and
+              Student of the Year contestants. It can’t be reopened — delete it when you want to create a new Galore event.
+            </p>
+            <form onSubmit={e => { e.preventDefault(); closeGaloreEvent(); }}>
+              <label htmlFor="galore-close-input" style={{ display: 'block', fontSize: '.84rem', color: '#374151', marginBottom: 6 }}>
+                Type <strong style={{ color: '#b91c1c', letterSpacing: '.03em' }}>{GALORE_CLOSE_PHRASE}</strong> to confirm
+              </label>
+              <input id="galore-close-input" autoFocus autoComplete="off" spellCheck={false} value={galoreClose.text}
+                onChange={e => setGaloreClose(c => ({ ...c, text: e.target.value, error: '' }))}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', border: '1.5px solid #e5e7eb', borderRadius: 8, font: 'inherit', fontSize: '.9rem', textAlign: 'center', marginBottom: 14 }} />
+              {galoreClose.error && <div className={s.formError} style={{ marginBottom: 12 }}>{galoreClose.error}</div>}
+              <div className={s.confirmBtns}>
+                <button type="button" className={s.cancelBtn} disabled={galoreClose.busy} onClick={() => setGaloreClose(null)}>Cancel</button>
+                <button type="submit" className={s.delConfirmBtn}
+                  disabled={galoreClose.busy || galoreClose.text.trim() !== GALORE_CLOSE_PHRASE}
+                  style={galoreClose.text.trim() !== GALORE_CLOSE_PHRASE ? { opacity: .45, cursor: 'not-allowed' } : undefined}>
+                  {galoreClose.busy ? 'Closing…' : 'Close event'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

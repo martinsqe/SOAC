@@ -16,8 +16,18 @@ export default function GaloreLogin() {
   const [busy,     setBusy]     = useState(false);
   const [error,    setError]    = useState('');
   const [info,     setInfo]     = useState('');
+  const [closed,   setClosed]   = useState(null); // null = checking | { title } once the admin has closed Galore
 
-  useEffect(() => { if (galoreToken.get()) navigate('/galore', { replace: true }); }, [navigate]);
+  /* Galore closed by the admin: no logins — the logos and an "Event closed" line only */
+  useEffect(() => {
+    let live = true;
+    galoreApi.get('/status').then(d => {
+      if (!live) return;
+      if (d.closed) { galoreToken.clear(); setClosed({ title: d.title || 'Galore' }); }
+      else { setClosed(false); if (galoreToken.get()) navigate('/galore', { replace: true }); }
+    }).catch(() => { if (live) { setClosed(false); if (galoreToken.get()) navigate('/galore', { replace: true }); } });
+    return () => { live = false; };
+  }, [navigate]);
 
   const login = async (e) => {
     e.preventDefault();
@@ -47,6 +57,12 @@ export default function GaloreLogin() {
     <div className={`${s.page} ${s.loginPage}`}>
       <main className={s.loginMain}>
         <GaloreLogos className={s.loginLogos} />
+        {closed ? (
+          <div className={s.loginClosed}>
+            <div className={s.loginClosedTitle}>Event closed</div>
+            <div className={s.loginClosedSub}>{closed.title} has ended. Thank you for taking part!</div>
+          </div>
+        ) : closed === false && (
         <div className={`${s.card} ${s.loginBox}`}>
           <h1 className={s.cardTitle} style={{ fontSize: '1.5rem', textAlign: 'center' }}>{mode === 'login' ? 'Login' : 'Forgot password'}</h1>
           <p className={s.muted} style={{ margin: '0 0 18px' }}>
@@ -77,6 +93,7 @@ export default function GaloreLogin() {
             </button>
           </div>
         </div>
+        )}
       </main>
       <Link to="/events" className={`${s.backBtn} ${s.loginBack}`}>Back to events</Link>
     </div>

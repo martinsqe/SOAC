@@ -1,93 +1,76 @@
 import { useState } from 'react';
-import { galoreApi } from '../../utils/galoreApi';
-import {
-  EventHeader, Notice, Table, InfoRow, Person, TBA, FileLink, FixtureList,
-} from './GaloreUI';
-import { whenOf, typeLabel, findClashes } from './galoreHelpers';
+import { Notice, FileLink } from './GaloreUI';
+import GaloreActivitySelection from './GaloreActivitySelection';
+import { findClashes } from './galoreHelpers';
+import { ScheduleView } from './GaloreSchedule';
+import GaloreStudentActivities from './GaloreStudentActivities';
 import s from './Galore.module.css';
 
-/* Student — one Galore event: only the activities they registered for, and
-   everything about them.
-     Timetable      their activities by date, with any clash flagged
-     My activities  each one's details, who's in charge, guidelines, team, fixtures */
-export default function GaloreStudent({ data, section = 'timetable' }) {
-  const { event, activities, department } = data;
-  const timetable = [...activities].sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || a.time.localeCompare(b.time));
+/* Student — one Galore event: the whole Galore schedule (every activity and
+   match), theirs highlighted, with any clash between their own activities
+   flagged. Above it, one line naming what they registered for. */
+
+/* ["Football", "Basketball", "Chess"] → "Football, Basketball and Chess" */
+const listOf = (names) => (names.length < 2 ? names.join('')
+  : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+
+const SELECTION_TABS = [['activities', 'Activity selection'], ['registrations', 'Registrations']];
+
+export default function GaloreStudent({ data, section = 'schedule', onRegistered }) {
+  const [tab, setTab] = useState(SELECTION_TABS[0][0]);
+  const { event, activities } = data;
   const clashes = findClashes(activities);
+  const names = activities.map(a => a.title);
+
+  /* Event selection: choose activities (their verified details + the checklist),
+     and Registrations — everyone in the activities they entered, and the selections */
+  if (section === 'selection') {
+    return (
+      <div className={s.card}>
+        <h2 className={s.cardTitle} style={{ textAlign: 'center', marginBottom: 10 }}>Event selection</h2>
+        {/* the same tabs as the main coordinator's Manage event: evenly spaced, an arrow on each (the open one points up) */}
+        <div className={s.deptTabs} role="tablist" aria-label="Event selection">
+          {SELECTION_TABS.map(([k, label]) => (
+            <button key={k} type="button" role="tab" aria-selected={tab === k} aria-expanded={tab === k}
+              className={`${s.deptTab} ${s.manageTab} ${tab === k ? s.deptTabOn : ''}`} onClick={() => setTab(k)}>
+              {label}
+              <svg className={`${s.roleArrow} ${tab === k ? s.roleArrowUp : ''}`} viewBox="0 0 12 12" aria-hidden="true">
+                <path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          ))}
+        </div>
+        {tab === 'activities'
+          ? <GaloreActivitySelection eventId={event.id} onRegistered={onRegistered} />
+          : activities.length === 0
+            ? <div className={s.muted} style={{ textAlign: 'center', padding: '18px 0' }}>Your registrations show here once you confirm your activities under Activity selection.</div>
+            : <GaloreStudentActivities eventId={event.id} />}
+      </div>
+    );
+  }
 
   return (
     <div className={s.card}>
-      <EventHeader role="Student" event={event} sub={department ? `Your department: ${department}` : ''}
-        description={event.description} actions={<FileLink file={event.rules} label="General guidelines" />} />
+      <div className={s.eventHead}>
+        <div>
+          <h2 className={s.cardTitle}>{event.title}</h2>
+          <div className={s.registeredLine}>
+            {names.length
+              ? <>You registered for <strong>{listOf(names)}</strong>. Be at the venue by the reporting time.</>
+              : 'You haven’t registered for any activities yet.'}
+          </div>
+        </div>
+        <FileLink file={event.rules} label="General guidelines" />
+      </div>
       <div className={s.pageGap} />
 
-      {section === 'timetable' && (
-        <>
-          {clashes.length > 0 && (
-            <Notice tone="warn">
-              Two of your activities are at the same time — tell their coordinators so they can help you take part in both:
-              <ul>{clashes.map(c => <li key={`${c.a.id}-${c.b.id}`}><strong>{c.a.title}</strong> and <strong>{c.b.title}</strong> — {c.when}</li>)}</ul>
-            </Notice>
-          )}
-          <Table head={['Activity', 'Date', 'Time', 'Venue']}>
-            {timetable.map(a => (
-              <tr key={a.id}>
-                <td><strong>{a.title}</strong></td><td>{a.dateLabel || <TBA />}</td><td>{a.time || <TBA />}</td><td>{a.venue || <TBA />}</td>
-              </tr>
-            ))}
-          </Table>
-        </>
+      {clashes.length > 0 && (
+        <Notice tone="warn">
+          Two of your activities are at the same time — tell their coordinators so they can help you take part in both:
+          <ul>{clashes.map(c => <li key={`${c.a.id}-${c.b.id}`}><strong>{c.a.title}</strong> and <strong>{c.b.title}</strong> — {c.when}</li>)}</ul>
+        </Notice>
       )}
-
-      {section === 'activities' && (
-        <div className={s.grid}>
-          {activities.map(a => <StudentActivity key={a.id} a={a} />)}
-        </div>
-      )}
+      <ScheduleView eventId={event.id} mine={new Set(activities.map(a => a.id))} mineLabel="Only my activities" intro={false} asStudent />
     </div>
   );
 }
-
-function StudentActivity({ a }) {
-  const [fixtures, setFixtures] = useState(null);
-  const [team,     setTeam]     = useState(null);
-  const [open,     setOpen]     = useState(false);
-  const toggle = () => {
-    setOpen(o => !o);
-    if (fixtures === null) {
-      galoreApi.get(`/activities/${a.id}/fixtures`)
-        .then(d => { setFixtures(d.fixtures || []); setTeam(d.team || null); })
-        .catch(() => setFixtures([]));
-    }
-  };
-  return (
-    <div className={s.activity}>
-      <div className={s.activityHead}>
-        <h3 className={s.activityTitle}>{a.title}</h3>
-        <span className={s.pill}>{a.categoryName}</span>
-      </div>
-      <div className={s.info}>
-        <InfoRow label="Type">{typeLabel(a)}</InfoRow>
-        <InfoRow label="Date">{whenOf(a)}</InfoRow>
-        <InfoRow label="Venue">{a.venue || <TBA />}</InfoRow>
-        <InfoRow label="Coordinator"><Person p={a.coordinator} /></InfoRow>
-        <InfoRow label="Dept. coord."><Person p={a.deptCoordinator} /></InfoRow>
-        {a.clubName && <InfoRow label="Run by">{a.clubName}</InfoRow>}
-        {a.participationType === 'team' && (
-          <InfoRow label="Your team">
-            {a.team ? <>
-              {a.team.name}{a.team.division && a.team.division !== 'open' ? ` (${a.team.division})` : ''}
-              {a.team.members?.length ? <div className={s.muted} style={{ fontWeight: 500 }}>{a.team.members.join(', ')}</div> : null}
-            </> : <TBA />}
-          </InfoRow>
-        )}
-      </div>
-      <div className={s.actions}>
-        {a.rules ? <FileLink file={a.rules} label="Guidelines" /> : <span className={s.muted} style={{ fontSize: '.78rem' }}>Guidelines not uploaded yet</span>}
-        <button className={s.smallBtn} onClick={toggle}>{open ? 'Hide fixtures' : 'Fixtures'}</button>
-      </div>
-      {open && <div className={s.fixtures}><FixtureList fixtures={fixtures} team={team} /></div>}
-    </div>
-  );
-}
-

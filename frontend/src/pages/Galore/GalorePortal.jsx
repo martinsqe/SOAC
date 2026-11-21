@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../../api/client';
 import { galoreApi, galoreToken } from '../../utils/galoreApi';
 import GaloreLetterhead from '../../components/GaloreLetterhead/GaloreLetterhead';
 import GaloreHead from './GaloreHead';
@@ -10,6 +9,8 @@ import { Empty } from './GaloreUI';
 import { headPages, staffPages, studentPages, commonPages } from './galoreHelpers';
 import { GaloreCoordinatorsPage, GaloreAboutPage, GaloreGalleryPage } from './GaloreCommon';
 import { SotyStudentPage, SotyHeadPage } from './GaloreSoty';
+import useDesktopViewport from '../../utils/useDesktopViewport';
+import { sotyLine, deadlineSentence } from '../../utils/galoreDeadline';
 import s from './Galore.module.css';
 
 /* Galore portal — one login (one email, one account), a separate dashboard for
@@ -28,12 +29,12 @@ const ROLE_KEY = 'galore_dashboard'; // last dashboard picked, per browser
 const readRole = () => { try { return localStorage.getItem(ROLE_KEY) || ''; } catch { return ''; } };
 const saveRole = (k) => { try { localStorage.setItem(ROLE_KEY, k); } catch { /* storage blocked */ } };
 export default function GalorePortal() {
+  useDesktopViewport(); // phones show the big-screen layout, zoomed to fit
   const navigate = useNavigate();
   const [data,     setData]     = useState(null);
   const [error,    setError]    = useState('');
   const [tab,      setTab]      = useState(readRole);
   const [page,     setPage]     = useState('');
-  const [deadline, setDeadline] = useState('');
   const [soty,     setSoty]     = useState(null);  // Student of the Year, once published (has its own last date)
   const sotyOn = !!soty;
   const [pwOpen,   setPwOpen]   = useState(false); // "Change password" card open
@@ -69,7 +70,10 @@ export default function GalorePortal() {
   /* …and Student of the Year last, just before Log out */
   const own = current ? current[2].filter(([k]) => k !== 'soty') : [];
   const sotyPage = current ? current[2].filter(([k]) => k === 'soty') : [];
-  const pages = current ? [['about', 'About Galore'], ...own, ...commonPages().filter(([k]) => k !== 'about'), ...sotyPage] : [];
+  /* a student also has Event selection (choose activities · their registrations), right after About Galore */
+  const common = commonPages().filter(([k]) => k !== 'about');
+  const selectionPage = current?.[0] === 'student' ? [['selection', 'Event selection']] : [];
+  const pages = current ? [['about', 'About Galore'], ...selectionPage, ...own, ...common, ...sotyPage] : [];
   const currentPage = pages.some(([k]) => k === page) ? page : pages[0]?.[0];
   const isCommon = commonPages().some(([k]) => k === currentPage);
   const isSoty = currentPage === 'soty';
@@ -81,7 +85,6 @@ export default function GalorePortal() {
   const eventId = event?.id;
   useEffect(() => {
     if (!eventId) return;
-    api.get(`/events/${eventId}/galore-deadline`).then(d => setDeadline(d.deadline || '')).catch(() => setDeadline(''));
     /* Student of the Year joins the student's and the main coordinator's strip once published */
     galoreApi.get(`/events/${eventId}/soty`).then(d => setSoty(d.contest || null)).catch(() => setSoty(null));
   }, [eventId]);
@@ -99,7 +102,10 @@ export default function GalorePortal() {
           nav={ready && roles.length ? nav : undefined}
           active={currentPage}
           onNav={setPage}
-          deadline={!ready ? '' : isSoty ? (soty?.opened ? soty.deadline || '' : '') : deadline}
+          /* only Student of the Year shows a last date: "opening soon" until it opens.
+             Galore's own last date is on the registration form instead. */
+          deadline={ready && isSoty && soty?.opened && !soty?.deadlinePassed && soty?.deadline ? soty.deadline : ''}
+          deadlineNote={ready && isSoty && soty && !(soty.opened && !soty.deadlinePassed && soty.deadline) ? sotyLine(soty) : ''}
         >
           {error && <div className={s.error}>{error}</div>}
           {!data && !error && <div className={s.muted}>Loading…</div>}
@@ -114,16 +120,24 @@ export default function GalorePortal() {
                 </div>
               )}
 
-              {roles.length > 1 && (
-                <RoleSwitch roles={roles} current={current[0]} onPick={switchRole} />
-              )}
+              {/* under the strip, one line: Galore's last date of registration on the left
+                  (not on Student of the Year — it has its own), the dashboard switcher on the right */}
+              {(() => {
+                const last = !isSoty && event?.deadline ? deadlineSentence(event.deadline) : '';
+                return (last || roles.length > 1) && (
+                  <div className={s.stripLine}>
+                    <span className={s.stripDeadline}>{last}</span>
+                    {roles.length > 1 && <RoleSwitch roles={roles} current={current[0]} onPick={switchRole} />}
+                  </div>
+                );
+              })()}
 
               {roles.length === 0 && (
                 <div className={s.card}><Empty>Nothing here yet — no Galore registrations or assignments for {data.account.email}.</Empty></div>
               )}
 
               {isCommon && event && (
-                currentPage === 'coordinators' ? <GaloreCoordinatorsPage event={event} />
+                currentPage === 'coordinators' ? <GaloreCoordinatorsPage event={event} canAssign={isHeadHere} />
                   : currentPage === 'about' ? <GaloreAboutPage event={event} canEdit={isHeadHere} onSaved={load} />
                   : <GaloreGalleryPage key={`${event.id}-${isHeadHere}`} event={event} canAdd={isHeadHere} />
               )}
@@ -134,7 +148,7 @@ export default function GalorePortal() {
               {!isCommon && !isSoty && current?.[0] === 'head' && data.head.map(x => <GaloreHead key={x.event.id} eventId={x.event.id} section={currentPage} />)}
               {!isCommon && !isSoty && current?.[0] === 'dept' && deptStaff.map(x => <GaloreStaff key={`d${x.event.id}`} data={x} section={currentPage} />)}
               {!isCommon && !isSoty && current?.[0] === 'activity' && actStaff.map(x => <GaloreStaff key={`a${x.event.id}`} data={x} section={currentPage} />)}
-              {!isCommon && !isSoty && current?.[0] === 'student' && data.student.map(x => <GaloreStudent key={x.event.id} data={x} section={currentPage} />)}
+              {!isCommon && !isSoty && current?.[0] === 'student' && data.student.map(x => <GaloreStudent key={x.event.id} data={x} section={currentPage} onRegistered={load} />)}
             </>
           )}
         </GaloreLetterhead>

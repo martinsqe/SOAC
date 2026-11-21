@@ -34,8 +34,7 @@
   background: #ebebeb;
   border-radius: 999px;
   padding: 4px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  overflow: hidden; /* never scrolls: FitWidth shrinks the row of pages instead */
 }
 .strip::-webkit-scrollbar { display: none; }
 .stripInner {
@@ -106,3 +105,18 @@
   .sheet { border-radius: 14px; }
   .navBtn { font-size: .84rem; }
 }
+
+/* Phones (big-screen layout zoomed to fit, see utils/useDesktopViewport):
+   tighter spacing between the strip's pages, so the whole row fits at full
+   size instead of being shrunk — every page name stays readable. */
+:global(html.galore-phone) .navBtn { padding: 8px 10px; font-size: .86rem; }
+:global(html.galore-phone) .strip { padding: 3px; }
+
+/* Phones: the strip's words a touch bolder and darker, packed close (the row is
+   then scaled to the strip's full width — see FitWidth maxScale), so each page
+   name comes out as large and clear as one line allows */
+:global(html.galore-phone) .navBtn { padding: 8px 7px; font-size: .9rem; font-weight: 600; color: #374151; letter-spacing: -.005em; }
+/* …but the page that's open stays bold black, as on the big screen (the rule
+   above is more specific than .navOn, so it needs its own) */
+:global(html.galore-phone) .navOn,
+:global(html.galore-phone) .navOn:hover { color: #000; font-weight: 800; }

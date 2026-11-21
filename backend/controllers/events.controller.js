@@ -1,5 +1,5 @@
 const { pgPool }   = require('../config/db');
-const { ensureSoacTables, asEvent } = require('../services/soacData');
+const { ensureSoacTables, asEvent, deadlinePassed } = require('../services/soacData');
 const { assertCoordOwnsEvent, getEventCoordinatorIds, assertCoordOwnsClub } = require('../services/coordAuth');
 const { destroyImage } = require('../config/cloudinary');
 const { getFileValue, uploadImageBuffer, uploadDocumentBuffer } = require('../config/multer');
@@ -8,6 +8,7 @@ const { notifyUser, notifyManyUsers } = require('../services/notify');
 const { sendGaloreAssignmentSummary, sendGaloreRegistrationConfirmation, sendEventReminder, sendEventPublishedToCoordinator } = require('../config/email');
 const galoreForm = require('../services/galoreForm');
 const studentDir = require('../services/studentDirectory');
+const { clubStudentCoordinators } = require('../services/clubStudentCoords');
 const galorePortal = require('../services/galorePortal');
 const { backfillLegacyGalore } = galoreForm;
 const { clubStaff, emailEach } = require('../services/mailRecipients');
@@ -27,7 +28,7 @@ const EVENT_COLS = [
   'event_format', 'captain_name', 'captain_email', 'captain_phone',
   'team_members', 'payment_link', 'team_size', 'min_team_size',
   'parent_event_id', 'custom_fields', 'campus', 'registration_type', 'registration_note',
-  'is_report_only', 'gender_split', 'galore_published',
+  'is_report_only', 'gender_split', 'galore_published', 'galore_about', 'galore_closed_at', 'registration_deadline',
 ].join(', ');
 
 /* An unpublished Galore event (and every activity under it) is hidden from
@@ -550,7 +551,8 @@ const getActivities = async (req, res, next) => {
   try {
     const { rows } = await pgPool.query(
       `SELECT e.id, e.title, e.category, e.event_format, e.galore_category_id, e.gender_split,
-              e.team_size, e.min_team_size, e.status, e.registration_closed,
+              e.team_size, e.min_team_size, e.status, e.registration_closed, e.club_id,
+              (SELECT name FROM clubs WHERE clubs.id = e.club_id) AS club_name,
               c.name AS category_name,
               (SELECT COUNT(*)::int FROM event_registrations er WHERE er.event_id = e.id) AS registration_count,
               (SELECT COUNT(*)::int FROM event_teams et WHERE et.event_id = e.id) AS team_count
@@ -561,8 +563,12 @@ const getActivities = async (req, res, next) => {
        ORDER BY c.sort_order NULLS LAST, e.category, e.title`,
       [req.params.id, isAdminReq(req)]
     );
+    /* admin only: the club running each activity and its Student Coordinators */
+    const admin = isAdminReq(req);
+    const scs = admin ? await clubStudentCoordinators(rows.map(r => r.club_id)) : new Map();
     res.json({
       activities: rows.map(r => ({
+        ...(admin && { clubName: r.club_name || '', studentCoordinators: scs.get(String(r.club_id)) || [] }),
         id:                String(r.id),
         _id:               String(r.id), // matches the shape every other event object has (see asEvent)
         parentEventId:     String(req.params.id),
@@ -990,6 +996,29 @@ const toggleRegistration = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+/* POST /api/events/:id/galore-close  (admin) — Close event: the whole Galore
+   event is closed for good. Registration closes, the Galore portal shuts for it
+   (the login page shows "Event closed") and everyone's portal login and
+   password is erased. All its data stays — for the admin only. */
+const closeGaloreEvent = async (req, res, next) => {
+  try {
+    const out = await galorePortal.closeEvent(req.params.id);
+    if (!out) {
+      const { rows: [ev] } = await pgPool.query(`SELECT galore_closed_at FROM events WHERE id = $1 AND is_active = true AND event_format = 'galore' AND parent_event_id IS NULL`, [req.params.id]);
+      return ev
+        ? res.status(400).json({ message: 'This Galore event is already closed.' })
+        : res.status(404).json({ message: 'Galore event not found.' });
+    }
+    await logAudit(req.user.id, req.user.name, 'UPDATE_EVENT', 'event', out.id, {
+      title: out.title, changes: [{ field: 'Galore event', from: 'Open', to: 'Closed' }], galoreLoginsErased: out.loginsErased,
+    });
+    await Promise.all([cache.del(`events:${req.params.id}`), cache.delPattern('events:*')]);
+    req.app.get('io')?.emit('galore:closed', { eventId: out.id }); // open portal pages sign out
+    const { rows } = await pgPool.query(`SELECT ${EVENT_COLS} FROM events WHERE id = $1`, [out.id]);
+    res.json({ event: withImageUrl(asEvent(rows[0])), loginsErased: out.loginsErased, message: `${out.title} is closed.` });
+  } catch (err) { next(err); }
+};
+
 /* DELETE /api/events/:id  (admin — soft delete) */
 const remove = async (req, res, next) => {
   try {
@@ -1076,16 +1105,21 @@ async function emailGaloreRegistration(umbrella, student, newTitles) {
   });
 }
 
-const registerForGaloreUmbrella = async (umbrella, req, res) => {
+/* opts.student: already identified (the Galore portal — the logged-in student's
+   own record); opts.quiet: no confirmation email (the portal sends just one
+   email — the login — when the enrollment number is verified) */
+const registerForGaloreUmbrella = async (umbrella, req, res, opts = {}) => {
   /* Who is registering comes only from their verified university record (see
      services/studentDirectory.js) — the name/email/department/course the
      browser sends are ignored, so nobody can register with false details. */
-  let student;
-  try {
-    student = await studentDir.studentFromToken(req.body.verificationToken);
-  } catch (err) {
-    if (err instanceof studentDir.DirectoryError) return res.status(err.status).json({ message: err.message });
-    throw err;
+  let student = opts.student || null;
+  if (!student) {
+    try {
+      student = await studentDir.studentFromToken(req.body.verificationToken);
+    } catch (err) {
+      if (err instanceof studentDir.DirectoryError) return res.status(err.status).json({ message: err.message });
+      throw err;
+    }
   }
   const { activityIds } = req.body;
   const name = student.name;
@@ -1097,8 +1131,9 @@ const registerForGaloreUmbrella = async (umbrella, req, res) => {
   }
   const course = student.program || student.sub_department || student.department;
   const enrollmentNo = student.enrollment_no || student.admission_no;
-  /* Only filled in by the student when their record doesn't have it */
-  const phone = student.phone || String(req.body.phone || '').trim();
+  /* Only filled in by the student when their record doesn't have a usable one
+     (blank, or not a valid 10-digit number — the form then asks for it) */
+  const phone = isValidMobile(student.phone) ? student.phone : String(req.body.phone || '').trim();
   if (!phone)  return res.status(400).json({ message: 'Mobile number is required.' });
   if (!isValidMobile(phone)) return res.status(400).json({ message: 'Enter a valid 10-digit mobile number.' });
   const gender = student.gender || String(req.body.gender || '').toUpperCase();
@@ -1124,6 +1159,24 @@ const registerForGaloreUmbrella = async (umbrella, req, res) => {
   const pgClient = await pgPool.connect();
   try {
     await pgClient.query('BEGIN');
+    /* One registration at a time per student per Galore event: two submits at
+       the same moment (double click, two tabs, a retry on a slow network)
+       queue here, so "once only" holds and the category limits can't be
+       beaten by sending two different selections together. Other students
+       aren't held up — the lock is just this student's. */
+    await pgClient.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`galore-reg:${umbrella.id}:${emailNorm}`]);
+    /* Registration is once only: a student already registered for any activity
+       of this Galore event can't add activities or register again */
+    const { rows: [already] } = await pgClient.query(
+      `SELECT 1 FROM event_registrations er JOIN events a ON a.id = er.event_id AND a.is_active = true
+       WHERE a.parent_event_id = $1 AND (LOWER(er.email) = $2 OR ($3::bigint IS NOT NULL AND er.student_id = $3))
+       LIMIT 1`,
+      [umbrella.id, emailNorm, student.id || null]
+    );
+    if (already) {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({ message: `You've already registered for ${umbrella.title}. Registration is once only — log in to the Galore portal for your schedule.` });
+    }
     const created = [];
     const skipped = [];
     for (const act of actRows) {
@@ -1151,7 +1204,7 @@ const registerForGaloreUmbrella = async (umbrella, req, res) => {
     }
     await pgClient.query('COMMIT');
     await cache.delPattern('events:*');
-    if (created.length) emailGaloreRegistration(umbrella, student, created).catch(err => console.warn('[galore] registration email failed:', err.message));
+    if (created.length && !opts.quiet) emailGaloreRegistration(umbrella, student, created).catch(err => console.warn('[galore] registration email failed:', err.message));
     const notifyOne = actRows.find(a => created.includes(a.title));
     if (notifyOne) {
       notifyRegistrationConfirmed({ id: umbrella.id, title: umbrella.title }, emailNorm).catch(() => {});
@@ -1166,6 +1219,21 @@ const registerForGaloreUmbrella = async (umbrella, req, res) => {
   } finally {
     pgClient.release();
   }
+};
+
+/* The Galore portal's Activity selection: the logged-in student's own record,
+   the same checks as the Events page, no extra email */
+const registerGaloreFromPortal = async (umbrellaId, student, req, res) => {
+  const { rows: [event] } = await pgPool.query(
+    `SELECT id, title, status, registration_closed, registration_deadline FROM events e
+     WHERE id = $1 AND is_active = true AND event_format = 'galore' AND parent_event_id IS NULL AND ${GALORE_HIDDEN_SQL('e')}`,
+    [umbrellaId]
+  );
+  if (!event) return res.status(404).json({ message: 'Galore event not found.' });
+  if (event.status === 'past' || event.registration_closed || deadlinePassed(event.registration_deadline)) {
+    return res.status(400).json({ message: 'Registrations for this event are closed.' });
+  }
+  return registerForGaloreUmbrella(event, req, res, { student, quiet: true });
 };
 
 const register = async (req, res, next) => {
@@ -1573,8 +1641,8 @@ const loadGaloreUmbrella = async (id, db = pgPool) => {
    someone since the last save is marked. Fire-and-forget. */
 const notifyGaloreTeam = async (umbrellaId, reason, assigned = { newDeptCoords: [], newCoords: [], newClubs: [] }) => {
   try {
-    const { rows: [event] } = await pgPool.query(`SELECT id, title, date, time, venue FROM events WHERE id = $1`, [umbrellaId]);
-    if (!event) return;
+    const { rows: [event] } = await pgPool.query(`SELECT id, title, date, time, venue, galore_closed_at FROM events WHERE id = $1`, [umbrellaId]);
+    if (!event || event.galore_closed_at) return; // closed: nobody gets a login any more
     const form = await galoreForm.getGaloreForm(umbrellaId, { withStaff: true });
     const activities = form.categories.flatMap(c => c.activities.map(a => ({ ...a, categoryName: c.name })));
     const isNewAct = new Set((assigned.newCoords || []).map(c => `${c.email}:${c.activityTitle}`));
@@ -1618,8 +1686,11 @@ const notifyGaloreTeam = async (umbrellaId, reason, assigned = { newDeptCoords: 
       }, 'head');
     }
 
-    /* clubs newly responsible for an activity: it's now on their Events page */
-    for (const { clubId, activityId } of assigned.newClubs || []) {
+    /* clubs newly responsible for an activity: it's now on their Events page —
+       only once Galore is published (until then clubs can't see it; publishing
+       tells every assigned club, see setGalorePublished) */
+    const { rows: [pub] } = await pgPool.query(`SELECT galore_published FROM events WHERE id = $1`, [umbrellaId]);
+    for (const { clubId, activityId } of pub?.galore_published ? (assigned.newClubs || []) : []) {
       const { rows: [act] } = await pgPool.query(`SELECT ${EVENT_COLS} FROM events WHERE id = $1`, [activityId]);
       if (act) notifyClubOfPublishedEvent({ ...asEvent(act), title: `${act.title} — ${event.title}` }, clubId, 'assigned', { role: 'admin' });
     }
@@ -1660,6 +1731,9 @@ const createGaloreEvent = async (req, res, next) => {
     await ensureSoacTables();
     const { title, venue, startDate, date, time, description, seats, highlight } = req.body;
     if (!title?.trim()) return res.status(400).json({ message: 'Event title is required.' });
+    const registrationDeadline = String(req.body.registrationDeadline || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(registrationDeadline)) return res.status(400).json({ message: 'Last date of registration is required.' });
+    await ensureDeadlineCol();
 
     /* Only one Galore event per campus — everything else is edited on it */
     const { rows: existing } = await pgPool.query(
@@ -1696,11 +1770,15 @@ const createGaloreEvent = async (req, res, next) => {
          adminCampus(req) || MAIN_CAMPUS]
       );
       const umbrella = umbrellaRows[0];
-      await pgClient.query(`UPDATE events SET galore_published = false WHERE id = $1`, [umbrella.id]);
+      await pgClient.query(`UPDATE events SET galore_published = false, registration_deadline = $2 WHERE id = $1`, [umbrella.id, registrationDeadline]);
       umbrella.galore_published = false;
       await pgClient.query(`INSERT INTO galore_heads (event_id, name, email) VALUES ($1, $2, $3)`, [umbrella.id, head.name, head.email]);
       await pgClient.query('COMMIT');
       await Promise.all([cache.delPattern('events:*'), cache.del('stats:admin', 'stats:admin:city')]);
+      /* a new Galore: old logins not part of any live Galore event are removed, so
+         everyone in this one (head now, coordinators and students as they're added)
+         is emailed fresh credentials */
+      await galorePortal.pruneOrphanAccounts().catch(err => console.warn('[galore] login clean-up failed:', err.message));
       notifyGaloreTeam(umbrella.id, 'created'); // the overall coordinator's login + what to do next
       res.status(201).json({ event: withImageUrl(asEvent(umbrella)) });
     } catch (err) {
@@ -1762,6 +1840,7 @@ async function setGalorePublished(umbrellaId, published) {
       throw Object.assign(new galoreForm.GaloreFormError('Add the departments and at least one activity on "Galore form" before publishing.'), { status: 400 });
     }
   }
+  const { rows: [before] } = await pgPool.query(`SELECT galore_published, title FROM events WHERE id = $1`, [umbrellaId]);
   const { rows } = await pgPool.query(
     `UPDATE events SET galore_published = $2, updated_at = NOW()
      WHERE id = $1 AND is_active = true AND event_format = 'galore' AND parent_event_id IS NULL RETURNING id`,
@@ -1769,24 +1848,34 @@ async function setGalorePublished(umbrellaId, published) {
   );
   if (!rows.length) throw Object.assign(new galoreForm.GaloreFormError('Galore event not found.'), { status: 404 });
   await cache.delPattern('events:*');
+  /* just published: every club running an activity now sees it on its Events page — tell them */
+  if (published && !before?.galore_published) {
+    pgPool.query(`SELECT ${EVENT_COLS} FROM events WHERE parent_event_id = $1 AND is_active = true AND club_id IS NOT NULL`, [umbrellaId])
+      .then(({ rows: acts }) => {
+        for (const act of acts) notifyClubOfPublishedEvent({ ...asEvent(act), title: `${act.title} — ${before?.title || 'Galore'}` }, act.club_id, 'assigned', { role: 'admin' });
+      })
+      .catch(err => console.warn('[galore] club publish notice failed:', err.message));
+  }
   return !!published;
 }
 
 /* About Galore — the event's description, edited in place by the admin or the
    overall coordinator */
-async function setGaloreAbout(umbrellaId, description) {
+/* About Galore's own text — separate from the event's description (that one is
+   only for the public Events page) */
+async function setGaloreAbout(umbrellaId, about) {
   const { rows } = await pgPool.query(
-    `UPDATE events SET description = $2, updated_at = NOW()
-     WHERE id = $1 AND is_active = true AND event_format = 'galore' AND parent_event_id IS NULL RETURNING description`,
-    [umbrellaId, String(description ?? '').slice(0, 20000)]
+    `UPDATE events SET galore_about = $2, updated_at = NOW()
+     WHERE id = $1 AND is_active = true AND event_format = 'galore' AND parent_event_id IS NULL RETURNING galore_about`,
+    [umbrellaId, String(about ?? '').slice(0, 20000)]
   );
   if (!rows.length) throw Object.assign(new galoreForm.GaloreFormError('Galore event not found.'), { status: 404 });
   await cache.delPattern('events:*');
-  return rows[0].description;
+  return rows[0].galore_about;
 }
 /* PUT /api/events/:id/galore-about  (admin) { description } */
 const updateGaloreAbout = async (req, res, next) => {
-  try { res.json({ description: await setGaloreAbout(req.params.id, req.body?.description) }); }
+  try { res.json({ about: await setGaloreAbout(req.params.id, req.body?.about ?? req.body?.description) }); }
   catch (err) {
     if (err instanceof galoreForm.GaloreFormError) return res.status(err.status || 400).json({ message: err.message });
     next(err);
@@ -2069,6 +2158,7 @@ const sendReminder = async (req, res, next) => {
 };
 
 module.exports = {
+  registerGaloreFromPortal,
   sendReminder,
   getAll, getLiveScores, getPastScores, getOne, getActivities,
   getGaloreTemplate, getGaloreCoordinators, createGaloreEvent, getDepartmentRegistrations,
@@ -2077,5 +2167,6 @@ module.exports = {
   getGaloreFormPublic, getGaloreSetup, updateGaloreForm, uploadGaloreRules,
   applyGaloreFormUpdate, loadGaloreUmbrella,
   getMyAssignments,
+  closeGaloreEvent,
   create, createPastEventForReport, update, remove, toggleRegistration, register, submitTeamRoster, listRegistrations, updateRegistration, deleteRegistration,
 };

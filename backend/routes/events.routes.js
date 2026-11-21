@@ -22,6 +22,19 @@ const requireCoordOrAdmin = (req, res, next) => {
 /* After a successful change to teams, members, groups or the stage schedule, bring
    the event's report up to date (only if one has been generated and not submitted) */
 const { autoRefreshReportIfExists } = require('../controllers/reports.controller');
+/* A closed Galore event (or one of its activities) is read-only — its data stays for the admin to see */
+const galoreOpen = async (req, res, next) => {
+  try {
+    const { pgPool } = require('../config/db');
+    const { rows } = await pgPool.query(
+      `SELECT 1 FROM events e LEFT JOIN events u ON u.id = e.parent_event_id
+       WHERE e.id = $1 AND (e.galore_closed_at IS NOT NULL OR u.galore_closed_at IS NOT NULL)`,
+      [req.params.id]
+    );
+    if (rows.length) return res.status(409).json({ message: 'This Galore event is closed — it can no longer be changed.' });
+    next();
+  } catch (err) { next(err); }
+};
 const refreshReportAfter = (req, res, next) => {
   res.on('finish', () => {
     if (res.statusCode < 400) autoRefreshReportIfExists(req.params.id).catch(() => {});
@@ -70,17 +83,43 @@ router.get('/:id/activities',    optionalAuth, redactEventContacts, ctrl.getActi
 router.get('/:id/galore-form',   ctrl.getGaloreFormPublic); /* public — builds the Galore registration form */
 router.get('/:id/galore-setup',  verifyToken, requireAdmin, ctrl.getGaloreSetup);
 router.get('/:id/galore-deadline', ctrl.getGaloreDeadline); /* public — "Last Date of Registration" line */
-router.put('/:id/galore-deadline', verifyToken, requireAdmin, ctrl.updateGaloreDeadline);
+router.put('/:id/galore-deadline', verifyToken, requireAdmin, galoreOpen, ctrl.updateGaloreDeadline);
 /* Student of the Year — the admin creates / publishes it and sees the contestants */
 router.get('/:id/soty',                     verifyToken, requireAdmin, sotyCtrl.get);
 router.put('/:id/soty',                     verifyToken, requireAdmin, sotyCtrl.save);
-router.put('/:id/soty/deadline',            verifyToken, requireAdmin, sotyCtrl.saveDeadline);
 router.put('/:id/soty/dates',               verifyToken, requireAdmin, sotyCtrl.saveDates);
 router.delete('/:id/soty/entries/:entryId', verifyToken, requireAdmin, sotyCtrl.removeEntry);
-router.put('/:id/galore-form',   verifyToken, requireAdmin, ctrl.updateGaloreForm);
-router.put('/:id/galore-head',   verifyToken, requireAdmin, ctrl.updateGaloreHead);  /* the admin's part: the overall coordinator */
+router.put('/:id/galore-form',   verifyToken, requireAdmin, galoreOpen, ctrl.updateGaloreForm);
+router.put('/:id/galore-head',   verifyToken, requireAdmin, galoreOpen, ctrl.updateGaloreHead);
+router.post('/:id/galore-close', verifyToken, requireAdmin, ctrl.closeGaloreEvent); /* Close event — for good */  /* the admin's part: the overall coordinator */
 router.put('/:id/galore-about',  verifyToken, requireAdmin, ctrl.updateGaloreAbout); /* About Galore text */
 /* the overall coordinator's unsaved Galore form draft, so the admin sees work in progress */
+/* the Galore schedule — every activity and match (admin's Schedule page) */
+/* the admin declares (or takes back) the schedule and fixtures to students { schedule, fixtures } */
+router.patch('/:id/galore-declare', verifyToken, requireAdmin, galoreOpen, async (req, res, next) => {
+  try {
+    res.json(await require('../services/galoreSchedule').setDeclared(req.params.id, req.body || {}));
+    req.app.get('io')?.emit('galore:schedule:changed', { eventId: String(req.params.id) }); // open Schedule pages refresh
+  }
+  catch (err) { if (err.status) return res.status(err.status).json({ message: err.message }); next(err); }
+});
+router.get('/:id/galore-schedule', verifyToken, requireAdmin, async (req, res, next) => {
+  try { res.json(await require('../services/galoreSchedule').eventSchedule(req.params.id)); } catch (err) { next(err); }
+});
+/* Galore results (admin) — the same as the main coordinator's Results page */
+router.get('/:id/galore-results', verifyToken, requireAdmin, async (req, res, next) => {
+  try { res.json(await require('../services/galoreResults').view(req.params.id)); }
+  catch (err) { if (err.status) return res.status(err.status).json({ message: err.message }); next(err); }
+});
+router.put('/:id/galore-results', verifyToken, requireAdmin, galoreOpen, async (req, res, next) => {
+  try {
+    const svc = require('../services/galoreResults');
+    await svc.setPlace(req.params.id, req.body || {});
+    req.app.get('io')?.emit('galore:results:changed', { eventId: String(req.params.id) });
+    res.json(await svc.view(req.params.id));
+  }
+  catch (err) { if (err.status) return res.status(err.status).json({ message: err.message }); next(err); }
+});
 router.get('/:id/galore-draft',  verifyToken, requireAdmin, async (req, res, next) => {
   try { res.json({ draft: await require('../services/galoreDraft').get(req.params.id) }); } catch (err) { next(err); }
 });
@@ -93,7 +132,7 @@ router.get('/:id/department-registrations', verifyToken, requireCoordOrAdmin, ct
 router.post('/',       verifyToken, requireCoordOrAdmin, uploadEvent.single('image'), ctrl.create);
 router.post('/past-report', verifyToken, requireCoordOrAdmin, ctrl.createPastEventForReport); /* report for an event held outside the system */
 router.put('/:id',     verifyToken, requireAdmin, uploadEvent.single('image'), ctrl.update);
-router.patch('/:id/registration', verifyToken, requireAdmin, ctrl.toggleRegistration);
+router.patch('/:id/registration', verifyToken, requireAdmin, galoreOpen, ctrl.toggleRegistration);
 /* Admin emails a reminder about the event (venue update, days to go, register now, custom) */
 router.post('/:id/remind',       verifyToken, requireAdmin, ctrl.sendReminder);
 router.delete('/:id',  verifyToken, requireAdmin, ctrl.remove);

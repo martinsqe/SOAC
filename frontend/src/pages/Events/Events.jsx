@@ -18,6 +18,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useStats } from '../../context/StatsContext';
 import api from '../../api/client';
 import { GaloreLogos } from '../../components/GaloreLetterhead/GaloreLetterhead';
+import { deadlineSentence } from '../../utils/galoreDeadline';
 
 /* Long description cut to `limit` characters with an inline "…read more"
    that expands the full text in place (and "show less" to collapse it). */
@@ -395,7 +396,8 @@ const normaliseEvent = (e) => ({
   minTeamSize: e.minTeamSize || 0,
   paymentLink: e.paymentLink || '',
   parentEventId: e.parentEventId || null, // set → this is a Galore activity (department + division apply)
-  registrationClosed: !!e.registrationClosed,
+  /* closed by the admin, or Galore's last date of registration has passed */
+  registrationClosed: !!e.registrationClosed || !!e.registrationDeadlinePassed,
   customFields: e.customFields || [], // extra registration questions admin added
   registrationType: e.registrationType || 'internal', // internal | external | none
   registrationUrl: e.registrationUrl || '',
@@ -462,15 +464,8 @@ const Events = () => {
   const EMPTY_GALORE_VERIFY = { step: 'id', id: '', student: null, token: '', verified: null, registered: [], busy: false, err: '', info: '' };
   /* A verification survives closing the form / refreshing for as long as its token lasts */
   const GALORE_VERIFIED_KEY = 'soac_galore_verified';
-  const VERIFIED_TTL_MS = 40 * 60 * 1000;
   const saveVerified = (token, verified) => {
     try { sessionStorage.setItem(GALORE_VERIFIED_KEY, JSON.stringify({ token, verified, at: Date.now() })); } catch { /* storage blocked */ }
-  };
-  const loadVerified = () => {
-    try {
-      const v = JSON.parse(sessionStorage.getItem(GALORE_VERIFIED_KEY) || 'null');
-      return v && Date.now() - v.at < VERIFIED_TTL_MS ? v : null;
-    } catch { return null; }
   };
   const clearVerified = () => { try { sessionStorage.removeItem(GALORE_VERIFIED_KEY); } catch { /* storage blocked */ } };
   const [galoreVerify, setGaloreVerify] = useState(EMPTY_GALORE_VERIFY);
@@ -489,7 +484,11 @@ const Events = () => {
   const [galoreActivitiesLoading, setGaloreActivitiesLoading] = useState(false);
 
   const openGaloreReg = (ev) => {
-    setGaloreRegModal({ id: ev.id, title: ev.title });
+    setGaloreRegModal({ id: ev.id, title: ev.title, deadline: '' });
+    /* the last date of registration, shown under the title */
+    api.get(`/events/${ev.id}/galore-deadline`)
+      .then(d => setGaloreRegModal(m => (m && m.id === ev.id ? { ...m, deadline: d.deadline || '' } : m)))
+      .catch(() => {});
     setGaloreRegForm(EMPTY_GALORE_REG_FORM);
     setGaloreRegErr({});
     const params = new URLSearchParams(window.location.search);
@@ -504,14 +503,8 @@ const Events = () => {
         .then(d => { saveVerified(d.verificationToken, d.verified); setGaloreVerify({ ...EMPTY_GALORE_VERIFY, step: 'done', token: d.verificationToken, verified: d.verified, registered: d.registered || [] }); })
         .catch(err => setGaloreVerify({ ...EMPTY_GALORE_VERIFY, err: err.message || 'This link did not work. Enter your number to get a new one.' }));
     } else {
-      const prior = loadVerified();
-      setGaloreVerify(prior ? { ...EMPTY_GALORE_VERIFY, step: 'done', token: prior.token, verified: prior.verified } : EMPTY_GALORE_VERIFY);
-      if (prior) {
-        /* already verified in this tab — just find out what they're already in for this event */
-        api.post('/students/lookup', { id: prior.verified.enrollmentNo || prior.verified.admissionNo, eventId: ev.id })
-          .then(d => setGaloreVerify(v => ({ ...v, registered: d.registered || [] })))
-          .catch(() => {});
-      }
+      /* activities are chosen in the Galore portal now — every visit starts at the number */
+      setGaloreVerify(EMPTY_GALORE_VERIFY);
     }
     setGaloreRegApi('');
     setGaloreRegDone(null);
@@ -556,20 +549,19 @@ const Events = () => {
     gv({ busy: true, err: '', info: '' });
     try {
       const d = await api.post('/students/lookup', { id, eventId: galoreRegModal.id });
-      const registered = d.registered || [];
-      if (d.verificationToken) {
-        saveVerified(d.verificationToken, d.verified);
-        gv({ step: 'done', student: d.student, token: d.verificationToken, verified: d.verified, registered, busy: false });
-      } else gv({ step: 'found', student: d.student, registered, busy: false });
+      /* the student recognises themselves here; their full details and the
+         activities are in the Galore portal (Event selection → Activity selection) */
+      gv({ step: 'found', student: d.student, registered: d.registered || [], busy: false });
     } catch (err) {
       gv({ busy: false, err: err.message || "We couldn't find that number." });
     }
   };
+  /* the one email: their Galore portal login and the last date of registration */
   const galoreSendLink = async () => {
     gv({ busy: true, err: '', info: '' });
     try {
-      await api.post('/students/send-link', { id: galoreVerify.id.trim(), eventId: galoreRegModal.id });
-      gv({ step: 'sent', busy: false });
+      const d = await api.post('/students/galore-access', { id: galoreVerify.id.trim(), eventId: galoreRegModal.id });
+      gv({ step: 'sent', busy: false, info: d.maskedEmail || '', queued: !!d.queued });
     } catch (err) {
       gv({ busy: false, err: err.message || "We couldn't send the email." });
     }
@@ -1302,13 +1294,12 @@ const Events = () => {
               <>
                 <div className={`${styles.modalHead} ${styles.galoreModalHead}`}>
                   <h2 className={styles.modalTitle}>{galoreRegModal.title}</h2>
-                  {user ? (
+                  {galoreRegModal.deadline && <p className={styles.modalSub} style={{ fontWeight: 700, color: '#1a1040' }}>{deadlineSentence(galoreRegModal.deadline)}</p>}
+                  {user && (
                     <div className={styles.regLoggedIn}>
                       <span className={styles.regLoggedInDot} />
                       Registering as <strong>{user.name}</strong> · {user.email}
                     </div>
-                  ) : (
-                    <p className={styles.modalSub}>Enter your enrollment or admission number — your details fill in from the university record.</p>
                   )}
                 </div>
 
@@ -1364,17 +1355,12 @@ const Events = () => {
                             : <>Registered for <strong>{galoreVerify.registered.length}</strong> {galoreVerify.registered.length === 1 ? 'activity' : 'activities'}.</>}
                           Log in to the Galore portal for guidelines, timetable and fixtures.
                         </div>
-                        {galoreVerify.student.canVerify && (
-                          <button type="button" className={styles.galoreAddBtn} style={{ alignSelf: 'flex-start' }} onClick={galoreSendLink} disabled={galoreVerify.busy}>
-                            {galoreVerify.busy ? 'Sending…' : `+ Add activities — we'll email a link to ${galoreVerify.student.maskedEmail}`}
-                          </button>
-                        )}
                       </div>
                     )}
 
                     {galoreVerify.step === 'found' && galoreVerify.registered.length === 0 && (galoreVerify.student.canVerify ? (
                       <p style={{ fontSize: '.85rem', color: '#374151', margin: 0 }}>
-                        Is this you? We'll email a link to <strong>{galoreVerify.student.maskedEmail}</strong>. Open it to confirm and choose your activities.
+                        Is this you? We'll email your Galore portal login to <strong>{galoreVerify.student.maskedEmail}</strong>. Log in there to choose the activities in which you want to participate.
                       </p>
                     ) : (
                       <div className={styles.regApiErr}>There's no email on your university record, so we can't verify you. Please contact your department's Faculty Advisor.</div>
@@ -1382,8 +1368,13 @@ const Events = () => {
 
                     {galoreVerify.step === 'sent' && (
                       <div style={{ border: '1.5px solid #bbf7d0', background: '#f0fdf4', borderRadius: 10, padding: '14px 16px', fontSize: '.86rem', color: '#166534', lineHeight: 1.55 }}>
-                        <strong>Check your email.</strong> We've sent a link to <strong>{galoreVerify.student?.maskedEmail}</strong>.
-                        Open it to come back here and choose your activities. The link works for 30 minutes. If you can't find it, check your spam folder.
+                        <strong>Check your email.</strong> {galoreVerify.queued
+                          ? <>Your Galore portal login is on its way to <strong>{galoreVerify.info || galoreVerify.student?.maskedEmail}</strong> — with many students registering right now it can take a few minutes.</>
+                          : <>We've sent your Galore portal login to <strong>{galoreVerify.info || galoreVerify.student?.maskedEmail}</strong>.</>}
+                        Log in and open <strong>Event selection → Activity selection</strong> to choose your activities. If you can't find the email, check your spam folder. If you resend it, use the password in the newest email.
+                        <div style={{ marginTop: 10 }}>
+                          <Link to="/galore/login" className={styles.galoreLoginBtn}>Galore Login</Link>
+                        </div>
                       </div>
                     )}
 
@@ -1391,14 +1382,14 @@ const Events = () => {
 
                     {galoreVerify.step === 'id' && (
                       <button type="button" className={styles.regSubmitBtn} onClick={galoreLookup} disabled={galoreVerify.busy || galoreActivitiesLoading}>
-                        {galoreVerify.busy ? 'Looking up…' : 'Find my record →'}
+                        {galoreVerify.busy ? 'Looking up…' : 'Continue →'}
                       </button>
                     )}
                     {(galoreVerify.step === 'found' || galoreVerify.step === 'sent') && (
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         {galoreVerify.student.canVerify && !(galoreVerify.step === 'found' && galoreVerify.registered.length > 0) && (
                           <button type="button" className={styles.regSubmitBtn} style={{ flex: 1 }} onClick={galoreSendLink} disabled={galoreVerify.busy}>
-                            {galoreVerify.busy ? 'Sending…' : galoreVerify.step === 'sent' ? 'Resend link' : "Yes, it's me — email me the link"}
+                            {galoreVerify.busy ? 'Sending…' : galoreVerify.step === 'sent' ? 'Resend login' : "Yes, it's me — email my login"}
                           </button>
                         )}
                         <button type="button" className={styles.regSubmitBtn} style={{ flex: '0 0 auto', background: '#fff', color: '#374151', border: '1.5px solid #e5e7eb' }} onClick={galoreStartOver}>
@@ -1412,7 +1403,7 @@ const Events = () => {
                   {/* ── Verified details — straight from the university record, one per row, not editable ── */}
                   <div className={styles.galoreInfo}>
                     <div className={styles.galoreInfoRow} style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 700, color: '#166534', fontSize: 13 }}>✓ Verified from the university record</span>
+                      <span style={{ fontWeight: 700, color: '#166534', fontSize: 13 }}>✓ Verified</span>
                       <button type="button" onClick={galoreStartOver} style={{ border: 'none', background: 'none', color: '#dc2626', fontSize: '.78rem', cursor: 'pointer', padding: 0 }}>
                         Not you? Start over
                       </button>
@@ -1434,7 +1425,6 @@ const Events = () => {
                         <span className={styles.galoreInfoValue}>{v || '—'}</span>
                       </div>
                     ))}
-                    <div style={{ fontSize: '.7rem', color: '#6b7280', padding: '6px 0 8px' }}>Something wrong? Your department's office can correct the university record.</div>
                   </div>
 
                   {galoreVerify.registered.length > 0 && (
@@ -1444,7 +1434,12 @@ const Events = () => {
                     </span>
                   )}
 
-                  {!galoreDeptOk ? (
+                  {galoreVerify.registered.length > 0 ? (
+                    <div style={{ fontSize: '.86rem', color: '#374151', lineHeight: 1.55 }}>
+                      You've already registered for {galoreRegModal.title}. Registration is once only, so activities can't be added or changed.
+                      Log in to the Galore portal for your schedule and guidelines.
+                    </div>
+                  ) : !galoreDeptOk ? (
                     <div className={styles.regApiErr}>
                       Your department ({galoreVerify.verified.department}) isn't taking part in {galoreRegModal.title}.
                     </div>
@@ -1475,7 +1470,7 @@ const Events = () => {
 
                   {/* ── Activity checklist, one section per category, each with its own max picks ── */}
                   <div className={styles.regField}>
-                    <label>{galoreVerify.registered.length ? 'Add activities' : 'Activities'} <span className={styles.req}>*</span></label>
+                    <label>Activity selection <span className={styles.req}>*</span></label>
                     {galoreRegErr.activities && <span className={styles.regErrMsg}>{galoreRegErr.activities}</span>}
                     {galoreActivitiesLoading ? (
                       <div style={{ fontSize: '.85rem', color: '#9ca3af', padding: '8px 0' }}>Loading activities…</div>
@@ -1491,7 +1486,10 @@ const Events = () => {
                               fontSize: '.72rem', fontWeight: 700, color: '#dc2626', textTransform: 'uppercase',
                               letterSpacing: '.04em', marginBottom: 8,
                             }}>
-                              {cat.name} <span style={{ color: '#9ca3af', fontWeight: 500, textTransform: 'none' }}>
+                              {/* the category, how many may be picked (the Galore form's "Max picks"), then how many are */}
+                              {cat.name}
+                              {max > 0 && <span style={{ marginLeft: 8, textTransform: 'none', fontWeight: 800 }}>maximum {max}</span>}
+                              <span style={{ marginLeft: 8, color: '#9ca3af', fontWeight: 500, textTransform: 'none' }}>
                                 ({max ? `${catCount}/${max} selected` : `${catCount} selected`})
                               </span>
                             </div>
@@ -1503,21 +1501,19 @@ const Events = () => {
                                 const selected = isRegistered || galoreRegForm.activityIds.includes(act.id);
                                 const disabled = isRegistered || (!selected && ((max > 0 && catCount >= max) || act.registrationClosed));
                                 return (
+                                  /* just the checkbox and the name on the white page — a picked one in green */
                                   <label key={act.id} style={{
                                     display: 'flex', alignItems: 'center', gap: 8,
-                                    border: `1.5px solid ${selected ? '#dc2626' : '#e5e7eb'}`,
-                                    background: selected ? '#fef2f2' : '#fff',
-                                    borderRadius: 8, padding: '9px 12px', fontSize: '.83rem', fontWeight: 600,
-                                    lineHeight: 1.25, minHeight: 40,
+                                    padding: '6px 2px', fontSize: '.83rem', fontWeight: 600,
+                                    lineHeight: 1.25, minHeight: 32,
                                     cursor: disabled ? 'not-allowed' : 'pointer',
                                     opacity: disabled && !isRegistered ? 0.5 : 1,
-                                    color: selected ? '#b91c1c' : '#374151',
-                                    transition: 'border-color .12s, background .12s',
+                                    color: selected ? '#16a34a' : '#374151',
                                   }}>
                                     <input
                                       type="checkbox" checked={selected} disabled={disabled}
                                       onChange={() => toggleGaloreActivity(act)}
-                                      style={{ margin: 0, width: 16, height: 16, flex: '0 0 16px', accentColor: '#dc2626' }}
+                                      style={{ margin: 0, width: 16, height: 16, flex: '0 0 16px', accentColor: '#16a34a' }}
                                     />
                                     <span>{act.title}{isRegistered ? ' ✓ registered' : act.registrationClosed ? ' (Closed)' : ''}</span>
                                   </label>

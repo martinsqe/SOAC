@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useCoordClub } from '../../context/CoordClubContext';
 import api from '../../api/client';
+import useTeamsLive from '../../realtime/useTeamsLive';
 import { fetchAllPages } from '../../utils/pagination';
 import { getSocket } from '../../realtime/socket';
 import s from './CoordSubPage.module.css';
@@ -219,6 +220,10 @@ export default function CoordEvents() {
 
   /* ── Registrations panel ── */
   const [regEvent,    setRegEvent]    = useState(null);
+  /* teams changed anywhere (Galore portal, the admin): refresh the open Teams tab */
+  useTeamsLive(regEvent ? [regEvent._id] : [], () => {
+    if (regEvent) api.get(`/events/${regEvent._id}/teams`).then(d => setTeams(d.teams || [])).catch(() => {});
+  });
   const [regs,        setRegs]        = useState([]);
   const [regsLoading, setRegsLoading] = useState(false);
   const [regSearch,   setRegSearch]   = useState('');
@@ -1872,7 +1877,47 @@ export default function CoordEvents() {
             )}
 
             {/* ── FIXTURES TAB ── */}
-            {regsTab === 'fixtures' && (
+            {/* Galore activity: the main Galore coordinator makes the fixtures on the
+               Galore portal's Schedule page — shown here read-only; results are
+               still recorded in the Scoreboard tab. */}
+            {regsTab === 'fixtures' && regEvent.parentEventId && (
+              <div className={es.fixturesPanel}>
+                <div className={es.declaredBanner}>
+                  Fixtures for Galore activities are set by the main Galore coordinator. Record results in the Scoreboard tab.
+                </div>
+                {flatFixtures.length === 0 ? (
+                  <div className={es.regsEmpty}><p>No fixtures announced yet.</p></div>
+                ) : DIVISIONS.map(division => {
+                  const list = flatFixtures.filter(f => f.division === division);
+                  if (!list.length) return null;
+                  return (
+                    <div key={division} className={es.divisionSection}>
+                      {DIVISIONS.length > 1 && <div className={es.divisionSectionTitle}>{DIVISION_LABEL[division]}</div>}
+                      <div className={es.regsTableWrap}>
+                        <table className={es.regsTable}>
+                          <thead><tr><th>#</th><th>Match</th><th>Round</th><th>Date</th><th>Time</th><th>Venue</th><th>Result</th></tr></thead>
+                          <tbody>
+                            {list.map((f, i) => (
+                              <tr key={f.id}>
+                                <td>{i + 1}</td>
+                                <td><strong>{f.teamA}</strong> vs <strong>{f.teamB}</strong></td>
+                                <td>{f.round || '—'}</td>
+                                <td>{f.date ? new Date(`${f.date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'TBA'}</td>
+                                <td>{f.time || 'TBA'}</td>
+                                <td>{f.venue || 'TBA'}</td>
+                                <td>{f.scoreA != null && f.scoreB != null ? `${f.scoreA}–${f.scoreB}` : ''}{f.winner ? ` ${f.winner} won` : (f.scoreA == null ? '—' : '')}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {regsTab === 'fixtures' && !regEvent.parentEventId && (
               <div className={es.fixturesPanel}>
                 {fixturesDeclared && (
                   <div className={es.declaredBanner}>

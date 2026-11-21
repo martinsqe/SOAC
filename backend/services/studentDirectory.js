@@ -337,6 +337,19 @@ async function findStudent(rawId) {
   return rows[0] || null;
 }
 
+/* The student whose university record has this email (the Galore portal login) */
+async function findStudentByEmail(email) {
+  await ready;
+  const e = String(email || '').trim().toLowerCase();
+  if (!e) return null;
+  const { rows } = await pgPool.query(
+    `SELECT ${STUDENT_COLS} FROM university_students s JOIN university_departments d ON d.id = s.department_id
+     WHERE LOWER(s.email) = $1 ORDER BY s.id DESC LIMIT 1`,
+    [e]
+  );
+  return rows[0] || null;
+}
+
 async function getStudentById(id) {
   const { rows } = await pgPool.query(
     `SELECT ${STUDENT_COLS} FROM university_students s JOIN university_departments d ON d.id = s.department_id WHERE s.id = $1`,
@@ -378,7 +391,9 @@ const publicView = (s) => ({
 
 /* Full record, only after verification */
 const verifiedView = (s) => ({
-  enrollmentNo: s.enrollment_no, admissionNo: s.admission_no, name: s.name, email: s.email, phone: s.phone,
+  enrollmentNo: s.enrollment_no, admissionNo: s.admission_no, name: s.name, email: s.email,
+  /* only a usable mobile number counts — otherwise the form asks for one */
+  phone: /^\d{10}$/.test(String(s.phone || '').replace(/[\s-]/g, '').replace(/^(\+?91)/, '')) ? s.phone : '',
   gender: s.gender, department: s.department, subDepartment: s.sub_department, program: s.program,
   ...splitSemester(s.semester),
 });
@@ -467,7 +482,7 @@ async function searchStudents({ q, departmentId, limit = 50 }) {
 
 module.exports = {
   ready, DirectoryError, normId, normCode,
-  importDepartmentFile, findStudent, getStudentById, publicView, verifiedView,
+  importDepartmentFile, findStudent, findStudentByEmail, getStudentById, publicView, verifiedView,
   issueVerificationToken, studentFromToken, createVerificationLink, studentFromLink, LINK_MINUTES,
   listDepartments, searchStudents,
 };

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { postMediaVia, progressLabel } from '../../utils/feedUpload';
+import { postMediaVia } from '../../utils/feedUpload';
 import cf from '../../pages/Student/ClubsFeed.module.css';
 
 /* Galore gallery — shown exactly like the Club Feed (bento grid, tap a tile for
@@ -27,11 +27,17 @@ export default function GaloreGallery({ load, api }) {
   const [open,     setOpen]     = useState(false);   // "Add to gallery" modal
   const [picked,   setPicked]   = useState([]);     // [{ id, file, url }] — several at once
   const [caption,  setCaption]  = useState('');
-  const [batch,    setBatch]    = useState(null);   // { done, total } while adding several
   const [busy,     setBusy]     = useState(false);
-  const [progress, setProgress] = useState(null);
+  const [status,   setStatus]   = useState({});    // id → { state: 'up' | 'done' | 'fail', pct } while adding
+  const [dragOver, setDragOver] = useState(false);
   const [lbIndex,  setLbIndex]  = useState(null);
   const fileRef = useRef(null);
+  /* "Choose a whole folder": every photo and video in it (webkitdirectory isn't a React prop, so set it here) */
+  const folderRef = useRef(null);
+  const setFolderInput = useCallback((el) => {
+    folderRef.current = el;
+    if (el) { el.setAttribute('webkitdirectory', ''); el.setAttribute('directory', ''); }
+  }, []);
   const touchX  = useRef(null);
   const canAdd = !!api;
 
@@ -42,55 +48,72 @@ export default function GaloreGallery({ load, api }) {
   useEffect(() => { refresh(); }, [refresh]);
 
   /* ── add ── */
-  const MAX_PICK = 30;
+  const MAX_PICK = 50;
   const clearPicked = (list) => list.forEach(x => URL.revokeObjectURL(x.url));
   const closeAdd = () => {
     if (busy) return;
     setOpen(false); setCaption('');
     setPicked(p => { clearPicked(p); return []; });
   };
-  /* choosing again adds to what's already picked */
-  const pick = (e) => {
-    const files = [...(e.target.files || [])].filter(f => /^(image|video)\//.test(f.type));
-    e.target.value = '';
-    if (!files.length) return;
+  /* choosing (or dropping) again adds to what's already picked */
+  const addFiles = (list) => {
+    /* by type — or by extension when the browser gives no type (e.g. some .mov / .heic) */
+    const MEDIA_EXT = /\.(jpe?g|png|gif|webp|heic|heif|bmp|avif|mp4|mov|webm|m4v|3gp)$/i;
+    const files = [...(list || [])].filter(f => /^(image|video)\//.test(f.type) || (!f.type && MEDIA_EXT.test(f.name)));
+    if (!files.length) return showToast('Only photos and videos can be added.');
     setPicked(p => {
       const room = MAX_PICK - p.length;
       if (files.length > room) showToast(`Up to ${MAX_PICK} at a time — the first ${Math.max(room, 0)} were added.`);
       return [...p, ...files.slice(0, Math.max(room, 0)).map((file, i) => ({ id: `${Date.now()}-${i}-${file.name}`, file, url: URL.createObjectURL(file) }))];
     });
   };
+  const pick = (e) => { addFiles(e.target.files); e.target.value = ''; };
+  const onDrop = (e) => { e.preventDefault(); setDragOver(false); if (!busy) addFiles(e.dataTransfer?.files); };
+  const dragProps = {
+    onDragOver: (e) => { e.preventDefault(); if (!busy) setDragOver(true); },
+    onDragLeave: () => setDragOver(false),
+    onDrop,
+  };
   const unpick = (id) => setPicked(p => {
     const x = p.find(y => y.id === id);
     if (x) URL.revokeObjectURL(x.url);
     return p.filter(y => y.id !== id);
   });
-  /* one after another, so a slow connection isn't swamped; anything that
-     fails stays picked so it can be tried again */
+  /* three at a time — quicker than one by one without swamping a slow
+     connection; each tile shows how it's going, and anything that fails stays
+     picked so it can be tried again */
+  const PARALLEL = 3;
   const submit = async () => {
     if (!picked.length) return showToast('Choose one or more photos or videos.');
     setBusy(true);
+    const items = [...picked];
+    setStatus(Object.fromEntries(items.map(x => [x.id, { state: 'wait', pct: 0 }])));
+    const mark = (id, patch) => setStatus(s => ({ ...s, [id]: { ...s[id], ...patch } }));
     const failed = [];
-    let added = 0, lastErr = '';
-    for (let i = 0; i < picked.length; i++) {
-      const item = picked[i];
-      setBatch({ done: i, total: picked.length });
-      try {
-        const { post } = await postMediaVia({
-          caption: caption.trim(), file: item.file,
-          getSignature: api.signature, saveJson: api.saveJson, saveForm: api.saveForm,
-          onProgress: (stage, pct) => setProgress({ stage, pct }),
-        });
-        setPosts(p => [post, ...(p || [])]);
-        URL.revokeObjectURL(item.url);
-        added++;
-      } catch (err) {
-        failed.push(item);
-        lastErr = err.message || 'Upload failed.';
+    let added = 0, lastErr = '', nextIdx = 0;
+    const worker = async () => {
+      while (nextIdx < items.length) {
+        const item = items[nextIdx++];
+        mark(item.id, { state: 'up', pct: 0 });
+        try {
+          const { post } = await postMediaVia({
+            caption: caption.trim(), file: item.file,
+            getSignature: api.signature, saveJson: api.saveJson, saveForm: api.saveForm,
+            onProgress: (stage, pct) => mark(item.id, { pct: Number(pct) || 0 }),
+          });
+          setPosts(p => [post, ...(p || [])]);
+          mark(item.id, { state: 'done', pct: 100 });
+          added++;
+        } catch (err) {
+          failed.push(item);
+          mark(item.id, { state: 'fail' });
+          lastErr = err.message || 'Upload failed.';
+        }
       }
-      setProgress(null);
-    }
-    setBusy(false); setBatch(null);
+    };
+    await Promise.all(Array.from({ length: Math.min(PARALLEL, items.length) }, worker));
+    items.filter(x => !failed.includes(x)).forEach(x => URL.revokeObjectURL(x.url));
+    setBusy(false); setStatus({});
     if (!failed.length) {
       setPicked([]); setOpen(false); setCaption('');
       showToast(added === 1 ? 'Added to the gallery.' : `${added} added to the gallery.`);
@@ -149,7 +172,7 @@ export default function GaloreGallery({ load, api }) {
         {canAdd && (
           <button type="button" onClick={() => setOpen(true)}
             style={{ border: 'none', borderRadius: 999, background: '#dc2626', color: '#fff', font: 'inherit', fontWeight: 700, fontSize: '.88rem', padding: '9px 18px', cursor: 'pointer' }}>
-            + Add photo or video
+            + Add photos or videos
           </button>
         )}
       </div>
@@ -189,16 +212,28 @@ export default function GaloreGallery({ load, api }) {
               Photos or Videos{picked.length ? ` (${picked.length} selected)` : ''}
             </label>
             {picked.length === 0 ? (
-              <div className={cf.fileBox} onClick={() => fileRef.current?.click()}>
-                <div className={cf.filePlaceholder}>Click to choose photos or videos — pick as many as you like</div>
+              <div className={cf.fileBox} onClick={() => fileRef.current?.click()} {...dragProps}
+                style={dragOver ? { borderColor: '#dc2626', background: '#fef2f2' } : undefined}>
+                <div className={cf.filePlaceholder}>
+                  Click to choose photos and videos, or drag them here — select as many as you like at once
+                  <div style={{ fontSize: '.78rem', color: '#9ca3af', marginTop: 4 }}>Hold Ctrl (⌘ on Mac) or Shift to select several</div>
+                </div>
               </div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(84px, 1fr))', gap: 8, maxHeight: 260, overflowY: 'auto', padding: 2 }}>
+              <div {...dragProps} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(84px, 1fr))', gap: 8, maxHeight: 260, overflowY: 'auto', padding: 2,
+                borderRadius: 10, outline: dragOver ? '2px dashed #dc2626' : 'none' }}>
                 {picked.map(x => (
                   <div key={x.id} style={{ position: 'relative', aspectRatio: '1', borderRadius: 10, overflow: 'hidden', background: '#f3f4f6' }}>
                     {x.file.type.startsWith('video/')
                       ? <video src={x.url} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       : <img src={x.url} alt={x.file.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                    {status[x.id] && status[x.id].state !== 'wait' && (
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: status[x.id].state === 'done' ? 'rgba(22,163,74,.55)' : status[x.id].state === 'fail' ? 'rgba(185,28,28,.6)' : 'rgba(0,0,0,.45)',
+                        color: '#fff', fontWeight: 800, fontSize: status[x.id].state === 'up' ? '.8rem' : '1.2rem' }}>
+                        {status[x.id].state === 'done' ? '✓' : status[x.id].state === 'fail' ? '!' : `${Math.round(status[x.id].pct || 0)}%`}
+                      </div>
+                    )}
                     {!busy && (
                       <button type="button" onClick={() => unpick(x.id)} aria-label={`Remove ${x.file.name}`}
                         style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 11, cursor: 'pointer', lineHeight: 1 }}>✕</button>
@@ -213,7 +248,15 @@ export default function GaloreGallery({ load, api }) {
                 )}
               </div>
             )}
+            {/* two ways to pick many at once: several files, or a whole folder */}
+            {!busy && picked.length < MAX_PICK && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                <button type="button" className={cf.cancelBtn} onClick={() => fileRef.current?.click()}>Choose photos &amp; videos</button>
+                <button type="button" className={cf.cancelBtn} onClick={() => folderRef.current?.click()}>Choose a whole folder</button>
+              </div>
+            )}
             <input ref={fileRef} type="file" accept="image/*,video/*" multiple style={{ display: 'none' }} onChange={pick} />
+            <input ref={setFolderInput} type="file" multiple style={{ display: 'none' }} onChange={pick} />
             <div className={cf.fileHint}>Up to {MAX_PICK} at a time · Images up to 10 MB · Videos (MP4, MOV, WEBM) up to 50 MB</div>
             <label className={cf.fieldLabel}>Caption <span className={cf.optional}>(optional{picked.length > 1 ? ' — used for all of them' : ''})</span></label>
             <textarea className={cf.textarea} rows={3} maxLength={300} value={caption}
@@ -222,7 +265,7 @@ export default function GaloreGallery({ load, api }) {
               <button className={cf.cancelBtn} onClick={closeAdd} disabled={busy}>Cancel</button>
               <button className={cf.submitBtn} onClick={submit} disabled={busy || !picked.length}>
                 {busy
-                  ? `${batch && batch.total > 1 ? `${batch.done + 1} of ${batch.total} · ` : ''}${progressLabel(progress) || 'Adding…'}`
+                  ? `Adding… ${Object.values(status).filter(x => x.state === 'done' || x.state === 'fail').length} of ${Object.keys(status).length}`
                   : picked.length > 1 ? `Add ${picked.length} to gallery` : 'Add to gallery'}
               </button>
             </div>

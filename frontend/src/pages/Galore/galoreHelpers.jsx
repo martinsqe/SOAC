@@ -1,19 +1,8 @@
-import { TBA } from './GaloreUI';
-
 /* Helpers shared by every Galore dashboard (kept apart from the components in
    GaloreUI.jsx so fast refresh keeps working). */
 
-export const whenOf = (a) => ([a.dateLabel, a.time].filter(Boolean).join(', ') || <TBA />);
-export const typeLabel = (a) =>
-  (a.participationType !== 'team' ? 'Individual'
-    : Number(a.minTeamSize) === 2 && Number(a.teamSize) === 2 ? 'Duo'
-    : `Team (${a.minTeamSize}–${a.teamSize} players)`) + (a.genderSplit ? ' · Boys/Girls' : '');
-
-
 /* Each role's pages — shown in the letterhead's grey nav strip (GalorePortal);
-   the role's dashboard renders whichever page is picked there. */
-/* The main coordinator's Overview, Registrations, People, Galore form and
-   Event details live together under "Manage event" (cards that open each one).
+   the role's dashboard renders whichever page is picked there.
    soty = Student of the Year is published: the main coordinator sees its
    contestants, a student its entry form */
 export const headPages = (soty = false) => [
@@ -23,17 +12,17 @@ export const headPages = (soty = false) => [
 export const staffPages = (list) => {
   const isAct = list.some(x => x.activities.length > 0);
   return [
-    ['overview', 'Overview'],
-    ['registrations', 'Registrations'],
-    ...(isAct ? [['teams', 'Teams & fixtures'], ['verify', 'Verify participant']] : []),
+    /* no Overview for either. Activity coordinator: Departments (each department's
+       registrations + the teams the club formed, with Verify participant on it);
+       department coordinator: their Registrations */
+    isAct ? ['departments', 'Departments'] : ['registrations', 'Registrations'],
+    ['schedule', 'Schedule'],
   ];
 };
 /* …and the pages every logged-in role has after its own */
 export const commonPages = () => [['coordinators', 'Coordinators'], ['about', 'About Galore'], ['gallery', 'Gallery']];
-export const studentPages = (list, soty = false) => {
-  const n = list.reduce((sum, x) => sum + x.activities.length, 0);
-  return [['timetable', 'Timetable'], ['activities', `My activities (${n})`], ...(soty ? [['soty', 'Student of the Year']] : [])];
-};
+/* the student's activities are named at the top of their Schedule page */
+export const studentPages = (_list, soty = false) => [['schedule', 'Schedule'], ...(soty ? [['soty', 'Student of the Year']] : [])];
 
 
 /* ── Scheduling conflicts: two activities on the same date at the same time.
@@ -60,3 +49,9 @@ export function findClashes(activities, registrations = null) {
   return out;
 }
 
+/* How an activity was defined on the Galore form — what its departments are
+   represented by: 'team', 'duo' (exactly 2) or 'individual' */
+export const unitOf = (a) => (a?.participationType !== 'team' ? 'individual'
+  : Number(a.minTeamSize) === 2 && Number(a.teamSize) === 2 ? 'duo' : 'team');
+/* "Selected teams" · "Selected duos" · "Selected individuals" */
+export const selectedLabel = (unit) => `Selected ${unit === 'duo' ? 'duos' : unit === 'individual' ? 'individuals' : 'teams'}`;

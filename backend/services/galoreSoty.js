@@ -13,14 +13,20 @@
    date of registration. Before it opens, students see only "Registration will
    open soon, check back later".
 
-   Each entry's documents (one PDF, ≤ 10 MB) carry personal data, so they're
-   stored with privateFiles and only ever handed out as short-lived links. */
+   Co-curricular activities / special achievements: a student adds as many as
+   they like, each with a title, a description (≤ 30 words) and one evidence
+   file (PDF or image, ≤ 10 MB). The files carry personal data, so they're
+   stored with privateFiles and only ever handed out as short-lived links.
+   (Entries made before this kept one combined PDF in doc_file — still shown.) */
 const multer = require('multer');
 const { pgPool } = require('../config/db');
 const { savePrivateFile, privateFileUrl, deletePrivateFile } = require('./privateFiles');
 
 const MAX_TEXT = 500;
-const MAX_PDF  = 10 * 1024 * 1024;
+const MAX_PDF  = 10 * 1024 * 1024;     // each evidence file
+const MAX_ACTS = 15;                   // activities per entry
+const MAX_WORDS = 30;                  // per activity description
+const EVIDENCE_EXT = /\.(pdf|jpe?g|png)$/i;
 
 const ready = (async () => {
   await pgPool.query(`
@@ -84,6 +90,22 @@ const ready = (async () => {
     );
     await pgPool.query(`UPDATE galore_soty SET closed = false WHERE closed = true`);
   }
+  /* one row per co-curricular activity / achievement, with its evidence file */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS galore_soty_activities (
+      id          BIGSERIAL     PRIMARY KEY,
+      entry_id    BIGINT        NOT NULL REFERENCES galore_soty_entries(id) ON DELETE CASCADE,
+      sort_order  INTEGER       NOT NULL DEFAULT 0,
+      title       VARCHAR(150)  NOT NULL DEFAULT '',
+      description TEXT          NOT NULL DEFAULT '',
+      doc_file    VARCHAR(500)  NOT NULL DEFAULT '',
+      doc_name    VARCHAR(255)  NOT NULL DEFAULT '',
+      created_at  TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_galore_soty_activities_entry ON galore_soty_activities(entry_id)`);
+  /* the department shown on the submitted file (their Galore registration's) */
+  await pgPool.query(`ALTER TABLE galore_soty_entries ADD COLUMN IF NOT EXISTS department VARCHAR(150) NOT NULL DEFAULT ''`);
 })().catch(err => console.error('[galoreSoty] migration failed:', err.message));
 
 class SotyError extends Error {
@@ -92,38 +114,49 @@ class SotyError extends Error {
 
 const normEmail = (e) => String(e || '').trim().toLowerCase();
 
-/* One PDF, ≤ 10 MB, kept in memory until it's stored privately */
-const upload = multer({
+/* An entry's evidence: one file per activity (file_<key>), PDF / JPG / PNG, ≤ 10 MB each */
+const evidenceUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_PDF, files: 1, fields: 20, fieldSize: 8 * 1024 },
+  limits: { fileSize: MAX_PDF, files: MAX_ACTS, fields: 30, fieldSize: 64 * 1024 },
   fileFilter: (req, file, cb) => {
-    const ok = /\.pdf$/i.test(file.originalname || '');
-    cb(ok ? null : new SotyError('Upload your documents as a single PDF file.'), ok);
+    const ok = /^file_[\w-]{1,40}$/.test(file.fieldname) && EVIDENCE_EXT.test(file.originalname || '');
+    cb(ok ? null : new SotyError('Each activity’s file must be a PDF, JPG or PNG.'), ok);
   },
 });
-/* multer's errors → a message the student can act on */
-const uploadPdf = (field) => (req, res, next) => upload.single(field)(req, res, (err) => {
+const uploadEvidence = () => (req, res, next) => evidenceUpload.any()(req, res, (err) => {
   if (!err) return next();
-  const message = err.code === 'LIMIT_FILE_SIZE' ? 'The PDF must be 10 MB or smaller.'
+  const message = err.code === 'LIMIT_FILE_SIZE' ? 'Each file must be 10 MB or smaller.'
+    : err.code === 'LIMIT_FILE_COUNT' ? `You can add up to ${MAX_ACTS} activities.`
     : err instanceof SotyError ? err.message : 'That upload could not be read — please try again.';
   res.status(400).json({ message });
 });
+/* the file really is what its name says (PDF / PNG / JPEG) */
+const looksLikeEvidence = (f) => {
+  const b = f?.buffer;
+  if (!b || b.length < 4) return false;
+  return b.subarray(0, 5).toString('latin1') === '%PDF-'
+    || (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47)
+    || (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff);
+};
+const wordsIn = (t) => String(t || '').trim().split(/\s+/).filter(Boolean).length;
 
 /* ── The contest ─────────────────────────────────────────────────────────── */
 
 /* today in server-local time, YYYY-MM-DD — entries are taken through the whole last day */
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-/* opened: the opening date has come; closed: not taking entries right now */
+/* opened: the opening date has come and it hasn't been closed (stopped: the
+   main coordinator / admin pressed Close); closed: not taking entries right now */
 const contestOut = (c) => {
   if (!c) return null;
   const t = today();
   const opensOn = c.opens_on || '';
-  const opened = !!opensOn && t >= opensOn;
+  const stopped = !!c.closed;
+  const opened = !!opensOn && t >= opensOn && !stopped;
   const deadlinePassed = !!c.deadline && t > c.deadline;
   return {
     id: String(c.id), eventId: String(c.event_id), title: c.title, academicYear: c.academic_year,
     published: c.published, publishedAt: c.published_at,
-    opensOn, deadline: c.deadline || '', opened, deadlinePassed,
+    opensOn, deadline: c.deadline || '', opened, deadlinePassed, stopped,
     closed: !opened || deadlinePassed,
   };
 };
@@ -177,15 +210,15 @@ async function setDates(eventId, body = {}) {
   if (!cur) throw new SotyError('Create Student of the Year first.', 404);
   const opensOn  = 'opensOn'  in body ? cleanDate(body.opensOn,  'opening date') : (cur.opens_on || '');
   const deadline = 'deadline' in body ? cleanDate(body.deadline, 'last date of registration') : (cur.deadline || '');
+  /* closed: registration stopped by hand (Open / Close), whatever the dates say */
+  const closed = 'closed' in body ? !!body.closed : !!cur.closed;
   if (opensOn && deadline && deadline < opensOn) throw new SotyError('The last date of registration must be on or after the day registration opens.');
   const { rows: [c] } = await pgPool.query(
-    'UPDATE galore_soty SET opens_on = $2, deadline = $3, updated_at = NOW() WHERE event_id = $1 RETURNING *',
-    [eventId, opensOn, deadline]
+    'UPDATE galore_soty SET opens_on = $2, deadline = $3, closed = $4, updated_at = NOW() WHERE event_id = $1 RETURNING *',
+    [eventId, opensOn, deadline, closed]
   );
   return contestOut(c);
 }
-/* the line under the strip edits just the last date */
-const setDeadline = (eventId, deadline) => setDates(eventId, { deadline });
 
 /* ── Entries ─────────────────────────────────────────────────────────────── */
 
@@ -193,12 +226,32 @@ const num = (v) => (v == null ? null : Number(v));
 const entryOut = (r) => ({
   id: String(r.id), email: r.email,
   enrollmentNo: r.enrollment_no, name: r.name, branch: r.branch, semester: r.semester, gender: r.gender, school: r.school,
+  department: r.department || r.school || '',
   evenAttendance: num(r.even_attendance), oddAttendance: num(r.odd_attendance),
   evenScore: num(r.even_score), oddScore: num(r.odd_score),
   mobile: r.mobile, contactEmail: r.contact_email, achievements: r.achievements, reason: r.reason,
   document: r.doc_file ? { url: privateFileUrl(r.doc_file, { downloadName: r.doc_name }), name: r.doc_name || 'Documents.pdf' } : null,
   submittedAt: r.created_at, updatedAt: r.updated_at,
 });
+
+/* entries (already through entryOut) + their activities, each with a fresh link */
+async function withActivities(entries) {
+  if (!entries.length) return entries;
+  const { rows } = await pgPool.query(
+    'SELECT * FROM galore_soty_activities WHERE entry_id = ANY($1::bigint[]) ORDER BY sort_order, id',
+    [entries.map(e => e.id)]
+  );
+  return entries.map(e => ({
+    ...e,
+    activities: rows.filter(a => String(a.entry_id) === e.id).map(a => ({
+      id: String(a.id), title: a.title, description: a.description,
+      file: a.doc_file ? {
+        url: privateFileUrl(a.doc_file, { downloadName: a.doc_name }), name: a.doc_name || 'Evidence',
+        isImage: /\.(jpe?g|png)$/i.test(a.doc_name || ''),
+      } : null,
+    })),
+  }));
+}
 
 async function listEntries(eventId) {
   const contest = await getContest(eventId);
@@ -207,18 +260,23 @@ async function listEntries(eventId) {
     'SELECT * FROM galore_soty_entries WHERE contest_id = $1 ORDER BY created_at ASC, id ASC',
     [contest.id]
   );
-  return { contest: contestOut(contest), entries: rows.map(entryOut) };
+  return { contest: contestOut(contest), entries: await withActivities(rows.map(entryOut)) };
 }
 
 async function deleteEntry(eventId, entryId) {
   const contest = await getContest(eventId);
   if (!contest) throw new SotyError('Contestant not found.', 404);
+  const { rows: actFiles } = await pgPool.query(
+    `SELECT a.doc_file FROM galore_soty_activities a JOIN galore_soty_entries e ON e.id = a.entry_id
+     WHERE e.id = $1 AND e.contest_id = $2`, [entryId, contest.id]
+  );
   const { rows: [r] } = await pgPool.query(
     'DELETE FROM galore_soty_entries WHERE id = $1 AND contest_id = $2 RETURNING doc_file',
     [entryId, contest.id]
   );
   if (!r) throw new SotyError('Contestant not found.', 404);
   if (r.doc_file) await deletePrivateFile(r.doc_file);
+  for (const a of actFiles) if (a.doc_file) await deletePrivateFile(a.doc_file);
 }
 
 /* ── A student's own side ────────────────────────────────────────────────── */
@@ -254,6 +312,7 @@ async function identityFor(email, eventId) {
     semester: r.semester || '',
     gender: genderWord(r.us_gender || r.gender),
     school: r.school_name || r.school_code || r.dept || '',
+    department: r.dept || r.school_code || r.school_name || '',
     phone: r.us_phone || r.phone || '',
   };
 }
@@ -263,19 +322,35 @@ async function identityFor(email, eventId) {
 async function portalView(email, eventId) {
   const contest = await getContest(eventId);
   if (!contest || !contest.published) return { contest: null };
-  /* not open yet: students see only that it opens soon — no dates, no form */
   const shownContest = contestOut(contest);
-  if (!shownContest.opened) {
-    return { contest: { id: shownContest.id, title: shownContest.title, opened: false, closed: true }, identity: null, entry: null };
-  }
   const identity = await identityFor(email, eventId);
+  /* the student's own submission — always theirs to see, open or closed */
+  const mineOnly = async () => {
+    const { rows: [r] } = await pgPool.query(
+      'SELECT * FROM galore_soty_entries WHERE contest_id = $1 AND LOWER(email) = $2', [contest.id, normEmail(email)]
+    );
+    return r ? (await withActivities([entryOut(r)]))[0] : null;
+  };
+  /* not taking entries (not open yet, or closed): no form — just where it stands,
+     and their own submission if they made one */
+  if (!shownContest.opened || shownContest.deadlinePassed) {
+    const entry = await mineOnly();
+    const { studentId: _o, ...shownId } = identity || {};
+    return {
+      contest: {
+        id: shownContest.id, title: shownContest.title, opened: shownContest.opened, closed: true,
+        deadline: shownContest.deadline, deadlinePassed: shownContest.deadlinePassed, stopped: shownContest.stopped,
+      },
+      identity: entry && identity ? shownId : null, entry,
+    };
+  }
   let entry = null;
   if (identity) {
     const { rows: [r] } = await pgPool.query(
       'SELECT * FROM galore_soty_entries WHERE contest_id = $1 AND LOWER(email) = $2',
       [contest.id, normEmail(email)]
     );
-    entry = r ? entryOut(r) : null;
+    entry = r ? (await withActivities([entryOut(r)]))[0] : null;
   }
   const { studentId: _omit, ...shown } = identity || {};
   return { contest: shownContest, identity: identity ? shown : null, entry };
@@ -295,9 +370,11 @@ function text(v, label) {
   return s;
 }
 
-/* POST from a student: create or update their entry (multipart; `document` is
-   required the first time, optional after that to keep the one on file) */
-async function submitEntry(email, eventId, body = {}, file = null) {
+/* POST from a student: create or update their entry (multipart).
+   body.activities = JSON [{ key, id?, title, description }] — their co-curricular
+   activities / achievements, in order; each needs an evidence file: a new one
+   sent as file_<key>, or (for one already saved, by id) the one on file. */
+async function submitEntry(email, eventId, body = {}, files = []) {
   const contest = await getContest(eventId);
   if (!contest || !contest.published) throw new SotyError("Student of the Year isn't open.", 404);
   const state = contestOut(contest);
@@ -317,52 +394,96 @@ async function submitEntry(email, eventId, body = {}, file = null) {
   if (!/^\d{10}$/.test(mobile)) throw new SotyError('Enter a 10-digit mobile number.');
   const contactEmail = normEmail(body.contactEmail);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail) || contactEmail.length > 255) throw new SotyError('Enter a valid email id.');
-  const achievements = text(body.achievements, 'Details about co-curricular activities / special achievements');
-  const reason       = text(body.reason, 'Why you are the right contestant');
+  const reason = text(body.reason, 'Why you are the right contestant');
+
+  /* the activities */
+  let acts;
+  try { acts = JSON.parse(String(body.activities || '[]')); } catch { acts = null; }
+  if (!Array.isArray(acts)) throw new SotyError('Your activities could not be read — please try again.');
+  if (!acts.length) throw new SotyError('Add at least one co-curricular activity or special achievement, with its file.');
+  if (acts.length > MAX_ACTS) throw new SotyError(`You can add up to ${MAX_ACTS} activities.`);
 
   const { rows: [existing] } = await pgPool.query(
-    'SELECT id, doc_file FROM galore_soty_entries WHERE contest_id = $1 AND LOWER(email) = $2',
+    'SELECT id FROM galore_soty_entries WHERE contest_id = $1 AND LOWER(email) = $2',
     [contest.id, normEmail(email)]
   );
-  if (!file && !existing?.doc_file) throw new SotyError('Upload your important documents as one PDF file.');
-  let docFile = existing?.doc_file || '';
-  let docName = '';
-  if (file) {
-    if (!file.buffer || file.buffer.subarray(0, 5).toString('latin1') !== '%PDF-') {
-      throw new SotyError("That file isn't a PDF — combine your documents into one PDF file and upload that.");
-    }
-    docFile = await savePrivateFile(file, 'galore-soty');
-    docName = file.originalname.slice(0, 255);
-  }
+  /* reviewed and submitted once — final; it can be viewed but not changed */
+  if (existing) throw new SotyError('You’ve already submitted your entry. It can be viewed but not changed.', 409);
+  const { rows: oldActs } = existing
+    ? await pgPool.query('SELECT id, doc_file, doc_name FROM galore_soty_activities WHERE entry_id = $1', [existing.id])
+    : { rows: [] };
+  const fileByKey = new Map((files || []).map(f => [f.fieldname.slice(5), f]));
 
-  const { rows: [r] } = await pgPool.query(
-    `INSERT INTO galore_soty_entries
-       (contest_id, email, student_id, enrollment_no, name, branch, semester, gender, school,
-        even_attendance, odd_attendance, even_score, odd_score, mobile, contact_email, achievements, reason, doc_file, doc_name)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-     ON CONFLICT (contest_id, email) DO UPDATE SET
-       student_id = EXCLUDED.student_id, enrollment_no = EXCLUDED.enrollment_no, name = EXCLUDED.name,
-       branch = EXCLUDED.branch, semester = EXCLUDED.semester, gender = EXCLUDED.gender, school = EXCLUDED.school,
-       even_attendance = EXCLUDED.even_attendance, odd_attendance = EXCLUDED.odd_attendance,
-       even_score = EXCLUDED.even_score, odd_score = EXCLUDED.odd_score,
-       mobile = EXCLUDED.mobile, contact_email = EXCLUDED.contact_email,
-       achievements = EXCLUDED.achievements, reason = EXCLUDED.reason,
-       doc_file = CASE WHEN EXCLUDED.doc_name <> '' THEN EXCLUDED.doc_file ELSE galore_soty_entries.doc_file END,
-       doc_name = CASE WHEN EXCLUDED.doc_name <> '' THEN EXCLUDED.doc_name ELSE galore_soty_entries.doc_name END,
-       updated_at = NOW()
-     RETURNING *`,
-    [contest.id, normEmail(email), who.studentId, who.enrollmentNo.slice(0, 50), who.name.slice(0, 255),
-     who.branch.slice(0, 150), String(who.semester).slice(0, 50), who.gender.slice(0, 20), who.school.slice(0, 150),
-     fields.evenAttendance, fields.oddAttendance, fields.evenScore, fields.oddScore,
-     mobile, contactEmail, achievements, reason, docFile, docName]
-  );
-  /* a new PDF replaced the old one — the old file goes */
-  if (file && existing?.doc_file && existing.doc_file !== docFile) await deletePrivateFile(existing.doc_file);
-  return entryOut(r);
+  const clean = acts.map((a, i) => {
+    const n = i + 1;
+    const title = String(a?.title || '').trim().replace(/\s+/g, ' ');
+    if (!title) throw new SotyError(`Activity ${n}: give it a title.`);
+    if (title.length > 150) throw new SotyError(`Activity ${n}: the title can be at most 150 characters.`);
+    const description = String(a?.description || '').replace(/\r\n/g, '\n').trim();
+    if (!description) throw new SotyError(`"${title}": add a short description.`);
+    if (wordsIn(description) > MAX_WORDS) throw new SotyError(`"${title}": the description can be at most ${MAX_WORDS} words.`);
+    const old = a?.id ? oldActs.find(o => String(o.id) === String(a.id)) : null;
+    const file = fileByKey.get(String(a?.key || '')) || null;
+    if (file && !looksLikeEvidence(file)) throw new SotyError(`"${title}": that file isn’t a real PDF, JPG or PNG.`);
+    if (!file && !old?.doc_file) throw new SotyError(`"${title}": attach a file as evidence.`);
+    return { title, description, old, file };
+  });
+
+  /* store the new files first; the database then points at them */
+  for (const a of clean) {
+    if (a.file) { a.docFile = await savePrivateFile(a.file, 'galore-soty'); a.docName = a.file.originalname.slice(0, 255); }
+    else { a.docFile = a.old.doc_file; a.docName = a.old.doc_name; }
+  }
+  /* kept for the CSV / older views: the titles, one per line */
+  const achievements = clean.map(a => a.title).join('\n').slice(0, 5000);
+
+  const client = await pgPool.connect();
+  let r;
+  try {
+    await client.query('BEGIN');
+    ({ rows: [r] } = await client.query(
+      `INSERT INTO galore_soty_entries
+         (contest_id, email, student_id, enrollment_no, name, branch, semester, gender, school,
+          even_attendance, odd_attendance, even_score, odd_score, mobile, contact_email, achievements, reason, department)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+       ON CONFLICT (contest_id, email) DO UPDATE SET
+         student_id = EXCLUDED.student_id, enrollment_no = EXCLUDED.enrollment_no, name = EXCLUDED.name,
+         branch = EXCLUDED.branch, semester = EXCLUDED.semester, gender = EXCLUDED.gender, school = EXCLUDED.school,
+         even_attendance = EXCLUDED.even_attendance, odd_attendance = EXCLUDED.odd_attendance,
+         even_score = EXCLUDED.even_score, odd_score = EXCLUDED.odd_score,
+         mobile = EXCLUDED.mobile, contact_email = EXCLUDED.contact_email,
+         achievements = EXCLUDED.achievements, reason = EXCLUDED.reason, department = EXCLUDED.department,
+         updated_at = NOW()
+       RETURNING *`,
+      [contest.id, normEmail(email), who.studentId, who.enrollmentNo.slice(0, 50), who.name.slice(0, 255),
+       who.branch.slice(0, 150), String(who.semester).slice(0, 50), who.gender.slice(0, 20), who.school.slice(0, 150),
+       fields.evenAttendance, fields.oddAttendance, fields.evenScore, fields.oddScore,
+       mobile, contactEmail, achievements, reason, String(who.department || '').slice(0, 150)]
+    ));
+    /* the activity list is replaced as a whole, in the order given */
+    await client.query('DELETE FROM galore_soty_activities WHERE entry_id = $1', [r.id]);
+    for (const [i, a] of clean.entries()) {
+      await client.query(
+        `INSERT INTO galore_soty_activities (entry_id, sort_order, title, description, doc_file, doc_name)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [r.id, i, a.title, a.description, a.docFile, a.docName]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    for (const a of clean) if (a.file && a.docFile) await deletePrivateFile(a.docFile);
+    throw err;
+  } finally { client.release(); }
+
+  /* files no longer used: activities removed, or a file replaced */
+  const inUse = new Set(clean.map(a => a.docFile));
+  for (const o of oldActs) if (o.doc_file && !inUse.has(o.doc_file)) await deletePrivateFile(o.doc_file);
+  return (await withActivities([entryOut(r)]))[0];
 }
 
 module.exports = {
-  ready, SotyError, uploadPdf,
-  getContest, contestOut, saveContest, setDates, setDeadline,
+  ready, SotyError, uploadEvidence,
+  getContest, contestOut, saveContest, setDates,
   listEntries, deleteEntry, portalView, submitEntry,
 };

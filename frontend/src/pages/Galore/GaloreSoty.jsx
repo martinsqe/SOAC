@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { galoreApi } from '../../utils/galoreApi';
+import { sotyLine } from '../../utils/galoreDeadline';
 import SotyForm from '../../components/GaloreSoty/SotyForm';
 import SotyContestants from '../../components/GaloreSoty/SotyContestants';
 import SotyDates from '../../components/GaloreSoty/SotyDates';
@@ -20,12 +21,13 @@ export function SotyStudentPage({ eventId }) {
   if (error) return <div className={s.card}><div className={s.error}>{error}</div></div>;
   if (!data) return <div className={s.card}><div className={s.muted}>Loading…</div></div>;
   if (!data.contest) return <div className={s.card}><div className={s.muted}>Student of the Year isn't open.</div></div>;
-  /* before the opening day: just that it's coming */
-  if (!data.contest.opened) {
+  /* not taking entries: no form — where it stands; a student who submitted still sees theirs */
+  const taking = data.contest.opened && !data.contest.deadlinePassed;
+  if (!taking && !data.entry) {
     return (
       <div className={cs.soon}>
         <h2 className={cs.soonTitle}>{data.contest.title || 'Student of the Year'}</h2>
-        <p className={cs.soonText}>Registration will open soon, check back later.</p>
+        <p className={cs.soonText}>{sotyLine(data.contest)}</p>
       </div>
     );
   }

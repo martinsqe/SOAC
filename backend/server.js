@@ -124,9 +124,13 @@ app.use(compression());
 
 /* ── Global rate limiter ── */
 const isDev = process.env.NODE_ENV !== 'production';
+const { userOrIpKey, signedInKey } = require('./middleware/rateLimits');
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 1500, // Same for dev/prod; allows testing rate limiting behavior locally
+  /* per signed-in person 1500; anonymous visitors share their IP — a whole
+     campus behind one NAT IP during Galore registration — so that bucket is larger */
+  limit: (req) => (signedInKey(req) ? 1500 : 20000),
+  keyGenerator: userOrIpKey,
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: 'Too many requests — please try again later.' },

@@ -24,15 +24,10 @@ const saveDates = handle(async (req, res) => {
   res.json({ contest: await soty.setDates(req.params.id, req.body || {}) });
 });
 
-/* PUT /api/events/:id/soty/deadline { deadline: 'YYYY-MM-DD' | '' } */
-const saveDeadline = handle(async (req, res) => {
-  res.json({ contest: await soty.setDeadline(req.params.id, req.body?.deadline) });
-});
-
 /* DELETE /api/events/:id/soty/entries/:entryId */
 const removeEntry = handle(async (req, res) => {
   await soty.deleteEntry(req.params.id, req.params.entryId);
   res.json({ message: 'Contestant removed.' });
 });
 
-module.exports = { get, save, saveDates, saveDeadline, removeEntry };
+module.exports = { get, save, saveDates, removeEntry };

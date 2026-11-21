@@ -6,7 +6,7 @@
 
 .fgrid {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+  grid-template-columns: 2fr 1fr 1fr 1fr auto;
   gap: 40px;
   margin-bottom: 60px;
 }
@@ -60,7 +60,7 @@
 
 @media (max-width: 1100px) {
   .fgrid {
-    grid-template-columns: 1fr 1fr 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr auto;
     gap: 36px;
   }
 
@@ -71,24 +71,50 @@
   }
 }
 
+.fcol {
+  min-width: 0;
+}
+
+/* Keep emails on one line on larger screens */
+.cContact a {
+  white-space: nowrap;
+}
+
+/* Mobile: two columns — Platform + University on the left, Social + Contact on the right */
 @media (max-width: 700px) {
   .fgrid {
     grid-template-columns: 1fr 1fr;
-    gap: 32px;
+    gap: 28px 20px;
   }
 
   .main {
-    grid-column: span 2;
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .cPlatform   { grid-column: 1; grid-row: 2; }
+  .cUniversity { grid-column: 1; grid-row: 3; }
+  .cSocial     { grid-column: 2; grid-row: 2; }
+  .cContact    { grid-column: 2; grid-row: 3; }
+
+  /* Narrow phones: allow long emails to wrap instead of overflowing */
+  .cContact a {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 }
 
 @media (max-width: 420px) {
   .fgrid {
-    grid-template-columns: 1fr;
-    gap: 28px;
+    gap: 24px 14px;
   }
 
-  .main {
-    grid-column: span 1;
+  .fcol h4 {
+    margin-bottom: 16px;
+  }
+
+  .fcol a {
+    font-size: 13px;
+    margin-bottom: 12px;
   }
 }

@@ -1,5 +1,16 @@
 const { pgPool } = require('../config/db');
 
+/* A YYYY-MM-DD last date of registration is over once that whole day has ended
+   (server local time — dates are kept as local calendar days). Blank or any
+   other text = no automatic cut-off. */
+const deadlinePassed = (d) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d || '').trim());
+  if (!m) return false;
+  const endOfDay = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1); // next local midnight
+  return Date.now() >= endOfDay.getTime();
+};
+
+
 /* The schema setup below is ~175 statements. Controllers call ensureSoacTables()
    at the start of many requests, so it runs ONCE per server process: the first
    call does the work and every later call awaits the same finished promise
@@ -182,6 +193,10 @@ const runSoacTablesSetup = async () => {
   /* Admin-only override that closes registration independently of `status`/dates —
      lets admin cut off sign-ups early without having to mark the whole event "past". */
   await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS registration_closed BOOLEAN NOT NULL DEFAULT false`).catch(() => {});
+  /* Galore umbrella closed for good by the admin (Close event): portal locked, logins erased, data kept for the admin */
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS galore_closed_at TIMESTAMPTZ`).catch(() => {});
+  /* Galore umbrella: the last date of registration (YYYY-MM-DD) */
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS registration_deadline VARCHAR(255) NOT NULL DEFAULT ''`).catch(() => {});
 
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS event_registrations (
@@ -700,6 +715,39 @@ const runSoacTablesSetup = async () => {
      coordinator adds the rest and publishes it. Until then it's hidden from
      students (events list, event page, registration). Existing events stay live. */
   await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS galore_published BOOLEAN NOT NULL DEFAULT true`);
+  /* Galore: the About Galore page's own text (admin / main coordinator), kept apart
+     from the event's description, which is only for the public Events page.
+     Empty = the standard Galore story is shown. */
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS galore_about TEXT NOT NULL DEFAULT ''`);
+  /* Galore schedule: how long an activity / a match runs (free text, e.g. "2 hours") */
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS galore_duration VARCHAR(50) NOT NULL DEFAULT ''`);
+  await pgPool.query(`ALTER TABLE event_fixtures ADD COLUMN IF NOT EXISTS duration VARCHAR(50) DEFAULT NULL`).catch(() => {});
+  /* Galore schedule: when participants must report. An activity / a match only
+     appears on the schedule once the overall coordinator has set it. */
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS galore_reporting_time VARCHAR(20) NOT NULL DEFAULT ''`);
+  await pgPool.query(`ALTER TABLE event_fixtures ADD COLUMN IF NOT EXISTS reporting_time VARCHAR(20) DEFAULT NULL`).catch(() => {});
+  /* Galore: what students may see is declared by the main coordinator —
+     each activity's selected teams / duos / individuals, and (event-wide)
+     the schedule and the fixtures. Coordinators see everything before that. */
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS galore_teams_declared BOOLEAN NOT NULL DEFAULT false`);
+  /* Galore schedule: an activity's sessions — its stages / rounds (Elimination,
+     Final, Round 1…), each on its own day, with reporting time, duration and venue */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS galore_sessions (
+      id             BIGSERIAL    PRIMARY KEY,
+      activity_id    BIGINT       NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+      label          VARCHAR(100) NOT NULL DEFAULT '',
+      division       VARCHAR(10)  NOT NULL DEFAULT '',
+      session_date   DATE,
+      reporting_time VARCHAR(20)  NOT NULL DEFAULT '',
+      duration       VARCHAR(50)  NOT NULL DEFAULT '',
+      venue          VARCHAR(255) NOT NULL DEFAULT '',
+      created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_galore_sessions_activity ON galore_sessions(activity_id)`);
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS galore_schedule_declared BOOLEAN NOT NULL DEFAULT false`);
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS galore_fixtures_declared BOOLEAN NOT NULL DEFAULT false`);
 
   /* ── Student activity claims (a student reports an activity that was never
      recorded on SOAC, with proof; the club's SC / FA verifies it). Approved
@@ -1073,6 +1121,11 @@ const asEvent = (row) => ({
   parentEventId: row.parent_event_id ? String(row.parent_event_id) : null,
   genderSplit: !!row.gender_split, // Galore activity: runs separate boys/girls divisions
   galorePublished: row.galore_published !== false, // Galore umbrella: published by its overall coordinator
+  galoreClosedAt: row.galore_closed_at || null,     // Galore umbrella: closed by the admin (read-only, portal locked)
+  registrationDeadline: row.registration_deadline || '',
+  /* the last date of registration is over — registration is closed (the admin's own Close / Reopen is registrationClosed) */
+  registrationDeadlinePassed: deadlinePassed(row.registration_deadline),
+  galoreAbout: row.galore_about || '',              // Galore umbrella: the About Galore page's text ('' = the standard story)
   customFields: Array.isArray(row.custom_fields) ? row.custom_fields : [],
   objective: row.objective || '',
   expectedOutcome: row.expected_outcome || '',
@@ -1129,4 +1182,5 @@ const ensureBaseIndexes = async () => {
   `);
 };
 
-module.exports = { ensureSoacTables, ensureBaseIndexes, asClub, asEvent };
+module.exports = {
+  deadlinePassed, ensureSoacTables, ensureBaseIndexes, asClub, asEvent };

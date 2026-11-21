@@ -1,14 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { galoreApi } from '../../utils/galoreApi';
-import { toBuilder, toPayload, builderProblems } from '../../utils/galoreForm';
+import useTeamsLive from '../../realtime/useTeamsLive';
+import { toBuilder, toPayload, formProblems, mergeForSave } from '../../utils/galoreForm';
 import GaloreFormBuilder from '../Admin/GaloreFormBuilder';
-import GaloreRegistrations from './GaloreRegistrations';
-import { downloadGaloreCsv } from '../../utils/galoreCsv';
+import GaloreActivities from './GaloreActivities';
+import GaloreResults from './GaloreResults';
+import { ScheduleView, FixtureMaker, DeclareButton } from './GaloreSchedule';
 import {
-  EventHeader, Label, Stats, Table, Notice, Empty, VerifyParticipant,
+  EventHeader, Label, Stats, Table, Notice, Empty, VerifyParticipant, DeptRegistrations,
 } from './GaloreUI';
-import { findClashes } from './galoreHelpers';
-import { uploadGuidelines, GUIDELINES_ACCEPT } from '../../utils/guidelinesFile';
+import { unitOf, selectedLabel } from './galoreHelpers';
+import FitWidth from '../../components/FitWidth/FitWidth';
 import s from './Galore.module.css';
 
 /* Overall Galore coordinator — runs one Galore event from the portal: everything
@@ -25,20 +27,18 @@ import s from './Galore.module.css';
      Event details  the event's own title, dates, venue, description */
 const dayLabel = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 
-/* The cards on "Manage event" — each opens one of these sections */
+/* "Manage event": one row of tabs; the picked section opens below it */
 const MANAGE = [
-  ['details',       'Event details'],
+  ['details',       'Edit details'],
   ['form',          'Galore form'],
-  ['overview',      'Overview'],
-  ['registrations', 'Registrations'],
+  ['activities',    'Activities'],
+  ['results',       'Results'],
 ];
 
 export default function GaloreHead({ eventId, section = 'manage' }) {
   const [details, setDetails] = useState(null);
-  /* which card is open on "Manage event" — back to the cards whenever the page changes */
-  const [sub, setSub] = useState(null);
-  const [lastSection, setLastSection] = useState(section);
-  if (section !== lastSection) { setLastSection(section); setSub(null); }
+  /* which tab is open on "Manage event" (kept while moving between pages) */
+  const [sub, setSub] = useState(MANAGE[0][0]);
   const [form,    setForm]    = useState(null);   // server form (with who's assigned)
   const [regs,    setRegs]    = useState(null);
   const [error,   setError]   = useState('');
@@ -49,6 +49,7 @@ export default function GaloreHead({ eventId, section = 'manage' }) {
     galoreApi.get(`/head/events/${eventId}/registrations`).then(d => setRegs(d.registrations || [])).catch(err => setError(err.message));
   }, [eventId]);
   useEffect(() => { load(); }, [load]);
+  useTeamsLive(null, load); // team counts on Activities stay current
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
   const uploadGuidelines = async (file) => {
@@ -72,47 +73,56 @@ export default function GaloreHead({ eventId, section = 'manage' }) {
     <div className={s.card}>
       <EventHeader role="Overall Galore coordinator" event={details} />
       <div className={s.pageGap} />
-      <PublishBar eventId={eventId} details={details} form={form} onChange={published => setDetails(d => ({ ...d, published }))} flash={flash} />
+      {/* publish / unpublish lives on the Manage event page only */}
+      {section === 'manage' && (
+        <PublishBar eventId={eventId} details={details} form={form} onChange={published => setDetails(d => ({ ...d, published }))} flash={flash} />
+      )}
       {toast && <div className={s.ok}>{toast}</div>}
 
-      {section === 'manage' && !sub && (
-        <ManageCards onOpen={setSub} />
-      )}
-      {section === 'manage' && sub && (
+      {section === 'manage' && (
         <>
-          <div className={s.manageBack}>
-            <button type="button" className={s.backBtn} onClick={() => setSub(null)}>← Manage event</button>
-            <h3 className={s.cardTitle}>{MANAGE.find(([k]) => k === sub)?.[1]}</h3>
-          </div>
+          <ManageTabs active={sub} onPick={setSub} />
           <ManageSection sub={sub} eventId={eventId} details={details} form={form} activities={activities} regs={regs}
-            error={error} load={load} saveForm={saveForm} upload={uploadGuidelines} flash={flash} setDetails={setDetails} />
+            error={error} saveForm={saveForm} upload={uploadGuidelines} flash={flash} setDetails={setDetails} />
         </>
       )}
-      {section === 'schedule' && <Schedule form={form} activities={activities} regs={regs} onSave={saveForm} upload={uploadGuidelines} flash={flash} />}
+      {section === 'schedule' && <HeadSchedule eventId={eventId} form={form} flash={flash} />}
       {section === 'departments' && <Departments details={details} form={form} activities={activities} regs={regs} error={error} />}
     </div>
   );
 }
 
-/* ── Manage event: one card per section, each with its key numbers ── */
-function ManageCards({ onOpen }) {
+/* ── Manage event: its sections in one row, each with an arrow on its right
+   (like the dashboard switcher); the open one's arrow points up and it opens below ── */
+function ManageTabs({ active, onPick }) {
   return (
-    <div className={s.manageGrid}>
+    <div className={s.deptTabs} role="tablist" aria-label="Manage event">
       {MANAGE.map(([k, label]) => (
-        <button key={k} type="button" className={s.manageCard} onClick={() => onOpen(k)}>
-          <span className={s.manageTitle}>{label}</span>
+        <button key={k} type="button" role="tab" aria-selected={active === k} aria-expanded={active === k}
+          className={`${s.deptTab} ${s.manageTab} ${active === k ? s.deptTabOn : ''}`} onClick={() => onPick(k)}>
+          {label}
+          <svg className={`${s.roleArrow} ${active === k ? s.roleArrowUp : ''}`} viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </button>
       ))}
     </div>
   );
 }
 
-function ManageSection({ sub, eventId, details, form, activities, regs, error, load, saveForm, upload, flash, setDetails }) {
-  if (sub === 'overview') return <Overview details={details} form={form} activities={activities} regs={regs} eventId={eventId} onChanged={load} />;
-  if (sub === 'registrations') return <GaloreRegistrations registrations={regs} error={error} fileBase={details.title} />;
+function ManageSection({ sub, eventId, details, form, activities, regs, error, saveForm, upload, flash, setDetails }) {
+  if (sub === 'results') return <HeadResults eventId={eventId} form={form} title={details.title} />;
+  if (sub === 'activities') return <GaloreActivities activities={activities} regs={regs} error={error} fileBase={details.title} />;
   if (sub === 'form') return <FormEditor eventId={eventId} form={form} onSave={saveForm} upload={upload} flash={flash} />;
   if (sub === 'details') return <DetailsEditor eventId={eventId} details={details} form={form} onSaved={d => setDetails(d)} onSave={saveForm} flash={flash} />;
   return null;
+}
+
+/* ── Results: winners and runners-up of every activity, by department ── */
+function HeadResults({ eventId, form, title }) {
+  const load = useCallback(() => galoreApi.get(`/head/events/${eventId}/results`), [eventId]);
+  const save = useCallback((body) => galoreApi.put(`/head/events/${eventId}/results`, body), [eventId]);
+  return <GaloreResults eventId={eventId} load={load} save={save} departments={form.departments.map(d => d.name)} fileBase={title} />;
 }
 
 /* ── Departments: one tab per department in a single row; the picked one shows
@@ -133,29 +143,20 @@ function Departments({ details, form, activities, regs, error }) {
   }
   const active = byKey.get(pick) || depts[0];
   const order = new Map(activities.map((a, i) => [String(a.id), i]));
-
-  const groups = [];
-  if (active) {
-    const m = new Map();
-    for (const r of active.rows) {
-      if (!m.has(r.eventId)) m.set(r.eventId, { title: r.eventTitle, categoryName: r.categoryName, rows: [] });
-      m.get(r.eventId).rows.push(r);
-    }
-    groups.push(...[...m.entries()]
-      .sort(([a, x], [b, y]) => (order.get(a) ?? 1e9) - (order.get(b) ?? 1e9) || x.title.localeCompare(y.title))
-      .map(([, g]) => g));
-  }
+  /* "Selected teams ▾" / "Selected duos ▾" / "Selected individuals ▾" beside each activity */
+  const teamsOf = (id) => {
+    const a = activities.find(x => String(x.id) === id);
+    return a ? selectedLabel(unitOf(a)) : null;
+  };
 
   return (
     <>
-      <div className={s.deptBar}>
-        <div className={s.muted}>
-          {verify ? 'Check a participant by their ID card number.' : 'Registrations from each department, grouped by activity.'}
+      {verify && (
+        <div className={s.deptBar}>
+          <div className={s.muted}>Check a participant by their ID card number.</div>
+          <button type="button" className={s.primaryBtn} onClick={() => setVerify(false)}>← Back to departments</button>
         </div>
-        <button type="button" className={s.primaryBtn} onClick={() => setVerify(v => !v)}>
-          {verify ? '← Back to departments' : 'Verify participant'}
-        </button>
-      </div>
+      )}
 
       {verify ? <VerifyParticipant registrations={regs} scope={details.title} />
         : error && !regs ? <div className={s.error}>{error}</div>
@@ -171,206 +172,38 @@ function Departments({ details, form, activities, regs, error }) {
                 </button>
               ))}
             </div>
-
-            {active.rows.length === 0 ? <Empty>No registrations from {active.name} yet.</Empty> : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <button className={s.smallBtn} onClick={() => downloadGaloreCsv(`${details.title} ${active.name} all activities`, active.rows)}>
-                    Download all {active.name} (CSV)
-                  </button>
-                </div>
-                {groups.map(g => (
-                  <div key={g.title}>
-                    <h3 className={s.deptActHead}>
-                      {g.title}
-                      <span className={s.muted}>{g.categoryName ? `${g.categoryName} · ` : ''}{g.rows.length} registered</span>
-                      <button className={s.smallBtn} onClick={() => downloadGaloreCsv(`${details.title} ${active.name} ${g.title}`, g.rows)}>Download CSV</button>
-                    </h3>
-                    <Table head={['#', 'Name', 'Enrollment No.', 'Gender', 'Course', 'Mobile', 'Email']}>
-                      {g.rows.map((r, i) => (
-                        <tr key={r.registrationId}>
-                          <td>{i + 1}</td><td><strong>{r.name || '—'}</strong></td><td>{r.enrollmentNo || '—'}</td>
-                          <td>{r.gender || '—'}</td><td>{r.course || '—'}</td><td>{r.phone || '—'}</td>
-                          <td>{r.email ? <a href={`mailto:${r.email}`} style={{ color: '#b91c1c' }}>{r.email}</a> : '—'}</td>
-                        </tr>
-                      ))}
-                    </Table>
-                  </div>
-                ))}
-              </div>
-            )}
+            <Label>Registrations</Label>
+            {/* search + filters · the count · download on one row, then the table */}
+            <DeptRegistrations key={active.key} deptName={active.name} rows={active.rows} order={order} fileBase={details.title}
+              teamsOf={teamsOf} teamDept={active.name}
+              extra={<button type="button" className={s.primaryBtn} style={{ width: 'auto' }} onClick={() => setVerify(true)}>Verify participant</button>} />
           </>
         )}
     </>
   );
 }
 
-/* ── Overview: totals, participation per activity, departments, open / close ── */
-function Overview({ details, form, activities, regs, eventId, onChanged }) {
-  const [busyId, setBusyId] = useState(null);
-  const byDept = new Map(form.departments.map(d => [d.name.toLowerCase(), { name: d.name, coord: d.coordName, coordEmail: d.coordEmail, count: 0 }]));
-  for (const r of regs || []) {
-    const k = String(r.dept || '').toLowerCase();
-    if (!byDept.has(k)) byDept.set(k, { name: r.dept || 'Unspecified', coord: '', coordEmail: '', count: 0 });
-    byDept.get(k).count++;
-  }
-  const toggle = async (a) => {
-    setBusyId(a.id);
-    try {
-      await galoreApi.patch(`/head/events/${eventId}/activities/${a.id}/registration`, { closed: !a.registrationClosed });
-      onChanged();
-    } finally { setBusyId(null); }
-  };
-  /* Unequal participation: each activity against the average */
-  const total = activities.reduce((n, a) => n + a.registrationCount, 0);
-  const avg = activities.length ? total / activities.length : 0;
-  const max = Math.max(1, ...activities.map(a => a.registrationCount));
-  const level = (n) => (avg >= 2 && n < avg * 0.5 ? 'low' : avg >= 2 && n > avg * 1.5 ? 'high' : '');
-  const low = activities.filter(a => level(a.registrationCount) === 'low');
-
+/* ── Schedule page: what everyone sees, each activity's date / time / venue,
+   and the fixtures (which team plays which, when and where) ── */
+const SCHEDULE_TABS = [['view', 'Full schedule'], ['fixtures', 'Dates, venues & Fixtures']];
+function HeadSchedule({ eventId, form, flash }) {
+  const [tab, setTab] = useState('view');
   return (
     <>
-      <Stats items={[
-        [details.studentCount, 'students registered'],
-        [details.registrationCount, 'activity registrations'],
-        [activities.length, 'activities'],
-        [form.departments.length, 'departments'],
-      ]} />
-
-      <Label>Participation by activity</Label>
-      {low.length > 0 && (
-        <Notice tone="warn">
-          Low participation (under half the average of {avg.toFixed(1)} per activity): {low.map(a => a.title).join(', ')}.
-          Consider promoting these, extending their registration, or merging divisions.
-        </Notice>
-      )}
-      <Table head={['Activity', 'Run by', 'Activity coordinator', 'Registered', 'Share', 'Teams', 'Registration']} minWidth={760}>
-        {[...activities].sort((x, y) => y.registrationCount - x.registrationCount).map(a => {
-          const lv = level(a.registrationCount);
-          return (
-            <tr key={a.id}>
-              <td><strong>{a.title}</strong><div className={s.muted}>{a.categoryName}</div></td>
-              <td>{a.clubName || '—'}</td>
-              <td>{a.coordinatorName || '—'}{a.coordinatorEmail && <div className={s.muted}>{a.coordinatorEmail}</div>}</td>
-              <td>
-                {a.registrationCount}{' '}
-                {lv && <span className={`${s.flag} ${lv === 'low' ? s.flagLow : s.flagHigh}`}>{lv === 'low' ? 'Low' : 'High'}</span>}
-              </td>
-              <td style={{ width: 140 }}><div className={s.bar}><div className={s.barFill} style={{ width: `${(a.registrationCount / max) * 100}%` }} /></div></td>
-              <td>{a.participationType === 'team' ? a.teamCount : '—'}</td>
-              <td>
-                <button className={s.smallBtn} disabled={busyId === a.id} onClick={() => toggle(a)}>
-                  {busyId === a.id ? 'Saving…' : a.registrationClosed ? 'Closed — reopen' : 'Open — close'}
-                </button>
-              </td>
-            </tr>
-          );
-        })}
-      </Table>
-
-      <Label>Departments</Label>
-      <Table head={['Department', 'Department coordinator', 'Registrations']}>
-        {[...byDept.values()].map(d => (
-          <tr key={d.name}>
-            <td><strong>{d.name}</strong></td>
-            <td>{d.coord || '—'}{d.coordEmail && <div className={s.muted}>{d.coordEmail}</div>}</td>
-            <td>{d.count}</td>
-          </tr>
+      <div className={s.subTabs} role="tablist">
+        {SCHEDULE_TABS.map(([k, label]) => (
+          <button key={k} type="button" role="tab" aria-selected={tab === k}
+            className={`${s.subTab} ${tab === k ? s.subTabOn : ''}`} onClick={() => setTab(k)}>{label}</button>
         ))}
-      </Table>
+      </div>
+      {/* the form can change in "dates & venues" — key so the view reloads with it */}
+      {tab === 'view' && <ScheduleView showHidden key={JSON.stringify(form.categories.map(c => c.activities.map(a => [a.scheduleDate, a.reportingTime, a.time, a.duration, a.venue])))} eventId={eventId} />}
+      {tab === 'fixtures' && <FixtureMaker eventId={eventId} flash={flash} />}
     </>
   );
 }
 
-/* ── Schedule: date / time / venue / guidelines of every activity ── */
-function Schedule({ form, regs, onSave, upload, flash }) {
-  const [b, setB] = useState(() => toBuilder(form));
-  const [busy, setBusy] = useState(false);
-  const [err,  setErr]  = useState('');
-  useEffect(() => { setB(toBuilder(form)); }, [form]);
-  const setAct = (catKey, actKey, patch) => setB(p => ({
-    ...p, categories: p.categories.map(c => c.key !== catKey ? c : { ...c, activities: c.activities.map(a => a.key === actKey ? { ...a, ...patch } : a) }),
-  }));
-  const save = async () => {
-    setBusy(true); setErr('');
-    try { await onSave(b); flash('Schedule saved — everyone assigned has been emailed the update.'); }
-    catch (ex) { setErr(ex.message); }
-    finally { setBusy(false); }
-  };
-  /* clashes in what's on screen now, so they show while editing */
-  const clashes = findClashes(b.categories.flatMap(c => c.activities.map(a => ({ ...a, dateLabel: dayLabel(a.scheduleDate) }))), regs);
-  return (
-    <>
-      <p className={s.muted} style={{ margin: '0 0 12px' }}>Leave anything blank until it's decided — students and staff see "To be announced".</p>
-      {clashes.length > 0 ? (
-        <Notice tone="warn">
-          Scheduling clashes — activities on the same date at the same time:
-          <ul>
-            {clashes.map(c => (
-              <li key={`${c.a.key}-${c.b.key}`}>
-                <strong>{c.a.title}</strong> and <strong>{c.b.title}</strong> — {c.when}
-                {c.shared ? `: ${c.shared} student${c.shared === 1 ? ' is' : 's are'} registered for both` : c.shared === 0 ? ': no student is in both' : ''}
-                {c.sameVenue ? ' — and the same venue' : ''}
-              </li>
-            ))}
-          </ul>
-        </Notice>
-      ) : (
-        <Notice tone="ok">No scheduling clashes in the dates and times set so far.</Notice>
-      )}
-      {b.categories.map(c => (
-        <div key={c.key}>
-          <div className={s.sectionLabel}>{c.name}</div>
-          <div className={s.tableWrap}>
-            <table className={s.table}>
-              <thead><tr><th>Activity</th><th>Date</th><th>Time</th><th>Venue</th><th>Guidelines</th></tr></thead>
-              <tbody>
-                {c.activities.map(a => (
-                  <tr key={a.key}>
-                    <td><strong>{a.title}</strong></td>
-                    <td><input type="date" className={s.select} value={a.scheduleDate} onChange={e => setAct(c.key, a.key, { scheduleDate: e.target.value })} /></td>
-                    <td><input className={s.select} style={{ width: 130 }} maxLength={100} placeholder="e.g. 10:00 AM" value={a.time} onChange={e => setAct(c.key, a.key, { time: e.target.value })} /></td>
-                    <td><input className={s.select} style={{ width: 170 }} maxLength={255} placeholder="e.g. Main Ground" value={a.venue} onChange={e => setAct(c.key, a.key, { venue: e.target.value })} /></td>
-                    <td><GuidelinesCell a={a} upload={upload} onChange={patch => setAct(c.key, a.key, patch)} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ))}
-      {err && <div className={s.error} style={{ marginTop: 12 }}>{err}</div>}
-      <div style={{ marginTop: 14 }}><button className={s.primaryBtn} disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save schedule'}</button></div>
-    </>
-  );
-}
-
-function GuidelinesCell({ a, upload, onChange }) {
-  const [busy, setBusy] = useState(false);
-  const [err,  setErr]  = useState('');
-  const pick = async (e) => {
-    const f = e.target.files?.[0];
-    e.target.value = '';
-    if (!f) return;
-    setBusy(true); setErr('');
-    try { onChange(await uploadGuidelines(upload, f)); }
-    catch (ex) { setErr(ex.message || 'Upload failed — please try again.'); }
-    finally { setBusy(false); }
-  };
-  return (
-    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-      {a.rulesUrl && <a href={a.rulesUrl} target="_blank" rel="noreferrer" style={{ color: '#047857', fontWeight: 600, fontSize: '.8rem' }}>{a.rulesName || 'Guidelines'}</a>}
-      <label className={s.smallBtn} style={{ cursor: 'pointer' }}>
-        {busy ? 'Uploading…' : a.rulesUrl ? 'Replace' : 'Upload'}
-        <input type="file" accept={GUIDELINES_ACCEPT} style={{ display: 'none' }} onChange={pick} disabled={busy} />
-      </label>
-      {a.rulesUrl && <button className={s.linkBtn} style={{ color: '#9ca3af', fontSize: '.78rem' }} onClick={() => { setErr(''); onChange({ rulesUrl: '', rulesName: '' }); }}>Remove</button>}
-      {err && <span style={{ color: '#dc2626', fontSize: '.76rem', flexBasis: '100%' }}>{err}</span>}
-    </span>
-  );
-}
-
-/* ── Galore form: the admin's builder, without the Galore-coordinator field ── */
+/* ── Galore form: categories, activities, clubs, players, guidelines ── */
 function FormEditor({ eventId, form, onSave, upload, flash }) {
   const [b,     setB]     = useState(null);
   const [staff, setStaff] = useState(null);
@@ -381,7 +214,8 @@ function FormEditor({ eventId, form, onSave, upload, flash }) {
   const [draftAt, setDraftAt] = useState(null);     // when the draft was last kept
   const [draftState, setDraftState] = useState(''); // '' | 'saving' | 'saved' | 'error'
   const dirty = useRef(false);                      // changed since the last draft save
-  const isEmpty = !form.departments.length && !form.categories.length;
+  /* no categories saved yet = a new form (departments may already be saved — they're the Coordinators page's) */
+  const isEmpty = !form.categories.length;
 
   /* Start from the draft if there is one (nothing typed is ever lost), else
      the saved form, else — for a brand-new event — the usual template */
@@ -390,11 +224,19 @@ function FormEditor({ eventId, form, onSave, upload, flash }) {
     (async () => {
       const draft = await galoreApi.get(`/head/events/${eventId}/form-draft`).then(r => r.draft).catch(() => null);
       if (off) return;
-      if (draft?.data) { setB(draft.data); setOrigin('draft'); setDraftAt(draft.updatedAt); return; }
+      /* a draft with nothing typed in it (no category or activity named) doesn't
+         count — a new event then still opens with the usual categories */
+      const typed = (draft?.data?.categories || []).some(c => c.name?.trim() || (c.activities || []).some(a => a.title?.trim()));
+      if (draft?.data && (typed || !isEmpty)) { setB(draft.data); setOrigin('draft'); setDraftAt(draft.updatedAt); return; }
       if (!isEmpty) { setB(toBuilder(form)); setOrigin('form'); return; }
       const t = await galoreApi.get(`/head/events/${eventId}/template`).catch(() => null);
       if (off) return;
-      if (t) { setB({ ...toBuilder(t), head: toBuilder(form).head }); setOrigin('template'); }
+      /* the usual categories and activities; departments already saved stay as they are */
+      if (t) {
+        const saved = toBuilder(form), tpl = toBuilder(t);
+        setB({ ...saved, categories: tpl.categories, departments: saved.departments.length ? saved.departments : tpl.departments });
+        setOrigin('template');
+      }
       else { setB(toBuilder(form)); setOrigin('form'); }
     })();
     return () => { off = true; };
@@ -434,7 +276,7 @@ function FormEditor({ eventId, form, onSave, upload, flash }) {
     return () => window.removeEventListener('beforeunload', warn);
   }, []);
 
-  const problems = b ? builderProblems(b, { requireHead: false }) : [];
+  const problems = b ? formProblems(b) : [];
   const saveDraftNow = async () => {
     if (await keepDraft(b)) flash('Draft saved — finish it any time, then save the Galore form.');
     else setErr('Could not save the draft — check your connection and try again.');
@@ -443,7 +285,9 @@ function FormEditor({ eventId, form, onSave, upload, flash }) {
     if (problems.length) return setErr(problems[0]);
     setBusy(true); setErr('');
     try {
-      await onSave(b, false, { clearDraft: true });
+      /* coordinators and departments are the Coordinators page's — keep what's saved there */
+      const { form: fresh } = await galoreApi.get(`/head/events/${eventId}`);
+      await onSave(mergeForSave(fresh, b, 'form'), false, { clearDraft: true });
       dirty.current = false;
       setDraftAt(null); setDraftState(''); setOrigin('form');
       flash('Galore form saved — everyone assigned has been emailed the update.');
@@ -469,7 +313,7 @@ function FormEditor({ eventId, form, onSave, upload, flash }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {origin === 'template' && !draftAt && (
-        <Notice>Started from the usual Galore departments, categories and activities — change, add or remove anything and assign the coordinators. Everything you type is kept as a draft as you go.</Notice>
+        <Notice>Started from the usual Galore departments, categories and activities — change, add or remove anything. Coordinators are assigned on the Coordinators page. Everything you type is kept as a draft as you go.</Notice>
       )}
       {(origin === 'draft' || draftAt) && (
         <Notice>
@@ -478,7 +322,7 @@ function FormEditor({ eventId, form, onSave, upload, flash }) {
           {!isEmpty && <> <button type="button" className={s.linkBtn} onClick={discardDraft}>Discard draft</button></>}
         </Notice>
       )}
-      <GaloreFormBuilder value={b} onChange={change} clubs={staff.clubs || []} showHead={false} uploadGuidelines={upload} />
+      <GaloreFormBuilder value={b} onChange={change} clubs={staff.clubs || []} uploadGuidelines={upload} />
       {problems.length > 0 && <div style={{ fontSize: '.8rem', color: '#dc2626' }}>Still needed before saving the form: {problems.slice(0, 3).join(' ')}</div>}
       {err && <div className={s.error}>{err}</div>}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -517,7 +361,6 @@ function DetailsEditor({ eventId, details, form, onSaved, onSave, flash }) {
         {field('Start date', 'startDate', { type: 'date' })}
         {field('Time', 'time', { maxLength: 100, placeholder: 'e.g. 8am onwards' })}
         {field('Venue', 'venue', { maxLength: 255, placeholder: 'e.g. RKU Main Campus' })}
-        {field('Seats / availability', 'seats', { maxLength: 255 })}
         <div className={s.field}>
           <label>Status</label>
           <select className={s.select} value={d.status} onChange={f('status')}>
@@ -576,7 +419,7 @@ function PublishBar({ eventId, details, form, onChange, flash }) {
         {ready ? 'Publish it when everything is in place.' : 'Add the departments and activities on “Galore form”, then publish.'}
         {err && <span style={{ display: 'block', color: '#b91c1c', marginTop: 4 }}>{err}</span>}
       </span>
-      <button className={s.primaryBtn} style={{ width: 'auto', padding: '9px 20px' }} disabled={busy || !ready} onClick={() => set(true)}>
+      <button className={s.primaryBtn} style={{ width: 'auto' }} disabled={busy || !ready} onClick={() => set(true)}>
         {busy ? 'Publishing…' : 'Publish Galore'}
       </button>
     </div>

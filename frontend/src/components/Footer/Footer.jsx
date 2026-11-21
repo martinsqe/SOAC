@@ -16,30 +16,30 @@ const Footer = () => {
             </p>
           </div>
           
-          <div className={styles.fcol}>
+          <div className={`${styles.fcol} ${styles.cPlatform}`}>
             <h4>Platform</h4>
             <Link to="/clubs">Clubs Directory</Link>
             <Link to="/events">Events</Link>
             <Link to="/login">My Profile</Link>
           </div>
-          
-          <div className={styles.fcol}>
+
+          <div className={`${styles.fcol} ${styles.cUniversity}`}>
             <h4>University</h4>
             <a href="https://rku.ac.in" target="_blank" rel="noreferrer">RK University</a>
             <Link to="/about">About SOAC</Link>
-            <Link to="/contact">Support</Link>
           </div>
-          
-          <div className={styles.fcol}>
+
+          <div className={`${styles.fcol} ${styles.cSocial}`}>
             <h4>Social</h4>
             <a href="https://instagram.com" target="_blank" rel="noreferrer">Instagram</a>
             <a href="https://twitter.com" target="_blank" rel="noreferrer">Twitter</a>
             <a href="https://facebook.com" target="_blank" rel="noreferrer">Facebook</a>
           </div>
 
-          <div className={styles.fcol}>
+          <div className={`${styles.fcol} ${styles.cContact}`}>
             <h4>Contact</h4>
             <a href="mailto:soac@rku.ac.in">soac@rku.ac.in</a>
+            <a href="mailto:soac.notifications@rku.ac.in">soac.notifications@rku.ac.in</a>
           </div>
         </div>
         

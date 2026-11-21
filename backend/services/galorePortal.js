@@ -31,6 +31,30 @@ const ready = (async () => {
   /* Guidelines file — on the umbrella (general guidelines) and on each activity */
   await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS rules_url  VARCHAR(500) NOT NULL DEFAULT ''`);
   await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS rules_name VARCHAR(255) NOT NULL DEFAULT ''`);
+  /* the last date of registration (shown under the portal's nav strip) */
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS registration_deadline VARCHAR(255) NOT NULL DEFAULT ''`);
+  /* Lookups the portal and registration make on every request — by email, any
+     case (studentView, "once only", category limits), by student, and the
+     verified-students list by email — indexed so they stay instant with
+     thousands of registrations */
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_reg_lower_email ON event_registrations (LOWER(email))`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_event_reg_student ON event_registrations (student_id) WHERE student_id IS NOT NULL`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_galore_verified_email ON galore_verified_students (email)`);
+  /* closed for good by the admin (Close event) — see closeEvent */
+  await pgPool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS galore_closed_at TIMESTAMPTZ`);
+  /* Students who verified their enrollment / admission number for a Galore
+     event: they get a portal login straight away and choose their activities
+     there (Event selection → Activity selection), registered or not yet */
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS galore_verified_students (
+      event_id      BIGINT        NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+      email         VARCHAR(255)  NOT NULL,
+      student_id    BIGINT,
+      last_sent_at  TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+      created_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (event_id, email)
+    )
+  `);
 })().catch(err => console.error('[galorePortal] migration failed:', err.message));
 
 class PortalError extends Error {
@@ -79,22 +103,51 @@ async function resetEventAccounts(umbrellaId) {
        UNION SELECT LOWER(coord_email) FROM galore_departments WHERE event_id = $1
        UNION SELECT LOWER(galore_coord_email) FROM events WHERE parent_event_id = $1
        UNION SELECT LOWER(er.email) FROM event_registrations er JOIN events a ON a.id = er.event_id WHERE a.parent_event_id = $1
+       UNION SELECT LOWER(email) FROM galore_verified_students WHERE event_id = $1
      ),
      live AS (                                   -- still in another active Galore event
        SELECT LOWER(h.email) AS email FROM galore_heads h JOIN events u ON u.id = h.event_id
-         WHERE u.is_active = true AND u.id <> $1
+         WHERE u.is_active = true AND u.galore_closed_at IS NULL AND u.id <> $1
        UNION SELECT LOWER(d.coord_email) FROM galore_departments d JOIN events u ON u.id = d.event_id
-         WHERE u.is_active = true AND u.id <> $1
+         WHERE u.is_active = true AND u.galore_closed_at IS NULL AND u.id <> $1
        UNION SELECT LOWER(a.galore_coord_email) FROM events a JOIN events u ON u.id = a.parent_event_id
-         WHERE a.is_active = true AND u.is_active = true AND u.id <> $1
+         WHERE a.is_active = true AND u.is_active = true AND u.galore_closed_at IS NULL AND u.id <> $1
        UNION SELECT LOWER(er.email) FROM event_registrations er JOIN events a ON a.id = er.event_id JOIN events u ON u.id = a.parent_event_id
-         WHERE a.is_active = true AND u.is_active = true AND u.id <> $1 AND u.event_format = 'galore'
+         WHERE a.is_active = true AND u.is_active = true AND u.galore_closed_at IS NULL AND u.id <> $1 AND u.event_format = 'galore'
+       UNION SELECT LOWER(v.email) FROM galore_verified_students v JOIN events u ON u.id = v.event_id
+         WHERE u.is_active = true AND u.galore_closed_at IS NULL AND u.id <> $1 AND u.event_format = 'galore'
      )
      DELETE FROM galore_accounts g
       WHERE LOWER(g.email) IN (SELECT email FROM people WHERE email <> '')
         AND LOWER(g.email) NOT IN (SELECT email FROM live WHERE email IS NOT NULL)
       RETURNING g.email`,
     [umbrellaId]
+  );
+  return rows.length;
+}
+
+/* A new Galore event is being created: remove every portal login that doesn't
+   belong to anyone in a live Galore event (left over from an earlier, deleted
+   one — e.g. someone dropped from a role before it was deleted). Everyone the
+   new event involves then gets a fresh temporary password by email. */
+async function pruneOrphanAccounts() {
+  await ready;
+  const { rows } = await pgPool.query(
+    `WITH live AS (
+       SELECT LOWER(h.email) AS email FROM galore_heads h JOIN events u ON u.id = h.event_id
+         WHERE u.is_active = true AND u.galore_closed_at IS NULL AND u.event_format = 'galore'
+       UNION SELECT LOWER(d.coord_email) FROM galore_departments d JOIN events u ON u.id = d.event_id
+         WHERE u.is_active = true AND u.galore_closed_at IS NULL AND u.event_format = 'galore'
+       UNION SELECT LOWER(a.galore_coord_email) FROM events a JOIN events u ON u.id = a.parent_event_id
+         WHERE a.is_active = true AND u.is_active = true AND u.galore_closed_at IS NULL AND u.event_format = 'galore'
+       UNION SELECT LOWER(er.email) FROM event_registrations er JOIN events a ON a.id = er.event_id JOIN events u ON u.id = a.parent_event_id
+         WHERE a.is_active = true AND u.is_active = true AND u.galore_closed_at IS NULL AND u.event_format = 'galore'
+       UNION SELECT LOWER(v.email) FROM galore_verified_students v JOIN events u ON u.id = v.event_id
+         WHERE u.is_active = true AND u.galore_closed_at IS NULL AND u.event_format = 'galore'
+     )
+     DELETE FROM galore_accounts g
+      WHERE LOWER(g.email) NOT IN (SELECT email FROM live WHERE email IS NOT NULL AND email <> '')
+      RETURNING g.email`
   );
   return rows.length;
 }
@@ -112,17 +165,20 @@ async function forgotTarget(email) {
     `SELECT name FROM (
        SELECT er.name FROM event_registrations er
          JOIN events a ON a.id = er.event_id AND a.is_active = true
-         JOIN events u ON u.id = a.parent_event_id AND u.is_active = true AND u.event_format = 'galore'
+         JOIN events u ON u.id = a.parent_event_id AND u.is_active = true AND u.galore_closed_at IS NULL AND u.event_format = 'galore'
         WHERE LOWER(er.email) = $1
        UNION ALL
-       SELECT h.name FROM galore_heads h JOIN events u ON u.id = h.event_id AND u.is_active = true WHERE LOWER(h.email) = $1
+       SELECT h.name FROM galore_heads h JOIN events u ON u.id = h.event_id AND u.is_active = true AND u.galore_closed_at IS NULL WHERE LOWER(h.email) = $1
        UNION ALL
        SELECT a.galore_coord_name FROM events a
-         JOIN events u ON u.id = a.parent_event_id AND u.is_active = true AND u.event_format = 'galore'
+         JOIN events u ON u.id = a.parent_event_id AND u.is_active = true AND u.galore_closed_at IS NULL AND u.event_format = 'galore'
         WHERE a.is_active = true AND LOWER(a.galore_coord_email) = $1
        UNION ALL
-       SELECT d.coord_name FROM galore_departments d JOIN events u ON u.id = d.event_id AND u.is_active = true
+       SELECT d.coord_name FROM galore_departments d JOIN events u ON u.id = d.event_id AND u.is_active = true AND u.galore_closed_at IS NULL
         WHERE LOWER(d.coord_email) = $1
+       UNION ALL
+       SELECT '' FROM galore_verified_students v JOIN events u ON u.id = v.event_id AND u.is_active = true AND u.galore_closed_at IS NULL
+        WHERE v.email = $1
      ) x LIMIT 1`,
     [e]
   );
@@ -181,6 +237,54 @@ async function changePassword(accountId, current, next) {
   return issueToken(updated[0]);
 }
 
+/* ── Close event (admin) ──────────────────────────────────────────────────────
+   Closes a Galore event for good: registration closed (umbrella and every
+   activity), the portal shut for it — nobody can open any of its pages — and
+   the portal login of everyone it involved erased (someone still part of
+   another open Galore event keeps theirs, but can't reach this one). Every bit
+   of its data — form, assignments, registrations, teams, schedule, results,
+   Student of the Year — stays, for the admin only. Returns the event + how many
+   logins were erased, or null if it isn't an open Galore event. */
+async function closeEvent(umbrellaId) {
+  await ready;
+  const { rows: [u] } = await pgPool.query(
+    `UPDATE events SET galore_closed_at = NOW(), registration_closed = true, updated_at = NOW()
+     WHERE id = $1 AND is_active = true AND event_format = 'galore' AND parent_event_id IS NULL AND galore_closed_at IS NULL
+     RETURNING id, title`,
+    [umbrellaId]
+  );
+  if (!u) return null;
+  await pgPool.query(`UPDATE events SET registration_closed = true, updated_at = NOW() WHERE parent_event_id = $1 AND is_active = true`, [u.id]);
+  const loginsErased = await resetEventAccounts(u.id);
+  return { id: String(u.id), title: u.title, loginsErased };
+}
+
+/* Is this umbrella (or the umbrella of this activity) closed? */
+async function isClosedUmbrella(id, { activity = false } = {}) {
+  if (!/^\d+$/.test(String(id ?? ''))) return false;
+  const { rows } = await pgPool.query(
+    activity
+      ? `SELECT 1 FROM events a JOIN events u ON u.id = a.parent_event_id WHERE a.id = $1 AND u.galore_closed_at IS NOT NULL`
+      : `SELECT 1 FROM events WHERE id = $1 AND galore_closed_at IS NOT NULL`,
+    [id]
+  );
+  return rows.length > 0;
+}
+
+/* For the login page: closed = there's no open Galore event and the latest one was closed */
+async function portalStatus() {
+  await ready;
+  const { rows: [open] } = await pgPool.query(
+    `SELECT 1 FROM events WHERE is_active = true AND event_format = 'galore' AND parent_event_id IS NULL AND galore_closed_at IS NULL LIMIT 1`
+  );
+  if (open) return { closed: false };
+  const { rows: [last] } = await pgPool.query(
+    `SELECT title FROM events WHERE is_active = true AND event_format = 'galore' AND parent_event_id IS NULL AND galore_closed_at IS NOT NULL
+     ORDER BY galore_closed_at DESC LIMIT 1`
+  );
+  return last ? { closed: true, title: last.title } : { closed: false };
+}
+
 /* Express middleware: a valid Galore portal token (never a club login token) */
 async function requireGalore(req, res, next) {
   const header = req.headers.authorization || '';
@@ -193,19 +297,28 @@ async function requireGalore(req, res, next) {
     if (p.pv !== passwordVersion(rows[0].password_hash)) throw new Error('password changed');
     const { password_hash, ...account } = rows[0];
     req.galore = account;
-    next();
   } catch {
-    res.status(401).json({ message: 'Your Galore session has expired — please log in again.' });
+    return res.status(401).json({ message: 'Your Galore session has expired — please log in again.' });
   }
+  /* a closed Galore event: none of its pages open for anyone (the admin has it) */
+  try {
+    const path = req.route?.path || '';
+    if (req.params?.id && await isClosedUmbrella(req.params.id, { activity: path.startsWith('/activities/') })) {
+      return res.status(403).json({ message: 'This Galore event is closed.', closed: true });
+    }
+  } catch (err) { return next(err); }
+  next();
 }
 
 /* ── What the portal shows ─────────────────────────────────────────────────── */
 
 const UMBRELLA_COLS = `u.id AS u_id, u.title AS u_title, u.date AS u_date, u.time AS u_time, u.venue AS u_venue,
-                       u.description AS u_description, u.status AS u_status, u.rules_url AS u_rules_url, u.rules_name AS u_rules_name`;
+                       u.description AS u_description, u.galore_about AS u_about, u.status AS u_status, u.rules_url AS u_rules_url, u.rules_name AS u_rules_name,
+                       u.registration_deadline AS u_deadline`;
 const umbrellaOut = (r) => ({
   id: String(r.u_id), title: r.u_title, date: r.u_date || '', time: r.u_time || '', venue: r.u_venue || '',
-  description: r.u_description || '', status: r.u_status,
+  description: r.u_description || '', about: r.u_about || '', status: r.u_status,
+  deadline: r.u_deadline || '', // last date of registration (YYYY-MM-DD)
   rules: r.u_rules_url ? { url: r.u_rules_url, name: r.u_rules_name || 'General guidelines' } : null,
 });
 const activityOut = (r) => ({
@@ -226,6 +339,7 @@ const ACT_CLUB = `(SELECT name FROM clubs WHERE clubs.id = e.club_id) AS club_na
    who's in charge (the activity coordinator + their department coordinator) and
    which club runs it, their team once one is made, and the guidelines files. */
 async function studentView(email) {
+  await ready;
   const { rows } = await pgPool.query(
     `SELECT e.id, e.title, e.category, e.team_size, e.min_team_size, e.gender_split, e.start_date, e.date, e.time,
             e.venue, e.rules_url, e.rules_name, e.registration_closed, c.name AS category_name, c.sort_order AS cat_order,
@@ -235,7 +349,8 @@ async function studentView(email) {
               WHERE d.event_id = u.id AND LOWER(d.name) = LOWER(er.dept) AND d.coord_email <> '' LIMIT 1) AS dept_coordinator,
             (SELECT json_build_object('name', t.name, 'division', t.division,
                       'members', (SELECT json_agg(m2.member_name ORDER BY m2.id) FROM event_team_members m2 WHERE m2.team_id = t.id))
-               FROM event_team_members m JOIN event_teams t ON t.id = m.team_id WHERE m.registration_id = er.id LIMIT 1) AS team
+               FROM event_team_members m JOIN event_teams t ON t.id = m.team_id
+               WHERE m.registration_id = er.id AND e.galore_teams_declared LIMIT 1) AS team
      FROM event_registrations er
      JOIN events e ON e.id = er.event_id AND e.is_active = true
      JOIN events u ON u.id = e.parent_event_id AND u.is_active = true AND u.event_format = 'galore'
@@ -252,6 +367,14 @@ async function studentView(email) {
       coordinator: r.coordinator, deptCoordinator: r.dept_coordinator, team: r.team,
     });
   }
+  /* verified but not registered yet: the student dashboard, to choose activities */
+  const { rows: ver } = await pgPool.query(
+    `SELECT ${UMBRELLA_COLS} FROM galore_verified_students v
+     JOIN events u ON u.id = v.event_id AND u.is_active = true AND u.event_format = 'galore' AND u.galore_published = true
+     WHERE v.email = $1`,
+    [normEmail(email)]
+  );
+  for (const r of ver) if (!byEvent.has(r.u_id)) byEvent.set(r.u_id, { event: umbrellaOut(r), department: '', activities: [] });
   return [...byEvent.values()];
 }
 
@@ -343,14 +466,25 @@ async function activityTeams(email, activityId) {
      FROM events a WHERE a.id = $1 AND a.is_active = true AND a.parent_event_id IS NOT NULL`,
     [activityId, e]
   );
-  if (!act || (!act.is_coord && !act.is_head)) throw new PortalError('Only the activity coordinator can see these teams.', 403);
+  if (!act) throw new PortalError('Activity not found.', 404);
+  /* a department coordinator sees only their own department's teams */
+  let onlyDepts = null;
+  if (!act.is_coord && !act.is_head) {
+    const { rows: d } = await pgPool.query(
+      `SELECT LOWER(TRIM(name)) AS name FROM galore_departments WHERE event_id = $1 AND LOWER(coord_email) = $2`,
+      [act.parent_event_id, e]
+    );
+    if (!d.length) throw new PortalError('Only the activity coordinator can see these teams.', 403);
+    onlyDepts = d.map(x => x.name);
+  }
   const { rows } = await pgPool.query(
     `SELECT t.id, t.name, t.division, t.dept,
             COALESCE(json_agg(json_build_object('name', m.member_name, 'enrollmentNo', m.enrollment_no) ORDER BY m.id)
                      FILTER (WHERE m.id IS NOT NULL), '[]') AS members
      FROM event_teams t LEFT JOIN event_team_members m ON m.team_id = t.id
-     WHERE t.event_id = $1 GROUP BY t.id ORDER BY t.division, t.name`,
-    [activityId]
+     WHERE t.event_id = $1 AND ($2::text[] IS NULL OR LOWER(TRIM(t.dept)) = ANY($2::text[]))
+     GROUP BY t.id ORDER BY t.division, t.name`,
+    [activityId, onlyDepts]
   );
   return rows.map(t => ({ id: String(t.id), name: t.name, division: t.division, dept: t.dept || '', members: t.members }));
 }
@@ -419,7 +553,7 @@ async function allRegistrations(umbrellaId) {
 }
 
 module.exports = {
-  ready, PortalError, ensureAccount, resetEventAccounts, resetPassword, forgotTarget, setTempPassword, tempPassword, login, changePassword, requireGalore,
+  ready, PortalError, ensureAccount, resetEventAccounts, closeEvent, isClosedUmbrella, portalStatus, pruneOrphanAccounts, resetPassword, forgotTarget, setTempPassword, tempPassword, login, changePassword, requireGalore,
   studentView, staffView, staffScope, staffRegistrations, activityTeams, isoDay,
   headView, assertHead, headEventDetails, allRegistrations,
 };

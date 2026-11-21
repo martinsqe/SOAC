@@ -19,32 +19,39 @@
    The student registration form is built from exactly this structure. Tables
    are created in events.controller.js's migration block. */
 const { pgPool } = require('../config/db');
+const { clubStudentCoordinators } = require('./clubStudentCoords');
 
 /* The department list every Galore event used before departments became
    admin-defined — used to backfill old events and to prefill a new form. */
 const LEGACY_DEPARTMENTS = ['ACH', 'AI/ML', 'FOT', 'SDS', 'SOE', 'SPT', 'SOP', 'SOM', 'SOS'];
 
 /* Prefill for the "create Galore event" builder — the admin edits it freely. */
+/* Duo = 2 players; a team's players are prefilled and stay editable. */
 const DEFAULT_TEMPLATE = {
   departments: LEGACY_DEPARTMENTS.map(name => ({ name })),
   categories: [
-    { name: 'Sports', maxPicks: 2, activities: [
-      { title: 'Football',     participationType: 'team', minTeamSize: 7,  teamSize: 15, genderSplit: true },
-      { title: 'Basketball',   participationType: 'team', minTeamSize: 5,  teamSize: 10, genderSplit: true },
-      { title: 'Cricket',      participationType: 'team', minTeamSize: 11, teamSize: 16, genderSplit: true },
-      { title: 'Volleyball',   participationType: 'team', minTeamSize: 6,  teamSize: 12, genderSplit: true },
-      { title: 'Table Tennis', participationType: 'individual', genderSplit: true },
-      { title: 'Carrom',       participationType: 'individual', genderSplit: true },
-      { title: 'Chess',        participationType: 'individual', genderSplit: true },
-      { title: 'Badminton',    participationType: 'individual', genderSplit: true },
+    { name: 'Outdoor-Sports', maxPicks: 2, activities: [
+      { title: 'Cricket',    participationType: 'team', minTeamSize: 11, teamSize: 16, genderSplit: true },
+      { title: 'Volleyball', participationType: 'team', minTeamSize: 6,  teamSize: 12, genderSplit: true },
+      { title: 'Football',   participationType: 'team', minTeamSize: 7,  teamSize: 15, genderSplit: true },
+      { title: 'Basketball', participationType: 'team', minTeamSize: 5,  teamSize: 10, genderSplit: true },
+    ] },
+    { name: 'Indoor-Sports', maxPicks: 2, activities: [
+      { title: 'Carrom',           participationType: 'individual', genderSplit: true },
+      { title: 'Duo Carom',        participationType: 'team', minTeamSize: 2, teamSize: 2, genderSplit: true },
+      { title: 'Chess',            participationType: 'individual', genderSplit: true },
+      { title: 'Table-Tennis',     participationType: 'individual', genderSplit: true },
+      { title: 'Duo Table-Tennis', participationType: 'team', minTeamSize: 2, teamSize: 2, genderSplit: true },
+      { title: 'Badminton',        participationType: 'individual', genderSplit: true },
     ] },
     { name: 'Cultural', maxPicks: 2, activities: [
-      { title: 'Group Dancing', participationType: 'team', minTeamSize: 4, teamSize: 15 },
-      { title: 'Fashion',       participationType: 'team', minTeamSize: 4, teamSize: 15 },
-      { title: 'Singing',       participationType: 'individual' },
-    ] },
-    { name: 'Academic', maxPicks: 2, activities: [
-      { title: 'Public Speaking', participationType: 'individual' },
+      { title: 'Singing Competition',            participationType: 'individual' },
+      { title: 'Public Speaking Contest',        participationType: 'individual' },
+      { title: 'Rangoli Competition',            participationType: 'team', minTeamSize: 2, teamSize: 4 },
+      { title: 'Solo Dance Competition',         participationType: 'individual' },
+      { title: 'Duo Dance Competition',          participationType: 'team', minTeamSize: 2, teamSize: 2 },
+      { title: 'Group Dance Competition',        participationType: 'team', minTeamSize: 2, teamSize: 10 },
+      { title: 'Artistry - Drawing competition', participationType: 'individual' },
     ] },
   ],
 };
@@ -57,8 +64,9 @@ class GaloreFormError extends Error {
 
 /* events.category stays a short slug of the category name — existing sports
    features (Teams/Groups/Fixtures/Scoreboard, certificates) key off
-   category === 'sports', so a category named "Sports" keeps all of them. */
-const categorySlug = (name) =>
+   category === 'sports', so a category named "Sports" (or "Outdoor-Sports",
+   "Indoor-Sports"…) keeps all of them. */
+const categorySlug = (name) => /\bsports?\b/i.test(String(name)) ? 'sports' :
   String(name).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 32) || 'general';
 
 /* YYYY-MM-DD in local time (dates are stored at midnight) */
@@ -103,6 +111,7 @@ async function getGaloreForm(umbrellaId, { withStaff = false, db = pgPool } = {}
     () => db.query(
       `SELECT e.id, e.title, e.category, e.galore_category_id, e.team_size, e.min_team_size,
               e.gender_split, e.registration_closed, e.status, e.start_date, e.time, e.venue, e.rules_url, e.rules_name,
+              e.galore_duration, e.galore_reporting_time,
               (SELECT COUNT(*)::int FROM event_registrations er WHERE er.event_id = e.id) AS registration_count,
               (SELECT COUNT(*)::int FROM event_teams et WHERE et.event_id = e.id) AS team_count,
               e.club_id, cl.name AS club_name, e.galore_coord_name, e.galore_coord_email
@@ -129,6 +138,8 @@ async function getGaloreForm(umbrellaId, { withStaff = false, db = pgPool } = {}
     scheduleDate:       r.start_date ? isoDay(r.start_date) : '',
     time:               r.time || '',
     venue:              r.venue || '',
+    duration:           r.galore_duration || '',
+    reportingTime:      r.galore_reporting_time || '',
     rulesUrl:           r.rules_url || '',
     rulesName:          r.rules_name || '',
     status:             r.status,
@@ -144,6 +155,11 @@ async function getGaloreForm(umbrellaId, { withStaff = false, db = pgPool } = {}
   });
 
   const activities = actRows.map(activityOut);
+  /* admin / main coordinator: the Student Coordinators of the club running each activity */
+  if (withStaff) {
+    const scs = await clubStudentCoordinators(activities.map(a => a.clubId));
+    for (const a of activities) a.studentCoordinators = scs.get(a.clubId) || [];
+  }
   return {
     /* the overall Galore coordinator — admin / Galore-coordinator views only */
     ...(withStaff && { head: headRows[0] ? { name: headRows[0].name, email: headRows[0].email } : { name: '', email: '' } }),
@@ -242,9 +258,10 @@ function normalizeForm(raw, { requireHead = true } = {}) {
     const k = name.toLowerCase();
     if (seenDept.has(k)) throw new GaloreFormError(`Department "${name}" is listed twice.`);
     seenDept.add(k);
+    /* the coordinator can be assigned later (Coordinators page) — but not half of one */
     const coord = cleanPerson(d?.coordName, d?.coordEmail);
-    if (!coord.name || !coord.email) throw new GaloreFormError(`Add the ${name} department coordinator's name and email.`);
-    if (!isEmail(coord.email)) throw new GaloreFormError(`The ${name} department coordinator's email isn't valid.`);
+    if (!coord.name !== !coord.email) throw new GaloreFormError(`Add the ${name} department coordinator's name and email.`);
+    if (coord.email && !isEmail(coord.email)) throw new GaloreFormError(`The ${name} department coordinator's email isn't valid.`);
     return { id: toId(d?.id), name, coordName: coord.name, coordEmail: coord.email };
   });
 
@@ -270,11 +287,10 @@ function normalizeForm(raw, { requireHead = true } = {}) {
       const ak = title.toLowerCase();
       if (seenAct.has(ak)) throw new GaloreFormError(`Activity "${title}" is listed twice.`);
       seenAct.add(ak);
-      const clubId = toId(a?.clubId);
-      if (!clubId) throw new GaloreFormError(`Pick the club responsible for ${title}.`);
-      const coord = cleanPerson(a?.coordinatorName, a?.coordinatorEmail);
-      if (!coord.name || !coord.email) throw new GaloreFormError(`Add ${title}'s activity coordinator — name and email.`);
-      if (!isEmail(coord.email)) throw new GaloreFormError(`${title}'s activity coordinator's email isn't valid.`);
+      const clubId = toId(a?.clubId); // optional: the club responsible for running it
+      const coord = cleanPerson(a?.coordinatorName, a?.coordinatorEmail); // optional until assigned
+      if (!coord.name !== !coord.email) throw new GaloreFormError(`Add ${title}'s activity coordinator — name and email.`);
+      if (coord.email && !isEmail(coord.email)) throw new GaloreFormError(`${title}'s activity coordinator's email isn't valid.`);
       /* a duo is a team of exactly two */
       const isDuo  = a?.participationType === 'duo';
       const isTeam = isDuo || a?.participationType === 'team';
@@ -294,6 +310,8 @@ function normalizeForm(raw, { requireHead = true } = {}) {
         id: toId(a?.id), title, clubId, coordinatorName: coord.name, coordinatorEmail: coord.email,
         isTeam, minTeamSize, teamSize, genderSplit: !!a?.genderSplit,
         scheduleDate, time: String(a?.time || '').trim().slice(0, 100), venue: String(a?.venue || '').trim().slice(0, 255),
+        duration: String(a?.duration || '').trim().slice(0, 50),
+        reportingTime: String(a?.reportingTime || '').trim().slice(0, 20),
         rulesUrl, rulesName: rulesUrl ? (String(a?.rulesName || '').trim().slice(0, 255) || 'Guidelines') : '',
       };
     });
@@ -315,12 +333,13 @@ function normalizeForm(raw, { requireHead = true } = {}) {
 /* Every activity's responsible club must be an active club on the event's
    campus. Fills in each activity's clubName for saving. */
 async function assertClubsValid(form, campus, db = pgPool) {
-  const ids = [...new Set(form.categories.flatMap(c => c.activities.map(a => a.clubId)))];
+  const ids = [...new Set(form.categories.flatMap(c => c.activities.map(a => a.clubId)).filter(Boolean))];
   const { rows } = await db.query(
     `SELECT id, name FROM clubs WHERE id = ANY($1::bigint[]) AND is_active = true AND campus = $2`, [ids, campus]
   );
   const byId = new Map(rows.map(c => [String(c.id), c.name]));
   for (const c of form.categories) for (const a of c.activities) {
+    if (!a.clubId) { a.clubName = ''; continue; }   // no club picked — that's fine
     if (!byId.has(a.clubId)) throw new GaloreFormError(`The club picked for ${a.title} isn't an active club on this campus.`);
     a.clubName = byId.get(a.clubId);
   }
@@ -406,13 +425,13 @@ async function saveGaloreForm(client, umbrella, form) {
         `UPDATE galore_departments SET name = $1, coord_name = $2, coord_email = $3, sort_order = $4 WHERE id = $5`,
         [d.name, d.coordName, d.coordEmail, i, old.id]
       );
-      if (String(old.coord_email || '').toLowerCase() !== d.coordEmail) newDeptCoords.push({ email: d.coordEmail, deptName: d.name });
+      if (d.coordEmail && String(old.coord_email || '').toLowerCase() !== d.coordEmail) newDeptCoords.push({ email: d.coordEmail, deptName: d.name });
     } else {
       await client.query(
         `INSERT INTO galore_departments (event_id, name, coord_name, coord_email, sort_order) VALUES ($1, $2, $3, $4, $5)`,
         [umbrellaId, d.name, d.coordName, d.coordEmail, i]
       );
-      newDeptCoords.push({ email: d.coordEmail, deptName: d.name });
+      if (d.coordEmail) newDeptCoords.push({ email: d.coordEmail, deptName: d.name });
     }
   }
 
@@ -489,11 +508,12 @@ async function saveGaloreForm(client, umbrella, form) {
       /* Running the activity now belongs to its club (club portal: teams,
          fixtures, results); the activity coordinator follows it from the Galore
          portal by email — so any old account-based assignment is dropped. */
+      await client.query(`UPDATE events SET galore_duration = $1, galore_reporting_time = $2 WHERE id = $3`, [a.duration || '', a.reportingTime || '', eventId]);
       await client.query(`DELETE FROM event_coordinators WHERE event_id = $1`, [eventId]);
-      if (String(old?.galore_coord_email || '').toLowerCase() !== a.coordinatorEmail) {
+      if (a.coordinatorEmail && String(old?.galore_coord_email || '').toLowerCase() !== a.coordinatorEmail) {
         newCoords.push({ email: a.coordinatorEmail, activityTitle: a.title });
       }
-      if (String(old?.club_id || '') !== a.clubId) newClubs.push({ clubId: a.clubId, activityId: String(eventId), title: a.title });
+      if (a.clubId && String(old?.club_id || '') !== a.clubId) newClubs.push({ clubId: a.clubId, activityId: String(eventId), title: a.title });
     }
   }
 

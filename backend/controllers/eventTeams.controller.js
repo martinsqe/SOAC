@@ -127,7 +127,8 @@ pgPool.query(`
     ADD COLUMN IF NOT EXISTS score_b        INTEGER      DEFAULT NULL,
     ADD COLUMN IF NOT EXISTS winner_name    VARCHAR(255) DEFAULT NULL,
     ADD COLUMN IF NOT EXISTS auto_generated BOOLEAN      NOT NULL DEFAULT false,
-    ADD COLUMN IF NOT EXISTS division       VARCHAR(10)  NOT NULL DEFAULT 'boys'
+    ADD COLUMN IF NOT EXISTS division       VARCHAR(10)  NOT NULL DEFAULT 'boys',
+    ADD COLUMN IF NOT EXISTS duration       VARCHAR(50)  DEFAULT NULL
 `)).catch(() => {});
 
 /* Stage schedule: coordinator-supplied estimated date/venue for each later bracket round,
@@ -178,6 +179,9 @@ pgPool.query(`
       SELECT 1 FROM event_team_members x WHERE x.team_id = first_member.team_id AND x.is_captain = true
     )
 `).catch(() => {}); // is_captain column may not exist yet on a very first boot — ensureSoacTables adds it before any request can reach here
+
+/* every open dashboard (admin, club, Galore portal) showing this event's teams refreshes */
+const teamsChanged = (req) => { const io = req.app.get('io'); if (io) io.emit('galore:teams:changed', { activityId: String(req.params.id) }); };
 
 /* Verify this coordinator (or admin) has access to the event */
 const checkAccess = async (req, res) => {
@@ -298,6 +302,7 @@ const createTeam = async (req, res, next) => {
       [req.params.id, name.trim(), Number(maxSize) || 0, division]
     );
     res.status(201).json({ team: mapTeam(rows[0], []) });
+    teamsChanged(req);
     notifyTeamChange(req, req.params.id, `created team "${rows[0].name}"`).catch(() => {});
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ message: `A ${asDivision(req.body?.division) || 'boys'} team with this name already exists for this event.` });
@@ -325,6 +330,7 @@ const updateTeam = async (req, res, next) => {
     );
     if (!rows.length) return res.status(404).json({ message: 'Team not found.' });
     res.json({ team: mapTeam(rows[0]) });
+    teamsChanged(req);
 
     const changes = [];
     if (name?.trim() && name.trim() !== before[0].name) changes.push(`renamed to "${name.trim()}"`);
@@ -347,6 +353,7 @@ const deleteTeam = async (req, res, next) => {
       [req.params.teamId, req.params.id]
     );
     res.json({ message: 'Team deleted.' });
+    teamsChanged(req);
     if (rows.length) notifyTeamChange(req, req.params.id, `deleted team "${rows[0].name}"`).catch(() => {});
   } catch (err) { next(err); }
 };
@@ -409,6 +416,7 @@ const addMember = async (req, res, next) => {
     const io = req.app.get('io');
     if (io) io.emit('team:member:added', { eventId: String(req.params.id), teamId: String(req.params.teamId) });
     res.status(201).json({ member: mapMember(rows[0]) });
+    teamsChanged(req);
     notifyTeamChange(req, req.params.id, `added ${reg.name} to team "${teamName}"`).catch(() => {});
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ message: 'This participant is already assigned to a team.' });
@@ -433,6 +441,7 @@ const removeMember = async (req, res, next) => {
     const io = req.app.get('io');
     if (io) io.emit('team:member:removed', { eventId: String(req.params.id), teamId: String(req.params.teamId) });
     res.json({ message: 'Member removed.' });
+    teamsChanged(req);
     if (before.length) {
       notifyTeamChange(req, req.params.id, `removed ${before[0].member_name} from team "${before[0].team_name}"`).catch(() => {});
     }
@@ -478,6 +487,16 @@ const getPublicFixtures = async (req, res, next) => {
   try {
     const eventId = req.params.id;
 
+    /* a Galore activity: nothing public until the main coordinator / admin has
+       declared the schedule and fixtures (and its teams) to students */
+    const { rows: [g] } = await pgPool.query(
+      `SELECT u.galore_schedule_declared AS sched, u.galore_fixtures_declared AS fix, a.galore_teams_declared AS teams
+       FROM events a JOIN events u ON u.id = a.parent_event_id AND u.event_format = 'galore'
+       WHERE a.id = $1`,
+      [eventId]
+    ).catch(() => ({ rows: [] }));
+    if (g && (!g.sched || !g.fix)) return res.json({ teams: [], fixtures: [] });
+
     const [teamsRes, membersRes, fixturesRes] = await Promise.all([
       pgPool.query(
         `SELECT id, name, division FROM event_teams WHERE event_id = $1 ORDER BY created_at ASC`,
@@ -505,7 +524,7 @@ const getPublicFixtures = async (req, res, next) => {
       membersByTeam[k].push({ name: m.member_name, enrollmentNo: m.enrollment_no || '' });
     }
 
-    const teams = teamsRes.rows.map(t => ({
+    const teams = g && !g.teams ? [] : teamsRes.rows.map(t => ({
       id: String(t.id), name: t.name, division: t.division,
       members: membersByTeam[String(t.id)] || [],
     }));
@@ -529,6 +548,13 @@ const saveAndDeclare = async (req, res, next) => {
   const pgClient = await pgPool.connect();
   try {
     if (!await checkAccess(req, res)) return;
+    /* A Galore activity's matches are made by the overall Galore coordinator on
+       the portal's Schedule page (services/galoreSchedule.js) — replacing them
+       all from here would wipe that schedule. */
+    const { rows: [own] } = await pgPool.query(`SELECT parent_event_id FROM events WHERE id = $1`, [req.params.id]);
+    if (own?.parent_event_id) {
+      return res.status(403).json({ message: 'Fixtures for Galore activities are set by the main Galore coordinator.' });
+    }
     const division = asDivision(req.body.division) || 'boys';
     const { fixtures = [] } = req.body; // [{teamA, teamB, date, time, venue, round}]
 

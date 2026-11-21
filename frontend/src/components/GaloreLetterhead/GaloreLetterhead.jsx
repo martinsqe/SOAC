@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { deadlineSentence, isIsoDate } from '../../utils/galoreDeadline';
+import FitWidth from '../FitWidth/FitWidth';
+import { isPhoneScreen } from '../../utils/useDesktopViewport';
 import s from './GaloreLetterhead.module.css';
 
 /* The Galore letterhead — one look for every Galore screen (admin, portal roles,
@@ -36,14 +38,17 @@ export function GaloreLogos({ className = '' }) {
   );
 }
 
-export default function GaloreLetterhead({ nav, active, onNav, deadline = '', onSaveDeadline, stripEnd, plain = false, children }) {
+/* deadlineNote: plain words shown in the deadline's place when there's no date
+   (e.g. "Registrations will be opened soon") */
+export default function GaloreLetterhead({ nav, active, onNav, deadline = '', deadlineNote = '', onSaveDeadline, stripEnd, plain = false, children }) {
   return (
     <div className={`${s.sheet} ${plain ? s.plain : ''}`}>
       <GaloreLogos />
 
       {nav?.length > 0 && (
         <nav className={s.strip} aria-label="Galore pages">
-          <div className={s.stripInner}>
+          {/* phones: the row fills the strip's width, its words as large as fit on one line */}
+          <FitWidth maxScale={isPhoneScreen() ? 1.6 : 1}><div className={s.stripInner}>
             {nav.map(([key, label, action]) => (
               <button key={key} type="button" data-label={label}
                 className={`${s.navBtn} ${active === key ? s.navOn : ''}`}
@@ -53,11 +58,13 @@ export default function GaloreLetterhead({ nav, active, onNav, deadline = '', on
               </button>
             ))}
             {stripEnd}
-          </div>
+          </div></FitWidth>
         </nav>
       )}
 
-      <Deadline text={deadline} onSave={onSaveDeadline} />
+      {deadlineNote && !deadline && !onSaveDeadline
+        ? <p className={s.deadline}>{deadlineNote}</p>
+        : <Deadline text={deadline} onSave={onSaveDeadline} />}
 
       <div className={s.body}>{children}</div>
     </div>

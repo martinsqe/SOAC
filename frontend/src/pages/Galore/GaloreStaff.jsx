@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { galoreApi } from '../../utils/galoreApi';
-import GaloreRegistrations from './GaloreRegistrations';
+import useTeamsLive from '../../realtime/useTeamsLive';
+import { ScheduleView } from './GaloreSchedule';
+import { unitOf, selectedLabel } from './galoreHelpers';
 import {
-  EventHeader, Label, Stats, Table, TBA, FileLink, FixtureList, TeamList, VerifyParticipant, Empty, Notice,
+  EventHeader, Label, TeamList, VerifyParticipant, Empty, DeptRegistrations,
 } from './GaloreUI';
-import { whenOf, findClashes } from './galoreHelpers';
 import s from './Galore.module.css';
 
 /* Department coordinator and/or activity coordinator — one Galore event, only
@@ -12,7 +13,8 @@ import s from './Galore.module.css';
      • activity coordinator  — their activities: registrations from every
                                department, teams, fixtures, checking participants
      • department coordinator — their department: its students in every activity
-   Overview · Registrations · Teams & fixtures · Verify participant */
+   Activity coordinator: Overview · Departments · Schedule · Verify participant
+   Department coordinator: Overview · Registrations · Schedule */
 export default function GaloreStaff({ data, section = 'overview' }) {
   const { event, activities, departments } = data;
   const isAct = activities.length > 0, isDept = departments.length > 0;
@@ -21,27 +23,50 @@ export default function GaloreStaff({ data, section = 'overview' }) {
   const [regs,  setRegs]  = useState(null);
   const [error, setError] = useState('');
   const [teams, setTeams] = useState(null); // { [activityId]: teams[] }
-  const [fixtures, setFixtures] = useState({});
+  const [deptNames, setDeptNames] = useState(null); // every department in the event
+  const [pick, setPick] = useState('');
+  const [verify, setVerify] = useState(false); // Departments page: the participant check in place
+  const [actInfo, setActInfo] = useState(null); // department coordinator: activity id → { isTeam, clubName, genderSplit }
 
 
   useEffect(() => {
     galoreApi.get(`/events/${event.id}/registrations`).then(d => setRegs(d.registrations || [])).catch(err => setError(err.message));
   }, [event.id]);
-  /* teams (and fixtures) only when a section needs them */
+  /* teams changed anywhere: fetched again when next needed */
+  useTeamsLive(isAct ? activities.map(a => a.id) : [], () => setTeams(null));
+  /* teams only when a section needs them */
   useEffect(() => {
-    if (!isAct || teams !== null || (section !== 'teams' && section !== 'verify')) return;
+    if (!isAct || teams !== null || section !== 'departments') return;
     Promise.all(activities.map(a => galoreApi.get(`/activities/${a.id}/teams`).then(d => [a.id, d.teams || []]).catch(() => [a.id, []])))
       .then(pairs => setTeams(Object.fromEntries(pairs)));
-    activities.forEach(a => galoreApi.get(`/activities/${a.id}/fixtures`)
-      .then(d => setFixtures(f => ({ ...f, [a.id]: d.fixtures || [] }))).catch(() => setFixtures(f => ({ ...f, [a.id]: [] }))));
   }, [isAct, teams, section, activities]);
+  /* department coordinator: which activities have teams (for "Teams ▾" in their table) */
+  useEffect(() => {
+    if (!isDept || actInfo !== null || section !== 'registrations') return;
+    galoreApi.get(`/events/${event.id}/schedule`)
+      .then(d => setActInfo(Object.fromEntries((d.activities || []).map(a => [String(a.id), a]))))
+      .catch(() => setActInfo({}));
+  }, [isDept, actInfo, section, event.id]);
+  const deptTeamsOf = (id) => {
+    const a = actInfo?.[id];
+    return a ? selectedLabel(a.teamUnit || 'individual') : null;
+  };
+
+  /* every department of the event, so ones with nobody registered yet still get a tab */
+  useEffect(() => {
+    if (!isAct || deptNames !== null || section !== 'departments') return;
+    galoreApi.get(`/events/${event.id}/coordinators`)
+      .then(d => setDeptNames((d.departments || []).map(x => x.name)))
+      .catch(() => setDeptNames([]));
+  }, [isAct, deptNames, section, event.id]);
 
   const actIds = new Set(activities.map(a => a.id));
   const deptSet = new Set(departments.map(d => d.name.toLowerCase()));
   const myActRegs  = (regs || []).filter(r => actIds.has(r.eventId));
   const myDeptRegs = (regs || []).filter(r => deptSet.has(String(r.dept || '').toLowerCase()));
-  const countBy = (list, key) => list.reduce((m, r) => m.set(r[key] || '—', (m.get(r[key] || '—') || 0) + 1), new Map());
-  const clashes = findClashes(activities, regs);
+  const deptLabel = departments.map(d => d.name).join(', ');
+  /* activities in the order the server lists them (by category, then name) */
+  const deptActOrder = new Map([...new Set(myDeptRegs.map(r => r.eventId))].map((id, i) => [String(id), i]));
 
   return (
     <div className={s.card}>
@@ -49,89 +74,80 @@ export default function GaloreStaff({ data, section = 'overview' }) {
       <div className={s.pageGap} />
       {error && <div className={s.error}>{error}</div>}
 
-      {section === 'overview' && (
-        <>
-          <Stats items={[
-            ...(isAct ? [[activities.length, 'activities you coordinate'], [regs ? myActRegs.length : '…', 'registrations in them']] : []),
-            ...(isDept ? [[departments.map(d => d.name).join(', '), 'your department'], [regs ? myDeptRegs.length : '…', 'registrations from it']] : []),
-          ]} />
-
-          {isAct && (
-            <>
-              {clashes.length > 0 && (
-                <Notice tone="warn">
-                  Scheduling clash between your activities:
-                  <ul>{clashes.map(c => <li key={`${c.a.id}-${c.b.id}`}><strong>{c.a.title}</strong> and <strong>{c.b.title}</strong> — {c.when}{c.shared ? ` (${c.shared} student${c.shared === 1 ? '' : 's'} in both)` : ''}</li>)}</ul>
-                </Notice>
-              )}
-              <Label>Your activities</Label>
-              <Table head={['Activity', 'Run by', 'Date & time', 'Venue', 'Registered', 'Teams', 'Guidelines']}>
-                {activities.map(a => (
-                  <tr key={a.id}>
-                    <td><strong>{a.title}</strong><div className={s.muted}>{a.categoryName}</div></td>
-                    <td>{a.clubName || '—'}</td><td>{whenOf(a)}</td><td>{a.venue || <TBA />}</td>
-                    <td>{a.registrationCount}</td><td>{a.participationType === 'team' ? a.teamCount ?? 0 : '—'}</td>
-                    <td>{a.rules ? <FileLink file={a.rules} label="Open" /> : <span className={s.muted}>None yet</span>}</td>
-                  </tr>
-                ))}
-              </Table>
-              <Label>Registrations by department</Label>
-              <Table head={['Activity', 'Departments']}>
-                {activities.map(a => {
-                  const by = countBy(myActRegs.filter(r => r.eventId === a.id), 'dept');
-                  return (
-                    <tr key={a.id}>
-                      <td><strong>{a.title}</strong></td>
-                      <td>{regs === null ? '…' : by.size ? [...by].sort((x, y) => y[1] - x[1]).map(([d, n]) => `${d} ${n}`).join(' · ') : 'No registrations yet'}</td>
-                    </tr>
-                  );
-                })}
-              </Table>
-            </>
-          )}
-
-          {isDept && (
-            <>
-              <Label>{departments.map(d => d.name).join(', ')} students by activity</Label>
-              {regs === null ? <span className={s.muted}>Loading…</span> : (() => {
-                const by = countBy(myDeptRegs, 'eventTitle');
-                return by.size === 0 ? <Empty>No students from your department have registered yet.</Empty> : (
-                  <Table head={['Activity', 'Students from your department']}>
-                    {[...by].sort((x, y) => y[1] - x[1]).map(([t, n]) => <tr key={t}><td><strong>{t}</strong></td><td>{n}</td></tr>)}
-                  </Table>
-                );
-              })()}
-            </>
-          )}
-        </>
+      {/* department coordinator: every registration from their department, activity by activity */}
+      {section === 'registrations' && isDept && (
+        regs === null ? (!error && <div className={s.muted}>Loading…</div>) : (
+          <DeptRegistrations deptName={deptLabel} rows={myDeptRegs} order={deptActOrder} fileBase={event.title}
+            emptyText={`No students from ${deptLabel} have registered yet.`} teamsOf={deptTeamsOf}
+            teamDept={departments.length === 1 ? departments[0].name : ''} />
+        )
       )}
 
-      {section === 'registrations' && (
-        <GaloreRegistrations
-          registrations={regs === null ? null : isAct && !isDept ? myActRegs : isDept && !isAct ? myDeptRegs : regs}
-          error={error} fileBase={event.title} />
-      )}
-
-      {section === 'teams' && activities.map(a => (
-        <div key={a.id} style={{ marginBottom: 18 }}>
-          <Label>{a.title}{a.clubName ? ` — run by ${a.clubName}` : ''}</Label>
-          <div className={s.grid}>
-            <div className={s.activity}>
-              <h3 className={s.activityTitle} style={{ fontSize: '.92rem' }}>Teams</h3>
-              <div className={s.fixtures}><TeamList teams={teams ? teams[a.id] || [] : null} clubName={a.clubName} /></div>
-            </div>
-            <div className={s.activity}>
-              <h3 className={s.activityTitle} style={{ fontSize: '.92rem' }}>Fixtures</h3>
-              <div className={s.fixtures}><FixtureList fixtures={fixtures[a.id] ?? null} /></div>
-            </div>
-          </div>
+      {section === 'departments' && isAct && verify && (
+        <div className={s.deptBar}>
+          <div className={s.muted}>Check a participant by their ID card number.</div>
+          <button type="button" className={s.primaryBtn} onClick={() => setVerify(false)}>← Back to departments</button>
         </div>
-      ))}
-
-      {section === 'verify' && (
+      )}
+      {section === 'departments' && isAct && verify && (
         <VerifyParticipant registrations={regs ? myActRegs : null} teams={teams || {}}
           scope={activities.length === 1 ? activities[0].title : 'your activities'} />
       )}
+      {section === 'departments' && isAct && !verify && (
+        <ActivityDepartments event={event} activities={activities} regs={regs === null ? null : myActRegs}
+          deptNames={deptNames} pick={pick} onPick={setPick} onVerify={() => setVerify(true)} />
+      )}
+
+      {section === 'schedule' && (
+        <ScheduleView eventId={event.id} mine={isAct ? new Set(activities.map(a => a.id)) : null} mineLabel="Only the activities I coordinate" />
+      )}
+
     </div>
+  );
+}
+
+/* ── Activity coordinator: Departments — every department in one row; the
+   picked one shows its registrations for this coordinator's activities (one
+   table, each activity centred under the headers) and the teams the club's
+   coordinators formed for that department. ── */
+function ActivityDepartments({ event, activities, regs, deptNames, pick, onPick, onVerify }) {
+  if (regs === null || deptNames === null) return <div className={s.muted}>Loading…</div>;
+  const lc = (v) => String(v || '').trim().toLowerCase();
+
+  /* the event's departments (even with nobody yet), plus any a student typed that isn't one */
+  const depts = deptNames.map(name => ({ key: lc(name), name, rows: [] }));
+  const byKey = new Map(depts.map(d => [d.key, d]));
+  for (const r of regs) {
+    const k = lc(r.dept) || '—';
+    if (!byKey.has(k)) { const d = { key: k, name: r.dept || 'No department', rows: [] }; byKey.set(k, d); depts.push(d); }
+    byKey.get(k).rows.push(r);
+  }
+  if (depts.length === 0) return <Empty>No departments yet.</Empty>;
+  const active = byKey.get(pick) || depts[0];
+  const order = new Map(activities.map((a, i) => [String(a.id), i]));
+  /* team activities: "Teams ▾" beside the name opens this department's teams */
+  /* "Selected teams ▾" / "Selected duos ▾" / "Selected individuals ▾" beside each activity */
+  const teamsOf = (id) => {
+    const a = activities.find(x => String(x.id) === id);
+    return a ? selectedLabel(unitOf(a)) : null;
+  };
+
+  return (
+    <>
+      <div className={s.deptTabs} role="tablist">
+        {depts.map(d => (
+          <button key={d.key} type="button" role="tab" aria-selected={active === d}
+            className={`${s.deptTab} ${active === d ? s.deptTabOn : ''}`} onClick={() => onPick(d.key)}>
+            {d.name} ({d.rows.length})
+          </button>
+        ))}
+      </div>
+
+      <Label>Registrations</Label>
+      <DeptRegistrations key={active.key} deptName={active.name} rows={active.rows} order={order} fileBase={event.title}
+        actOptions={activities.map(a => [String(a.id), a.title])} allLabel="My activities"
+        extra={<button type="button" className={s.primaryBtn} style={{ width: 'auto' }} onClick={onVerify}>Verify participant</button>}
+        teamsOf={teamsOf} teamDept={active.name} />
+    </>
   );
 }

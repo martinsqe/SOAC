@@ -31,9 +31,17 @@
    (only for an email with more than one Galore role); a small menu drops down */
 .roleSwitch { position: relative; display: flex; justify-content: flex-end; margin: -4px 0 14px; }
 .roleWord {
-  display: inline-flex; align-items: center; gap: 6px;
-  border: none; background: none; padding: 4px 2px; cursor: pointer;
-  font: inherit; font-size: .95rem; font-weight: 800; color: #111827;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  padding: 4px 2px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  color: #111827;
+  font-size: .9rem;
 }
 .roleWord:hover { color: #b91c1c; }
 .roleWord:focus-visible { outline: 2px solid #dc2626; outline-offset: 2px; border-radius: 4px; }
@@ -69,17 +77,6 @@
    email shown on hover / in the dashboards) */
 @media (max-width: 380px) { .portalBar .userName { display: none; } }
 
-.ghostBtn {
-  border: 1.5px solid rgba(255, 255, 255, .5); background: transparent; color: #fff;
-  border-radius: 8px; padding: 7px 14px; font-weight: 600; cursor: pointer; font-family: inherit; font-size: .82rem;
-}
-.ghostBtn:hover { background: rgba(255, 255, 255, .12); }
-
-.wrap { max-width: 1080px; margin: 0 auto; padding: 28px 16px 60px; }
-.hero { color: #fff; margin-bottom: 22px; }
-.hero h1 { font-size: clamp(1.6rem, 4vw, 2.3rem); margin: 0 0 6px; font-weight: 800; }
-.hero p { margin: 0; color: rgba(255, 255, 255, .8); font-size: .95rem; }
-
 .card {
   background: rgba(255, 255, 255, .96); border-radius: 16px; padding: 20px 22px; margin-bottom: 18px;
   box-shadow: 0 18px 40px rgba(0, 0, 0, .25);
@@ -88,23 +85,32 @@
 .muted { color: #6b7280; font-size: .85rem; }
 .sectionLabel { font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #dc2626; margin: 18px 0 10px; }
 
-.tabs { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
-.tab { border: none; border-radius: 999px; padding: 8px 18px; font-weight: 700; cursor: pointer; font-family: inherit; background: rgba(255, 255, 255, .18); color: #fff; }
-.tabOn { background: #dc2626; }
-
 .primaryBtn {
   border: none; border-radius: 10px; padding: 11px 20px; font-weight: 700; cursor: pointer; font-family: inherit;
   background: linear-gradient(135deg, #dc2626, #b91c1c); color: #fff; font-size: .9rem;
 }
 .primaryBtn:disabled { opacity: .6; cursor: not-allowed; }
 .smallBtn {
-  border: 1.5px solid #fecaca; background: #fff; color: #b91c1c; border-radius: 8px; padding: 6px 12px;
-  font-weight: 700; cursor: pointer; font-family: inherit; font-size: .78rem; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;
+  border: 1.5px solid #fecaca;
+  background: #fff;
+  color: #b91c1c;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  font-size: .76rem;
+  border-radius: 8px;
+  line-height: 1.25;
+  white-space: nowrap;
 }
 .smallBtn:hover { background: #fef2f2; }
 
-.field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
-.field label { font-size: .78rem; font-weight: 700; color: #374151; }
+.field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.field label { font-weight: 700; color: #374151; font-size: .74rem; }
 .field input, .select {
   padding: 10px 12px; border: 1.5px solid #e5e7eb; border-radius: 10px; font-size: .92rem; font-family: inherit; outline: none; background: #fff;
 }
@@ -114,14 +120,19 @@
 
 /* Login */
 .loginBox { max-width: 420px; margin: 8vh auto 0; border: 1px solid #fee2e2; box-shadow: 0 18px 40px rgba(127, 29, 29, .12); }
-/* Login page: no top strip — just "Back to events" at the top right, over the background */
-.loginBar { display: flex; justify-content: flex-end; padding: 14px 24px 0; }
+/* Login page: no top strip — just "Back to events" at the top right { display: flex; justify-content: flex-end; padding: 14px 24px 0; }
 .backBtn {
-  border: 1.5px solid #dc2626; background: #fff; color: #dc2626; border-radius: 8px; padding: 7px 14px;
-  font-weight: 600; font-size: .82rem; text-decoration: none; white-space: nowrap;
+  border: 1.5px solid #dc2626;
+  background: #fff;
+  color: #dc2626;
+  border-radius: 8px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  padding: 5px 12px;
+  font-size: .78rem;
 }
 .backBtn:hover { background: #fef2f2; }
-@media (max-width: 560px) { .loginBar { padding: 12px 16px 0; } }
 
 /* Login page: plain white, no background art — the four Galore logos, then
    the login card, centred on the screen together. */
@@ -147,6 +158,10 @@
    card, the gaps and the button */
 .loginMain .loginLogos { margin: 0 auto; width: min(100%, max(200px, calc((100dvh - 500px) * 5.4))); }
 .loginMain .loginBox { width: 100%; margin: 0; box-sizing: border-box; }
+/* Galore closed by the admin: the logos and this line replace the login card */
+.loginClosed { text-align: center; padding: 8px 12px; }
+.loginClosedTitle { font-size: clamp(1.8rem, 5vw, 2.6rem); font-weight: 900; color: #b91c1c; letter-spacing: .02em; }
+.loginClosedSub { margin-top: 6px; color: #6b7280; font-size: .98rem; }
 .loginBack { position: absolute; right: 24px; bottom: 20px; }
 @media (max-width: 560px) { .loginBack { right: 16px; bottom: 16px; } }
 /* Very short screens (a phone turned sideways): tighten the card so it still fits */
@@ -161,31 +176,21 @@
   .loginPage { height: auto; min-height: 100dvh; overflow: visible; }
   .loginBack { position: static; align-self: flex-end; margin: 0 16px 16px; }
 }
-.linkBtn { border: none; background: none; color: #dc2626; cursor: pointer; font-weight: 600; font-family: inherit; font-size: .85rem; padding: 0; }
-
-/* Activities */
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
-.activity { border: 1.5px solid #f3f4f6; border-radius: 14px; padding: 16px; background: #fff; }
-.activityHead { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
-.activityTitle { font-weight: 800; color: #1a1040; font-size: 1.02rem; margin: 0; }
-.pill { font-size: .68rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: #b91c1c; background: #fef2f2; border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
-.info { margin: 10px 0 0; }
+.linkBtn { border: none; background: none; color: #dc2626; cursor: pointer; font-weight: 600; font-family: inherit; padding: 0; font-size: .8rem; }
 .infoRow { display: flex; gap: 8px; font-size: .84rem; padding: 3px 0; }
 .infoLabel { flex: 0 0 96px; color: #6b7280; font-weight: 600; }
 .infoLabel::after { content: ':'; float: right; color: #111827; }
 .infoValue { flex: 1; min-width: 0; color: #111827; font-weight: 600; overflow-wrap: anywhere; }
 .infoValue a { color: #b91c1c; }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 
-.tableWrap { overflow-x: auto; border: 1px solid #f0f0f5; border-radius: 12px; }
-.table { width: 100%; border-collapse: collapse; font-size: .84rem; min-width: 560px; }
+/* tables never scroll sideways: FitWidth shrinks the whole table on narrow screens */
+.tableWrap { overflow: hidden; border: 1px solid #f0f0f5; border-radius: 12px; }
+.table { width: 100%; border-collapse: collapse; font-size: .84rem; }
 .table th { text-align: left; padding: 10px 12px; background: #fef2f2; color: #b91c1c; font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; }
 .table td { padding: 9px 12px; border-top: 1px solid #f3f4f6; }
 
 .fixtures { margin-top: 10px; border-top: 1px dashed #fecaca; padding-top: 10px; font-size: .82rem; }
 .fixture { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px solid #f9fafb; flex-wrap: wrap; }
-
-.filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
 .empty { text-align: center; padding: 40px 16px; color: #6b7280; }
 
 @media (max-width: 560px) {
@@ -206,14 +211,6 @@
 }
 .eventDesc { font-size: .88rem; color: #374151; line-height: 1.55; margin: 12px 0 0; white-space: pre-line; }
 
-.sections { display: flex; gap: 2px; flex-wrap: wrap; margin: 18px 0 16px; border-bottom: 1.5px solid #f3f4f6; }
-.sectionTab {
-  border: none; background: none; cursor: pointer; font-family: inherit; font-weight: 700; font-size: .86rem;
-  color: #6b7280; padding: 9px 14px; border-bottom: 2.5px solid transparent; margin-bottom: -1.5px;
-}
-.sectionTab:hover { color: #b91c1c; }
-.sectionTabOn { color: #b91c1c; border-bottom-color: #dc2626; }
-
 .stats { display: grid; grid-template-columns: repeat(var(--stat-cols, 4), minmax(0, 1fr)); gap: 12px; margin-bottom: 6px; }
 .stat { min-width: 0; border: 1.5px solid #f3f4f6; border-radius: 12px; padding: 14px 12px; background: #fff; text-align: center; }
 .statValue { font-size: 1.55rem; font-weight: 800; color: #1a1040; line-height: 1.1; overflow-wrap: anywhere; }
@@ -231,12 +228,8 @@
 .noticeInfo { background: #f8fafc; border: 1px solid #e2e8f0; color: #334155; }
 .noticeOk { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
 .notice ul { margin: 6px 0 0; padding-left: 18px; }
-
-.bar { height: 8px; background: #f3f4f6; border-radius: 999px; overflow: hidden; min-width: 80px; }
-.barFill { height: 100%; background: #dc2626; border-radius: 999px; }
 .flag { font-size: .68rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
 .flagLow { color: #92400e; background: #fffbeb; }
-.flagHigh { color: #166534; background: #f0fdf4; }
 
 .verifyRow { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
 .result { border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; border: 1.5px solid; }
@@ -244,23 +237,10 @@
 .resultNo { border-color: #fecaca; background: #fef2f2; color: #991b1b; font-weight: 600; }
 .resultTitle { font-weight: 800; color: #1a1040; margin: 0 0 6px; }
 
-/* ── Main coordinator: "Manage event" cards ── */
-.manageGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 14px; }
-.manageCard {
-  justify-content: center; min-height: 92px;
-  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px;
-  border: 1.5px solid #f3f4f6; border-radius: 14px; background: #fff; padding: 18px 14px;
-  font: inherit; color: #111827; cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s;
-}
-.manageCard:hover, .manageCard:focus-visible { border-color: #fecaca; box-shadow: 0 6px 18px rgba(220, 38, 38, .08); transform: translateY(-1px); outline: none; }
-.manageTitle { font-size: .95rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #dc2626; }
-.manageBack { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-bottom: 14px; text-align: center; }
-
 /* ── Main coordinator: Departments page ── */
 .deptBar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .deptTabs {
-  display: flex; flex-wrap: nowrap; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 16px;
-  scrollbar-width: thin; -webkit-overflow-scrolling: touch;
+  display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 6px; margin-bottom: 16px;
 }
 /* plain words on the white, spread evenly across the row; the picked one bold red */
 .deptTab {
@@ -270,8 +250,260 @@
 .deptTab:hover { color: #b91c1c; }
 .deptTab:focus-visible { outline: 2px solid #fecaca; outline-offset: 2px; border-radius: 6px; }
 .deptTabOn, .deptTabOn:hover { color: #dc2626; font-weight: 800; }
-.deptActHead {
-  margin: 0 0 8px; font-size: 1.05rem; display: flex; align-items: center; justify-content: center;
-  gap: 8px; flex-wrap: wrap; text-align: center; color: #1a1040;
+
+/* ── Underlined sub-tabs inside a page (Registrations · Teams · Fixtures,
+   and the main coordinator's Schedule tabs) ── */
+.subTabs { display: flex; flex-wrap: wrap; border-bottom: 2px solid #f3f4f6; margin-bottom: 16px; }
+.subTabs::-webkit-scrollbar { display: none; }
+.subTab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  font: inherit;
+  font-weight: 700;
+  color: #6b7280;
+  cursor: pointer;
+  white-space: nowrap;
+  padding: 8px 12px;
+  font-size: .84rem;
 }
-.deptActHead .muted { font-size: .75rem; font-weight: 500; }
+.subTab:hover { color: #374151; }
+.subTab:focus-visible { outline: 2px solid #fecaca; outline-offset: -2px; border-radius: 6px; }
+.subTabOn, .subTabOn:hover { color: #dc2626; border-bottom-color: #dc2626; }
+.teamMembers { margin: 8px 0 0; padding-left: 20px; font-size: .82rem; color: #374151; }
+.teamMembers li { padding: 1px 0; }
+/* ── Schedule: one table per category; an activity's name spans its rows ── */
+.schedFilters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+.schedCheck { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; font-weight: 600; color: #374151; cursor: pointer; }
+/* one section per category (Sports, Cultural, …), its name centred above its activities */
+.catBlock { margin-bottom: 28px; }
+.catTitle {
+  text-align: center; margin: 8px 0 12px; font-size: 1.1rem; font-weight: 800;
+  letter-spacing: .08em; text-transform: uppercase; color: #1a1040;
+}
+/* plain header row — faint red is kept for the viewer's own activities only */
+/* when to be there: the one time every listed row has */
+.reportCell { font-weight: 800; color: #b91c1c; }
+.schedTable th { background: #f9fafb; color: #374151; }
+.schedTable td { vertical-align: middle; }
+.schedMine td { background: #fef2f2; }
+.nowrap { white-space: nowrap; }
+.slotSub { font-size: .78rem; color: #6b7280; margin-top: 2px; }
+.slotResult { display: block; font-size: .76rem; color: #047857; font-weight: 700; margin-top: 2px; }
+.vs { color: #dc2626; font-weight: 800; font-size: .74rem; margin: 0 6px; letter-spacing: .04em; }
+
+/* ── Main coordinator: making matches ── */
+.matchForm {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 10px 12px; align-items: end;
+  border: 1.5px dashed #fecaca; border-radius: 14px; padding: 14px; background: #fffafa; margin-bottom: 14px;
+}
+.matchForm .field { margin-bottom: 0; }
+.matchForm .select { width: 100%; box-sizing: border-box; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 14px; }
+.chip { font-size: .76rem; font-weight: 700; border-radius: 999px; padding: 3px 10px; background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+.rowActions { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+
+/* Phones see the big-screen layout zoomed to fit (utils/useDesktopViewport);
+   text is a little larger there so it stays readable. Sizes here are in rem,
+   so this lifts every Galore page evenly without changing the layout. */
+:global(html.galore-phone) { font-size: 125%; }
+
+/* ── Coordinators page: one table, columns lined up all the way down ── */
+.coordTable { table-layout: fixed; }
+.coordTable td { overflow-wrap: anywhere; vertical-align: middle; }
+.coordEmail { font-size: .8rem; }
+/* section row: Main Galore coordinator · Department coordinators · Activity coordinators */
+.coordGroup td {
+  background: #fef2f2; color: #b91c1c; font-weight: 800; font-size: .72rem;
+  letter-spacing: .08em; text-transform: uppercase; text-align: center; padding: 8px 12px;
+}
+/* category heading inside Activity coordinators: Sports, Cultural, … */
+/* a category (Sports, Cultural…) in red; its activities below in black */
+.coordSub td { background: #fff; color: #dc2626; font-weight: 800; font-size: .84rem; letter-spacing: .04em; text-transform: uppercase; padding: 8px 12px; }
+.coordTable tr:not(.coordGroup):not(.coordSub) td { color: #111827; }
+.coordTable tr:not(.coordGroup):not(.coordSub) td strong { color: #000; }
+
+/* Student: "You registered for Football, Basketball and Chess." */
+.registeredLine { font-size: .95rem; color: #374151; margin-top: 4px; line-height: 1.5; }
+.registeredLine strong { color: #1a1040; }
+
+/* ── A department's registrations: activity name centred under the headers ── */
+.deptRegTable td { vertical-align: middle; overflow-wrap: anywhere; }
+.actGroup td {
+  background: #fef2f2; color: #b91c1c; text-align: center; font-weight: 800; font-size: .8rem;
+  letter-spacing: .08em; text-transform: uppercase; padding: 8px 12px;
+}
+.actGroup td span { color: #6b7280; font-weight: 600; letter-spacing: 0; text-transform: none; }
+
+/* ── Main coordinator → Manage event → Activities: a card per activity ── */
+.actCards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 14px; }
+.actCard {
+  display: flex; flex-direction: column; justify-content: space-between; gap: 12px;
+  border: 1.5px solid #f3f4f6; border-radius: 14px; background: #fff; padding: 16px;
+}
+.actCardBody { text-align: center; }
+.actCardTitle { font-size: 1rem; font-weight: 800; color: #1a1040; overflow-wrap: anywhere; }
+.actCardType { font-size: .78rem; color: #6b7280; margin-top: 4px; }
+.actCardMeta { display: flex; justify-content: center; gap: 14px; margin-top: 10px; font-size: .82rem; font-weight: 700; color: #b91c1c; }
+.actCardBtn {
+  width: 100%; border: 1.5px solid #fecaca; background: #fef2f2; color: #b91c1c; border-radius: 10px;
+  padding: 9px 12px; font: inherit; font-size: .86rem; font-weight: 800; cursor: pointer;
+}
+.actCardBtn:hover, .actCardBtn:focus-visible { background: #dc2626; border-color: #dc2626; color: #fff; outline: none; }
+
+/* Manage activity: registrations + teams, over the page */
+.overlay {
+  position: fixed; inset: 0; z-index: 1000; background: rgba(17, 24, 39, .45);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.panel {
+  width: 100%; max-width: 1040px; max-height: 90vh; overflow-y: auto; box-sizing: border-box;
+  background: #fff; border-radius: 16px; padding: 20px; box-shadow: 0 20px 50px rgba(0, 0, 0, .2);
+}
+.panelHead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+
+/* Fixtures: a heading row for each match day */
+.dayRow td {
+  background: #f9fafb; color: #1a1040; font-weight: 800; font-size: .8rem; text-align: center;
+  letter-spacing: .04em; padding: 8px 12px; border-top: 2px solid #e5e7eb;
+}
+
+/* Departments: search + filters, the count and Download on one row */
+.deptTools { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; margin: 0 0 12px; }
+.deptToolsLeft { display: flex; gap: 8px; min-width: max-content; flex-wrap: nowrap; }
+.deptToolsLeft input { flex: 1 1 180px; min-width: 0; }
+.deptToolsLeft select { flex: 0 0 auto; width: auto; }
+.deptToolsCount { text-align: center; font-size: .9rem; color: #374151; white-space: nowrap; }
+.deptToolsCount strong { color: #1a1040; }
+.deptTools > button { justify-self: end; white-space: nowrap; }
+
+/* Manage event tabs: label + the switcher's arrow on its right */
+.manageTab { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+
+/* Registrations table: "Teams ▾" beside a team activity's name, its teams under it */
+/* plain words + arrow, like the dashboard switcher (no outline around it) */
+.teamsToggle {
+  display: inline-flex; align-items: center; gap: 5px; margin-left: 14px; vertical-align: middle;
+  border: none; background: none; color: #b91c1c; padding: 0;
+  font: inherit; font-size: .8rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; cursor: pointer;
+}
+.teamsToggle:hover { color: #7f1d1d; text-decoration: underline; }
+.teamsToggle:focus-visible { outline: 2px solid #fecaca; outline-offset: 2px; border-radius: 4px; }
+.deptToolsRight { justify-self: end; display: flex; gap: 8px; align-items: center; flex-wrap: nowrap; }
+.deptToolsRight > button { white-space: nowrap; }
+
+/* ── Team manager: create bar, add-a-player row, remove (×), card actions ── */
+.teamCreate { display: flex; gap: 8px; margin: 0 0 12px; }
+.teamCreate input { flex: 1 1 auto; min-width: 0; }
+.teamAdd { display: flex; gap: 6px; margin-top: 8px; }
+.teamAdd select { flex: 1 1 auto; min-width: 0; padding: 6px 8px; }
+.teamActions { display: flex; justify-content: space-between; gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 1px solid #f3f4f6; }
+.memberRemove {
+  border: none;
+  background: none;
+  color: #9ca3af;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+  font-size: .95rem;
+}
+.memberRemove:hover { color: #dc2626; }
+/* Registrations ↔ an activity's teams: the bar above the team manager */
+.teamsBar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
+.teamsBarTitle { font-weight: 800; color: #1a1040; font-size: 1rem; text-align: center; flex: 1; }
+
+/* Individual activities: selected / not-selected students, one per row */
+.pickList { display: grid; gap: 6px; }
+.pickRow {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  border: 1.5px solid #f3f4f6; border-radius: 10px; padding: 8px 12px; background: #fff; font-size: .88rem;
+}
+
+/* Declared / not declared to students (teams, schedule {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  border-radius: 10px; padding: 9px 14px; margin: 0 0 12px; font-size: .86rem;
+  background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
+}
+
+/* The search · filters · count · buttons row keeps its big-screen layout on
+   every screen: one line, nothing squeezed or wrapped — on a narrow screen it
+   scrolls sideways instead (all dashboards and the student's My activities). */
+.deptTools {
+  grid-template-columns: minmax(max-content, 1fr) max-content minmax(max-content, 1fr);
+  overflow-x: auto; overflow-y: hidden; padding-bottom: 4px;
+  scrollbar-width: thin; -webkit-overflow-scrolling: touch;
+}
+
+.deptToolsLeft input { flex: 0 0 240px; width: 240px; }
+.deptToolsLeft select { flex: 0 0 auto; }
+
+/* ── One compact size for every control in the Galore dashboards ──
+   Buttons, inputs, selects and tabs share a height (~32px) and text size, so
+   no button towers over the rest. Rem-based, so the phone text size scales
+   them all evenly. (The login form keeps its larger fields.) */
+.primaryBtn { padding: 7px 14px; font-size: .82rem; border-radius: 8px; line-height: 1.25; white-space: nowrap; }
+
+.select, .field input { padding: 6px 10px; font-size: .84rem; border-radius: 8px; line-height: 1.3; }
+
+.actCardBtn { padding: 7px 10px; font-size: .8rem; border-radius: 8px; }
+.deptTab { padding: 6px 10px; font-size: .86rem; flex: 1 0 auto; }
+
+/* login keeps its full-size fields and button */
+.loginBox .primaryBtn { padding: 11px 20px; font-size: .9rem; border-radius: 10px; }
+.loginBox .field input { padding: 10px 12px; font-size: .92rem; border-radius: 10px; }
+
+/* Department tabs (and other tab rows using them): always one row, as on a big
+   screen — when there are more than fit, the row scrolls sideways */
+.deptTabs {
+  flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: thin; -webkit-overflow-scrolling: touch;
+}
+
+/* Schedule: a day written once for the matches on it */
+.schedDay { font-weight: 700; color: #1a1040; text-align: center; vertical-align: middle; border-right: 1px solid #f3f4f6; }
+.schedDayNo { font-size: .72rem; font-weight: 800; color: #b91c1c; letter-spacing: .06em; text-transform: uppercase; }
+/* Dates, venues & Fixtures: the intro and the declare button on one row */
+.fixHead { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 12px; }
+
+/* Schedule: one block per activity (and gender), its own heading and headers */
+.schedBlock { margin: 0 0 18px; border-radius: 12px; }
+.schedBlockTitle {
+  display: flex; align-items: center; justify-content: center; gap: 10px; margin: 0 0 8px;
+  font-size: 1rem; font-weight: 800; color: #1a1040; text-transform: uppercase; letter-spacing: .04em;
+}
+.schedBlockDiv { font-size: .74rem; color: #b91c1c; background: #fef2f2; border-radius: 999px; padding: 2px 10px; letter-spacing: .08em; }
+.schedBlock.schedMine .tableWrap { border-color: #fecaca; }
+.schedBlock.schedMine td { background: #fffafa; }
+/* the date comes first, written once for the rows that share it */
+.schedTable td.schedDay { width: 1%; padding: 10px 16px; }
+/* duration: the number and what it counts, side by side */
+.durRow { display: grid; grid-template-columns: minmax(64px, 1fr) minmax(0, 1.4fr); gap: 6px; }
+.durRow > * { min-width: 0; width: 100%; box-sizing: border-box; }
+
+/* Team manager: each team a collapsible row, like the admin's Teams tab */
+.teamRows { display: flex; flex-direction: column; gap: 10px; }
+.teamRow { border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; }
+.teamRowHead { display: flex; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer; }
+.teamRowHead:hover { background: #fafafa; }
+.teamRowHead:focus-visible { outline: 2px solid #fecaca; outline-offset: -2px; border-radius: 8px; }
+.teamRowArrow { color: #9ca3af; font-size: .8rem; width: 12px; flex: none; }
+.teamRowName { flex: 1; min-width: 0; font-weight: 800; color: #1a1040; overflow-wrap: anywhere; }
+.teamRowDept { margin-left: 8px; font-size: .74rem; font-weight: 600; color: #6b7280; }
+.teamRowPill { flex: none; font-size: .74rem; font-weight: 700; color: #b91c1c; background: #fef2f2; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+.teamRowBody { border-top: 1px solid #f3f4f6; padding: 10px 14px 12px 40px; }
+
+/* "Already declared": a quiet, finished look (green), still clickable to take it back */
+.declaredBtn {
+  border: 1.5px solid #bbf7d0; background: #f0fdf4; color: #166534; border-radius: 8px;
+  padding: 6px 14px; font: inherit; font-size: .82rem; font-weight: 800; cursor: pointer; white-space: nowrap;
+}
+.declaredBtn:hover { border-color: #86efac; }
+.declaredBtn:disabled { opacity: .6; cursor: not-allowed; }
+
+/* Under the nav strip: the last date of registration (centred) and the dashboard switcher (right), one line */
+.stripLine { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; margin: -4px 0 14px; min-height: 28px; }
+.stripLine .roleSwitch { margin: 0; grid-column: 3; justify-self: end; }
+.stripDeadline { grid-column: 2; text-align: center; font-weight: 800; color: #111827; font-size: .95rem; }

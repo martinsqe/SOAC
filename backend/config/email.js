@@ -1060,34 +1060,12 @@ const sendTeamAssignment = async ({ toEmail, toName, eventTitle, division, group
       <div style="text-align:center;margin:24px 0">
         <a href="${liveScoresUrl}" style="display:inline-block;padding:12px 20px;background:${BTN_RED};color:#fff;text-decoration:none;border-radius:10px;font-weight:700">🔴 Watch Live Scores</a>
       </div>
+      ${signOff()}
       ${footer()}
     `),
   });
 };
 
-/* Sent to a coordinator the moment an admin assigns them to run a specific
-   Galore activity (at event-creation time — every activity always has a
-   coordinator assigned before the event can be created, so this fires once
-   per activity, right after the whole event is committed). */
-const sendGaloreActivityAssignment = async ({ toEmail, toName, activityTitle, category, umbrellaTitle }) => {
-  const categoryLabel = category ? category.charAt(0).toUpperCase() + category.slice(1) : '';
-  await send({
-    to:      toEmail,
-    subject: `You've been assigned to coordinate ${activityTitle} — ${umbrellaTitle}`,
-    html: wrap(`
-      ${header()}
-      <h2 style="color:#1a1040;margin-bottom:8px">Hello, ${escapeHtml(toName)}!</h2>
-      <p style="color:#555;line-height:1.6">You have been assigned as <strong style="color:#4c44e0">Coordinator</strong> for <strong style="color:#4c44e0">${escapeHtml(activityTitle)}</strong>${categoryLabel ? ` (${categoryLabel})` : ''}, part of <strong>${escapeHtml(umbrellaTitle)}</strong>.</p>
-      <div style="background:#f0fff8;border:1.5px solid #86efac;border-radius:12px;padding:20px 24px;margin:24px 0;text-align:center">
-        <p style="margin:0;font-size:16px;font-weight:800;color:#15803d">Coordinator of ${escapeHtml(activityTitle)}</p>
-        <p style="margin:6px 0 0;font-size:13px;color:#555">Log in to your SOAC Coordinator Portal to view registrations for this activity and build boys'/girls' teams once students sign up.</p>
-      </div>
-      <p style="color:#333;font-size:14px;line-height:1.6"><strong>Report required:</strong> please submit the event report from the <strong>Reports</strong> page of your dashboard immediately after the activity is done.</p>
-      <p style="color:#888;font-size:13px;line-height:1.6">Your existing credentials are unchanged. Visit <strong>${APP_LOGIN}</strong> to access your portal.</p>
-      ${footer()}
-    `),
-  });
-};
 
 /* Verification link proving a student owns the directory record they looked
    up — sent only to the email on that record. Opening it brings them back to
@@ -1104,6 +1082,7 @@ const sendStudentVerificationLink = async ({ toEmail, toName, link, eventTitle, 
         <a href="${link}" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:13px 30px;border-radius:10px">Continue registration</a>
       </div>
       <p style="color:#888;font-size:13px;line-height:1.6">This link works for ${minutes} minutes. If you didn't ask for it, someone may have typed your enrollment number — you can ignore this email.</p>
+      ${signOff()}
       ${footer()}
     `),
   });
@@ -1134,37 +1113,72 @@ const galoreLoginBlock = ({ email, tempPassword, loginUrl = GALORE_LOGIN, what }
     <a href="${loginUrl}" style="display:inline-block;background:${BTN_RED};color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:10px">Galore Login</a>
   </div>`;
 
-/* A student finished registering: what they're in, who's in charge of each
-   activity (its activity coordinator and their department coordinator), and how
-   to get into the Galore portal for guidelines, timetable and fixtures. */
+/* A student finished registering: a bulleted list of the activities they're
+   registered for, then their Galore portal login and how to use the portal. */
 const sendGaloreRegistrationConfirmation = async ({ toEmail, toName, event, department, activities = [], tempPassword = '' }) => {
-  const person = (p) => (p ? `${escapeHtml(p.name)}<br/><span style="color:#888;font-size:12px">${escapeHtml(p.email)}</span>` : '<span style="color:#aaa">—</span>');
-  const rows = activities.map(a => `
-    <tr>
-      <td style="padding:9px 10px;border-bottom:1px solid #f0f0f5;vertical-align:top">
-        <strong style="color:#1a1040">${escapeHtml(a.title)}</strong>${a.isNew ? ` <span style="background:${BTN_RED};color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:6px">NEW</span>` : ''}
-        <br/><span style="color:#888;font-size:12px">${escapeHtml(a.categoryName)} · ${a.participationType === 'team' ? 'Team' : 'Individual'} · ${galoreWhen(a)}</span>
-      </td>
-      <td style="padding:9px 10px;border-bottom:1px solid #f0f0f5;vertical-align:top;font-size:13px">${person(a.coordinator)}</td>
-      <td style="padding:9px 10px;border-bottom:1px solid #f0f0f5;vertical-align:top;font-size:13px">${person(a.deptCoordinator)}</td>
-    </tr>`).join('');
+  const list = activities.map(a => `<li style="margin:0 0 6px;color:#1a1040;font-weight:600">${escapeHtml(a.title)}</li>`).join('');
+  const step = (t) => `<li style="margin:0 0 6px">${t}</li>`;
   await send({
     to:      toEmail,
     subject: `You're registered for ${event.title}`,
     html: `<div style="font-family:sans-serif;max-width:640px;margin:0 auto;padding:32px 24px">
       ${header()}
       <h2 style="color:#1a1040;margin-bottom:8px">You're in, ${escapeHtml(toName)}!</h2>
-      <p style="color:#555;line-height:1.6">Your registration for <strong>${escapeHtml(event.title)}</strong>${department ? ` (${escapeHtml(department)})` : ''} is confirmed. Here's everything you've signed up for and who to contact:</p>
-      <table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0 6px">
-        <thead><tr style="background:#fef2f2;text-align:left">
-          <th style="padding:9px 10px;color:#b91c1c">Activity</th>
-          <th style="padding:9px 10px;color:#b91c1c">Coordinator</th>
-          <th style="padding:9px 10px;color:#b91c1c">Department coordinator</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      ${galoreLoginBlock({ email: toEmail, tempPassword, what: 'your activities, their guidelines, the timetable, fixtures and your team' })}
+      <p style="color:#555;line-height:1.6">Your registration for <strong>${escapeHtml(event.title)}</strong>${department ? ` (${escapeHtml(department)})` : ''} is confirmed. You're registered for:</p>
+      <ul style="margin:10px 0 18px;padding-left:22px;font-size:15px;line-height:1.5">${list}</ul>
+      ${galoreLoginBlock({ email: toEmail, tempPassword })}
+      <p style="margin:0 0 8px;font-size:14px;font-weight:700;color:#1a1040">How to use the Galore portal</p>
+      <ol style="margin:0 0 16px;padding-left:22px;color:#555;font-size:14px;line-height:1.6">
+        ${step('Click <strong>Galore Login</strong> above and log in with your email and the password shown.')}
+        ${tempPassword ? step('Choose your own password when asked — it replaces the temporary one.') : ''}
+        ${step('Open <strong>My activities</strong> to see what you registered for and each activity\'s guidelines.')}
+        ${step('Check <strong>Schedule</strong> for your dates, reporting times and venues once they are announced — you\'ll get an email when they are.')}
+        ${step('Forgot your password? Use <strong>Forgot password</strong> on the login page.')}
+      </ol>
       <p style="color:#888;font-size:13px;line-height:1.6">The Galore portal is separate from SOAC clubs — your club membership (if any) isn't affected.</p>
+      ${signOff()}
+      ${footer()}
+    </div>`,
+  });
+};
+
+/* "17th January, 2027" from YYYY-MM-DD (older free-text dates shown as typed) */
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const longDate = (v) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v || '').trim());
+  if (!m) return String(v || '').trim();
+  const d = Number(m[3]), t = d % 100;
+  const suf = t >= 11 && t <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' })[d % 10] || 'th';
+  return `${d}${suf} ${MONTHS[Number(m[2]) - 1]}, ${m[1]}`;
+};
+
+/* The one email a student gets for Galore: sent once their enrollment /
+   admission number is verified. Their Galore portal login, the last date of
+   registration, and how to choose their activities inside the portal
+   (Event selection → Activity selection). */
+const sendGaloreAccess = async ({ toEmail, toName, eventTitle, tempPassword = '', deadline = '' }) => {
+  const last = longDate(deadline);
+  const step = (t) => `<li style="margin:0 0 6px">${t}</li>`;
+  await send({
+    to:      toEmail,
+    subject: `Your Galore portal login — choose your activities for ${eventTitle}`,
+    html: `<div style="font-family:sans-serif;max-width:640px;margin:0 auto;padding:32px 24px">
+      ${header()}
+      <h2 style="color:#1a1040;margin-bottom:8px">Hello, ${escapeHtml(toName)}!</h2>
+      <p style="color:#555;line-height:1.6">Your enrollment / admission number is verified for <strong>${escapeHtml(eventTitle)}</strong>.
+        Log in to the Galore portal to choose the activities you want to take part in.</p>
+      ${last ? `<p style="margin:14px 0;font-size:15px;font-weight:800;color:#b91c1c">Last date of registration is ${escapeHtml(last)}</p>` : ''}
+      ${galoreLoginBlock({ email: toEmail, tempPassword })}
+      <p style="margin:0 0 8px;font-size:14px;font-weight:700;color:#1a1040">How to choose your activities</p>
+      <ol style="margin:0 0 16px;padding-left:22px;color:#555;font-size:14px;line-height:1.6">
+        ${step('Click <strong>Galore Login</strong> above and log in with your email and the password shown.')}
+        ${tempPassword ? step('Choose your own password when asked — it replaces the temporary one.') : ''}
+        ${step('Open <strong>Event selection</strong> → <strong>Activity selection</strong>, check your details, tick your activities and confirm.')}
+        ${step('Registration is once only — after confirming, your activities show there and under <strong>Registrations</strong>.')}
+        ${step('Forgot your password? Use <strong>Forgot password</strong> on the login page.')}
+      </ol>
+      <p style="color:#888;font-size:13px;line-height:1.6">The Galore portal is separate from SOAC clubs — your club membership (if any) isn't affected.</p>
+      ${signOff()}
       ${footer()}
     </div>`,
   });
@@ -1181,6 +1195,26 @@ const sendGalorePasswordReset = async ({ toEmail, toName, tempPassword }) => {
       <p style="color:#555;line-height:1.6">Here's a new temporary password for the Galore portal. Your old one no longer works.</p>
       ${galoreLoginBlock({ email: toEmail, tempPassword })}
       <p style="color:#888;font-size:13px;line-height:1.6">Didn't ask for this? Someone may have typed your email — your account is still safe, just use the password above next time.</p>
+      ${signOff()}
+      ${footer()}
+    `),
+  });
+};
+
+/* Galore: the main coordinator declared the schedule — every registered
+   student is told to log in to the Galore portal and check it */
+const sendGaloreScheduleDeclared = async ({ toEmail, toName, eventTitle }) => {
+  await send({
+    to:      toEmail,
+    subject: `${eventTitle || 'Galore'}: the schedule is out`,
+    html: wrap(`
+      ${header()}
+      <h2 style="color:#1a1040;margin-bottom:8px">Hello, ${escapeHtml(toName || 'there')}!</h2>
+      <p style="color:#555;line-height:1.6">The schedule for <strong>${escapeHtml(eventTitle || 'Galore')}</strong> has been declared.
+        Log in to the Galore portal and open <strong>Schedule</strong> to see the day, reporting time and venue of each of your activities and matches.</p>
+      <p style="color:#555;line-height:1.6">Be at the venue by the reporting time.</p>
+      ${galoreLoginBlock({ email: toEmail, tempPassword: '' })}
+      ${signOff()}
       ${footer()}
     `),
   });
@@ -1233,6 +1267,7 @@ const sendGaloreAssignmentSummary = async ({ toEmail, toName, role, reason, even
       </table>
       ${galoreLoginBlock({ email: toEmail, tempPassword, loginUrl, what: isHead ? 'the whole event — every activity, every department, every registration' : isFa ? `every ${departments.join(' / ')} student registered` : 'the registrations, teams and fixtures of your activities' })}
       <p style="color:#888;font-size:13px;line-height:1.6">The Galore portal has its own login — your SOAC club login is unchanged.</p>
+      ${signOff()}
       ${footer()}
     </div>`,
   });
@@ -1462,6 +1497,7 @@ const sendJoinRequestConfirm = async ({ toEmail, toName, clubName, campus, link,
 };
 
 module.exports = {
+  sendGaloreScheduleDeclared,
   sendJoinRequestConfirm,
   sendStudentActivityForReview,
   sendStudentActivityApproved,
@@ -1487,9 +1523,9 @@ module.exports = {
   sendCoordinatorAssignment,
   sendPasswordReset,
   sendTeamAssignment,
-  sendGaloreActivityAssignment,
   sendGaloreAssignmentSummary,
   sendGaloreRegistrationConfirmation,
+  sendGaloreAccess,
   sendGalorePasswordReset,
   sendStudentVerificationLink,
   sendEventPublishedToCoordinator,

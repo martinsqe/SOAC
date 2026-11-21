@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../../api/client';
 import { downloadPeopleCsv } from '../../utils/galoreCsv';
-import ReadMore from '../../components/ReadMore/ReadMore';
 import SotyContestants from '../../components/GaloreSoty/SotyContestants';
 import SotyDates from '../../components/GaloreSoty/SotyDates';
 import GaloreGalleryView from '../../components/GaloreGallery/GaloreGallery';
+import AboutText from '../../components/GaloreAbout/AboutText';
+import { DEFAULT_GALORE_ABOUT } from '../../utils/galoreAbout';
 import s from './AdminEvents.module.css';
 
 /* Pages of the admin's Galore letterhead that aren't the event form or the
@@ -83,7 +84,7 @@ export function GaloreCoordinators({ event, form, clubs = [], onEdit }) {
 /* ── About Galore: the event as students see it, plus its event-wide actions ── */
 export function GaloreAbout({ event, onEdit, onSaveAbout, onToggleReg, onRemind, onDelete }) {
   const [editing, setEditing] = useState(false);
-  const [text,    setText]    = useState(event.description || '');
+  const [text,    setText]    = useState(event.galoreAbout || '');
   const [busy,    setBusy]    = useState(false);
   const [err,     setErr]     = useState('');
   const saveAbout = async () => {
@@ -93,9 +94,9 @@ export function GaloreAbout({ event, onEdit, onSaveAbout, onToggleReg, onRemind,
     finally { setBusy(false); }
   };
   const facts = [
-    ['Dates', event.date], ['Time', event.time], ['Venue', event.venue],
-    ['Seats', event.seats], ['Status', event.status && event.status[0].toUpperCase() + event.status.slice(1)],
+    ['Status', event.status && event.status[0].toUpperCase() + event.status.slice(1)],
     ['Registration', event.registrationClosed ? 'Closed' : 'Open'],
+    ...(event.galoreClosedAt ? [['Event', 'Closed']] : []),
   ].filter(([, v]) => v);
   return (
     <div style={{ display: 'grid', gap: 18 }}>
@@ -112,21 +113,23 @@ export function GaloreAbout({ event, onEdit, onSaveAbout, onToggleReg, onRemind,
       <div>
         <div style={{ ...pageHead, marginBottom: 6 }}>
           <h2 style={sectionTitle}>{event.title}</h2>
-          {!editing && <button className={s.editBtn} onClick={() => { setText(event.description || ''); setEditing(true); }}>Edit About Galore</button>}
+          {!editing && <button className={s.editBtn} onClick={() => { setText(event.galoreAbout || DEFAULT_GALORE_ABOUT); setEditing(true); }}>Edit About Galore</button>}
         </div>
         {editing ? (
           <div style={{ display: 'grid', gap: 8, marginTop: 6 }}>
-            <textarea rows={8} value={text} onChange={e => setText(e.target.value)} placeholder="What Galore is, what's on, who can take part…"
+            <div style={{ ...muted, fontSize: '.78rem' }}>
+              Start a line with <strong>##</strong> for a heading and <strong>-</strong> for a bullet. Leave a blank line between paragraphs.
+            </div>
+            <textarea rows={18} value={text} onChange={e => setText(e.target.value)} placeholder="What Galore is, what's on, who can take part…"
               style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', border: '1.5px solid #e5e7eb', borderRadius: 10, font: 'inherit', fontSize: '.92rem', lineHeight: 1.55, resize: 'vertical' }} />
             {err && <div style={{ color: '#b91c1c', fontSize: '.84rem' }}>{err}</div>}
             <div style={{ display: 'flex', gap: 8 }}>
               <button className={s.regsBtn} disabled={busy} onClick={saveAbout}>{busy ? 'Saving…' : 'Save'}</button>
               <button className={s.editBtn} disabled={busy} onClick={() => setEditing(false)}>Cancel</button>
+              <button className={s.editBtn} disabled={busy} onClick={() => setText(DEFAULT_GALORE_ABOUT)}>Use standard text</button>
             </div>
           </div>
-        ) : event.description
-          ? <ReadMore as="p" text={event.description} limit={420} style={{ fontSize: '.92rem', color: '#374151', lineHeight: 1.6, margin: '6px 0 0', whiteSpace: 'pre-line' }} />
-          : <p style={muted}>Nothing about Galore yet — add it with Edit About Galore.</p>}
+        ) : <AboutText text={event.galoreAbout || DEFAULT_GALORE_ABOUT} />}
       </div>
       {facts.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 10 }}>
@@ -140,11 +143,13 @@ export function GaloreAbout({ event, onEdit, onSaveAbout, onToggleReg, onRemind,
       )}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button className={s.editBtn} onClick={onEdit}>Edit event details</button>
+        {!event.galoreClosedAt && (<>
         <button className={s.regsBtn} onClick={onToggleReg}
-          title={event.registrationClosed ? 'Let students register for Galore again' : 'Stop new registrations for Galore (each activity can also be closed on its own)'}>
+          title={event.registrationClosed ? 'Let students register for Galore again' : 'Stop new registrations — the Register button on the Events page becomes “Registration closed”; the event stays'}>
           {event.registrationClosed ? 'Reopen registration' : 'Close registration'}
         </button>
         <button className={s.regsBtn} onClick={onRemind}>Send reminder</button>
+        </>)}
         <button className={s.delBtn} onClick={onDelete} style={{ marginLeft: 'auto' }}>Delete Galore event</button>
       </div>
     </div>
@@ -176,8 +181,6 @@ const banner = (tone) => ({
   ...(tone === 'error' ? { background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca' }
     : { background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0' }),
 });
-const PUBLISHED_NOTE = 'Published — students and the main coordinator now see it in the Galore portal.';
-
 export function GaloreSoty({ event, contest: liveContest, onContest }) {
   const [data,  setData]  = useState(null); // { contest, entries }
   const [form,  setForm]  = useState({ title: `Student of the year ${thisYear}`, academicYear: `${thisYear - 1}-${String(thisYear).slice(2)}` });
@@ -199,10 +202,10 @@ export function GaloreSoty({ event, contest: liveContest, onContest }) {
   const save = async (patch, done) => {
     setBusy(true); setError(''); setNote('');
     try {
-      const c = data?.contest;
+      /* no publish switch: the contest is always in the portal — whether students
+         can enter is the Open / Close button under it */
       const { contest } = await api.put(`/events/${event._id}/soty`, {
-        title: form.title, academicYear: form.academicYear,
-        published: c?.published ?? false, ...patch,
+        title: form.title, academicYear: form.academicYear, published: true, ...patch,
       });
       setData(d => ({ ...d, entries: d?.entries || [], contest }));
       onContest?.(contest);
@@ -215,16 +218,10 @@ export function GaloreSoty({ event, contest: liveContest, onContest }) {
     try { await api.delete(`/events/${event._id}/soty/entries/${e.id}`); load(); }
     catch (err) { setError(err.message); }
   };
-  const unpublish = () => {
-    if (window.confirm('Unpublish Student of the Year? It disappears from the Galore portal; entries so far are kept.')) {
-      save({ published: false }, 'Unpublished — hidden from the Galore portal. Entries are kept.');
-    }
-  };
 
   if (!data) return error ? <div className={s.empty}><p>{error}</p></div> : <div className={s.regsEmpty}>Loading…</div>;
   /* the last date is edited on the line under the strip — use its latest value */
   const c = data.contest && liveContest?.id === data.contest.id ? { ...data.contest, ...liveContest } : data.contest;
-  const status = !c ? '' : !c.published ? 'Draft — not visible in the Galore portal yet' : 'Published';
   const saveDates = async (dates) => {
     const { contest } = await api.put(`/events/${event._id}/soty/dates`, dates);
     setData(d => ({ ...d, contest }));
@@ -237,14 +234,7 @@ export function GaloreSoty({ event, contest: liveContest, onContest }) {
       <div className={s.galoreSheet}>
         <div style={{ textAlign: 'center' }}>
           <h2 style={sectionTitle}>Student of the Year</h2>
-          {c ? (
-            <p style={muted}>
-              <strong style={{ color: '#111827' }}>{status}</strong>
-              {c.published && c.publishedAt ? ` · published ${new Date(c.publishedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
-              <br />
-              Set when registration opens and its last date below. Before the opening day students see only “Registration will open soon, check back later”.
-            </p>
-          ) : (
+          {!c && (
             <p style={muted}>
               Create the contest here. Publishing it adds “Student of the Year” to the strip of every student and of the main
               Galore coordinator in the Galore portal. Students enter from there, with their enrollment no., name, branch,
@@ -261,26 +251,15 @@ export function GaloreSoty({ event, contest: liveContest, onContest }) {
               onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
           </div>
           <div>
-            <label style={labelStyle} htmlFor="soty-year">Academic year — used in “…the best student of year 2025-26?”</label>
+            <label style={labelStyle} htmlFor="soty-year">Academic year</label>
             <input id="soty-year" style={inputStyle} maxLength={20} value={form.academicYear} placeholder="2025-26"
               onChange={e => setForm(f => ({ ...f, academicYear: e.target.value }))} />
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {!c ? (
-            <>
-              <button className={s.editBtn} disabled={busy} onClick={() => save({ published: false }, 'Saved as a draft — publish it when you’re ready.')}>Save as draft</button>
-              <button className={s.regsBtn} disabled={busy} onClick={() => save({ published: true }, PUBLISHED_NOTE)}>Create &amp; publish</button>
-            </>
-          ) : (
-            <>
-              <button className={s.editBtn} disabled={busy} onClick={() => save({}, 'Saved.')}>Save changes</button>
-              {!c.published && (
-                <button className={s.regsBtn} disabled={busy} onClick={() => save({ published: true }, PUBLISHED_NOTE)}>Publish</button>
-              )}
-              {c.published && <button className={s.delBtn} disabled={busy} style={{ marginLeft: 'auto' }} onClick={unpublish}>Unpublish</button>}
-            </>
-          )}
+          {!c
+            ? <button className={s.regsBtn} disabled={busy} onClick={() => save({}, 'Created — it’s in the Galore portal. Open registration below when ready.')}>Create</button>
+            : <button className={s.editBtn} disabled={busy} onClick={() => save({}, 'Saved.')}>Save changes</button>}
         </div>
       </div>
 

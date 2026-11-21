@@ -34,7 +34,8 @@ const BODY_PAD_TOP    = 18;
 const BODY_PAD_BOTTOM = 14;
 const FIT_SLACK       = 2;     // px kept free on every page so sub-pixel rounding never spills over
 
-export default function PagedA4({ header, footer, blocks, innerRef, mode = 'flow' }) {
+/* pageBg ('pages' mode): an image drawn under every page, stretched to the A4 box (a letterhead) */
+export default function PagedA4({ header, footer, blocks, innerRef, mode = 'flow', pageBg = '' }) {
   const [heights, setHeights] = useState({});
   const [chrome, setChrome] = useState({ header: 96, footer: 76 });
   const [elements] = useState(() => new Map()); // key -> observed element
@@ -131,7 +132,10 @@ export default function PagedA4({ header, footer, blocks, innerRef, mode = 'flow
       <div ref={trackWrap} className={p.wrap}>
         {fitBox(<div ref={docRef} className={`${p.doc} ${p.docPages}`} style={{ width: pageW, '--print-zoom': printZoom, ...fitStyle }}>
           {pageBlocks.map((list, i) => (
-            <section key={`page-${i}`} className={p.page} style={{ minHeight: pageH, marginBottom: i < pageBlocks.length - 1 ? GAP : 0 }}>
+            <section key={`page-${i}`} className={p.page} style={{
+              minHeight: pageH, marginBottom: i < pageBlocks.length - 1 ? GAP : 0,
+              ...(pageBg ? { backgroundImage: `url("${pageBg}")`, backgroundSize: '100% 100%', backgroundRepeat: 'no-repeat', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' } : null),
+            }}>
               <div ref={i === 0 ? track('__header') : undefined} className={p.chrome}>{header}</div>
               <div className={p.pageBody} style={{ paddingTop: BODY_PAD_TOP, paddingBottom: BODY_PAD_BOTTOM }}>
                 {list.map(b => <div key={b.key} ref={track(b.key)} className={p.block}>{b.node}</div>)}

@@ -26,13 +26,15 @@ export function deadlineSentence(value) {
   return `Last date of registration is ${rest || v}`;
 }
 
-/* Student of the Year — where registration stands, in one line */
-export function sotyStatus(c) {
+
+/* Student of the Year — the one line shown under the strip (and on the student's
+   page when there's no form):
+     closed (last date passed, or Close pressed)  → "Registration closed"
+     open with a last date                        → "Last date of registration is …"
+     otherwise (no last date yet / not opened)     → "Registrations will be opened soon" */
+export function sotyLine(c) {
   if (!c) return '';
-  const fmt = (d) => formatDeadlineDate(d);
-  const pub = c.published === false ? 'Draft — not in the Galore portal yet. ' : '';
-  if (!c.opensOn) return `${pub}Set the day registration opens — until then students see “Registration will open soon, check back later”.`;
-  if (!c.opened) return `${pub}Registration opens on ${fmt(c.opensOn)}${c.deadline ? ` and closes after ${fmt(c.deadline)}` : ''}. Until then students see “Registration will open soon”.`;
-  if (c.deadlinePassed) return `${pub}Registration closed — the last date was ${fmt(c.deadline)}.`;
-  return `${pub}Registration is open${c.deadline ? ` until ${fmt(c.deadline)}` : ' — no last date set yet'}.`;
+  if (c.deadlinePassed || c.stopped) return 'Registration closed';
+  if (c.opened && c.deadline) return deadlineSentence(c.deadline);
+  return 'Registrations will be opened soon';
 }

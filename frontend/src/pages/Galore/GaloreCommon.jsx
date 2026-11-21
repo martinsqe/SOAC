@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { galoreApi } from '../../utils/galoreApi';
 import GaloreGallery from '../../components/GaloreGallery/GaloreGallery';
-import { Table, Empty, FileLink, InfoRow, Person } from './GaloreUI';
+import { FileLink } from './GaloreUI';
+import AboutText from '../../components/GaloreAbout/AboutText';
+import FitWidth from '../../components/FitWidth/FitWidth';
+import { DEFAULT_GALORE_ABOUT } from '../../utils/galoreAbout';
+import AssignCoordinators from './GaloreAssignCoordinators';
 import s from './Galore.module.css';
 
 /* Pages every logged-in Galore role has in the nav strip, whatever else they
@@ -15,49 +19,87 @@ const Title = ({ children, sub }) => (
 );
 
 /* ── Coordinators: who runs what in this Galore event ── */
-export function GaloreCoordinatorsPage({ event }) {
+/* canAssign: the main coordinator — assigns department / activity coordinators
+   and adds or removes departments here (Assign coordinators) */
+export function GaloreCoordinatorsPage({ event, canAssign = false }) {
   const [data,  setData]  = useState(null);
   const [error, setError] = useState('');
+  const [assigning, setAssigning] = useState(false);
+  const [version, setVersion] = useState(0);
   useEffect(() => {
     galoreApi.get(`/events/${event.id}/coordinators`).then(setData).catch(err => setError(err.message));
-  }, [event.id]);
+  }, [event.id, version]);
+
+  if (assigning) {
+    return <AssignCoordinators eventId={event.id} onClose={(saved) => { setAssigning(false); if (saved) setVersion(v => v + 1); }} />;
+  }
 
   if (error) return <div className={s.card}><div className={s.error}>{error}</div></div>;
   if (!data) return <div className={s.card}><div className={s.muted}>Loading…</div></div>;
+
+  /* activities under their category, in the order they come */
+  const cats = [];
+  for (const a of data.activities) {
+    const name = a.categoryName || 'Other activities';
+    let c = cats.find(x => x.name === name);
+    if (!c) cats.push(c = { name, acts: [] });
+    c.acts.push(a);
+  }
+  const email = (p) => (p?.email ? <a href={`mailto:${p.email}`} style={{ color: '#b91c1c' }}>{p.email}</a> : '—');
+  const row = (key, what, p, runBy = '') => (
+    <tr key={key}>
+      <td><strong>{what}</strong></td>
+      <td>{p?.name || '—'}</td>
+      <td className={s.coordEmail}>{email(p)}</td>
+      <td>{runBy || '—'}</td>
+    </tr>
+  );
+  const group = (key, label) => <tr key={key} className={s.coordGroup}><td colSpan={4}>{label}</td></tr>;
+  const sub   = (key, label) => <tr key={key} className={s.coordSub}><td colSpan={4}>{label}</td></tr>;
+
+  /* One table, the same four columns all the way down, so every name, email
+     and club lines up: main coordinator, departments, then activities under
+     their category. "Run by" (the activity's club) is last. */
   return (
     <div className={s.card}>
       <Title sub="Who to contact about Galore, each department and each activity.">Coordinators</Title>
-
-      <div className={s.sectionLabel}>Overall Galore coordinator</div>
-      {data.head ? <div className={s.info}><InfoRow label="Galore"><Person p={data.head} /></InfoRow></div>
-        : <div className={s.muted}>Not assigned yet.</div>}
-
-      <div className={s.sectionLabel}>Department coordinators</div>
-      {data.departments.length === 0 ? <Empty>No departments yet.</Empty> : (
-        <Table head={['Department', 'Coordinator', 'Email']}>
-          {data.departments.map(d => (
-            <tr key={d.name}>
-              <td><strong>{d.name}</strong></td>
-              <td>{d.coordinator?.name || '—'}</td>
-              <td>{d.coordinator ? <a href={`mailto:${d.coordinator.email}`} style={{ color: '#b91c1c' }}>{d.coordinator.email}</a> : '—'}</td>
-            </tr>
-          ))}
-        </Table>
+      {canAssign && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+          <button type="button" className={s.primaryBtn} onClick={() => setAssigning(true)}>Assign coordinators</button>
+        </div>
       )}
+      <FitWidth minWidth={760}>
+        <div className={s.tableWrap}>
+          <table className={`${s.table} ${s.coordTable}`}>
+            <colgroup><col style={{ width: '26%' }} /><col style={{ width: '22%' }} /><col style={{ width: '30%' }} /><col style={{ width: '22%' }} /></colgroup>
+            <thead><tr><th>Coordinator for</th><th>Coordinator</th><th>Email</th><th>Run by</th></tr></thead>
+            <tbody>
+              {group('g-head', 'Main Galore coordinator')}
+              {data.head ? row('head', 'Main coordinator', data.head) : <tr><td colSpan={4} className={s.muted}>Not assigned yet.</td></tr>}
 
-      <div className={s.sectionLabel}>Activity coordinators</div>
-      {data.activities.length === 0 ? <Empty>No activities yet.</Empty> : (
-        <Table head={['Activity', 'Run by', 'Coordinator', 'Email']}>
-          {data.activities.map((a, i) => (
-            <tr key={`${a.title}-${i}`}>
-              <td><strong>{a.title}</strong><div className={s.muted}>{a.categoryName}</div></td>
-              <td>{a.clubName || '—'}</td>
-              <td>{a.coordinator?.name || '—'}</td>
-              <td>{a.coordinator ? <a href={`mailto:${a.coordinator.email}`} style={{ color: '#b91c1c' }}>{a.coordinator.email}</a> : '—'}</td>
-            </tr>
-          ))}
-        </Table>
-      )}
+              {group('g-dept', 'Department coordinators')}
+              {data.departments.length === 0
+                ? <tr><td colSpan={4} className={s.muted}>No departments yet.</td></tr>
+                : data.departments.map(d => row(`d-${d.name}`, d.name, d.coordinator))}
+
+              {group('g-act', 'Activity coordinators')}
+              {cats.length === 0
+                ? <tr><td colSpan={4} className={s.muted}>No activities yet.</td></tr>
+                : cats.flatMap(c => [
+                  sub(`c-${c.name}`, c.name),
+                  ...c.acts.map((a, i) => row(`a-${c.name}-${a.title}-${i}`, a.title, a.coordinator, a.clubName)),
+                ])}
+
+              {/* the clubs running Galore activities: their Student Coordinators form the teams */}
+              {group('g-sc', 'Student coordinators')}
+              {!(data.studentCoordinators || []).length
+                ? <tr><td colSpan={4} className={s.muted}>No clubs assigned yet.</td></tr>
+                : data.studentCoordinators.flatMap(c => (c.people.length ? c.people : [null]).map((p, i) =>
+                  row(`sc-${c.clubName}-${i}`, c.activities.join(', '), p, c.clubName)))}
+            </tbody>
+          </table>
+        </div>
+      </FitWidth>
     </div>
   );
 }
@@ -71,7 +113,7 @@ export function GaloreAboutPage({ event, canEdit = false, onSaved }) {
   const [err,     setErr]     = useState('');
   const save = async () => {
     setBusy(true); setErr('');
-    try { await galoreApi.put(`/head/events/${event.id}/about`, { description: text }); setEditing(false); onSaved?.(); }
+    try { await galoreApi.put(`/head/events/${event.id}/about`, { about: text }); setEditing(false); onSaved?.(); }
     catch (ex) { setErr(ex.message); }
     finally { setBusy(false); }
   };
@@ -82,28 +124,25 @@ export function GaloreAboutPage({ event, canEdit = false, onSaved }) {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <FileLink file={event.rules} label="General guidelines" />
           {canEdit && !editing && (
-            <button className={s.smallBtn} onClick={() => { setText(event.description || ''); setEditing(true); }}>Edit About Galore</button>
+            <button className={s.smallBtn} onClick={() => { setText(event.about || DEFAULT_GALORE_ABOUT); setEditing(true); }}>Edit About Galore</button>
           )}
         </div>
       </div>
-      <div className={s.info}>
-        <InfoRow label="Dates">{event.date}</InfoRow>
-        <InfoRow label="Time">{event.time}</InfoRow>
-        <InfoRow label="Venue">{event.venue}</InfoRow>
-      </div>
       {editing ? (
         <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-          <textarea rows={8} value={text} onChange={e => setText(e.target.value)} placeholder="What Galore is, what's on, who can take part…"
+          <div className={s.muted} style={{ fontSize: '.78rem' }}>
+            Start a line with <strong>##</strong> for a heading and <strong>-</strong> for a bullet. Leave a blank line between paragraphs.
+          </div>
+          <textarea rows={18} value={text} onChange={e => setText(e.target.value)} placeholder="What Galore is, what's on, who can take part…"
             style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', border: '1.5px solid #e5e7eb', borderRadius: 10, font: 'inherit', fontSize: '.92rem', lineHeight: 1.55, resize: 'vertical' }} />
           {err && <div className={s.error}>{err}</div>}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className={s.primaryBtn} style={{ width: 'auto', padding: '9px 20px' }} disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className={s.primaryBtn} style={{ width: 'auto' }} disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
             <button className={s.smallBtn} disabled={busy} onClick={() => setEditing(false)}>Cancel</button>
+            <button className={s.smallBtn} disabled={busy} onClick={() => setText(DEFAULT_GALORE_ABOUT)}>Use standard text</button>
           </div>
         </div>
-      ) : event.description
-        ? <p className={s.eventDesc}>{event.description}</p>
-        : <p className={s.muted} style={{ marginTop: 12 }}>More about Galore will appear here soon.</p>}
+      ) : <AboutText text={event.about || DEFAULT_GALORE_ABOUT} />}
     </div>
   );
 }

@@ -43,6 +43,38 @@ const taskForce = [
   { initial: 'B', name: 'Bhavna Patel Madam', role: 'Head-SOAC | CTO - NCC', photo: '/images/bhavna.png' },
 ];
 
+const soacVolunteers = [
+  { name: 'Aastha Kanabar', role: 'Head' },
+  { name: 'Rudra Prajapati', role: 'Co-Head' },
+  ...[
+    'Het Bhalani', 'Krishal Chavda', 'Khushi Bhadarka', 'Yash Vinchhi', 'Khush Dobariya',
+    'Bharat Kuchhadiya', 'Jainik Yadav', 'Nikhil Kotak', 'Kava Mitesh', 'Kunj Lodhiya',
+    'Karan Garchar', 'Vansh Dholariya', 'Jethava Akshara', 'Vrutika Koradiya', 'Saumya Panchal',
+    'Abhishek Nimavat', 'Dodiya Bansi', 'Diya Jadeja', 'Himanshu Hirani', 'Bhavna Khinchi',
+    'Pavan Vala', 'Ayushi Khunt', 'Keyur Suraiya', 'Darshil Lumbhani', 'Siba Prasad',
+    'Ravi Dhadhal', 'Mahek Godvani',
+  ].map(name => ({ name })),
+];
+
+const deptCoordinators = [
+  { school: 'School of Pharmacy', people: ['Dr. Ishita Zalavadia'] },
+  { school: 'School of Physiotherapy', people: ['Dr. Swati Dhrangu'] },
+  {
+    school: 'School of Engineering / Diploma',
+    people: [
+      'Mechanical - Mr. Anand Gujarati',
+      'Electrical - Mr. Jaydeep Parmar',
+      'CE/IT/BCA - Ms. Shivangi Patel',
+      'Civil - Ms. Kajal Thummar',
+      'Diploma - Ms. Janki Kansagra',
+    ],
+  },
+  { school: 'School of Management', people: ['Mr. Varun Thadeshwar'] },
+  { school: 'School of Science', people: ['Ms. Nilam Rokad'] },
+  { school: 'School of Ayurveda', people: ['Dr. Nimmi'] },
+  { school: 'City Campus', people: ['Ms. Krishna Vyas / Mr. Manthan Joshi'] },
+];
+
 /* Combined sequence: org first, then students — carousel loops across both */
 const ALL_ACHIEVEMENTS = [...orgAchievements, ...studentAchievements];
 const ORG_COUNT = orgAchievements.length; // 6
@@ -296,29 +328,51 @@ const About = () => {
       <div className={styles.hierarchy}>
         <div className="wrap">
           <div style={{ textAlign: 'center', marginBottom: '52px' }}>
-            <div className="tag" style={{ justifyContent: 'center' }}>Consultation Hierarchy</div>
+            <div className={`tag ${styles.tagNoDash}`} style={{ justifyContent: 'center' }}>Consultation Hierarchy</div>
             <h2 className="h2" style={{ textAlign: 'center', marginBottom: '10px' }}>Who to Approach at SOAC</h2>
             <p style={{ fontSize: '15px', color: 'var(--muted)', textAlign: 'center', maxWidth: '520px', margin: '0 auto', lineHeight: 1.7 }}>
               Every student has a clear path to get support. Here's the hierarchy for one club — the same structure applies across all 30+ SOAC clubs.
             </p>
           </div>
           <div className={styles.hierarchyLayout}>
-          <div className={styles.hodImgWrap}>
-            <div className={styles.hodImgStack}>
-              <img src="/hod.png" alt="Head of SOAC" className={styles.hodImg} />
-              <div className={styles.hodLabel}>
-                <span className={styles.hodLabelRole}>Bhavna Patel Madam</span>
-                <span className={styles.hodLabelDot}>·</span>
-                <span className={styles.hodLabelSub}>Head of SOAC</span>
-              </div>
+          <div className={styles.teamWrap}>
+            <div className={styles.teamCol}>
+              <h3 className={styles.teamTitle}>SOAC Volunteers</h3>
+              <ol className={styles.teamList}>
+                {soacVolunteers.map((v, i) => (
+                  <li key={v.name} className={styles.teamItem}>
+                    <span className={styles.teamNum}>{i + 1}.</span>
+                    <span className={styles.teamInline}>
+                      <span className={styles.teamName}>{v.name}</span>
+                      {v.role && <span className={styles.teamRole}>{v.role}</span>}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+            <div className={styles.teamCol}>
+              <h3 className={styles.teamTitle}>Department Coordinators</h3>
+              <ol className={styles.teamList}>
+                {deptCoordinators.map((d, i) => (
+                  <li key={d.school} className={styles.teamItem}>
+                    <span className={styles.teamNum}>{i + 1}.</span>
+                    <span className={styles.teamBody}>
+                      <span className={styles.teamRole}>{d.school}</span>
+                      {d.people.map(p => (
+                        <span key={p} className={styles.teamName}>{p}</span>
+                      ))}
+                    </span>
+                  </li>
+                ))}
+              </ol>
             </div>
           </div>
           <div className={styles.htree}>
             <div className={styles.hspine} />
             <div className={styles.hlevel}>
               <div className={`${styles.hcard} ${styles.hcardRed}`}>
-                <div className={styles.hcardTitle}>Head of SOAC</div>
-                <div className={`${styles.hcardRole} ${styles.hroleRed}`}>Highest Authority</div>
+                <div className={styles.hcardTitle}>Head of Department</div>
+                <div className={`${styles.hcardRole} ${styles.hroleRed}`}>Mrs. Bhavna Patel</div>
                 <p className={styles.hcardDesc}>Final escalation point for all club-related matters. Oversees all 30+ clubs and SOAC operations at RKU.</p>
                 <div className={styles.hcardLoc}>SOE Building Next to Admission Cell.</div>
               </div>
@@ -340,7 +394,6 @@ const About = () => {
             <div className={styles.hlevel}>
               <div className={`${styles.hcard} ${styles.hcardGreen}`}>
                 <div className={styles.hcardTitle}>Club Convener</div>
-                <div className={`${styles.hcardRole} ${styles.hroleGreen}`}>e.g. Android Development Club</div>
                 <p className={styles.hcardDesc}>Your primary contact for club activities, event planning, attendance, task assignments and day-to-day club operations.</p>
                 <div className={styles.hcardTags}>
                   {['Events', 'Attendance', 'Tasks', 'Join Requests'].map(t => (
